@@ -4,10 +4,16 @@ import React, { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { initDB } from "@/lib/indexeddb";
+import { initNetworkMonitoring } from "@/lib/network";
+import { startAutoSync } from "@/lib/sync";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function WorkerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { isOnline } = useOffline();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -76,8 +82,25 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const isHome = pathname === "/worker" || pathname === "/worker/";
   const canGoBack = !isHome && pathname !== "/worker/login";
 
+  // Initialize offline-first infrastructure
+  useEffect(() => {
+    // Initialize IndexedDB
+    initDB().catch(console.error);
+
+    // Initialize network monitoring
+    initNetworkMonitoring();
+
+    // Start auto-sync when online
+    const stopAutoSync = startAutoSync(30000); // Sync every 30 seconds when online
+
+    return () => {
+      stopAutoSync();
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-base-200 flex flex-col safe-area-inset">
+      <OfflineIndicator />
       {/* Header - Matching Sample UI */}
       <header className="bg-neutral text-neutral-content px-4 py-4">
         <div className="flex items-center justify-between">
@@ -90,8 +113,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
               <h1 className="text-lg font-bold text-neutral-content">OptiWMS</h1>
               <p className="text-xs text-neutral-content/80">Worker App</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="w-2 h-2 bg-success rounded-full"></div>
-                <span className="text-xs text-neutral-content/80">{worker.status}</span>
+                <div className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-warning animate-pulse"}`}></div>
+                <span className={`text-xs ${isOnline ? "text-success" : "text-warning"}`}>
+                  {isOnline ? "Online" : "Offline"}
+                </span>
               </div>
             </div>
           </div>

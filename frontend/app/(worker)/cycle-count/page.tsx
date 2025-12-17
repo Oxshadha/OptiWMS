@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useOffline } from "@/hooks/useOffline";
+import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
+import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
 
 export default function CycleCountPage() {
+  const { isOnline, dbReady } = useOffline();
   const [scannedLocation, setScannedLocation] = useState("");
   const [scannedSKU, setScannedSKU] = useState("");
   const [countedQty, setCountedQty] = useState(0);
+  const [savedCounts, setSavedCounts] = useState<any[]>([]);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const cycleCountTasks = [
     {
@@ -34,17 +40,91 @@ export default function CycleCountPage() {
     console.log("Scanning SKU...");
   };
 
-  const handleConfirm = () => {
-    console.log("Cycle count confirmed");
+  // Load saved counts on mount
+  useEffect(() => {
+    if (dbReady) {
+      loadSavedCounts();
+    }
+  }, [dbReady]);
+
+  const loadSavedCounts = async () => {
+    try {
+      const records = await getScanRecordsByTask("cycle-count");
+      setSavedCounts(records);
+    } catch (error) {
+      console.error("Error loading saved counts:", error);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!scannedLocation || !scannedSKU || countedQty === 0) return;
+
+    setSaveStatus("saving");
+
+    try {
+      // Save scan record to IndexedDB (works offline)
+      const recordId = await saveScanRecord({
+        taskId: "cycle-count",
+        location: scannedLocation,
+        sku: scannedSKU,
+        qty: countedQty,
+      });
+
+      // Add to sync queue (will sync when online)
+      await addToSyncQueue({
+        type: "scan",
+        action: "create",
+        data: {
+          taskId: "cycle-count",
+          location: scannedLocation,
+          sku: scannedSKU,
+          qty: countedQty,
+          timestamp: Date.now(),
+        },
+      });
+
+      setSaveStatus("saved");
+      
+      // Reload saved counts
+      await loadSavedCounts();
+
+      // Reset form
+      setTimeout(() => {
+        setScannedLocation("");
+        setScannedSKU("");
+        setCountedQty(0);
+        setSaveStatus("idle");
+      }, 1500);
+    } catch (error) {
+      console.error("Error saving cycle count:", error);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    }
   };
 
   return (
     <div className="p-4 space-y-4">
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <h2 className="text-xl font-bold text-base-content mb-4">Cycle Count</h2>
-        <p className="text-sm text-base-content/60">
-          Count items at each location to verify inventory accuracy.
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-base-content">Cycle Count</h2>
+            <p className="text-sm text-base-content/60">
+              Count items at each location to verify inventory accuracy.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${isOnline ? "bg-success" : "bg-warning animate-pulse"}`}></div>
+            <span className={`text-xs font-medium ${isOnline ? "text-success" : "text-warning"}`}>
+              {isOnline ? "Online" : "Offline"}
+            </span>
+          </div>
+        </div>
+        {!isOnline && (
+          <div className="bg-warning/10 border border-warning rounded-lg p-2 text-xs text-warning-content">
+            <span className="material-symbols-outlined text-sm align-middle">info</span>
+            <span className="ml-1">Working offline. Data will sync when connection is restored.</span>
+          </div>
+        )}
       </div>
 
       {/* Scan Location */}
@@ -115,11 +195,70 @@ export default function CycleCountPage() {
           <button
             onClick={handleConfirm}
             className="btn btn-primary w-full"
-            disabled={!scannedLocation || !scannedSKU || countedQty === 0}
+            disabled={!scannedLocation || !scannedSKU || countedQty === 0 || saveStatus === "saving" || !dbReady}
           >
-            <span className="material-symbols-outlined">check_circle</span>
-            Confirm Count
+            {saveStatus === "saving" ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Saving...
+              </>
+            ) : saveStatus === "saved" ? (
+              <>
+                <span className="material-symbols-outlined">check_circle</span>
+                Saved!
+              </>
+            ) : (
+              <>
+                <span className="material-symbols-outlined">check_circle</span>
+                Confirm Count
+              </>
+            )}
           </button>
+          {saveStatus === "saved" && (
+            <div className="text-xs text-success text-center">
+              ✓ Saved to local storage {!isOnline && "(will sync when online)"}
+            </div>
+          )}
+          {saveStatus === "error" && (
+            <div className="text-xs text-error text-center">
+              ✗ Error saving. Please try again.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Saved Counts (from IndexedDB) */}
+      {savedCounts.length > 0 && (
+        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-base-content">Saved Counts</h3>
+            <span className="badge badge-outline">{savedCounts.length}</span>
+          </div>
+          <div className="space-y-2">
+            {savedCounts.slice(-5).reverse().map((record, idx) => (
+              <div
+                key={record.id || idx}
+                className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
+              >
+                <div>
+                  <div className="font-semibold text-sm text-base-content">
+                    {record.location} • {record.sku}
+                  </div>
+                  <div className="text-xs text-base-content/60">
+                    Qty: {record.qty} • {new Date(record.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!record.synced && (
+                    <span className="badge badge-warning badge-sm">Pending Sync</span>
+                  )}
+                  {record.synced && (
+                    <span className="badge badge-success badge-sm">Synced</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
