@@ -1,0 +1,67 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.log
+
+# Production
+build/
+dist/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.class
+*.jar
+*.war
+*.ear
+bin/
+.gradle/
+build/
+target/
+
+# Warehouse folder (exclude completely)
+**/Warehouse*/
+**/*Carpet*/
+**/*Store*/
+
+# Resources folder contents (keep folder, ignore files)
+Resources/*
+!Resources/.gitkeep
+
+# Docs folder contents (keep folder, ignore specific files)
+docs/plan.md
+docs/erd.md
+docs/domain.md
+!docs/.gitkeep
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Setup/Configuration files (local only)
+GIT_SETUP.md
