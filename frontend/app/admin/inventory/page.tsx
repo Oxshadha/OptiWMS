@@ -1,15 +1,58 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import clsx from "clsx";
 
 const inventory = [
-  { sku: "SKU-1001", name: "Wireless Earbuds", qty: 240, location: "A1", status: "Available", category: "Electronics" },
-  { sku: "SKU-1002", name: "Smart Projector", qty: 56, location: "B3", status: "Available", category: "Electronics" },
-  { sku: "SKU-1003", name: "Smart Mug", qty: 18, location: "C2", status: "Low", category: "Home" },
-  { sku: "SKU-1004", name: "Instant Pot", qty: 90, location: "D4", status: "Available", category: "Appliances" },
-  { sku: "SKU-1005", name: "Yoga Mat", qty: 5, location: "E1", status: "Out of Stock", category: "Sports" },
-  { sku: "SKU-1006", name: "Bluetooth Speaker", qty: 120, location: "A5", status: "Available", category: "Electronics" },
+  {
+    sku: "SKU-1001",
+    name: "Wireless Earbuds",
+    qty: 240,
+    location: "A1",
+    status: "Available",
+    category: "Electronics",
+  },
+  {
+    sku: "SKU-1002",
+    name: "Smart Projector",
+    qty: 56,
+    location: "B3",
+    status: "Available",
+    category: "Electronics",
+  },
+  {
+    sku: "SKU-1003",
+    name: "Smart Mug",
+    qty: 18,
+    location: "C2",
+    status: "Low",
+    category: "Home",
+  },
+  {
+    sku: "SKU-1004",
+    name: "Instant Pot",
+    qty: 90,
+    location: "D4",
+    status: "Available",
+    category: "Appliances",
+  },
+  {
+    sku: "SKU-1005",
+    name: "Yoga Mat",
+    qty: 5,
+    location: "E1",
+    status: "Out of Stock",
+    category: "Sports",
+  },
+  {
+    sku: "SKU-1006",
+    name: "Bluetooth Speaker",
+    qty: 120,
+    location: "A5",
+    status: "Available",
+    category: "Electronics",
+  },
 ];
 
 const statusClass = (s: string) => {
@@ -25,16 +68,22 @@ export default function InventoryPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const filteredInventory = inventory.filter(item => {
-    const matchesCategory = activeCategory === "All" || item.category === activeCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         item.sku.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredInventory = inventory.filter((item) => {
+    const matchesCategory =
+      activeCategory === "All" || item.category === activeCategory;
+    const matchesSearch =
+      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.sku.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
 
   const totalItems = inventory.reduce((sum, item) => sum + item.qty, 0);
-  const lowStockItems = inventory.filter(item => item.status === "Low" || item.status === "Out of Stock").length;
-  const availableItems = inventory.filter(item => item.status === "Available").length;
+  const lowStockItems = inventory.filter(
+    (item) => item.status === "Low" || item.status === "Out of Stock"
+  ).length;
+  const availableItems = inventory.filter(
+    (item) => item.status === "Available"
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -46,10 +95,13 @@ export default function InventoryPage() {
             <span className="material-symbols-outlined">swap_vert</span>
             <span>Sort by</span>
           </button>
-          <button className="btn btn-sm btn-primary">
+          <Link
+            href="/admin/inventory/create"
+            className="btn btn-sm btn-primary"
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Add Item</span>
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -59,36 +111,52 @@ export default function InventoryPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Total Items</div>
-              <div className="text-2xl font-bold text-base-content">{totalItems.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {totalItems.toLocaleString()}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-primary">inventory</span>
+            <span className="material-symbols-outlined text-3xl text-primary">
+              inventory
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Available</div>
-              <div className="text-2xl font-bold text-success">{availableItems}</div>
+              <div className="text-2xl font-bold text-success">
+                {availableItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-success">check_circle</span>
+            <span className="material-symbols-outlined text-3xl text-success">
+              check_circle
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Low Stock</div>
-              <div className="text-2xl font-bold text-warning">{lowStockItems}</div>
+              <div className="text-2xl font-bold text-warning">
+                {lowStockItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-warning">warning</span>
+            <span className="material-symbols-outlined text-3xl text-warning">
+              warning
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Categories</div>
-              <div className="text-2xl font-bold text-base-content">{categories.length - 1}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {categories.length - 1}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">category</span>
+            <span className="material-symbols-outlined text-3xl text-info">
+              category
+            </span>
           </div>
         </div>
       </div>
@@ -97,7 +165,9 @@ export default function InventoryPage() {
       <div className="flex gap-4 items-center">
         <div className="flex-1">
           <label className="input input-bordered flex items-center gap-2 w-full">
-            <span className="material-symbols-outlined text-base-content/60">search</span>
+            <span className="material-symbols-outlined text-base-content/60">
+              search
+            </span>
             <input
               type="text"
               className="grow"
@@ -153,15 +223,21 @@ export default function InventoryPage() {
                     <span className="badge badge-ghost">{item.location}</span>
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
+                    <span className={`badge ${statusClass(item.status)}`}>
+                      {item.status}
+                    </span>
                   </td>
                   <td>
                     <div className="flex gap-2">
                       <button className="btn btn-ghost btn-xs" title="View">
-                        <span className="material-symbols-outlined text-sm">visibility</span>
+                        <span className="material-symbols-outlined text-sm">
+                          visibility
+                        </span>
                       </button>
                       <button className="btn btn-ghost btn-xs" title="Edit">
-                        <span className="material-symbols-outlined text-sm">edit</span>
+                        <span className="material-symbols-outlined text-sm">
+                          edit
+                        </span>
                       </button>
                     </div>
                   </td>

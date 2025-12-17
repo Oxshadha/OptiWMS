@@ -1,14 +1,55 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import clsx from "clsx";
 
 const shipments = [
-  { id: "SH-9001", carrier: "DHL", status: "In Transit", eta: "2025-12-16", tracking: "DHL123456", destination: "New York, NY", weight: "15.5 kg" },
-  { id: "SH-9002", carrier: "FedEx", status: "Label Created", eta: "2025-12-17", tracking: "FDX789012", destination: "Los Angeles, CA", weight: "8.2 kg" },
-  { id: "SH-9003", carrier: "UPS", status: "Delivered", eta: "2025-12-13", tracking: "1Z999AA101", destination: "Chicago, IL", weight: "22.1 kg" },
-  { id: "SH-9004", carrier: "DHL", status: "In Transit", eta: "2025-12-18", tracking: "DHL789456", destination: "Miami, FL", weight: "12.3 kg" },
-  { id: "SH-9005", carrier: "USPS", status: "Delivered", eta: "2025-12-12", tracking: "940011189922", destination: "Seattle, WA", weight: "5.8 kg" },
+  {
+    id: "SH-9001",
+    carrier: "DHL",
+    status: "In Transit",
+    eta: "2025-12-16",
+    tracking: "DHL123456",
+    destination: "New York, NY",
+    weight: "15.5 kg",
+  },
+  {
+    id: "SH-9002",
+    carrier: "FedEx",
+    status: "Label Created",
+    eta: "2025-12-17",
+    tracking: "FDX789012",
+    destination: "Los Angeles, CA",
+    weight: "8.2 kg",
+  },
+  {
+    id: "SH-9003",
+    carrier: "UPS",
+    status: "Delivered",
+    eta: "2025-12-13",
+    tracking: "1Z999AA101",
+    destination: "Chicago, IL",
+    weight: "22.1 kg",
+  },
+  {
+    id: "SH-9004",
+    carrier: "DHL",
+    status: "In Transit",
+    eta: "2025-12-18",
+    tracking: "DHL789456",
+    destination: "Miami, FL",
+    weight: "12.3 kg",
+  },
+  {
+    id: "SH-9005",
+    carrier: "USPS",
+    status: "Delivered",
+    eta: "2025-12-12",
+    tracking: "940011189922",
+    destination: "Seattle, WA",
+    weight: "5.8 kg",
+  },
 ];
 
 const statusClass = (s: string) => {
@@ -23,20 +64,25 @@ const tabs = ["All", "In Transit", "Delivered", "Label Created"];
 export default function ShipmentsPage() {
   const [activeTab, setActiveTab] = useState("All");
 
-  const filteredShipments = activeTab === "All" 
-    ? shipments 
-    : shipments.filter(s => s.status === activeTab);
+  const filteredShipments =
+    activeTab === "All"
+      ? shipments
+      : shipments.filter((s) => s.status === activeTab);
 
   const totalShipments = shipments.length;
-  const inTransit = shipments.filter(s => s.status === "In Transit").length;
-  const delivered = shipments.filter(s => s.status === "Delivered").length;
-  const labelCreated = shipments.filter(s => s.status === "Label Created").length;
+  const inTransit = shipments.filter((s) => s.status === "In Transit").length;
+  const delivered = shipments.filter((s) => s.status === "Delivered").length;
+  const labelCreated = shipments.filter(
+    (s) => s.status === "Label Created"
+  ).length;
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-base-content">Shipments ({totalShipments})</h1>
+        <h1 className="text-3xl font-bold text-base-content">
+          Shipments ({totalShipments})
+        </h1>
         <div className="flex gap-3">
           <button className="btn btn-sm btn-ghost">
             <span className="material-symbols-outlined">swap_vert</span>
@@ -46,10 +92,13 @@ export default function ShipmentsPage() {
             <span className="material-symbols-outlined">filter_list</span>
             <span>Filter</span>
           </button>
-          <button className="btn btn-sm btn-primary">
+          <Link
+            href="/admin/shipments/create"
+            className="btn btn-sm btn-primary"
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Create Shipment</span>
-          </button>
+          </Link>
         </div>
       </div>
 
@@ -58,10 +107,16 @@ export default function ShipmentsPage() {
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-base-content/60">Total Shipments</div>
-              <div className="text-2xl font-bold text-base-content">{totalShipments}</div>
+              <div className="text-sm text-base-content/60">
+                Total Shipments
+              </div>
+              <div className="text-2xl font-bold text-base-content">
+                {totalShipments}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-primary">local_shipping</span>
+            <span className="material-symbols-outlined text-3xl text-primary">
+              local_shipping
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -70,7 +125,9 @@ export default function ShipmentsPage() {
               <div className="text-sm text-base-content/60">In Transit</div>
               <div className="text-2xl font-bold text-info">{inTransit}</div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">sync</span>
+            <span className="material-symbols-outlined text-3xl text-info">
+              sync
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -79,16 +136,22 @@ export default function ShipmentsPage() {
               <div className="text-sm text-base-content/60">Delivered</div>
               <div className="text-2xl font-bold text-success">{delivered}</div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-success">check_circle</span>
+            <span className="material-symbols-outlined text-3xl text-success">
+              check_circle
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Label Created</div>
-              <div className="text-2xl font-bold text-warning">{labelCreated}</div>
+              <div className="text-2xl font-bold text-warning">
+                {labelCreated}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-warning">label</span>
+            <span className="material-symbols-outlined text-3xl text-warning">
+              label
+            </span>
           </div>
         </div>
       </div>
@@ -137,19 +200,27 @@ export default function ShipmentsPage() {
                   <td className="text-base-content/70">{s.destination}</td>
                   <td>{s.weight}</td>
                   <td>
-                    <span className={`badge ${statusClass(s.status)}`}>{s.status}</span>
+                    <span className={`badge ${statusClass(s.status)}`}>
+                      {s.status}
+                    </span>
                   </td>
                   <td className="text-base-content/70">{s.eta}</td>
                   <td>
-                    <a href="#" className="link link-primary text-sm">{s.tracking}</a>
+                    <a href="#" className="link link-primary text-sm">
+                      {s.tracking}
+                    </a>
                   </td>
                   <td>
                     <div className="flex gap-2">
                       <button className="btn btn-ghost btn-xs" title="Track">
-                        <span className="material-symbols-outlined text-sm">location_on</span>
+                        <span className="material-symbols-outlined text-sm">
+                          location_on
+                        </span>
                       </button>
                       <button className="btn btn-ghost btn-xs" title="View">
-                        <span className="material-symbols-outlined text-sm">visibility</span>
+                        <span className="material-symbols-outlined text-sm">
+                          visibility
+                        </span>
                       </button>
                     </div>
                   </td>
