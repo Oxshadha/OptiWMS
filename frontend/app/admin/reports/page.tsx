@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DetailModal } from "@/components/DetailModal";
 
 const reports = [
   { 
@@ -64,6 +65,8 @@ const reportTypes = ["All", "Inbound", "Outbound", "Inventory", "Sales", "Analyt
 export default function ReportsPage() {
   const [activeType, setActiveType] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<typeof reports[0] | null>(null);
 
   const filteredReports = reports.filter(r => {
     const matchesType = activeType === "All" || r.type === activeType;
@@ -78,14 +81,26 @@ export default function ReportsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Reports ({reports.length})</h1>
         <div className="flex gap-3">
-          <button className="btn btn-sm btn-ghost">
+          <button 
+            className="btn btn-sm btn-ghost"
+            onClick={() => {
+              // TODO: Open schedule report modal
+              console.log("Schedule report");
+            }}
+          >
             <span className="material-symbols-outlined">schedule</span>
             <span>Schedule Report</span>
           </button>
-          <button className="btn btn-sm btn-primary">
+          <button 
+            className="btn btn-sm btn-primary"
+            onClick={() => {
+              // TODO: Open create custom report modal
+              console.log("Create custom report");
+            }}
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Create Custom Report</span>
-          </button>
+              </button>
         </div>
       </div>
 
@@ -123,12 +138,24 @@ export default function ReportsPage() {
       {/* Reports Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredReports.map((r) => (
-          <div key={r.id} className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors">
+          <div 
+            key={r.id} 
+            className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors cursor-pointer"
+            onClick={() => {
+              setSelectedReport(r);
+              setShowDetailModal(true);
+            }}
+          >
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
                 <span className="material-symbols-outlined text-primary text-2xl">{r.icon}</span>
               </div>
-              <span className="badge badge-outline">{r.type}</span>
+              <span 
+                className="badge text-xs whitespace-nowrap" 
+                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+              >
+                {r.type}
+              </span>
             </div>
             <h3 className="text-lg font-bold text-base-content mb-2">{r.name}</h3>
             <p className="text-sm text-base-content/60 mb-4">{r.desc}</p>
@@ -137,11 +164,29 @@ export default function ReportsPage() {
                 <div>Size: {r.size}</div>
                 <div>Last: {r.lastGenerated}</div>
               </div>
-              <div className="flex gap-2">
-                <button className="btn btn-ghost btn-sm" title="Preview">
+              <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                <button 
+                  className="btn btn-ghost btn-sm" 
+                  title="Preview"
+                  onClick={() => {
+                    setSelectedReport(r);
+                    setShowDetailModal(true);
+                  }}
+                >
                   <span className="material-symbols-outlined">visibility</span>
                 </button>
-                <button className="btn btn-primary btn-sm">
+                <button 
+                  className="btn btn-primary btn-sm"
+                  onClick={() => {
+                    // TODO: Download report
+                    console.log("Download report:", r.id);
+                    // Simulate download
+                    const link = document.createElement('a');
+                    link.href = '#'; // Replace with actual report URL
+                    link.download = `${r.name}.pdf`;
+                    link.click();
+                  }}
+                >
                   <span className="material-symbols-outlined">download</span>
                   <span>Download</span>
                 </button>
@@ -158,6 +203,84 @@ export default function ReportsPage() {
           <p className="text-sm text-base-content/60">Try adjusting your search or filters</p>
         </div>
       )}
+
+      {/* Report Detail Modal */}
+      {selectedReport && (
+        <ReportDetailModal
+          isOpen={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedReport(null);
+          }}
+          report={selectedReport}
+        />
+      )}
     </div>
+  );
+}
+
+// Report Detail Modal
+function ReportDetailModal({
+  isOpen,
+  onClose,
+  report,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  report: typeof reports[0];
+}) {
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.name}`} size="lg">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm text-base-content/60">Report Name</label>
+            <p className="font-semibold">{report.name}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Type</label>
+            <p>
+              <span 
+                className="badge text-xs whitespace-nowrap" 
+                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+              >
+                {report.type}
+              </span>
+            </p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Description</label>
+            <p className="font-semibold">{report.desc}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Size</label>
+            <p className="font-semibold">{report.size}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Last Generated</label>
+            <p className="font-semibold">{report.lastGenerated}</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Close
+          </button>
+          <button 
+            className="btn btn-primary"
+            onClick={() => {
+              // TODO: Download report
+              console.log("Download report:", report.id);
+              const link = document.createElement('a');
+              link.href = '#'; // Replace with actual report URL
+              link.download = `${report.name}.pdf`;
+              link.click();
+            }}
+          >
+            <span className="material-symbols-outlined">download</span>
+            Download Report
+          </button>
+        </div>
+      </div>
+    </DetailModal>
   );
 }

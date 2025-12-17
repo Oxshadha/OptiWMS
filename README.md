@@ -107,7 +107,11 @@ cd backend
 
 ## Documentation
 
-See `docs/plan.md` for the high-level blueprint and roadmap.
+- **[Contributing Guide](./CONTRIBUTING.md)** - How to contribute, prevent conflicts, and work as a team
+- **[Development Guide](./DEVELOPMENT_GUIDE.md)** - Complete development workflow and best practices
+- **[Frontend Structure](./FRONTEND_STRUCTURE.md)** - Frontend architecture, routing, and component guidelines
+- **[API Documentation](./API_DOCUMENTATION.md)** - Backend API endpoints and integration guide
+- **[Project Plan](./docs/plan.md)** - High-level blueprint and roadmap (local only)
 
 ## License
 

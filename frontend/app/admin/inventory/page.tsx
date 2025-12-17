@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import clsx from "clsx";
+import { DetailModal } from "@/components/DetailModal";
 
 const inventory = [
   { sku: "SKU-1001", name: "Wireless Earbuds", qty: 240, location: "A1", status: "Available", category: "Electronics" },
@@ -24,6 +25,9 @@ const categories = ["All", "Electronics", "Home", "Appliances", "Sports"];
 export default function InventoryPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<typeof inventory[0] | null>(null);
 
   const filteredInventory = inventory.filter(item => {
     const matchesCategory = activeCategory === "All" || item.category === activeCategory;
@@ -143,10 +147,26 @@ export default function InventoryPage() {
             <tbody>
               {filteredInventory.map((item) => (
                 <tr key={item.sku} className="hover:bg-base-200/50">
-                  <td className="font-semibold text-primary">{item.sku}</td>
+                  <td>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedItem(item);
+                        setShowDetailModal(true);
+                      }}
+                      className="font-semibold text-primary hover:underline text-left"
+                    >
+                      {item.sku}
+                    </button>
+                  </td>
                   <td>{item.name}</td>
                   <td>
-                    <span className="badge badge-outline">{item.category}</span>
+                    <span 
+                      className="badge text-xs whitespace-nowrap" 
+                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+                    >
+                      {item.category}
+                    </span>
                   </td>
                   <td className="font-semibold">{item.qty}</td>
                   <td>
@@ -157,10 +177,24 @@ export default function InventoryPage() {
                   </td>
                   <td>
                     <div className="flex gap-2">
-                      <button className="btn btn-ghost btn-xs" title="View">
+                      <button 
+                        className="btn btn-ghost btn-xs" 
+                        title="View"
+                        onClick={() => {
+                          setSelectedItem(item);
+                          setShowDetailModal(true);
+                        }}
+                      >
                         <span className="material-symbols-outlined text-sm">visibility</span>
                       </button>
-                      <button className="btn btn-ghost btn-xs" title="Edit">
+                      <button 
+                        className="btn btn-ghost btn-xs" 
+                        title="Edit"
+                        onClick={() => {
+                          setSelectedItem(item);
+                          setShowEditModal(true);
+                        }}
+                      >
                         <span className="material-symbols-outlined text-sm">edit</span>
                       </button>
                     </div>
@@ -170,7 +204,197 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
+        {filteredInventory.length === 0 && (
+          <div className="p-12 text-center">
+            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">inventory_2</span>
+            <h3 className="text-lg font-semibold text-base-content mb-2">No items found</h3>
+            <p className="text-sm text-base-content/60">Try adjusting your search or filters</p>
+          </div>
+        )}
       </div>
+
+      {/* Inventory Item Detail Modal */}
+      {selectedItem && (
+        <InventoryItemDetailModal
+          isOpen={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedItem(null);
+          }}
+          item={selectedItem}
+        />
+      )}
+
+      {/* Edit Inventory Item Modal */}
+      {selectedItem && (
+        <EditInventoryItemModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedItem(null);
+          }}
+          item={selectedItem}
+        />
+      )}
     </div>
+  );
+}
+
+// Inventory Item Detail Modal
+function InventoryItemDetailModal({
+  isOpen,
+  onClose,
+  item,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  item: typeof inventory[0];
+}) {
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Inventory: ${item.sku}`} size="md">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm text-base-content/60">SKU</label>
+            <p className="font-semibold">{item.sku}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Item Name</label>
+            <p className="font-semibold">{item.name}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Category</label>
+            <p>
+              <span 
+                className="badge text-xs whitespace-nowrap" 
+                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+              >
+                {item.category}
+              </span>
+            </p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Quantity</label>
+            <p className="font-semibold">{item.qty}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Location</label>
+            <p className="font-semibold">{item.location}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Status</label>
+            <p>
+              <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-primary">
+            Edit Item
+          </button>
+        </div>
+      </div>
+    </DetailModal>
+  );
+}
+
+// Edit Inventory Item Modal
+function EditInventoryItemModal({
+  isOpen,
+  onClose,
+  item,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  item: typeof inventory[0];
+}) {
+  const [formData, setFormData] = useState({
+    qty: item.qty.toString(),
+    location: item.location,
+    status: item.status,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to update inventory
+    console.log("Updating inventory item:", formData);
+    onClose();
+  };
+
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Edit Inventory: ${item.sku}`} size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">SKU</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={item.sku}
+            disabled
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Item Name</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={item.name}
+            disabled
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Quantity *</span>
+          </label>
+          <input
+            type="number"
+            className="input input-bordered w-full"
+            value={formData.qty}
+            onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Location</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.location}
+            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+          >
+            <option value="Available">Available</option>
+            <option value="Low">Low</option>
+            <option value="Out of Stock">Out of Stock</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Update Inventory
+          </button>
+        </div>
+      </form>
+    </DetailModal>
   );
 }

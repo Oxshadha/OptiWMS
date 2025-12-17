@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import clsx from "clsx";
+import { DetailModal } from "@/components/DetailModal";
 
 const customers = [
   { 
@@ -54,6 +55,9 @@ const statusClass = (s: string) => {
 
 export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<typeof customers[0] | null>(null);
 
   const filteredCustomers = customers.filter(c => 
     c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -75,10 +79,38 @@ export default function CustomersPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Customers ({totalCustomers})</h1>
         <div className="flex gap-3">
-          <button className="btn btn-sm btn-ghost">
-            <span className="material-symbols-outlined">swap_vert</span>
-            <span>Sort by</span>
-          </button>
+          <div className="dropdown dropdown-end">
+            <label tabIndex={0} className="btn btn-sm btn-ghost">
+              <span className="material-symbols-outlined">swap_vert</span>
+              <span>Sort by</span>
+            </label>
+            <ul
+              tabIndex={0}
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+            >
+              <li>
+                <button onClick={() => {
+                  // TODO: Implement sorting
+                  console.log("Sort by: Name");
+                }}>Name (A-Z)</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  console.log("Sort by: Orders");
+                }}>Orders (High to Low)</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  console.log("Sort by: Total Spent");
+                }}>Total Spent (High to Low)</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  console.log("Sort by: Join Date");
+                }}>Join Date (Newest)</button>
+              </li>
+            </ul>
+          </div>
           <button className="btn btn-sm btn-ghost">
             <span className="material-symbols-outlined">filter_list</span>
             <span>Filter</span>
@@ -176,10 +208,24 @@ export default function CustomersPage() {
                   </td>
                   <td>
                     <div className="flex gap-2">
-                      <button className="btn btn-ghost btn-xs" title="View">
+                      <button 
+                        className="btn btn-ghost btn-xs" 
+                        title="View"
+                        onClick={() => {
+                          setSelectedCustomer(c);
+                          setShowDetailModal(true);
+                        }}
+                      >
                         <span className="material-symbols-outlined text-sm">visibility</span>
                       </button>
-                      <button className="btn btn-ghost btn-xs" title="Edit">
+                      <button 
+                        className="btn btn-ghost btn-xs" 
+                        title="Edit"
+                        onClick={() => {
+                          setSelectedCustomer(c);
+                          setShowEditModal(true);
+                        }}
+                      >
                         <span className="material-symbols-outlined text-sm">edit</span>
                       </button>
                     </div>
@@ -189,7 +235,185 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
+        {filteredCustomers.length === 0 && (
+          <div className="p-12 text-center">
+            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">group</span>
+            <h3 className="text-lg font-semibold text-base-content mb-2">No customers found</h3>
+            <p className="text-sm text-base-content/60">Try adjusting your search query</p>
+          </div>
+        )}
       </div>
+
+      {/* Customer Detail Modal */}
+      {selectedCustomer && (
+        <CustomerDetailModal
+          isOpen={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedCustomer(null);
+          }}
+          customer={selectedCustomer}
+        />
+      )}
+
+      {/* Customer Edit Modal */}
+      {selectedCustomer && (
+        <CustomerEditModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedCustomer(null);
+          }}
+          customer={selectedCustomer}
+        />
+      )}
     </div>
+  );
+}
+
+// Customer Detail Modal
+function CustomerDetailModal({
+  isOpen,
+  onClose,
+  customer,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  customer: typeof customers[0];
+}) {
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Customer: ${customer.name}`} size="lg">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm text-base-content/60">Customer ID</label>
+            <p className="font-semibold">{customer.id}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Status</label>
+            <p>
+              <span className={`badge ${statusClass(customer.status)}`}>{customer.status}</span>
+            </p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Contact Email</label>
+            <p className="font-semibold">{customer.contact}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Phone</label>
+            <p className="font-semibold">{customer.phone}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Total Orders</label>
+            <p className="font-semibold">{customer.orders}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Total Spent</label>
+            <p className="font-semibold">{customer.totalSpent}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Join Date</label>
+            <p className="font-semibold">{customer.joinDate}</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Close
+          </button>
+          <button className="btn btn-primary">
+            Edit Customer
+          </button>
+        </div>
+      </div>
+    </DetailModal>
+  );
+}
+
+// Customer Edit Modal
+function CustomerEditModal({
+  isOpen,
+  onClose,
+  customer,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  customer: typeof customers[0];
+}) {
+  const [formData, setFormData] = useState({
+    name: customer.name,
+    contact: customer.contact,
+    phone: customer.phone,
+    status: customer.status,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to update customer
+    console.log("Updating customer:", formData);
+    onClose();
+  };
+
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Edit Customer: ${customer.name}`} size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Customer Name *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Contact Email *</span>
+          </label>
+          <input
+            type="email"
+            className="input input-bordered w-full"
+            value={formData.contact}
+            onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Phone</span>
+          </label>
+          <input
+            type="tel"
+            className="input input-bordered w-full"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+          >
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Save Changes
+          </button>
+        </div>
+      </form>
+    </DetailModal>
   );
 }

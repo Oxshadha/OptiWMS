@@ -2,20 +2,51 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import clsx from "clsx";
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
   { href: "/admin/warehouses", label: "Warehouses", icon: "warehouse" },
-  { href: "/admin/orders", label: "Orders", icon: "inventory_2" },
+  { 
+    href: "/admin/orders", 
+    label: "Orders", 
+    icon: "inventory_2",
+    subItems: [
+      { href: "/admin/orders/inbound", label: "Inbound Orders" },
+      { href: "/admin/orders/outbound", label: "Outbound Orders" },
+    ]
+  },
   { href: "/admin/shipments", label: "Shipments", icon: "local_shipping" },
+  { href: "/admin/delivery-partners", label: "Delivery Partners", icon: "local_shipping" },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
-  { href: "/admin/customers", label: "Customers", icon: "group" },
+  { href: "/admin/products", label: "Products", icon: "category" },
+  { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
+  { href: "/admin/workers", label: "Workers", icon: "group" },
+  { href: "/admin/tasks", label: "Tasks", icon: "task" },
+  { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
+  { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
+  { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
+  { href: "/admin/customers", label: "Customers", icon: "people" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [expandedItems, setExpandedItems] = useState<string[]>(() => {
+    // Auto-expand Orders if on orders page
+    if (pathname.startsWith("/admin/orders")) {
+      return ["/admin/orders"];
+    }
+    return [];
+  });
+
+  const toggleExpand = (href: string) => {
+    setExpandedItems((prev) =>
+      prev.includes(href) ? prev.filter((item) => item !== href) : [...prev, href]
+    );
+  };
+
   return (
     <aside className="hidden lg:flex flex-col w-64 bg-neutral text-neutral-content fixed h-screen">
       <div className="p-6 border-b border-white/10">
@@ -29,36 +60,90 @@ export function Sidebar() {
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
         {navItems.map((item) => {
           const active = pathname.startsWith(item.href);
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          const isExpanded = expandedItems.includes(item.href);
+          const hasActiveSubItem = hasSubItems && item.subItems?.some((sub) => pathname.startsWith(sub.href));
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={clsx(
-                "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-                active
-                  ? "bg-primary text-primary-content"
-                  : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+            <div key={item.href} className="space-y-1">
+              {hasSubItems ? (
+                <>
+                  <button
+                    onClick={() => toggleExpand(item.href)}
+                    className={clsx(
+                      "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all",
+                      (active || hasActiveSubItem)
+                        ? "bg-primary text-primary-content"
+                        : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </div>
+                    <span
+                      className={clsx(
+                        "material-symbols-outlined text-sm transition-transform",
+                        isExpanded && "rotate-90"
+                      )}
+                    >
+                      chevron_right
+                    </span>
+                  </button>
+                  {isExpanded && (
+                    <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
+                      {item.subItems?.map((subItem) => {
+                        const subActive = pathname.startsWith(subItem.href);
+                        return (
+                          <Link
+                            key={subItem.href}
+                            href={subItem.href}
+                            className={clsx(
+                              "flex items-center gap-3 rounded-lg px-4 py-2 text-sm transition-all",
+                              subActive
+                                ? "bg-primary/20 text-primary-content"
+                                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+                            )}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                            <span>{subItem.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <Link
+                  href={item.href}
+                  className={clsx(
+                    "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+                    active
+                      ? "bg-primary text-primary-content"
+                      : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+                  )}
+                >
+                  <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
               )}
-            >
-              <span className="material-symbols-outlined text-xl">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
+            </div>
           );
         })}
       </nav>
-      <div className="p-4 border-t border-white/10 space-y-2">
-        <Link
-          href="/admin/settings"
-          className={clsx(
-            "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-            pathname.startsWith("/admin/settings")
-              ? "bg-primary text-primary-content"
-              : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-          )}
-        >
-          <span className="material-symbols-outlined text-xl">settings</span>
-          <span>Settings</span>
-        </Link>
+             <div className="p-4 border-t border-white/10 space-y-2">
+               <Link
+                 href="/admin/dashboard-settings"
+                 className={clsx(
+                   "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+                   pathname.startsWith("/admin/dashboard-settings")
+                     ? "bg-primary text-primary-content"
+                     : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+                 )}
+               >
+                 <span className="material-symbols-outlined text-xl">settings</span>
+                 <span>Settings</span>
+               </Link>
         <Link
           href="/admin/help"
           className={clsx(

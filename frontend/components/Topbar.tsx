@@ -245,9 +245,15 @@ export function Topbar() {
                 <div className="text-xs text-base-content/60">{role}</div>
               </div>
               <ul className="menu p-2">
-                <li><a>Profile</a></li>
-                <li><a>Account settings</a></li>
-                <li><a className="text-error">Logout</a></li>
+                <li>
+                  <a href="/admin/profile">Profile</a>
+                </li>
+                <li>
+                  <a href="/admin/account-settings">Account settings</a>
+                </li>
+                <li>
+                  <a href="/admin/login" className="text-error">Logout</a>
+                </li>
               </ul>
             </div>
           )}
