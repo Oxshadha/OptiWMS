@@ -82,9 +82,8 @@ export default function DashboardPage() {
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Order Summary</div>
-            <span className="text-success font-semibold">42%</span>
           </div>
-          <div className="h-40 flex items-center justify-center">
+          <div className="h-40 flex items-center justify-center relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -102,6 +101,9 @@ export default function DashboardPage() {
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
+            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+              <div className="text-success font-semibold text-lg">42%</div>
+            </div>
           </div>
           <div className="text-center font-semibold text-lg mt-2">$5,961</div>
           <div className="text-center text-sm text-base-content/60">Orders Completed</div>

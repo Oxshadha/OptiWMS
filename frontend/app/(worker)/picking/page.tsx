@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useOffline } from "@/hooks/useOffline";
+import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
+import { QRScanner } from "@/components/QRScanner";
 
 const picks = [
   {
@@ -39,17 +42,98 @@ const picks = [
 ];
 
 export default function PickingPage() {
+  const { isOnline, dbReady } = useOffline();
   const [pickedQty, setPickedQty] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedPicks, setSavedPicks] = useState<any[]>([]);
+  const [showLocationScanner, setShowLocationScanner] = useState(false);
   const currentPick = picks.find((p) => p.status === "current");
   const upcomingPicks = picks.filter((p) => p.status === "upcoming");
 
-  const handleConfirmPick = () => {
-    // Handle pick confirmation
-    console.log("Pick confirmed:", pickedQty);
+  // Load saved picks on mount
+  useEffect(() => {
+    if (dbReady) {
+      loadSavedPicks();
+    }
+  }, [dbReady]);
+
+  const loadSavedPicks = async () => {
+    try {
+      const records = await getScanRecordsByTask("picking");
+      setSavedPicks(records);
+    } catch (error) {
+      console.error("Error loading saved picks:", error);
+    }
+  };
+
+  const handleConfirmPick = async () => {
+    if (!currentPick || pickedQty === 0 || pickedQty > currentPick.qty) return;
+
+    setSaveStatus("saving");
+
+    try {
+      // Save pick record to IndexedDB (works offline)
+      const recordId = await saveScanRecord({
+        taskId: "picking",
+        location: currentPick.location,
+        sku: currentPick.sku,
+        item: currentPick.item,
+        qty: pickedQty,
+      });
+
+      // Add to sync queue (will sync when online)
+      await addToSyncQueue({
+        type: "scan",
+        action: "create",
+        data: {
+          taskId: "picking",
+          order: currentPick.order,
+          location: currentPick.location,
+          sku: currentPick.sku,
+          item: currentPick.item,
+          qty: pickedQty,
+          timestamp: Date.now(),
+        },
+      });
+
+      setSaveStatus("saved");
+      
+      // Reload saved picks
+      await loadSavedPicks();
+
+      // Reset form
+      setTimeout(() => {
+        setPickedQty(0);
+        setSaveStatus("idle");
+      }, 1500);
+    } catch (error) {
+      console.error("Error saving pick:", error);
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    }
   };
 
   return (
     <div className="p-4 space-y-4">
+      {/* Network Status */}
+      <div className="bg-base-100 rounded-xl p-3 border border-base-300">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-base-content/60">Network Status</span>
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${isOnline ? "bg-success" : "bg-warning animate-pulse"}`}></div>
+            <span className={`text-sm font-medium ${isOnline ? "text-success" : "text-warning"}`}>
+              {isOnline ? "Online" : "Offline"}
+            </span>
+          </div>
+        </div>
+        {!isOnline && (
+          <div className="mt-2 text-xs text-warning-content bg-warning/10 rounded p-2">
+            <span className="material-symbols-outlined text-xs align-middle">info</span>
+            <span className="ml-1">Working offline. Picks will sync when connection is restored.</span>
+          </div>
+        )}
+      </div>
+
       {/* Current Pick */}
       {currentPick && (
         <div className="bg-primary/10 border-2 border-primary rounded-xl p-4">
@@ -108,11 +192,35 @@ export default function PickingPage() {
             <button
               onClick={handleConfirmPick}
               className="btn btn-primary w-full"
-              disabled={pickedQty === 0 || pickedQty > currentPick.qty}
+              disabled={pickedQty === 0 || pickedQty > currentPick.qty || saveStatus === "saving" || !dbReady}
             >
-              <span className="material-symbols-outlined">check_circle</span>
-              Confirm Pick
+              {saveStatus === "saving" ? (
+                <>
+                  <span className="loading loading-spinner loading-sm"></span>
+                  Saving...
+                </>
+              ) : saveStatus === "saved" ? (
+                <>
+                  <span className="material-symbols-outlined">check_circle</span>
+                  Saved!
+                </>
+              ) : (
+                <>
+                  <span className="material-symbols-outlined">check_circle</span>
+                  Confirm Pick
+                </>
+              )}
             </button>
+            {saveStatus === "saved" && (
+              <div className="text-xs text-success text-center">
+                ✓ Saved to local storage {!isOnline && "(will sync when online)"}
+              </div>
+            )}
+            {saveStatus === "error" && (
+              <div className="text-xs text-error text-center">
+                ✗ Error saving. Please try again.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -148,20 +256,79 @@ export default function PickingPage() {
         </div>
       )}
 
+      {/* Saved Picks (from IndexedDB) */}
+      {savedPicks.length > 0 && (
+        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-base-content">Saved Picks</h3>
+            <span className="badge badge-outline">{savedPicks.length}</span>
+          </div>
+          <div className="space-y-2">
+            {savedPicks.slice(-5).reverse().map((record, idx) => (
+              <div
+                key={record.id || idx}
+                className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
+              >
+                <div>
+                  <div className="font-semibold text-sm text-base-content">
+                    {record.location} • {record.item || record.sku}
+                  </div>
+                  <div className="text-xs text-base-content/60">
+                    Qty: {record.qty} • {new Date(record.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!record.synced && (
+                    <span className="badge badge-warning badge-sm">Pending Sync</span>
+                  )}
+                  {record.synced && (
+                    <span className="badge badge-success badge-sm">Synced</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <h3 className="font-bold text-base-content mb-3">Quick Actions</h3>
         <div className="grid grid-cols-2 gap-2">
-          <button className="btn btn-outline btn-sm">
+          <button 
+            className="btn btn-outline btn-sm"
+            onClick={() => setShowLocationScanner(true)}
+          >
             <span className="material-symbols-outlined">qr_code_scanner</span>
             Scan Location
           </button>
-          <button className="btn btn-outline btn-sm">
+          <button 
+            className="btn btn-outline btn-sm"
+            onClick={loadSavedPicks}
+          >
             <span className="material-symbols-outlined">refresh</span>
             Refresh List
           </button>
         </div>
       </div>
+
+      {/* QR Scanner */}
+      <QRScanner
+        isOpen={showLocationScanner}
+        onClose={() => setShowLocationScanner(false)}
+        onScan={(result) => {
+          // Handle scanned location
+          console.log("Scanned location:", result);
+          // You can use this to validate against current pick location
+          if (currentPick && result === currentPick.location) {
+            // Location matches, could auto-confirm or highlight
+            alert(`Location ${result} matches current pick!`);
+          }
+          setShowLocationScanner(false);
+        }}
+        title="Scan Location QR Code"
+        description="Point camera at location QR code to verify"
+      />
     </div>
   );
 }

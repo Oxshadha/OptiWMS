@@ -4,10 +4,16 @@ import React, { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { initDB } from "@/lib/indexeddb";
+import { initNetworkMonitoring } from "@/lib/network";
+import { startAutoSync } from "@/lib/sync";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function WorkerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { isOnline } = useOffline();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -76,8 +82,25 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   const isHome = pathname === "/worker" || pathname === "/worker/";
   const canGoBack = !isHome && pathname !== "/worker/login";
 
+  // Initialize offline-first infrastructure
+  useEffect(() => {
+    // Initialize IndexedDB
+    initDB().catch(console.error);
+
+    // Initialize network monitoring
+    initNetworkMonitoring();
+
+    // Start auto-sync when online
+    const stopAutoSync = startAutoSync(30000); // Sync every 30 seconds when online
+
+    return () => {
+      stopAutoSync();
+    };
+  }, []);
+
   return (
     <div className="min-h-screen bg-base-200 flex flex-col safe-area-inset">
+      <OfflineIndicator />
       {/* Header - Matching Sample UI */}
       <header className="bg-neutral text-neutral-content px-4 py-4">
         <div className="flex items-center justify-between">
@@ -90,8 +113,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
               <h1 className="text-lg font-bold text-neutral-content">OptiWMS</h1>
               <p className="text-xs text-neutral-content/80">Worker App</p>
               <div className="flex items-center gap-1.5 mt-0.5">
-                <div className="w-2 h-2 bg-success rounded-full"></div>
-                <span className="text-xs text-neutral-content/80">{worker.status}</span>
+                <div className={`w-2 h-2 rounded-full ${isOnline ? "bg-success" : "bg-warning animate-pulse"}`}></div>
+                <span className={`text-xs ${isOnline ? "text-success" : "text-warning"}`}>
+                  {isOnline ? "Online" : "Offline"}
+                </span>
               </div>
             </div>
           </div>
@@ -108,7 +133,7 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
             >
               <div className="text-right">
                 <h2 className="text-sm font-semibold text-neutral-content">{worker.name}</h2>
-                <p className="text-xs text-neutral-content/70">Worker ID: {worker.deviceId}</p>
+                <p className="text-xs text-neutral-content/70">Worker ID: {worker.id}</p>
               </div>
               <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center overflow-hidden">
                 <Image
@@ -131,27 +156,37 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
                 <div className="absolute right-0 mt-2 w-56 rounded-xl bg-base-100 shadow-xl border border-base-300 z-50">
                   <div className="px-4 py-3 border-b border-base-200">
                     <div className="font-semibold text-base-content">{worker.name}</div>
-                    <div className="text-xs text-base-content/60">Worker • {worker.id}</div>
+                    <div className="text-xs text-base-content">Worker ID: {worker.id}</div>
                   </div>
                   <ul className="menu p-2">
                     <li>
                       <Link 
                         href="/worker/profile"
                         onClick={() => setShowProfileMenu(false)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 text-base-content"
                       >
-                        <span className="material-symbols-outlined text-sm">person</span>
-                        <span>Profile</span>
+                        <span className="material-symbols-outlined text-sm text-base-content">person</span>
+                        <span className="text-base-content">Profile</span>
                       </Link>
                     </li>
                     <li>
                       <Link 
-                        href="/worker/settings"
+                        href="/worker/account-settings"
                         onClick={() => setShowProfileMenu(false)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 text-base-content"
                       >
-                        <span className="material-symbols-outlined text-sm">settings</span>
-                        <span>Account settings</span>
+                        <span className="material-symbols-outlined text-sm text-base-content">person</span>
+                        <span className="text-base-content">Account settings</span>
+                      </Link>
+                    </li>
+                    <li>
+                      <Link 
+                        href="/worker/app-settings"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="flex items-center gap-2 text-base-content"
+                      >
+                        <span className="material-symbols-outlined text-sm text-base-content">settings</span>
+                        <span className="text-base-content">App settings</span>
                       </Link>
                     </li>
                     <li>
@@ -160,8 +195,8 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
                         onClick={() => setShowProfileMenu(false)}
                         className="flex items-center gap-2 text-error"
                       >
-                        <span className="material-symbols-outlined text-sm">logout</span>
-                        <span>Logout</span>
+                        <span className="material-symbols-outlined text-sm text-error">logout</span>
+                        <span className="text-error">Logout</span>
                       </Link>
                     </li>
                   </ul>
@@ -225,10 +260,10 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
               )}
               <span className="text-xs font-medium">Updates</span>
             </button>
-            <Link href="/worker/settings" className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors">
-              <span className="material-symbols-outlined text-2xl">settings</span>
-              <span className="text-xs font-medium">Settings</span>
-            </Link>
+               <Link href="/worker/app-settings" className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors">
+                 <span className="material-symbols-outlined text-2xl">settings</span>
+                 <span className="text-xs font-medium">Settings</span>
+               </Link>
           </div>
         </nav>
       )}
