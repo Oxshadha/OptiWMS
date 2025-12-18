@@ -8,6 +8,7 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { statusConfig } from "./page";
+import { WorkerRole, getAllWorkerRoles, ROLE_DISPLAY_NAMES, getRoleDisplayName } from "@/lib/worker-roles";
 
 // Mock data - will be replaced with API calls
 const workers = [
@@ -24,6 +25,7 @@ const workers = [
     avgTaskTime: 15.5,
     lastActive: "2 minutes ago",
     avatar: "/assets/avatars/Jhon Doe.jpg",
+    role: "picker" as WorkerRole,
   },
   {
     id: "worker-2",
@@ -38,6 +40,7 @@ const workers = [
     avgTaskTime: 18.2,
     lastActive: "5 minutes ago",
     avatar: "/assets/avatars/placeholder.svg",
+    role: "packer" as WorkerRole,
   },
   {
     id: "worker-3",
@@ -52,6 +55,7 @@ const workers = [
     avgTaskTime: 20.1,
     lastActive: "2 hours ago",
     avatar: "/assets/avatars/placeholder.svg",
+    role: "forklift_operator" as WorkerRole,
   },
 ];
 
@@ -160,6 +164,15 @@ export default function WorkersPage() {
     {
       key: "warehouseName",
       label: "Warehouse",
+      sortable: true,
+    },
+    {
+      key: "role",
+      label: "Role",
+      render: (worker: typeof workers[0]) => {
+        if (!worker.role) return <span className="text-base-content/50">-</span>;
+        return <span className="badge badge-outline">{getRoleDisplayName(worker.role)}</span>;
+      },
       sortable: true,
     },
     {
@@ -391,6 +404,14 @@ function WorkerDetailModal({
             <label className="text-sm text-base-content/60">Last Active</label>
             <p className="font-semibold">{worker.lastActive}</p>
           </div>
+          {worker.role && (
+            <div>
+              <label className="text-sm text-base-content/60">Role</label>
+              <p>
+                <span className="badge badge-primary">{getRoleDisplayName(worker.role)}</span>
+              </p>
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>
@@ -417,6 +438,7 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
     shiftStart: "",
     shiftEnd: "",
     password: "",
+    role: "" as WorkerRole | "",
     avatar: null as File | null,
   });
 
@@ -435,6 +457,7 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
       shiftStart: "",
       shiftEnd: "",
       password: "",
+      role: "" as WorkerRole | "",
       avatar: null,
     });
   };
@@ -548,6 +571,25 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               onChange={(e) => setFormData({ ...formData, shiftEnd: e.target.value })}
             />
           </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Role *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.role}
+            onChange={(e) => setFormData({ ...formData, role: e.target.value as WorkerRole })}
+            required
+          >
+            <option value="">Select role</option>
+            {getAllWorkerRoles().map((role) => (
+              <option key={role} value={role}>
+                {ROLE_DISPLAY_NAMES[role]}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="form-control">
