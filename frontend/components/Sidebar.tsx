@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/admin/shipments", label: "Shipments", icon: "local_shipping" },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/customers", label: "Customers", icon: "group" },
+  { href: "/admin/returns", label: "Returns", icon: "assignment_return" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
 ];
 
@@ -40,7 +41,9 @@ export function Sidebar() {
                   : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
               )}
             >
-              <span className="material-symbols-outlined text-xl">{item.icon}</span>
+              <span className="material-symbols-outlined text-xl">
+                {item.icon}
+              </span>
               <span>{item.label}</span>
             </Link>
           );
@@ -75,5 +78,3 @@ export function Sidebar() {
     </aside>
   );
 }
-
-

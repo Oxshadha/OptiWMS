@@ -8,6 +8,7 @@ export default function AdminHome() {
     { href: "/admin/shipments", label: "Shipments" },
     { href: "/admin/inventory", label: "Inventory" },
     { href: "/admin/customers", label: "Customers" },
+    { href: "/admin/returns", label: "Returns" },
     { href: "/admin/reports", label: "Reports" },
     { href: "/admin/settings", label: "Settings" },
   ];
@@ -24,5 +25,3 @@ export default function AdminHome() {
     </div>
   );
 }
-
-
