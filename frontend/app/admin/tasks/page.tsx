@@ -106,9 +106,19 @@ export default function TasksPage() {
   };
 
   const filteredTasks = tasks.filter((task) => {
-    const matchesSearch =
-      task.taskNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      task.workerName.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      task.taskNumber.toLowerCase().includes(query) ||
+      task.workerName.toLowerCase().includes(query) ||
+      task.warehouseName.toLowerCase().includes(query) ||
+      task.taskType.toLowerCase().includes(query) ||
+      task.priority.toLowerCase().includes(query) ||
+      task.status.toLowerCase().includes(query) ||
+      task.assignedDate.toLowerCase().includes(query) ||
+      (task.startedAt && task.startedAt.toLowerCase().includes(query)) ||
+      (task.completedAt && task.completedAt.toLowerCase().includes(query)) ||
+      (task.duration && task.duration.toString().includes(query))
+    );
     const matchesType = typeFilter === "all" || task.taskType === typeFilter;
     const matchesStatus = statusFilter === "all" || task.status === statusFilter;
     return matchesSearch && matchesType && matchesStatus;
@@ -166,7 +176,7 @@ export default function TasksPage() {
         const type = taskTypeConfig[task.taskType as keyof typeof taskTypeConfig];
         return (
           <div className="flex items-center gap-2">
-            <span className={`badge ${type.class}`}>
+            <span className={`badge ${type.class} whitespace-nowrap`}>
               <span className="material-symbols-outlined text-xs mr-1">{type.icon}</span>
               {type.label}
             </span>
@@ -190,7 +200,7 @@ export default function TasksPage() {
       label: "Priority",
       render: (task: typeof tasks[0]) => {
         const priority = priorityConfig[task.priority as keyof typeof priorityConfig];
-        return <span className={`badge ${priority.class}`}>{priority.label}</span>;
+        return <span className={`badge ${priority.class} whitespace-nowrap`}>{priority.label}</span>;
       },
       sortable: true,
     },
@@ -199,7 +209,7 @@ export default function TasksPage() {
       label: "Status",
       render: (task: typeof tasks[0]) => {
         const status = statusConfig[task.status as keyof typeof statusConfig];
-        return <span className={`badge ${status.class}`}>{status.label}</span>;
+        return <span className={`badge ${status.class} whitespace-nowrap`}>{status.label}</span>;
       },
       sortable: true,
     },

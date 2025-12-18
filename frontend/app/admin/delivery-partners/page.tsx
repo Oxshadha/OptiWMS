@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import React from "react";
 
 // Mock data - will be replaced with API calls
 const deliveryPartners = [
@@ -49,6 +50,7 @@ const deliveryPartners = [
 
 export default function DeliveryPartnersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -61,12 +63,18 @@ export default function DeliveryPartnersPage() {
   };
 
   const filteredPartners = deliveryPartners.filter((partner) => {
-    if (!searchQuery.trim() && statusFilter === "all") return true;
-    const matchesSearch = searchQuery.trim() === "" || 
-      partner.companyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      partner.partnerCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      partner.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      partner.contactPerson.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      partner.companyName.toLowerCase().includes(query) ||
+      partner.partnerCode.toLowerCase().includes(query) ||
+      partner.email.toLowerCase().includes(query) ||
+      partner.contactPerson.toLowerCase().includes(query) ||
+      partner.phone.toLowerCase().includes(query) ||
+      partner.status.toLowerCase().includes(query) ||
+      partner.rating.toString().includes(query) ||
+      partner.costPerDelivery.toString().includes(query) ||
+      partner.serviceAreas.some(area => area.toLowerCase().includes(query))
+    );
     const matchesStatus = statusFilter === "all" || partner.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -136,12 +144,12 @@ export default function DeliveryPartnersPage() {
       render: (partner: typeof deliveryPartners[0]) => (
         <div className="flex flex-wrap gap-1">
           {partner.serviceAreas.slice(0, 2).map((area, idx) => (
-            <span key={idx} className="badge badge-outline badge-sm">
+            <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">
               {area}
             </span>
           ))}
           {partner.serviceAreas.length > 2 && (
-            <span className="badge badge-outline badge-sm">
+            <span className="badge badge-info badge-sm whitespace-nowrap">
               +{partner.serviceAreas.length - 2}
             </span>
           )}
@@ -208,19 +216,39 @@ export default function DeliveryPartnersPage() {
           </button>
         </li>
         <li>
-          <button>
+          <button
+            onClick={() => {
+              // Navigate to shipments page filtered by this partner
+              window.location.href = `/admin/shipments?partner=${partner.id}`;
+            }}
+          >
             <span className="material-symbols-outlined text-sm">local_shipping</span>
             View Shipments
           </button>
         </li>
         <li>
-          <button>
+          <button
+            onClick={() => {
+              // TODO: Open performance metrics modal or navigate to metrics page
+              console.log("Viewing performance metrics for:", partner.id);
+              alert(`Performance metrics for ${partner.companyName}:\n\n- Total Shipments: 245\n- On-Time Delivery: 98.5%\n- Average Rating: ${partner.rating}\n- Cost Efficiency: High`);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
             Performance Metrics
           </button>
         </li>
         <li>
-          <button className="text-error">
+          <button 
+            className="text-error"
+            onClick={() => {
+              if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
+                // TODO: API call to delete partner
+                console.log("Deleting partner:", partner.id);
+                alert("Partner deleted successfully!");
+              }
+            }}
+          >
             <span className="material-symbols-outlined text-sm">delete</span>
             Delete Partner
           </button>
@@ -239,13 +267,27 @@ export default function DeliveryPartnersPage() {
         </div>
         <div className="flex gap-3">
           <div className="form-control">
-            <input
-              type="text"
-              placeholder="Search partners..."
-              className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search by name, code, email, service areas..."
+                className="input input-bordered input-sm w-64 pl-10 pr-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm pointer-events-none">
+                search
+              </span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-xs">close</span>
+                </button>
+              )}
+            </div>
           </div>
           <div className="dropdown dropdown-end">
             <label tabIndex={0} className="btn btn-sm btn-ghost">
@@ -280,6 +322,14 @@ export default function DeliveryPartnersPage() {
       {/* Summary Cards */}
       <SummaryCards cards={summaryCards} columns={3} />
 
+      {/* Search Results Info */}
+      {searchQuery && (
+        <div className="text-sm text-base-content/60 flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm">search</span>
+          <span>Found {filteredPartners.length} partner{filteredPartners.length !== 1 ? 's' : ''} matching "{searchQuery}"</span>
+        </div>
+      )}
+
       {/* Delivery Partners Table */}
       <DataTable
         data={filteredPartners}
@@ -290,7 +340,7 @@ export default function DeliveryPartnersPage() {
           setShowDetailModal(true);
         }}
         actions={renderActions}
-        emptyMessage="No delivery partners found"
+        emptyMessage={searchQuery ? `No delivery partners found matching "${searchQuery}"` : "No delivery partners found"}
       />
 
       {/* Create Delivery Partner Modal */}
@@ -322,8 +372,33 @@ export default function DeliveryPartnersPage() {
           partner={selectedPartner}
         />
       )}
+
+      {/* Listen for edit event from detail modal */}
+      {typeof window !== 'undefined' && (
+        <EditDeliveryPartnerListener
+          onEdit={(partner) => {
+            setShowDetailModal(false);
+            setSelectedPartner(partner);
+            setShowEditModal(true);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// Edit Delivery Partner Event Listener Component
+function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: typeof deliveryPartners[0]) => void }) {
+  React.useEffect(() => {
+    const handleEdit = (event: CustomEvent) => {
+      onEdit(event.detail);
+    };
+    window.addEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
+    return () => {
+      window.removeEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
+    };
+  }, [onEdit]);
+  return null;
 }
 
 // Delivery Partner Detail Modal
@@ -343,10 +418,6 @@ function DeliveryPartnerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Partner Code</label>
             <p className="font-semibold">{partner.partnerCode}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Country</label>
-            <p className="font-semibold">{partner.country}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Contact Person</label>
@@ -383,7 +454,7 @@ function DeliveryPartnerDetailModal({
           <label className="text-sm text-base-content/60">Service Areas</label>
           <div className="flex flex-wrap gap-2 mt-2">
             {partner.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-outline badge-sm">{area}</span>
+              <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">{area}</span>
             ))}
           </div>
         </div>
@@ -391,7 +462,16 @@ function DeliveryPartnerDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
+          <button 
+            className="btn btn-primary"
+            onClick={() => {
+              onClose();
+              // Trigger edit modal - will be handled by parent
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('editDeliveryPartner', { detail: partner }));
+              }
+            }}
+          >
             Edit Partner
           </button>
         </div>

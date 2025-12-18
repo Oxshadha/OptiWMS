@@ -106,9 +106,21 @@ export default function AnomaliesPage() {
   };
 
   const filteredAnomalies = anomalies.filter((anomaly) => {
-    const matchesSearch =
-      anomaly.anomalyId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      anomaly.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      anomaly.anomalyId.toLowerCase().includes(query) ||
+      anomaly.description.toLowerCase().includes(query) ||
+      anomaly.anomalyType.toLowerCase().includes(query) ||
+      anomaly.severity.toLowerCase().includes(query) ||
+      anomaly.warehouseName.toLowerCase().includes(query) ||
+      anomaly.relatedEntityType.toLowerCase().includes(query) ||
+      anomaly.relatedEntityId.toLowerCase().includes(query) ||
+      anomaly.detectedBy.toLowerCase().includes(query) ||
+      anomaly.detectedAt.toLowerCase().includes(query) ||
+      anomaly.status.toLowerCase().includes(query) ||
+      (anomaly.resolvedBy && anomaly.resolvedBy.toLowerCase().includes(query)) ||
+      (anomaly.resolvedAt && anomaly.resolvedAt.toLowerCase().includes(query))
+    );
     const matchesSeverity = severityFilter === "all" || anomaly.severity === severityFilter;
     const matchesStatus = statusFilter === "all" || anomaly.status === statusFilter;
     return matchesSearch && matchesSeverity && matchesStatus;

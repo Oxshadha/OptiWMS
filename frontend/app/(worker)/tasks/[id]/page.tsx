@@ -1,9 +1,11 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getTask } from "@/lib/indexeddb";
 
-const taskDetails: Record<string, any> = {
+// Fallback task data if not found in IndexedDB
+const defaultTaskDetails: Record<string, any> = {
   "1": {
     id: 1,
     title: "Receiving",
@@ -59,18 +61,53 @@ export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
   const taskId = params.id as string;
-  const task = taskDetails[taskId];
+  const [task, setTask] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   const [receivedQty, setReceivedQty] = useState(0);
   const [pickedQty, setPickedQty] = useState(0);
   const [scannedLPN, setScannedLPN] = useState("");
   const [scannedLocation, setScannedLocation] = useState("");
 
+  useEffect(() => {
+    const loadTask = async () => {
+      try {
+        // Try to load from IndexedDB first
+        const dbTask = await getTask(taskId);
+        if (dbTask) {
+          setTask(dbTask);
+        } else {
+          // Fallback to default tasks
+          setTask(defaultTaskDetails[taskId] || null);
+        }
+      } catch (error) {
+        console.error("Error loading task:", error);
+        // Fallback to default tasks
+        setTask(defaultTaskDetails[taskId] || null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (taskId) {
+      loadTask();
+    }
+  }, [taskId]);
+
+  if (loading) {
+    return (
+      <div className="p-4 text-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
   if (!task) {
     return (
       <div className="p-4 text-center">
         <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">error</span>
         <h3 className="font-semibold text-base-content mb-2">Task not found</h3>
+        <p className="text-sm text-base-content/60 mb-4">Task ID: {taskId}</p>
         <button onClick={() => router.back()} className="btn btn-primary">
           Go Back
         </button>

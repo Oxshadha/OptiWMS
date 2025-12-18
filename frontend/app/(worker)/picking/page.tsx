@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
+import { QRScanner } from "@/components/QRScanner";
 
 const picks = [
   {
@@ -45,6 +46,7 @@ export default function PickingPage() {
   const [pickedQty, setPickedQty] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedPicks, setSavedPicks] = useState<any[]>([]);
+  const [showLocationScanner, setShowLocationScanner] = useState(false);
   const currentPick = picks.find((p) => p.status === "current");
   const upcomingPicks = picks.filter((p) => p.status === "upcoming");
 
@@ -293,7 +295,10 @@ export default function PickingPage() {
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <h3 className="font-bold text-base-content mb-3">Quick Actions</h3>
         <div className="grid grid-cols-2 gap-2">
-          <button className="btn btn-outline btn-sm">
+          <button 
+            className="btn btn-outline btn-sm"
+            onClick={() => setShowLocationScanner(true)}
+          >
             <span className="material-symbols-outlined">qr_code_scanner</span>
             Scan Location
           </button>
@@ -306,6 +311,24 @@ export default function PickingPage() {
           </button>
         </div>
       </div>
+
+      {/* QR Scanner */}
+      <QRScanner
+        isOpen={showLocationScanner}
+        onClose={() => setShowLocationScanner(false)}
+        onScan={(result) => {
+          // Handle scanned location
+          console.log("Scanned location:", result);
+          // You can use this to validate against current pick location
+          if (currentPick && result === currentPick.location) {
+            // Location matches, could auto-confirm or highlight
+            alert(`Location ${result} matches current pick!`);
+          }
+          setShowLocationScanner(false);
+        }}
+        title="Scan Location QR Code"
+        description="Point camera at location QR code to verify"
+      />
     </div>
   );
 }

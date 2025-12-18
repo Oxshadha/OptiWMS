@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import React from "react";
 
 // Mock data - will be replaced with API calls
 const suppliers = [
@@ -65,12 +66,18 @@ export default function SuppliersPage() {
   };
 
   const filteredSuppliers = suppliers.filter((supplier) => {
-    if (!searchQuery.trim() && statusFilter === "all") return true;
-    const matchesSearch = searchQuery.trim() === "" || 
-      supplier.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      supplier.supplierCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      supplier.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      supplier.contactPerson.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = query === "" || 
+      supplier.name.toLowerCase().includes(query) ||
+      supplier.supplierCode.toLowerCase().includes(query) ||
+      supplier.email.toLowerCase().includes(query) ||
+      supplier.contactPerson.toLowerCase().includes(query) ||
+      supplier.country.toLowerCase().includes(query) ||
+      supplier.phone.toLowerCase().includes(query) ||
+      supplier.productsSupplied.toString().includes(query) ||
+      supplier.leadTimeDays.toString().includes(query) ||
+      supplier.rating.toString().includes(query) ||
+      supplier.status.toLowerCase().includes(query);
     const matchesStatus = statusFilter === "all" || supplier.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -253,13 +260,27 @@ export default function SuppliersPage() {
         </div>
         <div className="flex gap-3">
           <div className="form-control">
-            <input
-              type="text"
-              placeholder="Search suppliers..."
-              className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search by name, code, email, country..."
+                className="input input-bordered input-sm w-64 pl-10 pr-10"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm pointer-events-none">
+                search
+              </span>
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-xs">close</span>
+                </button>
+              )}
+            </div>
           </div>
           <div className="dropdown dropdown-end">
             <label tabIndex={0} className="btn btn-sm btn-ghost">
@@ -294,6 +315,14 @@ export default function SuppliersPage() {
       {/* Summary Cards */}
       <SummaryCards cards={summaryCards} columns={3} />
 
+      {/* Search Results Info */}
+      {searchQuery && (
+        <div className="text-sm text-base-content/60 flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm">search</span>
+          <span>Found {filteredSuppliers.length} supplier{filteredSuppliers.length !== 1 ? 's' : ''} matching "{searchQuery}"</span>
+        </div>
+      )}
+
       {/* Suppliers Table */}
       <DataTable
         data={filteredSuppliers}
@@ -304,7 +333,7 @@ export default function SuppliersPage() {
           setShowDetailModal(true);
         }}
         actions={renderActions}
-        emptyMessage="No suppliers found"
+        emptyMessage={searchQuery ? `No suppliers found matching "${searchQuery}"` : "No suppliers found"}
       />
 
       {/* Create Supplier Modal */}
@@ -336,8 +365,33 @@ export default function SuppliersPage() {
           supplier={selectedSupplier}
         />
       )}
+
+      {/* Listen for edit event from detail modal */}
+      {typeof window !== 'undefined' && (
+        <EditSupplierListener
+          onEdit={(supplier) => {
+            setShowDetailModal(false);
+            setSelectedSupplier(supplier);
+            setShowEditModal(true);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// Edit Supplier Event Listener Component
+function EditSupplierListener({ onEdit }: { onEdit: (supplier: typeof suppliers[0]) => void }) {
+  React.useEffect(() => {
+    const handleEdit = (event: CustomEvent) => {
+      onEdit(event.detail);
+    };
+    window.addEventListener('editSupplier' as any, handleEdit as EventListener);
+    return () => {
+      window.removeEventListener('editSupplier' as any, handleEdit as EventListener);
+    };
+  }, [onEdit]);
+  return null;
 }
 
 // Supplier Detail Modal
@@ -401,7 +455,16 @@ function SupplierDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
+          <button 
+            className="btn btn-primary"
+            onClick={() => {
+              onClose();
+              // Trigger edit modal - will be handled by parent
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('editSupplier', { detail: supplier }));
+              }
+            }}
+          >
             Edit Supplier
           </button>
         </div>

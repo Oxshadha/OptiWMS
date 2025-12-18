@@ -26,6 +26,7 @@ const navItems = [
   { href: "/admin/tasks", label: "Tasks", icon: "task" },
   { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
   { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
+  { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
   { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
   { href: "/admin/customers", label: "Customers", icon: "people" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },

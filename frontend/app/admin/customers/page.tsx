@@ -57,13 +57,49 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] = useState<"name" | "orders" | "totalSpent" | "joinDate" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedCustomer, setSelectedCustomer] = useState<typeof customers[0] | null>(null);
 
-  const filteredCustomers = customers.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.contact.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  let filteredCustomers = customers.filter(c => {
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      c.name.toLowerCase().includes(query) ||
+      c.contact.toLowerCase().includes(query) ||
+      c.id.toLowerCase().includes(query) ||
+      c.phone.toLowerCase().includes(query) ||
+      c.status.toLowerCase().includes(query) ||
+      c.orders.toString().includes(query) ||
+      c.totalSpent.toLowerCase().includes(query) ||
+      c.joinDate.toLowerCase().includes(query)
+    );
+    const matchesStatus = statusFilter === "all" || c.status.toLowerCase() === statusFilter.toLowerCase();
+    return matchesSearch && matchesStatus;
+  });
+
+  // Apply sorting
+  if (sortBy) {
+    filteredCustomers = [...filteredCustomers].sort((a, b) => {
+      let aVal: any = a[sortBy];
+      let bVal: any = b[sortBy];
+      if (sortBy === "orders") {
+        aVal = Number(aVal);
+        bVal = Number(bVal);
+      } else if (sortBy === "totalSpent") {
+        aVal = parseFloat(aVal.replace(/[^0-9.]/g, ''));
+        bVal = parseFloat(bVal.replace(/[^0-9.]/g, ''));
+      } else {
+        aVal = String(aVal).toLowerCase();
+        bVal = String(bVal).toLowerCase();
+      }
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  }
 
   const totalCustomers = customers.length;
   const activeCustomers = customers.filter(c => c.status === "Active").length;
@@ -90,32 +126,60 @@ export default function CustomersPage() {
             >
               <li>
                 <button onClick={() => {
-                  // TODO: Implement sorting
-                  console.log("Sort by: Name");
-                }}>Name (A-Z)</button>
+                  setSortBy("name");
+                  setSortDirection(sortBy === "name" && sortDirection === "asc" ? "desc" : "asc");
+                }}>Name {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}</button>
               </li>
               <li>
                 <button onClick={() => {
-                  console.log("Sort by: Orders");
-                }}>Orders (High to Low)</button>
+                  setSortBy("orders");
+                  setSortDirection(sortBy === "orders" && sortDirection === "desc" ? "asc" : "desc");
+                }}>Orders {sortBy === "orders" && (sortDirection === "desc" ? "↓" : "↑")}</button>
               </li>
               <li>
                 <button onClick={() => {
-                  console.log("Sort by: Total Spent");
-                }}>Total Spent (High to Low)</button>
+                  setSortBy("totalSpent");
+                  setSortDirection(sortBy === "totalSpent" && sortDirection === "desc" ? "asc" : "desc");
+                }}>Total Spent {sortBy === "totalSpent" && (sortDirection === "desc" ? "↓" : "↑")}</button>
               </li>
               <li>
                 <button onClick={() => {
-                  console.log("Sort by: Join Date");
-                }}>Join Date (Newest)</button>
+                  setSortBy("joinDate");
+                  setSortDirection(sortBy === "joinDate" && sortDirection === "desc" ? "asc" : "desc");
+                }}>Join Date {sortBy === "joinDate" && (sortDirection === "desc" ? "↓" : "↑")}</button>
+              </li>
+              <li>
+                <button onClick={() => setSortBy(null)}>Clear Sort</button>
               </li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-ghost">
-            <span className="material-symbols-outlined">filter_list</span>
-            <span>Filter</span>
-          </button>
-          <button className="btn btn-sm btn-primary">
+          <div className="dropdown dropdown-end">
+            <label tabIndex={0} className="btn btn-sm btn-ghost">
+              <span className="material-symbols-outlined">filter_list</span>
+              <span>Filter</span>
+            </label>
+            <ul
+              tabIndex={0}
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+            >
+              <li>
+                <button onClick={() => setStatusFilter("all")}>All Status</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("active")}>Active</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("on hold")}>On Hold</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("inactive")}>Inactive</button>
+              </li>
+            </ul>
+          </div>
+          <button 
+            className="btn btn-sm btn-primary"
+            onClick={() => setShowAddModal(true)}
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Add Customer</span>
           </button>
@@ -267,7 +331,101 @@ export default function CustomersPage() {
           customer={selectedCustomer}
         />
       )}
+
+      {/* Add Customer Modal */}
+      <AddCustomerModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+      />
     </div>
+  );
+}
+
+// Add Customer Modal
+function AddCustomerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [formData, setFormData] = useState({
+    name: "",
+    contact: "",
+    phone: "",
+    status: "Active",
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to add customer
+    console.log("Adding customer:", formData);
+    alert("Customer added successfully!");
+    onClose();
+    setFormData({
+      name: "",
+      contact: "",
+      phone: "",
+      status: "Active",
+    });
+  };
+
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title="Add Customer" size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Customer Name *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Contact Email *</span>
+          </label>
+          <input
+            type="email"
+            className="input input-bordered w-full"
+            value={formData.contact}
+            onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Phone</span>
+          </label>
+          <input
+            type="tel"
+            className="input input-bordered w-full"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+          >
+            <option value="Active">Active</option>
+            <option value="On Hold">On Hold</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Add Customer
+          </button>
+        </div>
+      </form>
+    </DetailModal>
   );
 }
 

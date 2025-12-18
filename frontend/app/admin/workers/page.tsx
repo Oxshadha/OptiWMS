@@ -76,9 +76,19 @@ export default function WorkersPage() {
   };
 
   const filteredWorkers = workers.filter((worker) => {
-    const matchesSearch =
-      worker.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      worker.workerId.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      worker.name.toLowerCase().includes(query) ||
+      worker.workerId.toLowerCase().includes(query) ||
+      worker.warehouseName.toLowerCase().includes(query) ||
+      worker.availabilityStatus.toLowerCase().includes(query) ||
+      worker.shiftStart.toLowerCase().includes(query) ||
+      worker.shiftEnd.toLowerCase().includes(query) ||
+      worker.tasksToday.toString().includes(query) ||
+      worker.totalTasksCompleted.toString().includes(query) ||
+      worker.avgTaskTime.toString().includes(query) ||
+      worker.lastActive.toLowerCase().includes(query)
+    );
     const matchesStatus = statusFilter === "all" || worker.availabilityStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });

@@ -27,14 +27,43 @@ export default function InventoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
+  const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedItem, setSelectedItem] = useState<typeof inventory[0] | null>(null);
 
-  const filteredInventory = inventory.filter(item => {
+  let filteredInventory = inventory.filter(item => {
     const matchesCategory = activeCategory === "All" || item.category === activeCategory;
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         item.sku.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return matchesCategory;
+    const matchesSearch = 
+      item.name.toLowerCase().includes(query) ||
+      item.sku.toLowerCase().includes(query) ||
+      item.location.toLowerCase().includes(query) ||
+      item.status.toLowerCase().includes(query) ||
+      item.category.toLowerCase().includes(query) ||
+      item.qty.toString().includes(query);
     return matchesCategory && matchesSearch;
   });
+
+  // Apply sorting
+  if (sortBy) {
+    filteredInventory = [...filteredInventory].sort((a, b) => {
+      let aVal: any = a[sortBy];
+      let bVal: any = b[sortBy];
+      if (sortBy === "qty") {
+        aVal = Number(aVal);
+        bVal = Number(bVal);
+      } else {
+        aVal = String(aVal).toLowerCase();
+        bVal = String(bVal).toLowerCase();
+      }
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+  }
 
   const totalItems = inventory.reduce((sum, item) => sum + item.qty, 0);
   const lowStockItems = inventory.filter(item => item.status === "Low" || item.status === "Out of Stock").length;
@@ -46,11 +75,48 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Inventory</h1>
         <div className="flex gap-3">
-          <button className="btn btn-sm btn-ghost">
-            <span className="material-symbols-outlined">swap_vert</span>
-            <span>Sort by</span>
-          </button>
-          <button className="btn btn-sm btn-primary">
+          <div className="dropdown dropdown-end">
+            <label tabIndex={0} className="btn btn-sm btn-ghost">
+              <span className="material-symbols-outlined">swap_vert</span>
+              <span>Sort by</span>
+            </label>
+            <ul
+              tabIndex={0}
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+            >
+              <li>
+                <button onClick={() => {
+                  setSortBy("name");
+                  setSortDirection(sortBy === "name" && sortDirection === "asc" ? "desc" : "asc");
+                }}>Name {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setSortBy("sku");
+                  setSortDirection(sortBy === "sku" && sortDirection === "asc" ? "desc" : "asc");
+                }}>SKU {sortBy === "sku" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setSortBy("qty");
+                  setSortDirection(sortBy === "qty" && sortDirection === "asc" ? "desc" : "asc");
+                }}>Quantity {sortBy === "qty" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setSortBy("location");
+                  setSortDirection(sortBy === "location" && sortDirection === "asc" ? "desc" : "asc");
+                }}>Location {sortBy === "location" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+              </li>
+              <li>
+                <button onClick={() => setSortBy(null)}>Clear Sort</button>
+              </li>
+            </ul>
+          </div>
+          <button 
+            className="btn btn-sm btn-primary"
+            onClick={() => setShowAddModal(true)}
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Add Item</span>
           </button>
@@ -236,7 +302,136 @@ export default function InventoryPage() {
           item={selectedItem}
         />
       )}
+
+      {/* Add Inventory Item Modal */}
+      <AddInventoryItemModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+      />
     </div>
+  );
+}
+
+// Add Inventory Item Modal
+function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const [formData, setFormData] = useState({
+    sku: "",
+    name: "",
+    category: "",
+    qty: "",
+    location: "",
+    status: "Available",
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to add inventory item
+    console.log("Adding inventory item:", formData);
+    alert("Inventory item added successfully!");
+    onClose();
+    setFormData({
+      sku: "",
+      name: "",
+      category: "",
+      qty: "",
+      location: "",
+      status: "Available",
+    });
+  };
+
+  return (
+    <DetailModal isOpen={isOpen} onClose={onClose} title="Add Inventory Item" size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">SKU *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.sku}
+            onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Item Name *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Category *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.category}
+            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            required
+          >
+            <option value="">Select category</option>
+            <option value="Electronics">Electronics</option>
+            <option value="Home">Home</option>
+            <option value="Appliances">Appliances</option>
+            <option value="Sports">Sports</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Quantity *</span>
+            </label>
+            <input
+              type="number"
+              className="input input-bordered w-full"
+              value={formData.qty}
+              onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Location</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.location}
+              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+          >
+            <option value="Available">Available</option>
+            <option value="Low">Low</option>
+            <option value="Out of Stock">Out of Stock</option>
+          </select>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Add Item
+          </button>
+        </div>
+      </form>
+    </DetailModal>
   );
 }
 

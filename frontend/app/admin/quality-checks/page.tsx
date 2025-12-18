@@ -76,10 +76,21 @@ export default function QualityChecksPage() {
   };
 
   const filteredChecks = qualityChecks.filter((check) => {
-    const matchesSearch =
-      check.checkId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      check.inboundOrderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      check.productName.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      check.checkId.toLowerCase().includes(query) ||
+      check.inboundOrderNumber.toLowerCase().includes(query) ||
+      check.productName.toLowerCase().includes(query) ||
+      check.sku.toLowerCase().includes(query) ||
+      check.quantityChecked.toString().includes(query) ||
+      check.quantityPassed.toString().includes(query) ||
+      check.quantityFailed.toString().includes(query) ||
+      check.result.toLowerCase().includes(query) ||
+      check.checkedByName.toLowerCase().includes(query) ||
+      check.checkDate.toLowerCase().includes(query) ||
+      (check.approvedByName && check.approvedByName.toLowerCase().includes(query)) ||
+      (check.approvalDate && check.approvalDate.toLowerCase().includes(query))
+    );
     const matchesStatus =
       statusFilter === "all" ||
       (statusFilter === "pending" && !check.approvedByName) ||

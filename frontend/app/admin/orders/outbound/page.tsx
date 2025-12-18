@@ -103,9 +103,19 @@ export default function OutboundOrdersPage() {
   };
 
   const filteredOrders = outboundOrders.filter((order) => {
-    const matchesSearch =
-      order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.customerName.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      order.orderNumber.toLowerCase().includes(query) ||
+      order.customerName.toLowerCase().includes(query) ||
+      order.warehouseName.toLowerCase().includes(query) ||
+      order.status.toLowerCase().includes(query) ||
+      order.priority.toLowerCase().includes(query) ||
+      order.orderDate.toLowerCase().includes(query) ||
+      order.requiredDelivery.toLowerCase().includes(query) ||
+      order.totalItems.toString().includes(query) ||
+      order.pickedItems.toString().includes(query) ||
+      order.id.toLowerCase().includes(query)
+    );
     const matchesStatus = statusFilter === "all" || order.status === statusFilter;
     const matchesPriority = priorityFilter === "all" || order.priority === priorityFilter;
     return matchesSearch && matchesStatus && matchesPriority;

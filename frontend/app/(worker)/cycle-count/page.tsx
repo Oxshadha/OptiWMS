@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
+import { QRScanner } from "@/components/QRScanner";
 
 export default function CycleCountPage() {
   const { isOnline, dbReady } = useOffline();
@@ -12,6 +13,8 @@ export default function CycleCountPage() {
   const [countedQty, setCountedQty] = useState(0);
   const [savedCounts, setSavedCounts] = useState<any[]>([]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showLocationScanner, setShowLocationScanner] = useState(false);
+  const [showSKUScanner, setShowSKUScanner] = useState(false);
 
   const cycleCountTasks = [
     {
@@ -33,11 +36,21 @@ export default function CycleCountPage() {
   ];
 
   const handleScanLocation = () => {
-    console.log("Scanning location...");
+    setShowLocationScanner(true);
   };
 
   const handleScanSKU = () => {
-    console.log("Scanning SKU...");
+    setShowSKUScanner(true);
+  };
+
+  const handleLocationScan = (result: string) => {
+    setScannedLocation(result);
+    setShowLocationScanner(false);
+  };
+
+  const handleSKUScan = (result: string) => {
+    setScannedSKU(result);
+    setShowSKUScanner(false);
   };
 
   // Load saved counts on mount
@@ -282,6 +295,23 @@ export default function CycleCountPage() {
           ))}
         </div>
       </div>
+
+      {/* QR Scanners */}
+      <QRScanner
+        isOpen={showLocationScanner}
+        onClose={() => setShowLocationScanner(false)}
+        onScan={handleLocationScan}
+        title="Scan Location QR Code"
+        description="Point camera at location QR code or enter manually"
+      />
+
+      <QRScanner
+        isOpen={showSKUScanner}
+        onClose={() => setShowSKUScanner(false)}
+        onScan={handleSKUScan}
+        title="Scan SKU QR Code"
+        description="Point camera at product SKU QR code or enter manually"
+      />
     </div>
   );
 }

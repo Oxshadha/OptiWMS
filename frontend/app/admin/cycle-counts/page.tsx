@@ -79,6 +79,7 @@ export default function CycleCountsPage() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAdHocModal, setShowAdHocModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedCount, setSelectedCount] = useState<typeof cycleCounts[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -91,9 +92,23 @@ export default function CycleCountsPage() {
   };
 
   const filteredCounts = cycleCounts.filter((count) => {
-    const matchesSearch =
-      count.countNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      count.warehouseName.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      count.countNumber.toLowerCase().includes(query) ||
+      count.warehouseName.toLowerCase().includes(query) ||
+      count.sectionName.toLowerCase().includes(query) ||
+      count.countType.toLowerCase().includes(query) ||
+      count.status.toLowerCase().includes(query) ||
+      count.assignedBy.toLowerCase().includes(query) ||
+      count.assignedDate.toLowerCase().includes(query) ||
+      count.totalLocations.toString().includes(query) ||
+      count.countedLocations.toString().includes(query) ||
+      count.discrepanciesFound.toString().includes(query) ||
+      (count.scheduledDate && count.scheduledDate.toLowerCase().includes(query)) ||
+      (count.actualDate && count.actualDate.toLowerCase().includes(query)) ||
+      (count.performedBy && count.performedBy.toLowerCase().includes(query)) ||
+      count.assignedWorkers.some(w => w.toLowerCase().includes(query))
+    );
     const matchesStatus = statusFilter === "all" || count.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -243,14 +258,24 @@ export default function CycleCountsPage() {
         className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
       >
         <li>
-          <Link href={`/admin/cycle-counts/${count.id}`}>
+          <button
+            onClick={() => {
+              setSelectedCount(count);
+              setShowDetailModal(true);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">visibility</span>
             View Details
-          </Link>
+          </button>
         </li>
         {count.status === "scheduled" && (
           <li>
-            <button>
+            <button
+              onClick={() => {
+                setSelectedCount(count);
+                setShowEditModal(true);
+              }}
+            >
               <span className="material-symbols-outlined text-sm">edit</span>
               Edit Schedule
             </button>
@@ -274,7 +299,16 @@ export default function CycleCountsPage() {
         )}
         {count.status === "scheduled" && (
           <li>
-            <button className="text-error">
+            <button 
+              className="text-error"
+              onClick={() => {
+                if (confirm(`Are you sure you want to cancel cycle count ${count.countNumber}?`)) {
+                  // TODO: API call to cancel count
+                  console.log("Cancelling count:", count.id);
+                  alert("Cycle count cancelled successfully!");
+                }
+              }}
+            >
               <span className="material-symbols-outlined text-sm">cancel</span>
               Cancel Count
             </button>
@@ -388,6 +422,18 @@ export default function CycleCountsPage() {
           isOpen={showDetailModal}
           onClose={() => {
             setShowDetailModal(false);
+            setSelectedCount(null);
+          }}
+          count={selectedCount}
+        />
+      )}
+
+      {/* Edit Schedule Modal */}
+      {selectedCount && (
+        <EditScheduleModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
             setSelectedCount(null);
           }}
           count={selectedCount}
@@ -911,3 +957,94 @@ function CreateAdHocCountModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   );
 }
 
+
+// Edit Schedule Modal
+function EditScheduleModal({
+  isOpen,
+  onClose,
+  count,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  count: typeof cycleCounts[0];
+}) {
+  const [formData, setFormData] = useState({
+    scheduledDate: count.scheduledDate || "",
+    assignedWorkers: [...count.assignedWorkers],
+    notes: "",
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to update schedule
+    console.log("Updating schedule:", formData);
+    alert("Schedule updated successfully!");
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Edit Schedule: ${count.countNumber}`} size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Scheduled Date *</span>
+          </label>
+          <input
+            type="date"
+            className="input input-bordered w-full"
+            value={formData.scheduledDate}
+            onChange={(e) => setFormData({ ...formData, scheduledDate: e.target.value })}
+            required
+          />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Assigned Workers</span>
+          </label>
+          <div className="space-y-2">
+            {["John Doe", "Jane Smith", "Mike Johnson", "Sarah Lee"].map((worker) => (
+              <label key={worker} className="label cursor-pointer justify-start gap-3">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-primary"
+                  checked={formData.assignedWorkers.includes(worker)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setFormData({ ...formData, assignedWorkers: [...formData.assignedWorkers, worker] });
+                    } else {
+                      setFormData({
+                        ...formData,
+                        assignedWorkers: formData.assignedWorkers.filter((w) => w !== worker),
+                      });
+                    }
+                  }}
+                />
+                <span className="label-text">{worker}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Notes</span>
+          </label>
+          <textarea
+            className="textarea textarea-bordered w-full"
+            rows={3}
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            placeholder="Additional notes..."
+          />
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Update Schedule
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}

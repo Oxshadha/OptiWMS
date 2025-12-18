@@ -81,9 +81,18 @@ export default function InboundOrdersPage() {
   };
 
   const filteredOrders = inboundOrders.filter((order) => {
-    const matchesSearch =
-      order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch = !query || (
+      order.orderNumber.toLowerCase().includes(query) ||
+      order.supplierName.toLowerCase().includes(query) ||
+      order.warehouseName.toLowerCase().includes(query) ||
+      order.status.toLowerCase().includes(query) ||
+      order.orderDate.toLowerCase().includes(query) ||
+      order.expectedDelivery.toLowerCase().includes(query) ||
+      order.totalItems.toString().includes(query) ||
+      order.receivedItems.toString().includes(query) ||
+      order.id.toLowerCase().includes(query)
+    );
     const matchesStatus = statusFilter === "all" || order.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
