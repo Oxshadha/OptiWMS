@@ -68,8 +68,8 @@ export default function WorkerLoginPage() {
       // Small delay to ensure storage is written, then redirect
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // Redirect to worker home - the WorkerContext will load the data
-      router.push("/worker");
+      // Redirect to role-specific worker home - the WorkerContext will load the data
+      router.push(`/worker/${selectedRole}`);
       // Force a page reload to ensure WorkerContext reloads
       router.refresh();
     } catch (err) {

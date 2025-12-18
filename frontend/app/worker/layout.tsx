@@ -10,7 +10,12 @@ import { startAutoSync } from "@/lib/sync";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
-import { canAccessOperation, OPERATIONS } from "@/lib/worker-roles";
+import {
+  canAccessOperation,
+  OPERATIONS,
+  getRoleDisplayName,
+  isValidRole,
+} from "@/lib/worker-roles";
 import { WorkerProvider } from "@/contexts/WorkerContext";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -120,7 +125,13 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     },
   ];
 
-  const isHome = pathname === "/worker" || pathname === "/worker/";
+  // Check if we're on home page (either /worker or /worker/[role])
+  const isHome =
+    pathname === "/worker" ||
+    pathname === "/worker/" ||
+    (pathname.startsWith("/worker/") &&
+      pathname.split("/").length === 3 &&
+      isValidRole(pathname.split("/")[2]));
   const canGoBack = !isHome && pathname !== "/worker/login";
 
   // Route protection - check if worker has access to current operation
@@ -174,8 +185,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
       // Check if worker has permission for this operation
       if (!canAccessOperation(role, operation)) {
-        // Redirect to home with error message
-        router.push("/worker?error=unauthorized");
+        // Redirect to role-specific home with error message
+        const homeUrl = role
+          ? `/worker/${role}?error=unauthorized`
+          : "/worker?error=unauthorized";
+        router.push(homeUrl);
         return;
       }
     }
@@ -265,6 +279,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                 <p className="text-xs text-neutral-content/70">
                   Worker ID: {displayWorker.id}
                 </p>
+                {role && (
+                  <p className="text-xs text-primary font-medium mt-0.5">
+                    {getRoleDisplayName(role)}
+                  </p>
+                )}
               </div>
               <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center overflow-hidden">
                 <Image
@@ -294,6 +313,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     <div className="text-xs text-base-content">
                       Worker ID: {displayWorker.id}
                     </div>
+                    {role && (
+                      <div className="text-xs text-primary font-medium mt-1">
+                        {getRoleDisplayName(role)}
+                      </div>
+                    )}
                   </div>
                   <ul className="menu p-2">
                     <li>
@@ -383,7 +407,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       <nav className="bg-neutral border-t-2 border-primary/30 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
         <div className="flex items-center justify-around">
           <Link
-            href="/worker"
+            href={role ? `/worker/${role}` : "/worker"}
             className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
               isHome
                 ? "bg-primary/15"
