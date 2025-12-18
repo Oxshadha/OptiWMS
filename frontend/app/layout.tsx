@@ -5,6 +5,13 @@ export const metadata = {
   title: "OptiWMS",
   description: "Warehouse Management System",
   themeColor: "#CF0F47",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: "cover",
+  },
   icons: [
     { rel: "icon", url: "/favicon.ico" },
     { rel: "apple-touch-icon", url: "/icons/icon-192.png" },

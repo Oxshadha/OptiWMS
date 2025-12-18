@@ -4,22 +4,24 @@ import Link from "next/link";
 
 export default function WorkerHome() {
   const widgets = [
+    // Row 1: Receiving, Putaway
     {
       id: 1,
-      header: "CYCLE COUNT",
-      title: "Cycle Count",
-      subtitle: "Tap to open",
-      icon: "autorenew",
-      href: "/worker/cycle-count",
-    },
-    {
-      id: 2,
       header: "RECEIVING",
       title: "Receiving",
       subtitle: "Tap to open",
       icon: "input",
       href: "/worker/receiving",
     },
+    {
+      id: 2,
+      header: "PUTAWAY",
+      title: "Putaway",
+      subtitle: "Tap to open",
+      icon: "inventory_2",
+      href: "/worker/putaway",
+    },
+    // Row 2: Picking, Cycle Count
     {
       id: 3,
       header: "PICKING",
@@ -30,14 +32,32 @@ export default function WorkerHome() {
     },
     {
       id: 4,
-      header: "PUTAWAY",
-      title: "Putaway",
+      header: "CYCLE COUNT",
+      title: "Cycle Count",
       subtitle: "Tap to open",
-      icon: "inventory_2",
-      href: "/worker/putaway",
+      icon: "autorenew",
+      href: "/worker/cycle-count",
     },
+    // Row 3: Stock Transfer, Packing
     {
       id: 5,
+      header: "STOCK TRANSFER",
+      title: "Stock Transfer",
+      subtitle: "Tap to open",
+      icon: "swap_horiz",
+      href: "/worker/stock-transfer",
+    },
+    {
+      id: 6,
+      header: "PACKING",
+      title: "Packing",
+      subtitle: "Tap to open",
+      icon: "inventory",
+      href: "/worker/packing",
+    },
+    // Row 4: Shipment, Returns
+    {
+      id: 7,
       header: "SHIPMENTS",
       title: "Shipments",
       subtitle: "Tap to open",
@@ -45,7 +65,7 @@ export default function WorkerHome() {
       href: "/worker/shipments",
     },
     {
-      id: 6,
+      id: 8,
       header: "RETURNS",
       title: "Returns",
       subtitle: "Tap to open",
