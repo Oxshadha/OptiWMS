@@ -39,8 +39,8 @@ bin/
 build/
 target/
 
-# Warehouse folder (exclude completely)
-**/Warehouse*/
+# Warehouse folder (exclude completely) - be more specific to avoid matching "warehouses"
+**/Warehouse/
 **/*Carpet*/
 **/*Store*/
 
