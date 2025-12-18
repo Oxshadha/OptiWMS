@@ -2,51 +2,46 @@ package com.optiwms.domain.tasks;
 
 import com.optiwms.domain.common.BaseEntity;
 
+import java.time.LocalDateTime;
+import java.util.UUID;
+
 public class Task extends BaseEntity {
-    public enum TaskType {
-        PICK, PUTAWAY, COUNT, MOVE
-    }
+    private String taskNumber;
+    private String taskType;
+    private UUID warehouseId;
+    private UUID assignedTo;
+    private String priority;
+    private String status;
+    private LocalDateTime dueDate;
+    private LocalDateTime completedAt;
+    private String locationCode;
+    private String referenceType;
+    private UUID referenceId;
+    private String notes;
 
-    public enum TaskStatus {
-        PENDING, IN_PROGRESS, COMPLETED, EXCEPTION
-    }
-
-    private TaskType type;
-    private TaskStatus status;
-    private Long assigneeUserId;
-    private String reference;
-
-    public TaskType getType() {
-        return type;
-    }
-
-    public void setType(TaskType type) {
-        this.type = type;
-    }
-
-    public TaskStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(TaskStatus status) {
-        this.status = status;
-    }
-
-    public Long getAssigneeUserId() {
-        return assigneeUserId;
-    }
-
-    public void setAssigneeUserId(Long assigneeUserId) {
-        this.assigneeUserId = assigneeUserId;
-    }
-
-    public String getReference() {
-        return reference;
-    }
-
-    public void setReference(String reference) {
-        this.reference = reference;
-    }
+    // Getters and Setters
+    public String getTaskNumber() { return taskNumber; }
+    public void setTaskNumber(String taskNumber) { this.taskNumber = taskNumber; }
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
+    public UUID getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
+    public UUID getAssignedTo() { return assignedTo; }
+    public void setAssignedTo(UUID assignedTo) { this.assignedTo = assignedTo; }
+    public String getPriority() { return priority; }
+    public void setPriority(String priority) { this.priority = priority; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public LocalDateTime getDueDate() { return dueDate; }
+    public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
+    public LocalDateTime getCompletedAt() { return completedAt; }
+    public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
+    public String getLocationCode() { return locationCode; }
+    public void setLocationCode(String locationCode) { this.locationCode = locationCode; }
+    public String getReferenceType() { return referenceType; }
+    public void setReferenceType(String referenceType) { this.referenceType = referenceType; }
+    public UUID getReferenceId() { return referenceId; }
+    public void setReferenceId(UUID referenceId) { this.referenceId = referenceId; }
+    public String getNotes() { return notes; }
+    public void setNotes(String notes) { this.notes = notes; }
 }
-
-

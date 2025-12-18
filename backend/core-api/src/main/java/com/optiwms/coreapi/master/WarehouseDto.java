@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.master;
 
-public record WarehouseDto(Long id, String code, String name, String status) {
+import java.util.UUID;
+
+public record WarehouseDto(UUID id, String code, String name, String status) {
 }
 
 

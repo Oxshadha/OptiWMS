@@ -85,25 +85,44 @@ OptiWMS is a comprehensive Warehouse Management System designed to optimize ware
 
 ## Getting Started
 
-### Prerequisites
-- Node.js 18+ (for frontend)
-- Java 17+ (for backend)
-- PostgreSQL 14+ (for database)
-- Docker (optional, for containerized deployment)
+### Quick Start (5 minutes)
+See **[QUICK_START.md](./QUICK_START.md)** for the fastest way to get up and running.
 
-### Frontend Setup
+### Complete Setup Guide
+See **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** for detailed setup instructions, troubleshooting, and cross-platform compatibility.
+
+### Prerequisites
+- **Java**: JDK 21 or 25
+- **Node.js**: Version 20 or higher
+- **Docker Desktop**: For database (recommended)
+- **PostgreSQL**: Version 16 (optional if using Docker)
+- **Git**: For version control
+
+### Quick Setup Commands
+
+**1. Start Database:**
+```bash
+cd infra
+docker-compose up -d db
+```
+
+**2. Start Backend:**
+```bash
+cd backend
+./gradlew :core-api:bootRun
+```
+
+**3. Start Frontend:**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### Backend Setup
-```bash
-cd backend
-./gradlew build
-./gradlew bootRun
-```
+**Access:**
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8080/api
+- Health Check: http://localhost:8080/actuator/health
 
 ## Documentation
 

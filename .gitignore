@@ -66,6 +66,13 @@ Thumbs.db
 # Setup/Configuration files (local only)
 GIT_SETUP.md
 
-# Ignore all .md files except README.md
+# Ignore all .md files except README.md and essential guides
 *.md
 !README.md
+!SETUP_GUIDE.md
+!QUICK_START.md
+!GITHUB_PUSH_GUIDE.md
+!PRE_PUSH_CHECKLIST.md
+!FRONTEND_BACKEND_INTEGRATION.md
+!BACKEND_TEST_SUMMARY.md
+!BACKEND_STARTUP_VERIFICATION.md
