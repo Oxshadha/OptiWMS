@@ -99,15 +99,29 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
   }, []);
 
   return (
-    <div className="min-h-screen bg-base-200 flex flex-col safe-area-inset">
+    <div 
+      className="bg-base-200 flex flex-col safe-area-inset"
+      style={{ 
+        minHeight: "100vh",
+        height: "100vh",
+        maxHeight: "100vh",
+        overflow: "hidden"
+      }}
+    >
       <OfflineIndicator />
       {/* Header - Matching Sample UI */}
-      <header className="bg-neutral text-neutral-content px-4 py-4">
+      <header className="bg-neutral text-neutral-content px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-xl font-bold text-primary-content">O</span>
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0" style={{ backgroundColor: "#EEEEEE" }}>
+              <Image
+                src="/assets/logos/OptiWMS Logo.JPG"
+                alt="OptiWMS Logo"
+                width={48}
+                height={48}
+                className="object-contain w-full h-full"
+              />
             </div>
             <div>
               <h1 className="text-lg font-bold text-neutral-content">OptiWMS</h1>
@@ -220,53 +234,77 @@ export default function WorkerLayout({ children }: { children: React.ReactNode }
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content - With bottom padding for fixed nav */}
       <main 
         className="flex-1 overflow-y-auto" 
         style={{ 
           background: "oklch(98% 0 0)",
-          overflowY: (showNotifications || showCalendar) ? "hidden" : "auto"
+          overflowY: (showNotifications || showCalendar) ? "hidden" : "auto",
+          paddingBottom: "4.5rem" // Space for fixed bottom nav
         }}
       >
         {children}
       </main>
 
-      {/* Bottom Navigation - Only on home */}
-      {isHome && (
-        <nav className="bg-neutral border-t-2 border-primary/30 px-4 py-5 safe-area-bottom">
-          <div className="flex items-center justify-around">
-            <Link href="/worker" className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/15">
-              <span className="material-symbols-outlined text-primary text-2xl">home</span>
-              <span className="text-xs font-medium text-primary">Home</span>
-            </Link>
-            <button
-              onClick={() => setShowCalendar(!showCalendar)}
-              className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors"
-            >
-              <span className="material-symbols-outlined text-2xl">calendar_month</span>
-              <span className="text-xs font-medium">Calendar</span>
-            </button>
-            <Link href="/worker/tasks" className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors">
-              <span className="material-symbols-outlined text-2xl">task_alt</span>
-              <span className="text-xs font-medium">Tasks</span>
-            </Link>
-            <button
-              onClick={() => setShowNotifications(!showNotifications)}
-              className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors relative"
-            >
-              <span className="material-symbols-outlined text-2xl">notifications</span>
-              {notifications.filter(n => !n.read).length > 0 && (
-                <span className="absolute top-1 right-2 w-2 h-2 bg-primary rounded-full border-2 border-neutral"></span>
-              )}
-              <span className="text-xs font-medium">Updates</span>
-            </button>
-               <Link href="/worker/app-settings" className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors">
-                 <span className="material-symbols-outlined text-2xl">settings</span>
-                 <span className="text-xs font-medium">Settings</span>
-               </Link>
-          </div>
-        </nav>
-      )}
+      {/* Bottom Navigation - Always visible on mobile */}
+      <nav className="bg-neutral border-t-2 border-primary/30 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
+        <div className="flex items-center justify-around">
+          <Link 
+            href="/worker" 
+            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
+              isHome ? "bg-primary/15" : "text-neutral-content/50 hover:bg-white/5"
+            }`}
+          >
+            <span className={`material-symbols-outlined text-xl ${isHome ? "text-primary" : ""}`}>home</span>
+            <span className={`text-xs font-medium ${isHome ? "text-primary" : ""}`}>Home</span>
+          </Link>
+          <button
+            onClick={() => setShowCalendar(!showCalendar)}
+            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors"
+          >
+            <span className="material-symbols-outlined text-xl">calendar_month</span>
+            <span className="text-xs font-medium">Calendar</span>
+          </button>
+          <Link 
+            href="/worker/tasks" 
+            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
+              pathname === "/worker/tasks" ? "bg-primary/15" : "text-neutral-content/50 hover:bg-white/5"
+            }`}
+          >
+            <span className={`material-symbols-outlined text-xl ${pathname === "/worker/tasks" ? "text-primary" : ""}`}>task_alt</span>
+            <span className={`text-xs font-medium ${pathname === "/worker/tasks" ? "text-primary" : ""}`}>Tasks</span>
+          </Link>
+          <button
+            onClick={() => setShowNotifications(!showNotifications)}
+            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors relative"
+          >
+            <span className="material-symbols-outlined text-xl">notifications</span>
+            {notifications.filter(n => !n.read).length > 0 && (
+              <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border-2 border-neutral"></span>
+            )}
+            <span className="text-xs font-medium">Updates</span>
+          </button>
+          <Link 
+            href="/worker/app-settings" 
+            className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
+              pathname === "/worker/app-settings" || pathname === "/worker/settings" || pathname === "/worker/account-settings" 
+                ? "bg-primary/15" 
+                : "text-neutral-content/50 hover:bg-white/5"
+            }`}
+          >
+            <span className={`material-symbols-outlined text-xl ${
+              pathname === "/worker/app-settings" || pathname === "/worker/settings" || pathname === "/worker/account-settings" 
+                ? "text-primary" 
+                : ""
+            }`}>settings</span>
+            <span className={`text-xs font-medium ${
+              pathname === "/worker/app-settings" || pathname === "/worker/settings" || pathname === "/worker/account-settings" 
+                ? "text-primary" 
+                : ""
+            }`}>Settings</span>
+          </Link>
+        </div>
+      </nav>
 
       {/* Notifications Modal */}
       {showNotifications && (

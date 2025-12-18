@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
+import Image from "next/image";
 
 const navItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
@@ -25,6 +26,8 @@ const navItems = [
   { href: "/admin/workers", label: "Workers", icon: "group" },
   { href: "/admin/tasks", label: "Tasks", icon: "task" },
   { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
+  { href: "/admin/stock-transfers", label: "Stock Transfers", icon: "swap_horiz" },
+  { href: "/admin/packing", label: "Packing", icon: "inventory" },
   { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
   { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
   { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
@@ -50,10 +53,17 @@ export function Sidebar() {
 
   return (
     <aside className="hidden lg:flex flex-col w-64 bg-neutral text-neutral-content fixed h-screen">
-      <div className="p-6 border-b border-white/10">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-lg font-bold text-primary-content">O</span>
+      <div className="p-4 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1" style={{ backgroundColor: "#EEEEEE" }}>
+            <Image
+              src="/assets/logos/OptiWMS Logo.JPG"
+              alt="OptiWMS Logo"
+              width={56}
+              height={56}
+              className="object-contain w-full h-full"
+              style={{ objectFit: "contain" }}
+            />
           </div>
           <span className="text-xl font-bold">OptiWMS</span>
         </div>

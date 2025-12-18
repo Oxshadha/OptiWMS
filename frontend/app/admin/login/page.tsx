@@ -27,8 +27,14 @@ export default function LoginPage() {
       <div className="card bg-base-100 shadow-xl w-full max-w-md">
         <div className="card-body">
           <div className="flex items-center justify-center mb-6">
-            <div className="w-16 h-16 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-3xl font-bold text-primary-content">O</span>
+            <div className="w-16 h-16 rounded-lg flex items-center justify-center overflow-hidden" style={{ backgroundColor: "#EEEEEE" }}>
+              <Image
+                src="/assets/logos/OptiWMS Logo.JPG"
+                alt="OptiWMS Logo"
+                width={64}
+                height={64}
+                className="object-contain"
+              />
             </div>
             <span className="text-3xl font-bold ml-3">OptiWMS</span>
           </div>
