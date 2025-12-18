@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("application")
     id("org.springframework.boot") version "3.3.0"
     id("io.spring.dependency-management") version "1.1.5"
 }
@@ -50,6 +51,10 @@ subprojects {
 project(":core-api") {
     apply(plugin = "org.springframework.boot")
 
+    springBoot {
+        mainClass.set("com.optiwms.coreapi.OptiWmsApplication")
+    }
+
     dependencies {
         implementation(project(":core-app"))
         implementation(project(":core-domain"))
@@ -78,7 +83,9 @@ project(":infra") {
         implementation(project(":core-domain"))
         implementation("org.springframework.boot:spring-boot-starter-data-jpa")
         implementation("org.postgresql:postgresql:42.7.3")
-        implementation("org.flywaydb:flyway-core:10.16.0")
+        // Flyway version is managed by resolution strategy in subprojects
+        implementation("org.flywaydb:flyway-core")
+        implementation("org.flywaydb:flyway-database-postgresql")
     }
 }
 
