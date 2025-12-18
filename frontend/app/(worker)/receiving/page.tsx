@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { QRScanner } from "@/components/QRScanner";
 
 export default function ReceivingPage() {
   const [scannedValue, setScannedValue] = useState("");
   const [receivedQty, setReceivedQty] = useState(0);
+  const [showScanner, setShowScanner] = useState(false);
 
   const items = [
     {
@@ -16,8 +18,12 @@ export default function ReceivingPage() {
   ];
 
   const handleScan = () => {
-    // Handle barcode scanning
-    console.log("Scanning...");
+    setShowScanner(true);
+  };
+
+  const handleBarcodeScan = (result: string) => {
+    setScannedValue(result);
+    setShowScanner(false);
   };
 
   const handleConfirm = () => {
@@ -132,6 +138,15 @@ export default function ReceivingPage() {
           </button>
         </div>
       </div>
+
+      {/* QR Scanner */}
+      <QRScanner
+        isOpen={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={handleBarcodeScan}
+        title="Scan PO / ASN QR Code"
+        description="Point camera at PO or ASN QR code"
+      />
     </div>
   );
 }

@@ -28,6 +28,7 @@ const config: Config = {
           "base-200": "#F7F7F7",
           "base-300": "#EFEFEF",
           "base-content": "#1F2937",
+          "status-badge": "#EEEEEE",
           info: "#4AA8FF",
           success: "#39BE7D",
           warning: "#F4C542",
