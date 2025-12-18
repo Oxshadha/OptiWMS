@@ -3,6 +3,7 @@ version: "3.9"
 services:
   db:
     image: postgres:16
+    container_name: optiwms-db
     environment:
       POSTGRES_DB: optiwms
       POSTGRES_USER: optiwms
@@ -11,26 +12,77 @@ services:
       - "5434:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optiwms"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - optiwms-network
 
   backend:
     build:
       context: ../backend
+      dockerfile: Dockerfile
+    container_name: optiwms-backend
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/optiwms
+      SPRING_DATASOURCE_USERNAME: optiwms
+      SPRING_DATASOURCE_PASSWORD: optiwms
+      JAVA_OPTS: "-Xmx512m -Xms256m"
     ports:
       - "8080:8080"
+    volumes:
+      - ../backend:/app
+      - backend_build:/app/build
+    networks:
+      - optiwms-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   frontend:
     build:
       context: ../frontend
+      dockerfile: Dockerfile
+    container_name: optiwms-frontend
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8080/api
+      NODE_ENV: production
     ports:
       - "3000:3000"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - optiwms-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
-  db_data: {}
+  db_data:
+  backend_build:
+
+networks:
+  optiwms-network:
+    driver: bridge
 
 
