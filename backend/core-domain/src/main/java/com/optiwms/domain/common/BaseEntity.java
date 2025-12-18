@@ -1,17 +1,18 @@
 package com.optiwms.domain.common;
 
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 public abstract class BaseEntity {
-    private Long id;
+    private UUID id;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
 
-    public Long getId() {
+    public UUID getId() {
         return id;
     }
 
-    public void setId(Long id) {
+    public void setId(UUID id) {
         this.id = id;
     }
 
