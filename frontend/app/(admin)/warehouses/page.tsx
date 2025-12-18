@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import clsx from "clsx";
@@ -31,6 +31,13 @@ export default function WarehousesPage() {
   useEffect(() => {
     loadWarehouses();
   }, []);
+
+  // Auto-select first warehouse if none selected
+  useEffect(() => {
+    if (!selected && warehouses.length > 0) {
+      setSelected(warehouses[0]);
+    }
+  }, [warehouses, selected]);
 
   const loadWarehouses = async () => {
     try {
@@ -87,10 +94,6 @@ export default function WarehousesPage() {
         <button className="btn btn-sm" onClick={loadWarehouses}>Retry</button>
       </div>
     );
-  }
-
-  if (!selected && warehouses.length > 0) {
-    setSelected(warehouses[0]);
   }
 
   return (
@@ -150,162 +153,164 @@ export default function WarehousesPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 card bg-base-100 border border-base-300 p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-base-content">Section Overview ({sectionCards.length})</h3>
-            <div className="flex gap-3">
-              <button className="btn btn-sm btn-ghost text-error">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                <span>Add Request</span>
-              </button>
-              <button className="btn btn-sm btn-ghost">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                <span>Edit Section</span>
-              </button>
-              <button className="btn btn-sm btn-ghost text-error">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                <span>Delete Section</span>
-              </button>
+      {selected && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="xl:col-span-2 card bg-base-100 border border-base-300 p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-base-content">Section Overview ({sectionCards.length})</h3>
+              <div className="flex gap-3">
+                <button className="btn btn-sm btn-ghost text-error">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Add Request</span>
+                </button>
+                <button className="btn btn-sm btn-ghost">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  <span>Edit Section</span>
+                </button>
+                <button className="btn btn-sm btn-ghost text-error">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span>Delete Section</span>
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-4 gap-4">
+              {sectionCards.map((section, idx) => {
+                // Assign colors based on section index
+                const colorClasses = [
+                  "bg-success text-success-content", // A - Green
+                  "bg-warning text-warning-content", // B - Yellow
+                  "bg-info text-info-content", // C - Purple/Blue
+                  "bg-secondary text-secondary-content", // D - Pink
+                ];
+                const fillColor = colorClasses[idx % colorClasses.length] || "bg-primary text-primary-content";
+                
+                return (
+                  <div key={section.key} className="border border-base-300 rounded-xl p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="font-semibold text-base-content">{section.label}</span>
+                      <span className="text-sm text-base-content/60">
+                        {section.filledCount}/{section.slots.length}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {section.slots.map((slot, slotIdx) => {
+                        const isFilled = section.filledSet.has(slotIdx + 1);
+                        return (
+                          <div
+                            key={slot}
+                            className={clsx(
+                              "aspect-square rounded-lg text-sm font-medium flex items-center justify-center",
+                              isFilled ? fillColor : "bg-base-200 text-base-content/50"
+                            )}
+                          >
+                            {slot}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-4">
-            {sectionCards.map((section, idx) => {
-              // Assign colors based on section index
-              const colorClasses = [
-                "bg-success text-success-content", // A - Green
-                "bg-warning text-warning-content", // B - Yellow
-                "bg-info text-info-content", // C - Purple/Blue
-                "bg-secondary text-secondary-content", // D - Pink
-              ];
-              const fillColor = colorClasses[idx % colorClasses.length] || "bg-primary text-primary-content";
-              
-              return (
-                <div key={section.key} className="border border-base-300 rounded-xl p-4">
-                  <div className="flex justify-between items-center mb-3">
-                    <span className="font-semibold text-base-content">{section.label}</span>
-                    <span className="text-sm text-base-content/60">
-                      {section.filledCount}/{section.slots.length}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {section.slots.map((slot, slotIdx) => {
-                      const isFilled = section.filledSet.has(slotIdx + 1);
-                      return (
-                        <div
-                          key={slot}
-                          className={clsx(
-                            "aspect-square rounded-lg text-sm font-medium flex items-center justify-center",
-                            isFilled ? fillColor : "bg-base-200 text-base-content/50"
-                          )}
-                        >
-                          {slot}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
 
-        <div className="space-y-6">
-          <div className="card bg-base-100 border border-base-300 p-6">
-            <h3 className="text-lg font-bold text-base-content mb-4">Usage</h3>
-            <div className="flex justify-center mb-4">
-              <div className="relative w-32 h-32">
-                <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128">
-                  <circle
-                    cx="64"
-                    cy="64"
-                    r="56"
-                    stroke="currentColor"
-                    strokeWidth="12"
-                    fill="none"
-                    className="text-base-300"
-                  />
-                  <circle
-                    cx="64"
-                    cy="64"
-                    r="56"
-                    stroke="currentColor"
-                    strokeWidth="12"
-                    fill="none"
-                    className="text-primary"
-                    strokeDasharray={`${56} 352`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-base-content">56%</span>
+          <div className="space-y-6">
+            <div className="card bg-base-100 border border-base-300 p-6">
+              <h3 className="text-lg font-bold text-base-content mb-4">Usage</h3>
+              <div className="flex justify-center mb-4">
+                <div className="relative w-32 h-32">
+                  <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 128 128">
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="56"
+                      stroke="currentColor"
+                      strokeWidth="12"
+                      fill="none"
+                      className="text-base-300"
+                    />
+                    <circle
+                      cx="64"
+                      cy="64"
+                      r="56"
+                      stroke="currentColor"
+                      strokeWidth="12"
+                      fill="none"
+                      className="text-primary"
+                      strokeDasharray={`${56} 352`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-2xl font-bold text-base-content">56%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold text-base-content">240</div>
+                  <div className="text-sm text-base-content/60">Total Shelves</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-base-content">136</div>
+                  <div className="text-sm text-base-content/60">Empty Shelves</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-base-content">84</div>
+                  <div className="text-sm text-base-content/60">Full Shelves</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold text-base-content">20</div>
+                  <div className="text-sm text-base-content/60">Newly Added</div>
                 </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-base-content">240</div>
-                <div className="text-sm text-base-content/60">Total Shelves</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-base-content">136</div>
-                <div className="text-sm text-base-content/60">Empty Shelves</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-base-content">84</div>
-                <div className="text-sm text-base-content/60">Full Shelves</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-base-content">20</div>
-                <div className="text-sm text-base-content/60">Newly Added</div>
-              </div>
-            </div>
-          </div>
-          <div className="card bg-base-100 border border-base-300 p-6">
-            <h3 className="text-lg font-bold text-base-content mb-4">Inventory Overview</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center">
-                <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                <div className="text-xs text-success mb-1">26% ↑</div>
-                <div className="text-2xl font-bold text-base-content">4,236</div>
-                <div className="text-sm text-base-content/60">Orders Received</div>
-              </div>
-              <div className="text-center">
-                <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
-                <div className="text-xs text-error mb-1">20% ↓</div>
-                <div className="text-2xl font-bold text-base-content">2,778</div>
-                <div className="text-sm text-base-content/60">Orders Shipped</div>
-              </div>
-              <div className="text-center">
-                <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <div className="text-xs text-error mb-1">8% ↓</div>
-                <div className="text-2xl font-bold text-base-content">147</div>
-                <div className="text-sm text-base-content/60">Orders Returned</div>
-              </div>
-              <div className="text-center">
-                <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                <div className="text-xs text-success mb-1">6% ↑</div>
-                <div className="text-2xl font-bold text-base-content">537</div>
-                <div className="text-sm text-base-content/60">Orders Canceled</div>
+            <div className="card bg-base-100 border border-base-300 p-6">
+              <h3 className="text-lg font-bold text-base-content mb-4">Inventory Overview</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center">
+                  <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <div className="text-xs text-success mb-1">26% ↑</div>
+                  <div className="text-2xl font-bold text-base-content">4,236</div>
+                  <div className="text-sm text-base-content/60">Orders Received</div>
+                </div>
+                <div className="text-center">
+                  <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                  </svg>
+                  <div className="text-xs text-error mb-1">20% ↓</div>
+                  <div className="text-2xl font-bold text-base-content">2,778</div>
+                  <div className="text-sm text-base-content/60">Orders Shipped</div>
+                </div>
+                <div className="text-center">
+                  <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <div className="text-xs text-error mb-1">8% ↓</div>
+                  <div className="text-2xl font-bold text-base-content">147</div>
+                  <div className="text-sm text-base-content/60">Orders Returned</div>
+                </div>
+                <div className="text-center">
+                  <svg className="w-8 h-8 mx-auto mb-2 text-base-content/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <div className="text-xs text-success mb-1">6% ↑</div>
+                  <div className="text-2xl font-bold text-base-content">537</div>
+                  <div className="text-sm text-base-content/60">Orders Canceled</div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Create Warehouse Modal */}
       <CreateWarehouseModal
@@ -482,5 +487,3 @@ function CreateWarehouseModal({
     </Modal>
   );
 }
-
-
