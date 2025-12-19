@@ -1,11 +1,11 @@
 package com.optiwms.infra;
 
 import org.springframework.context.annotation.Configuration;
-import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @Configuration
-@EnableJpaRepositories(basePackages = "com.optiwms.infra")
 public class InfraConfig {
+    // JPA repositories are enabled in OptiWmsApplication
+    // This config class is for infrastructure-specific beans
 }
 
 

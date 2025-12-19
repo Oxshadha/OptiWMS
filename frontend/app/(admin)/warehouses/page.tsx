@@ -1,37 +1,18 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
-const warehouseList = [
-  {
-    id: 1,
-    name: "Warehouse 1",
-    city: "Colombo",
-    usage: 56,
-    sections: {
-      A: { label: "A-Electronics", slots: 12, filled: [1, 2, 5, 6, 7, 12] },
-      B: { label: "B-Appliances", slots: 12, filled: [1, 3, 7, 8, 9, 12] },
-      C: { label: "C-Home Decor", slots: 12, filled: [2, 3, 5, 6, 7, 12] },
-      D: { label: "D-Sports", slots: 12, filled: [1, 4, 5, 7, 10, 11] },
-    },
-  },
-  {
-    id: 2,
-    name: "Warehouse 2",
-    city: "Kandy",
-    usage: 68,
-    sections: {
-      A: { label: "A-Electronics", slots: 12, filled: [2, 3, 6, 9] },
-      B: { label: "B-Appliances", slots: 12, filled: [1, 2, 4, 8, 10] },
-      C: { label: "C-Home Decor", slots: 12, filled: [1, 4, 6, 7, 9, 11] },
-      D: { label: "D-Sports", slots: 12, filled: [2, 3, 5, 6, 8] },
-    },
-  },
-];
+// Mock sections data for visualization (will be replaced with inventory data later)
+const mockSections = {
+  A: { label: "A-Electronics", slots: 12, filled: [1, 2, 5, 6, 7, 12] },
+  B: { label: "B-Appliances", slots: 12, filled: [1, 3, 7, 8, 9, 12] },
+  C: { label: "C-Home Decor", slots: 12, filled: [2, 3, 5, 6, 7, 12] },
+  D: { label: "D-Sports", slots: 12, filled: [1, 4, 5, 7, 10, 11] },
+};
 
 const slotNumbers = Array.from({ length: 12 }, (_, i) => i + 1);
 const slotLabels: Record<string, string[]> = {
@@ -45,6 +26,36 @@ export default function WarehousesPage() {
   const { hasPermission } = useAdmin();
   const [selected, setSelected] = React.useState(warehouseList[0]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadWarehouses();
+  }, []);
+
+  // Auto-select first warehouse if none selected
+  useEffect(() => {
+    if (!selected && warehouses.length > 0) {
+      setSelected(warehouses[0]);
+    }
+  }, [warehouses, selected]);
+
+  const loadWarehouses = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await warehousesApi.getAll();
+      setWarehouses(data);
+      if (data.length > 0 && !selected) {
+        setSelected(data[0]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load warehouses");
+      console.error("Error loading warehouses:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const canCreate = hasPermission(ADMIN_ROUTES.WAREHOUSES, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WAREHOUSES, "edit");
@@ -60,6 +71,23 @@ export default function WarehousesPage() {
       filledCount: val.filled.length,
     };
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadWarehouses}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -105,12 +133,12 @@ export default function WarehousesPage() {
 
       <div className="flex items-center gap-4 mb-6">
         <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
-          {warehouseList.map((w) => (
+          {warehouses.map((w) => (
             <button
               key={w.id}
               className={clsx(
                 "px-6 py-2 rounded-lg text-sm transition-all",
-                w.id === selected.id
+                w.id === selected?.id
                   ? "bg-neutral text-neutral-content font-medium"
                   : "text-base-content/60 hover:text-base-content"
               )}
@@ -285,7 +313,6 @@ export default function WarehousesPage() {
               );
             })}
           </div>
-        </div>
 
         <div className="space-y-6">
           <div className="card bg-base-100 border border-base-300 p-6">
@@ -439,12 +466,13 @@ export default function WarehousesPage() {
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Create Warehouse Modal */}
       <CreateWarehouseModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onCreate={handleCreateWarehouse}
       />
     </div>
   );
@@ -459,29 +487,39 @@ function CreateWarehouseModal({
   onClose: () => void;
 }) {
   const [formData, setFormData] = useState({
+    code: "",
     name: "",
     city: "",
     address: "",
-    capacity: "",
-    managerName: "",
-    managerEmail: "",
-    managerPhone: "",
+    country: "Sri Lanka",
+    contactPerson: "",
+    email: "",
+    phone: "",
+    status: "active",
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create warehouse
-    console.log("Creating warehouse:", formData);
-    onClose();
-    setFormData({
-      name: "",
-      city: "",
-      address: "",
-      capacity: "",
-      managerName: "",
-      managerEmail: "",
-      managerPhone: "",
-    });
+    try {
+      setSubmitting(true);
+      await onCreate(formData);
+      setFormData({
+        code: "",
+        name: "",
+        city: "",
+        address: "",
+        country: "Sri Lanka",
+        contactPerson: "",
+        email: "",
+        phone: "",
+        status: "active",
+      });
+    } catch (err) {
+      // Error already handled in parent
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -493,6 +531,18 @@ function CreateWarehouseModal({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Warehouse Code *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.code}
+              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+              required
+            />
+          </div>
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Warehouse Name *</span>
@@ -507,6 +557,9 @@ function CreateWarehouseModal({
               required
             />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">City *</span>
@@ -519,6 +572,17 @@ function CreateWarehouseModal({
                 setFormData({ ...formData, city: e.target.value })
               }
               required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Country</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.country}
+              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
             />
           </div>
         </div>
@@ -555,7 +619,7 @@ function CreateWarehouseModal({
 
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Manager Name</span>
+            <span className="label-text font-medium">Contact Person</span>
           </label>
           <input
             type="text"
@@ -570,7 +634,7 @@ function CreateWarehouseModal({
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Manager Email</span>
+              <span className="label-text font-medium">Email</span>
             </label>
             <input
               type="email"
@@ -583,7 +647,7 @@ function CreateWarehouseModal({
           </div>
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Manager Phone</span>
+              <span className="label-text font-medium">Phone</span>
             </label>
             <input
               type="tel"
@@ -597,11 +661,11 @@ function CreateWarehouseModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Create Warehouse
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? <span className="loading loading-spinner"></span> : "Create Warehouse"}
           </button>
         </div>
       </form>
