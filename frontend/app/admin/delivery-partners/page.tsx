@@ -6,6 +6,8 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import React from "react";
 
 // Mock data - will be replaced with API calls
@@ -18,6 +20,7 @@ const deliveryPartners = [
     email: "robert@fastship.com",
     phone: "+1-555-0201",
     serviceAreas: ["New York", "New Jersey", "Connecticut"],
+    type: "local" as const,
     rating: 4.7,
     costPerDelivery: 15.50,
     status: "active",
@@ -30,6 +33,7 @@ const deliveryPartners = [
     email: "maria@globallog.com",
     phone: "+1-555-0202",
     serviceAreas: ["California", "Nevada", "Arizona"],
+    type: "local" as const,
     rating: 4.5,
     costPerDelivery: 18.00,
     status: "active",
@@ -37,29 +41,37 @@ const deliveryPartners = [
   {
     id: "partner-3",
     partnerCode: "DP-003",
-    companyName: "Quick Delivery Co",
+    companyName: "International Courier Services",
     contactPerson: "David Lee",
-    email: "david@quickdel.com",
+    email: "david@intlcourier.com",
     phone: "+1-555-0203",
-    serviceAreas: ["Texas", "Oklahoma"],
+    serviceAreas: ["International", "Cross-border"],
+    type: "foreign" as const,
     rating: 4.2,
-    costPerDelivery: 12.75,
+    costPerDelivery: 45.75,
     status: "active",
   },
 ];
 
 export default function DeliveryPartnersPage() {
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">("all");
+
+  const canCreate = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "delete");
 
   const summary = {
-    totalPartners: 12,
-    active: 11,
-    shipmentsToday: 45,
+    totalPartners: deliveryPartners.length,
+    active: deliveryPartners.filter((p) => p.status === "active").length,
+    local: deliveryPartners.filter((p) => p.type === "local").length,
+    foreign: deliveryPartners.filter((p) => p.type === "foreign").length,
   };
 
   const filteredPartners = deliveryPartners.filter((partner) => {
@@ -71,12 +83,14 @@ export default function DeliveryPartnersPage() {
       partner.contactPerson.toLowerCase().includes(query) ||
       partner.phone.toLowerCase().includes(query) ||
       partner.status.toLowerCase().includes(query) ||
+      partner.type.toLowerCase().includes(query) ||
       partner.rating.toString().includes(query) ||
       partner.costPerDelivery.toString().includes(query) ||
       partner.serviceAreas.some(area => area.toLowerCase().includes(query))
     );
     const matchesStatus = statusFilter === "all" || partner.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesType = typeFilter === "all" || partner.type === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const summaryCards = [
@@ -93,9 +107,15 @@ export default function DeliveryPartnersPage() {
       color: "success" as const,
     },
     {
-      label: "Shipments Today",
-      value: summary.shipmentsToday,
-      icon: "inventory_2",
+      label: "Local Partners",
+      value: summary.local,
+      icon: "location_on",
+      color: "success" as const,
+    },
+    {
+      label: "Foreign Partners",
+      value: summary.foreign,
+      icon: "public",
       color: "info" as const,
     },
   ];
@@ -137,6 +157,20 @@ export default function DeliveryPartnersPage() {
       key: "phone",
       label: "Phone",
       className: "text-base-content/70",
+    },
+    {
+      key: "type",
+      label: "Type",
+      render: (partner: typeof deliveryPartners[0]) => (
+        <span
+          className={`badge ${
+            partner.type === "local" ? "badge-success" : "badge-info"
+          }`}
+        >
+          {partner.type === "local" ? "Local" : "Foreign"}
+        </span>
+      ),
+      sortable: true,
     },
     {
       key: "serviceAreas",
@@ -204,17 +238,19 @@ export default function DeliveryPartnersPage() {
             View Details
           </button>
         </li>
-        <li>
-          <button
-            onClick={() => {
-              setSelectedPartner(partner);
-              setShowEditModal(true);
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">edit</span>
-            Edit Partner
-          </button>
-        </li>
+        {canEdit && (
+          <li>
+            <button
+              onClick={() => {
+                setSelectedPartner(partner);
+                setShowEditModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">edit</span>
+              Edit Partner
+            </button>
+          </li>
+        )}
         <li>
           <button
             onClick={() => {
@@ -238,21 +274,23 @@ export default function DeliveryPartnersPage() {
             Performance Metrics
           </button>
         </li>
-        <li>
-          <button 
-            className="text-error"
-            onClick={() => {
-              if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
-                // TODO: API call to delete partner
-                console.log("Deleting partner:", partner.id);
-                alert("Partner deleted successfully!");
-              }
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">delete</span>
-            Delete Partner
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button 
+              className="text-error"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
+                  // TODO: API call to delete partner
+                  console.log("Deleting partner:", partner.id);
+                  alert("Partner deleted successfully!");
+                }
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Partner
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -298,6 +336,9 @@ export default function DeliveryPartnersPage() {
               tabIndex={0}
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
+              <li className="menu-title">
+                <span>Status</span>
+              </li>
               <li>
                 <button onClick={() => setStatusFilter("all")}>All Status</button>
               </li>
@@ -307,15 +348,29 @@ export default function DeliveryPartnersPage() {
               <li>
                 <button onClick={() => setStatusFilter("inactive")}>Inactive</button>
               </li>
+              <li className="menu-title">
+                <span>Type</span>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("all")}>All Types</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("local")}>Local</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("foreign")}>Foreign</button>
+              </li>
             </ul>
           </div>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span>Add Delivery Partner</span>
-          </button>
+          {canCreate && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowCreateModal(true)}
+            >
+              <span className="material-symbols-outlined">add</span>
+              <span>Add Delivery Partner</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -411,6 +466,9 @@ function DeliveryPartnerDetailModal({
   onClose: () => void;
   partner: typeof deliveryPartners[0];
 }) {
+  const { hasPermission } = useAdmin();
+  const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
+  
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Delivery Partner: ${partner.companyName}`} size="lg">
       <div className="space-y-4">
@@ -430,6 +488,18 @@ function DeliveryPartnerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Phone</label>
             <p className="font-semibold">{partner.phone}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Type</label>
+            <p>
+              <span
+                className={`badge ${
+                  partner.type === "local" ? "badge-success" : "badge-info"
+                }`}
+              >
+                {partner.type === "local" ? "Local" : "Foreign"}
+              </span>
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Rating</label>
@@ -462,18 +532,20 @@ function DeliveryPartnerDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button 
-            className="btn btn-primary"
-            onClick={() => {
-              onClose();
-              // Trigger edit modal - will be handled by parent
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('editDeliveryPartner', { detail: partner }));
-              }
-            }}
-          >
-            Edit Partner
-          </button>
+          {canEdit && (
+            <button 
+              className="btn btn-primary"
+              onClick={() => {
+                onClose();
+                // Trigger edit modal - will be handled by parent
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('editDeliveryPartner', { detail: partner }));
+                }
+              }}
+            >
+              Edit Partner
+            </button>
+          )}
         </div>
       </div>
     </DetailModal>
@@ -496,6 +568,8 @@ function EditDeliveryPartnerModal({
     contactPerson: partner.contactPerson,
     email: partner.email,
     phone: partner.phone,
+    country: "", // Will be populated from partner data if available
+    type: partner.type,
     serviceAreas: [...partner.serviceAreas],
     costPerDelivery: partner.costPerDelivery.toString(),
     rating: partner.rating.toString(),
@@ -573,6 +647,51 @@ function EditDeliveryPartnerModal({
             value={formData.phone}
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           />
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Country *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.country}
+            onChange={(e) =>
+              setFormData({ ...formData, country: e.target.value })
+            }
+            required
+          >
+            <option value="">Select country...</option>
+            <option value="United States">United States</option>
+            <option value="United Kingdom">United Kingdom</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="Germany">Germany</option>
+            <option value="France">France</option>
+            <option value="China">China</option>
+            <option value="Japan">Japan</option>
+            <option value="India">India</option>
+            <option value="Sri Lanka">Sri Lanka</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Partner Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({ ...formData, type: e.target.value as "local" | "foreign" })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
         </div>
 
         <div className="form-control">
@@ -674,6 +793,8 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     email: "",
     phone: "",
     address: "",
+    country: "",
+    type: "" as "local" | "foreign" | "",
     serviceAreas: [] as string[],
     costPerDelivery: "",
     rating: "",
@@ -691,6 +812,8 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
       email: "",
       phone: "",
       address: "",
+      country: "",
+      type: "" as "local" | "foreign" | "",
       serviceAreas: [],
       costPerDelivery: "",
       rating: "",
@@ -762,6 +885,51 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
             value={formData.phone}
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
           />
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Country *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.country}
+            onChange={(e) =>
+              setFormData({ ...formData, country: e.target.value })
+            }
+            required
+          >
+            <option value="">Select country...</option>
+            <option value="United States">United States</option>
+            <option value="United Kingdom">United Kingdom</option>
+            <option value="Canada">Canada</option>
+            <option value="Australia">Australia</option>
+            <option value="Germany">Germany</option>
+            <option value="France">France</option>
+            <option value="China">China</option>
+            <option value="Japan">Japan</option>
+            <option value="India">India</option>
+            <option value="Sri Lanka">Sri Lanka</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Partner Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({ ...formData, type: e.target.value as "local" | "foreign" })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
         </div>
 
         <div className="form-control">

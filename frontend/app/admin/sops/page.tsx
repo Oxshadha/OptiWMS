@@ -986,8 +986,100 @@ function EditSOPModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Edit SOP" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Similar form fields as CreateSOPModal */}
-        {/* ... */}
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Title *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            required
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Category *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.category}
+              onChange={(e) => setFormData({ ...formData, category: e.target.value as SOPCategory })}
+              required
+            >
+              {Object.entries(SOP_CATEGORIES).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Version *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.version}
+              onChange={(e) => setFormData({ ...formData, version: e.target.value })}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Content *</span>
+            <span className="label-text-alt">Use markdown formatting for rich text</span>
+          </label>
+          <textarea
+            className="textarea textarea-bordered w-full font-mono"
+            rows={15}
+            value={formData.content}
+            onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+            placeholder="Enter SOP content. Use markdown for formatting:
+- Bullet points
+**Bold text**
+*Italic text*
+# Headers
+1. Numbered lists"
+            required
+          />
+          <div className="label">
+            <span className="label-text-alt">
+              Tip: Use markdown syntax for formatting. The content will be rendered with proper formatting when viewed.
+            </span>
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value as SOP["status"] })}
+            required
+          >
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Save Changes
+          </button>
+        </div>
       </form>
     </Modal>
   );

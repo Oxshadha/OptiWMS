@@ -305,7 +305,7 @@ export default function InboundOrdersPage() {
                             </li>
                           ) : null}
                           <li>
-                            <button>
+                            <button onClick={() => window.print()}>
                               <span className="material-symbols-outlined text-sm">print</span>
                               Print/Export
                             </button>
@@ -425,7 +425,7 @@ function InboundOrderDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
+          <button className="btn btn-primary" onClick={() => window.print()}>
             <span className="material-symbols-outlined">print</span>
             Print Order
           </button>

@@ -30,8 +30,8 @@ const allNavItems = [
   { href: "/admin/products", label: "Products", icon: "category" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
   {
-    href: "/admin/team",
-    label: "Team",
+    href: "/admin/staff",
+    label: "Staff",
     icon: "group",
     subItems: [
       { href: "/admin/workers", label: "Workers" },

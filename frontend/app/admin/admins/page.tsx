@@ -252,9 +252,14 @@ export default function AdminsPage() {
         </li>
         {canEdit && (
           <li>
-            <button>
+            <button
+              onClick={() => {
+                // TODO: Implement edit manager functionality
+                console.log("Edit manager:", admin.id);
+              }}
+            >
               <span className="material-symbols-outlined text-sm">edit</span>
-              Edit Admin
+              Edit Manager
             </button>
           </li>
         )}

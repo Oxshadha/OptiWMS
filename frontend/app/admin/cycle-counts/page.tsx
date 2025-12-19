@@ -6,6 +6,8 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const cycleCounts = [
@@ -76,22 +78,35 @@ const statusConfig = {
 };
 
 export default function CycleCountsPage() {
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
+  const canCreate = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "delete");
+  
+  // Filter cycle counts by warehouse for warehouse managers
+  const cycleCountsForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? cycleCounts.filter((cc) => cc.warehouseName === assignedWarehouseName)
+    : cycleCounts;
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAdHocModal, setShowAdHocModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedCount, setSelectedCount] = useState<typeof cycleCounts[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const summary = {
-    scheduledThisMonth: 8,
-    inProgress: 2,
-    completedThisWeek: 5,
-    discrepanciesFound: 15,
+    scheduledThisMonth: cycleCountsForWarehouse.filter((cc) => cc.status === "scheduled").length,
+    inProgress: cycleCountsForWarehouse.filter((cc) => cc.status === "in_progress").length,
+    completedThisWeek: cycleCountsForWarehouse.filter((cc) => cc.status === "completed").length,
+    discrepanciesFound: cycleCountsForWarehouse.reduce((sum, cc) => sum + cc.discrepanciesFound, 0),
   };
 
-  const filteredCounts = cycleCounts.filter((count) => {
+  const filteredCounts = cycleCountsForWarehouse.filter((count) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       count.countNumber.toLowerCase().includes(query) ||
@@ -268,7 +283,7 @@ export default function CycleCountsPage() {
             View Details
           </button>
         </li>
-        {count.status === "scheduled" && (
+        {count.status === "scheduled" && canEdit && (
           <li>
             <button
               onClick={() => {
@@ -289,24 +304,26 @@ export default function CycleCountsPage() {
             </button>
           </li>
         )}
-        {count.status === "completed" && count.discrepanciesFound > 0 && (
+        {count.status === "completed" && count.discrepanciesFound > 0 && canEdit && (
           <li>
-            <button>
+            <button
+              onClick={() => {
+                setSelectedCount(count);
+                setShowReviewModal(true);
+              }}
+            >
               <span className="material-symbols-outlined text-sm">warning</span>
               Review Discrepancies
             </button>
           </li>
         )}
-        {count.status === "scheduled" && (
+        {(count.status === "scheduled" || count.status === "in_progress") && canDelete && (
           <li>
-            <button 
+            <button
               className="text-error"
               onClick={() => {
-                if (confirm(`Are you sure you want to cancel cycle count ${count.countNumber}?`)) {
-                  // TODO: API call to cancel count
-                  console.log("Cancelling count:", count.id);
-                  alert("Cycle count cancelled successfully!");
-                }
+                setSelectedCount(count);
+                setShowCancelModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">cancel</span>
@@ -323,8 +340,20 @@ export default function CycleCountsPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Cycle Counts</h1>
-          <p className="text-sm text-base-content/60 mt-1">Schedule and manage inventory audits</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-base-content">Cycle Counts</h1>
+            {isWarehouseManager && assignedWarehouseName && (
+              <div className="badge badge-primary badge-lg">
+                <span className="material-symbols-outlined text-sm mr-1">warehouse</span>
+                {assignedWarehouseName}
+              </div>
+            )}
+          </div>
+          <p className="text-sm text-base-content/60 mt-1">
+            {isWarehouseManager && assignedWarehouseName
+              ? `Cycle counts for ${assignedWarehouseName}`
+              : "Schedule and manage inventory audits"}
+          </p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -359,29 +388,31 @@ export default function CycleCountsPage() {
               </li>
             </ul>
           </div>
-          <div className="dropdown dropdown-end">
-            <label tabIndex={0} className="btn btn-sm btn-primary">
-              <span className="material-symbols-outlined">add</span>
-              <span>Create Count</span>
-            </label>
-            <ul
-              tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-40 border border-base-300 z-10"
-            >
-              <li>
-                <button onClick={() => setShowScheduleModal(true)}>
-                  <span className="material-symbols-outlined text-sm">calendar_month</span>
-                  Schedule Count
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setShowAdHocModal(true)}>
-                  <span className="material-symbols-outlined text-sm">add_circle</span>
-                  Create Ad-Hoc
-                </button>
-              </li>
-            </ul>
-          </div>
+          {canCreate && (
+            <div className="dropdown dropdown-end">
+              <label tabIndex={0} className="btn btn-sm btn-primary">
+                <span className="material-symbols-outlined">add</span>
+                <span>Create Count</span>
+              </label>
+              <ul
+                tabIndex={0}
+                className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-40 border border-base-300 z-10"
+              >
+                <li>
+                  <button onClick={() => setShowScheduleModal(true)}>
+                    <span className="material-symbols-outlined text-sm">calendar_month</span>
+                    Schedule Count
+                  </button>
+                </li>
+                <li>
+                  <button onClick={() => setShowAdHocModal(true)}>
+                    <span className="material-symbols-outlined text-sm">add_circle</span>
+                    Create Ad-Hoc
+                  </button>
+                </li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
 
@@ -438,6 +469,169 @@ export default function CycleCountsPage() {
           }}
           count={selectedCount}
         />
+      )}
+
+      {/* Review Discrepancies Modal */}
+      {selectedCount && (
+        <Modal
+          isOpen={showReviewModal}
+          onClose={() => {
+            setShowReviewModal(false);
+            setSelectedCount(null);
+          }}
+          title={`Review Discrepancies: ${selectedCount.countNumber}`}
+          size="lg"
+        >
+          <div className="space-y-4">
+            <div className="alert alert-info">
+              <span className="material-symbols-outlined">info</span>
+              <span>
+                Found {selectedCount.discrepanciesFound} discrepancies in this cycle count.
+              </span>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Discrepancy Details</span>
+              </label>
+              <div className="overflow-x-auto">
+                <table className="table table-zebra w-full">
+                  <thead>
+                    <tr>
+                      <th>Location</th>
+                      <th>Expected</th>
+                      <th>Found</th>
+                      <th>Difference</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td className="font-mono">A-01-01</td>
+                      <td>50</td>
+                      <td>45</td>
+                      <td className="text-error">-5</td>
+                      <td>
+                        <select className="select select-bordered select-sm">
+                          <option>Adjust Inventory</option>
+                          <option>Investigate</option>
+                          <option>Ignore</option>
+                        </select>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Notes</span>
+              </label>
+              <textarea
+                className="textarea textarea-bordered w-full"
+                rows={3}
+                placeholder="Add notes about discrepancies..."
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setSelectedCount(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  // TODO: API call to review discrepancies
+                  console.log("Reviewing discrepancies:", selectedCount.id);
+                  // Show browser notification
+                  if ("Notification" in window) {
+                    Notification.requestPermission().then((permission) => {
+                      if (permission === "granted") {
+                        new Notification("Discrepancies Reviewed", {
+                          body: `Discrepancies for ${selectedCount.countNumber} have been reviewed`,
+                        });
+                      }
+                    });
+                  }
+                  alert("Discrepancies reviewed successfully!");
+                  setShowReviewModal(false);
+                  setSelectedCount(null);
+                }}
+              >
+                Review & Approve
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Cancel Count Modal */}
+      {selectedCount && (
+        <Modal
+          isOpen={showCancelModal}
+          onClose={() => {
+            setShowCancelModal(false);
+            setSelectedCount(null);
+          }}
+          title="Cancel Cycle Count"
+        >
+          <div className="space-y-4">
+            <div className="alert alert-warning">
+              <span className="material-symbols-outlined">warning</span>
+              <span>
+                Are you sure you want to cancel cycle count {selectedCount.countNumber}? This action cannot be undone.
+              </span>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Cancellation Reason *</span>
+              </label>
+              <textarea
+                className="textarea textarea-bordered w-full"
+                rows={3}
+                placeholder="Enter reason for cancellation"
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowCancelModal(false);
+                  setSelectedCount(null);
+                }}
+              >
+                Keep Count
+              </button>
+              <button
+                className="btn btn-error"
+                onClick={() => {
+                  // TODO: API call to cancel count
+                  console.log("Cancelling cycle count:", selectedCount.id);
+                  // Show browser notification
+                  if ("Notification" in window) {
+                    Notification.requestPermission().then((permission) => {
+                      if (permission === "granted") {
+                        new Notification("Cycle Count Cancelled", {
+                          body: `Cycle count ${selectedCount.countNumber} has been cancelled`,
+                        });
+                      }
+                    });
+                  }
+                  alert("Cycle count cancelled successfully!");
+                  setShowCancelModal(false);
+                  setSelectedCount(null);
+                }}
+              >
+                Cancel Count
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

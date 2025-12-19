@@ -1,5 +1,9 @@
 "use client";
 import { KpiTile } from "@/components/KpiTile";
+import { useAdmin } from "@/contexts/AdminContext";
+import { AIDashboardPanel } from "@/components/AIDashboardPanel";
+import { AIServiceStatus } from "@/components/AIServiceStatus";
+import { AI_SERVICES } from "@/lib/ai-services/registry";
 import {
   BarChart,
   Bar,
@@ -32,12 +36,27 @@ const summaryData = [
 const COLORS = ["#CF0F47", "#E5E7EB"];
 
 export default function DashboardPage() {
+  const { role, admin } = useAdmin();
+  const isWarehouseManager = role === 'warehouse_manager';
+  const isProcurementManager = role === 'procurement_manager';
+  const isAdmin = role === 'admin';
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-base-content">Dashboard</h1>
-        <p className="text-sm text-base-content/60 mt-1">Welcome back! Here's what's happening today.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-base-content">Dashboard</h1>
+          <p className="text-sm text-base-content/60 mt-1">
+            Welcome back{admin?.name ? `, ${admin.name}` : ''}! Here's what's happening today.
+          </p>
+        </div>
+        {/* AI Services Status Indicator */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-base-content/60">AI Services:</span>
+          <AIServiceStatus serviceId={AI_SERVICES.DEMAND_FORECASTING} size="sm" />
+          <AIServiceStatus serviceId={AI_SERVICES.ANOMALY_DETECTION} size="sm" />
+        </div>
       </div>
 
       {/* Main Stats Row */}
@@ -47,8 +66,8 @@ export default function DashboardPage() {
             <div className="text-sm text-base-content/70 font-medium">Orders This Month</div>
             <span className="material-symbols-outlined text-primary">inventory_2</span>
           </div>
-          <div className="text-4xl font-bold text-base-content mb-2">$6,357</div>
-          <div className="text-sm text-base-content/60">58% Prepaid • 42% CoD</div>
+          <div className="text-4xl font-bold text-base-content mb-2">156</div>
+          <div className="text-sm text-base-content/60">Orders processed this month</div>
           <div className="mt-4 pt-4 border-t border-base-200">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-success font-semibold">+12.5%</span>
@@ -105,7 +124,7 @@ export default function DashboardPage() {
               <div className="text-success font-semibold text-lg">42%</div>
             </div>
           </div>
-          <div className="text-center font-semibold text-lg mt-2">$5,961</div>
+          <div className="text-center font-semibold text-lg mt-2">156</div>
           <div className="text-center text-sm text-base-content/60">Orders Completed</div>
         </div>
       </div>
@@ -166,8 +185,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-bold text-base-content">$126</div>
-                <div className="text-xs text-base-content/60">240 sold</div>
+                <div className="font-bold text-base-content">240</div>
+                <div className="text-xs text-base-content/60">units sold</div>
               </div>
             </li>
             <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
@@ -181,8 +200,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-bold text-base-content">$170</div>
-                <div className="text-xs text-base-content/60">56 sold</div>
+                <div className="font-bold text-base-content">198</div>
+                <div className="text-xs text-base-content/60">units sold</div>
               </div>
             </li>
             <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
@@ -196,8 +215,8 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-bold text-base-content">$424</div>
-                <div className="text-xs text-base-content/60">18 sold</div>
+                <div className="font-bold text-base-content">156</div>
+                <div className="text-xs text-base-content/60">units sold</div>
               </div>
             </li>
             <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
@@ -211,60 +230,258 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div className="text-right">
-                <div className="font-bold text-base-content">$398</div>
-                <div className="text-xs text-base-content/60">90 sold</div>
+                <div className="font-bold text-base-content">142</div>
+                <div className="text-xs text-base-content/60">units sold</div>
               </div>
             </li>
           </ul>
         </div>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-2xl">add_circle</span>
-            </div>
-            <div>
-              <div className="font-semibold text-base-content">Create Order</div>
-              <div className="text-xs text-base-content/60">New sales order</div>
-            </div>
+      {/* AI Services Section - Role-Based Visibility */}
+      {(isWarehouseManager || isProcurementManager || isAdmin) && (
+        <div className="space-y-6">
+          <div className="divider">
+            <span className="text-lg font-semibold">AI Insights & Recommendations</span>
           </div>
-        </button>
-        <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-info/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-info text-2xl">inventory</span>
+
+          {/* Warehouse Manager AI Panels */}
+          {isWarehouseManager && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.OPTIMAL_STORAGE}
+                title="Optimal Storage Suggestions"
+                description="AI-recommended storage positions for incoming inventory"
+              >
+                <div className="text-sm text-base-content/60">
+                  Storage optimization suggestions will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.OPTIMAL_PICKING_PATH}
+                title="Picking Path Efficiency"
+                description="Optimized picking routes and efficiency metrics"
+              >
+                <div className="text-sm text-base-content/60">
+                  Picking path recommendations will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.DEMAND_FORECASTING}
+                title="Demand Forecast (View Only)"
+                description="Future demand predictions for capacity planning"
+              >
+                <div className="text-sm text-base-content/60">
+                  Demand forecasts will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.MIN_MAX_INVENTORY}
+                title="Inventory Levels (View Only)"
+                description="Suggested min-max inventory levels for space planning"
+              >
+                <div className="text-sm text-base-content/60">
+                  Inventory level suggestions will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
             </div>
-            <div>
-              <div className="font-semibold text-base-content">Add Inventory</div>
-              <div className="text-xs text-base-content/60">Stock addition</div>
+          )}
+
+          {/* Procurement Manager AI Panels */}
+          {isProcurementManager && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.PROCUREMENT_AGENT}
+                title="AI Procurement Recommendations"
+                description="Order worthiness analysis and procurement suggestions"
+              >
+                <div className="space-y-4">
+                  <div className="text-sm text-base-content/60">
+                    Procurement recommendations will appear here when the service is available.
+                  </div>
+                  <div className="alert alert-info">
+                    <span className="material-symbols-outlined">info</span>
+                    <span className="text-sm">
+                      The AI agent analyzes demand, inventory, storage capacity, and budget to suggest optimal orders.
+                    </span>
+                  </div>
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.DEMAND_FORECASTING}
+                title="Demand Forecasting"
+                description="90-day demand predictions with confidence intervals"
+              >
+                <div className="text-sm text-base-content/60">
+                  Demand forecasts will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.MIN_MAX_INVENTORY}
+                title="Optimal Min-Max Inventory"
+                description="Review and approve suggested inventory levels"
+              >
+                <div className="text-sm text-base-content/60">
+                  Min-max inventory suggestions will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.ANOMALY_DETECTION}
+                title="Supplier Anomalies"
+                description="Price spikes, late deliveries, and quality issues"
+              >
+                <div className="text-sm text-base-content/60">
+                  Supplier anomaly alerts will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
             </div>
-          </div>
-        </button>
-        <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-success text-2xl">local_shipping</span>
+          )}
+
+          {/* Admin AI Panels - All Services */}
+          {isAdmin && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.DEMAND_FORECASTING}
+                title="Demand Forecasting Service"
+                description="Configure model parameters and view forecasts"
+              >
+                <div className="text-sm text-base-content/60">
+                  Service configuration and metrics will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.ANOMALY_DETECTION}
+                title="Anomaly Detection Service"
+                description="System performance anomalies and service health"
+              >
+                <div className="text-sm text-base-content/60">
+                  System anomaly alerts will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.MIN_MAX_INVENTORY}
+                title="Min-Max Inventory Service"
+                description="Service configuration and performance metrics"
+              >
+                <div className="text-sm text-base-content/60">
+                  Service metrics will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
+
+              <AIDashboardPanel
+                serviceId={AI_SERVICES.OPTIMAL_STORAGE}
+                title="Optimal Storage Service"
+                description="Slotting rules and algorithm configuration"
+              >
+                <div className="text-sm text-base-content/60">
+                  Service configuration will appear here when the service is available.
+                </div>
+              </AIDashboardPanel>
             </div>
-            <div>
-              <div className="font-semibold text-base-content">New Shipment</div>
-              <div className="text-xs text-base-content/60">Create shipment</div>
+          )}
+        </div>
+      )}
+
+      {/* Quick Actions - Role-Based */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-bold text-base-content">Quick Actions</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {(isWarehouseManager || isAdmin) && (
+            <>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary text-2xl">add_circle</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">Create Order</div>
+                    <div className="text-xs text-base-content/60">New sales order</div>
+                  </div>
+                </div>
+              </button>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-info/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-info text-2xl">inventory</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">Add Inventory</div>
+                    <div className="text-xs text-base-content/60">Stock addition</div>
+                  </div>
+                </div>
+              </button>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-success text-2xl">local_shipping</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">New Shipment</div>
+                    <div className="text-xs text-base-content/60">Create shipment</div>
+                  </div>
+                </div>
+              </button>
+            </>
+          )}
+          
+          {isProcurementManager && (
+            <>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-primary text-2xl">shopping_cart</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">Create PO</div>
+                    <div className="text-xs text-base-content/60">New purchase order</div>
+                  </div>
+                </div>
+              </button>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-info/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-info text-2xl">inventory_2</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">Review Inventory</div>
+                    <div className="text-xs text-base-content/60">Check levels</div>
+                  </div>
+                </div>
+              </button>
+              <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
+                    <span className="material-symbols-outlined text-success text-2xl">business</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-base-content">Manage Suppliers</div>
+                    <div className="text-xs text-base-content/60">View suppliers</div>
+                  </div>
+                </div>
+              </button>
+            </>
+          )}
+
+          <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
+                <span className="material-symbols-outlined text-warning text-2xl">description</span>
+              </div>
+              <div>
+                <div className="font-semibold text-base-content">Generate Report</div>
+                <div className="text-xs text-base-content/60">View reports</div>
+              </div>
             </div>
-          </div>
-        </button>
-        <button className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors text-left">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-warning/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-warning text-2xl">description</span>
-            </div>
-            <div>
-              <div className="font-semibold text-base-content">Generate Report</div>
-              <div className="text-xs text-base-content/60">View reports</div>
-            </div>
-          </div>
-        </button>
+          </button>
+        </div>
       </div>
     </div>
   );
