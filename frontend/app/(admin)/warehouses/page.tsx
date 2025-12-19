@@ -3,6 +3,8 @@
 import React, { useState } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 const warehouseList = [
   {
@@ -40,8 +42,13 @@ const slotLabels: Record<string, string[]> = {
 };
 
 export default function WarehousesPage() {
+  const { hasPermission } = useAdmin();
   const [selected, setSelected] = React.useState(warehouseList[0]);
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  const canCreate = hasPermission(ADMIN_ROUTES.WAREHOUSES, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.WAREHOUSES, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.WAREHOUSES, "delete");
 
   const sectionCards = Object.entries(selected.sections).map(([key, val]) => {
     const typedKey = key as keyof typeof slotLabels;
@@ -143,24 +150,26 @@ export default function WarehousesPage() {
             />
           </svg>
         </button>
-        <button
-          className="btn btn-sm bg-neutral text-neutral-content btn-circle"
-          onClick={() => setShowCreateModal(true)}
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {canCreate && (
+          <button
+            className="btn btn-sm bg-neutral text-neutral-content btn-circle"
+            onClick={() => setShowCreateModal(true)}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-        </button>
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -169,56 +178,64 @@ export default function WarehousesPage() {
             <h3 className="text-xl font-bold text-base-content">
               Section Overview ({sectionCards.length})
             </h3>
-            <div className="flex gap-3">
-              <button className="btn btn-sm btn-ghost text-error">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                <span>Add Request</span>
-              </button>
-              <button className="btn btn-sm btn-ghost">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                  />
-                </svg>
-                <span>Edit Section</span>
-              </button>
-              <button className="btn btn-sm btn-ghost text-error">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                  />
-                </svg>
-                <span>Delete Section</span>
-              </button>
-            </div>
+            {(canEdit || canDelete) && (
+              <div className="flex gap-3">
+                {canEdit && (
+                  <>
+                    <button className="btn btn-sm btn-ghost text-error">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                      <span>Add Request</span>
+                    </button>
+                    <button className="btn btn-sm btn-ghost">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                        />
+                      </svg>
+                      <span>Edit Section</span>
+                    </button>
+                  </>
+                )}
+                {canDelete && (
+                  <button className="btn btn-sm btn-ghost text-error">
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                    <span>Delete Section</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-4 gap-4">
             {sectionCards.map((section, idx) => {

@@ -1,8 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const { canAccessRoute, isLoading } = useAdmin();
+
+  // Redirect warehouse_manager away from settings
+  useEffect(() => {
+    if (!isLoading && !canAccessRoute(ADMIN_ROUTES.SETTINGS)) {
+      router.push("/admin/dashboard?error=unauthorized");
+    }
+  }, [isLoading, canAccessRoute, router]);
+
+  // Show loading while checking
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  // Don't render if no access (will redirect)
+  if (!canAccessRoute(ADMIN_ROUTES.SETTINGS)) {
+    return null;
+  }
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);

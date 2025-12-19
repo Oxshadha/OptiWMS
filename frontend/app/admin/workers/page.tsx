@@ -7,8 +7,14 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
-import { statusConfig } from "./page";
-import { WorkerRole, getAllWorkerRoles, ROLE_DISPLAY_NAMES, getRoleDisplayName } from "@/lib/worker-roles";
+import {
+  WorkerRole,
+  getAllWorkerRoles,
+  ROLE_DISPLAY_NAMES,
+  getRoleDisplayName,
+} from "@/lib/worker-roles";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const workers = [
@@ -66,11 +72,18 @@ const statusConfig = {
 };
 
 export default function WorkersPage() {
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState<typeof workers[0] | null>(null);
+  const [selectedWorker, setSelectedWorker] = useState<
+    (typeof workers)[0] | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.WORKERS, "delete");
 
   const summary = {
     totalWorkers: 24,
@@ -81,7 +94,8 @@ export default function WorkersPage() {
 
   const filteredWorkers = workers.filter((worker) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
+    const matchesSearch =
+      !query ||
       worker.name.toLowerCase().includes(query) ||
       worker.workerId.toLowerCase().includes(query) ||
       worker.warehouseName.toLowerCase().includes(query) ||
@@ -91,9 +105,9 @@ export default function WorkersPage() {
       worker.tasksToday.toString().includes(query) ||
       worker.totalTasksCompleted.toString().includes(query) ||
       worker.avgTaskTime.toString().includes(query) ||
-      worker.lastActive.toLowerCase().includes(query)
-    );
-    const matchesStatus = statusFilter === "all" || worker.availabilityStatus === statusFilter;
+      worker.lastActive.toLowerCase().includes(query);
+    const matchesStatus =
+      statusFilter === "all" || worker.availabilityStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -128,7 +142,7 @@ export default function WorkersPage() {
     {
       key: "workerId",
       label: "Worker ID",
-      render: (worker: typeof workers[0]) => (
+      render: (worker: (typeof workers)[0]) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
             <Image
@@ -147,7 +161,7 @@ export default function WorkersPage() {
     {
       key: "name",
       label: "Name",
-      render: (worker: typeof workers[0]) => (
+      render: (worker: (typeof workers)[0]) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -169,17 +183,23 @@ export default function WorkersPage() {
     {
       key: "role",
       label: "Role",
-      render: (worker: typeof workers[0]) => {
-        if (!worker.role) return <span className="text-base-content/50">-</span>;
-        return <span className="badge badge-outline">{getRoleDisplayName(worker.role)}</span>;
+      render: (worker: (typeof workers)[0]) => {
+        if (!worker.role)
+          return <span className="text-base-content/50">-</span>;
+        return (
+          <span className="badge badge-outline">
+            {getRoleDisplayName(worker.role)}
+          </span>
+        );
       },
       sortable: true,
     },
     {
       key: "availabilityStatus",
       label: "Status",
-      render: (worker: typeof workers[0]) => {
-        const status = statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
+      render: (worker: (typeof workers)[0]) => {
+        const status =
+          statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
       sortable: true,
@@ -187,7 +207,8 @@ export default function WorkersPage() {
     {
       key: "shift",
       label: "Shift",
-      render: (worker: typeof workers[0]) => `${worker.shiftStart} - ${worker.shiftEnd}`,
+      render: (worker: (typeof workers)[0]) =>
+        `${worker.shiftStart} - ${worker.shiftEnd}`,
     },
     {
       key: "tasksToday",
@@ -202,7 +223,7 @@ export default function WorkersPage() {
     {
       key: "avgTaskTime",
       label: "Avg Time (min)",
-      render: (worker: typeof workers[0]) => `${worker.avgTaskTime} min`,
+      render: (worker: (typeof workers)[0]) => `${worker.avgTaskTime} min`,
       sortable: true,
     },
     {
@@ -212,7 +233,7 @@ export default function WorkersPage() {
     },
   ];
 
-  const renderActions = (worker: typeof workers[0]) => (
+  const renderActions = (worker: (typeof workers)[0]) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -223,16 +244,20 @@ export default function WorkersPage() {
       >
         <li>
           <Link href={`/admin/workers/${worker.id}`}>
-            <span className="material-symbols-outlined text-sm">visibility</span>
+            <span className="material-symbols-outlined text-sm">
+              visibility
+            </span>
             View Details
           </Link>
         </li>
-        <li>
-          <button>
-            <span className="material-symbols-outlined text-sm">edit</span>
-            Edit Worker
-          </button>
-        </li>
+        {canEdit && (
+          <li>
+            <button>
+              <span className="material-symbols-outlined text-sm">edit</span>
+              Edit Worker
+            </button>
+          </li>
+        )}
         <li>
           <button>
             <span className="material-symbols-outlined text-sm">task</span>
@@ -245,12 +270,16 @@ export default function WorkersPage() {
             Performance
           </button>
         </li>
-        <li>
-          <button className="text-error">
-            <span className="material-symbols-outlined text-sm">person_remove</span>
-            Deactivate
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button className="text-error">
+              <span className="material-symbols-outlined text-sm">
+                person_remove
+              </span>
+              Deactivate
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -261,7 +290,9 @@ export default function WorkersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Workers</h1>
-          <p className="text-sm text-base-content/60 mt-1">Manage warehouse workers and their performance</p>
+          <p className="text-sm text-base-content/60 mt-1">
+            Manage warehouse workers and their performance
+          </p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -283,26 +314,34 @@ export default function WorkersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => setStatusFilter("all")}>
+                  All Status
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("available")}>Available</button>
+                <button onClick={() => setStatusFilter("available")}>
+                  Available
+                </button>
               </li>
               <li>
                 <button onClick={() => setStatusFilter("busy")}>Busy</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("offline")}>Offline</button>
+                <button onClick={() => setStatusFilter("offline")}>
+                  Offline
+                </button>
               </li>
             </ul>
           </div>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span>Add Worker</span>
-          </button>
+          {canCreate && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowCreateModal(true)}
+            >
+              <span className="material-symbols-outlined">add</span>
+              <span>Add Worker</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -351,10 +390,15 @@ function WorkerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  worker: typeof workers[0];
+  worker: (typeof workers)[0];
 }) {
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Worker: ${worker.name}`} size="lg">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Worker: ${worker.name}`}
+      size="lg"
+    >
       <div className="space-y-4">
         <div className="flex items-center gap-4 mb-4">
           <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
@@ -368,7 +412,9 @@ function WorkerDetailModal({
           </div>
           <div>
             <h3 className="text-xl font-bold">{worker.name}</h3>
-            <p className="text-sm text-base-content/60">Worker ID: {worker.workerId}</p>
+            <p className="text-sm text-base-content/60">
+              Worker ID: {worker.workerId}
+            </p>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -379,25 +425,41 @@ function WorkerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusConfig[worker.availabilityStatus as keyof typeof statusConfig].class}`}>
-                {statusConfig[worker.availabilityStatus as keyof typeof statusConfig].label}
+              <span
+                className={`badge ${
+                  statusConfig[
+                    worker.availabilityStatus as keyof typeof statusConfig
+                  ].class
+                }`}
+              >
+                {
+                  statusConfig[
+                    worker.availabilityStatus as keyof typeof statusConfig
+                  ].label
+                }
               </span>
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Shift</label>
-            <p className="font-semibold">{worker.shiftStart} - {worker.shiftEnd}</p>
+            <p className="font-semibold">
+              {worker.shiftStart} - {worker.shiftEnd}
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Tasks Today</label>
             <p className="font-semibold">{worker.tasksToday}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Total Tasks Completed</label>
+            <label className="text-sm text-base-content/60">
+              Total Tasks Completed
+            </label>
             <p className="font-semibold">{worker.totalTasksCompleted}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Average Task Time</label>
+            <label className="text-sm text-base-content/60">
+              Average Task Time
+            </label>
             <p className="font-semibold">{worker.avgTaskTime} min</p>
           </div>
           <div>
@@ -408,7 +470,9 @@ function WorkerDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Role</label>
               <p>
-                <span className="badge badge-primary">{getRoleDisplayName(worker.role)}</span>
+                <span className="badge badge-primary">
+                  {getRoleDisplayName(worker.role)}
+                </span>
               </p>
             </div>
           )}
@@ -417,9 +481,7 @@ function WorkerDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
-            Edit Worker
-          </button>
+          <button className="btn btn-primary">Edit Worker</button>
         </div>
       </div>
     </DetailModal>
@@ -427,7 +489,13 @@ function WorkerDetailModal({
 }
 
 // Create Worker Modal
-function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function CreateWorkerModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -474,7 +542,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="text"
               className="input input-bordered w-full"
               value={formData.firstName}
-              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, firstName: e.target.value })
+              }
               required
             />
           </div>
@@ -486,7 +556,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="text"
               className="input input-bordered w-full"
               value={formData.lastName}
-              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, lastName: e.target.value })
+              }
               required
             />
           </div>
@@ -501,7 +573,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="email"
               className="input input-bordered w-full"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, email: e.target.value })
+              }
               required
             />
           </div>
@@ -513,7 +587,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="tel"
               className="input input-bordered w-full"
               value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, phone: e.target.value })
+              }
             />
           </div>
         </div>
@@ -527,7 +603,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="text"
               className="input input-bordered w-full"
               value={formData.workerId}
-              onChange={(e) => setFormData({ ...formData, workerId: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, workerId: e.target.value })
+              }
               required
             />
           </div>
@@ -538,7 +616,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
             <select
               className="select select-bordered w-full"
               value={formData.warehouseId}
-              onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, warehouseId: e.target.value })
+              }
               required
             >
               <option value="">Select warehouse</option>
@@ -557,7 +637,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="time"
               className="input input-bordered w-full"
               value={formData.shiftStart}
-              onChange={(e) => setFormData({ ...formData, shiftStart: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, shiftStart: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -568,7 +650,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
               type="time"
               className="input input-bordered w-full"
               value={formData.shiftEnd}
-              onChange={(e) => setFormData({ ...formData, shiftEnd: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, shiftEnd: e.target.value })
+              }
             />
           </div>
         </div>
@@ -580,7 +664,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
           <select
             className="select select-bordered w-full"
             value={formData.role}
-            onChange={(e) => setFormData({ ...formData, role: e.target.value as WorkerRole })}
+            onChange={(e) =>
+              setFormData({ ...formData, role: e.target.value as WorkerRole })
+            }
             required
           >
             <option value="">Select role</option>
@@ -600,7 +686,9 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
             type="password"
             className="input input-bordered w-full"
             value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, password: e.target.value })
+            }
             required
           />
         </div>
@@ -632,4 +720,3 @@ function CreateWorkerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =
     </Modal>
   );
 }
-
