@@ -6,70 +6,77 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { deliveryPartnersApi, DeliveryPartner } from "@/lib/api/deliveryPartners";
+import { shipmentsApi } from "@/lib/api/shipments";
 import React from "react";
 
-// Mock data - will be replaced with API calls
-const deliveryPartners = [
-  {
-    id: "partner-1",
-    partnerCode: "DP-001",
-    companyName: "FastShip Express",
-    contactPerson: "Robert Brown",
-    email: "robert@fastship.com",
-    phone: "+1-555-0201",
-    serviceAreas: ["New York", "New Jersey", "Connecticut"],
-    rating: 4.7,
-    costPerDelivery: 15.50,
-    status: "active",
-  },
-  {
-    id: "partner-2",
-    partnerCode: "DP-002",
-    companyName: "Global Logistics",
-    contactPerson: "Maria Garcia",
-    email: "maria@globallog.com",
-    phone: "+1-555-0202",
-    serviceAreas: ["California", "Nevada", "Arizona"],
-    rating: 4.5,
-    costPerDelivery: 18.00,
-    status: "active",
-  },
-  {
-    id: "partner-3",
-    partnerCode: "DP-003",
-    companyName: "Quick Delivery Co",
-    contactPerson: "David Lee",
-    email: "david@quickdel.com",
-    phone: "+1-555-0203",
-    serviceAreas: ["Texas", "Oklahoma"],
-    rating: 4.2,
-    costPerDelivery: 12.75,
-    status: "active",
-  },
-];
+// Frontend display type
+interface DisplayPartner extends Omit<DeliveryPartner, 'serviceAreas' | 'rating' | 'costPerDelivery'> {
+  serviceAreas: string[]; // Parsed from JSON string
+  rating: number; // Parsed from string
+  costPerDelivery: number; // Parsed from string
+}
 
 export default function DeliveryPartnersPage() {
+  const [partners, setPartners] = useState<DisplayPartner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [shipments, setShipments] = useState<any[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<DisplayPartner | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const summary = {
-    totalPartners: 12,
-    active: 11,
-    shipmentsToday: 45,
+  // Load data from API
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [partnersData, shipmentsData] = await Promise.all([
+        deliveryPartnersApi.getAll(),
+        shipmentsApi.getAll(),
+      ]);
+      
+      // Transform partners for display
+      const displayPartners: DisplayPartner[] = partnersData.map(p => ({
+        ...p,
+        serviceAreas: p.serviceAreas ? JSON.parse(p.serviceAreas) : [],
+        rating: p.rating ? parseFloat(p.rating) : 0,
+        costPerDelivery: p.costPerDelivery ? parseFloat(p.costPerDelivery) : 0,
+      }));
+      
+      setPartners(displayPartners);
+      setShipments(shipmentsData);
+    } catch (err) {
+      console.error("Error loading delivery partners:", err);
+      setPartners([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filteredPartners = deliveryPartners.filter((partner) => {
+  // Calculate summary from actual data
+  const summary = {
+    totalPartners: partners.length,
+    active: partners.filter(p => p.status === "active").length,
+    shipmentsToday: shipments.filter(s => {
+      const today = new Date().toISOString().split('T')[0];
+      return s.shippedAt && s.shippedAt.startsWith(today);
+    }).length,
+  };
+
+  const filteredPartners = partners.filter((partner) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       partner.companyName.toLowerCase().includes(query) ||
       partner.partnerCode.toLowerCase().includes(query) ||
-      partner.email.toLowerCase().includes(query) ||
-      partner.contactPerson.toLowerCase().includes(query) ||
-      partner.phone.toLowerCase().includes(query) ||
+      (partner.email?.toLowerCase().includes(query)) ||
+      (partner.contactPerson?.toLowerCase().includes(query)) ||
+      (partner.phone?.toLowerCase().includes(query)) ||
       partner.status.toLowerCase().includes(query) ||
       partner.rating.toString().includes(query) ||
       partner.costPerDelivery.toString().includes(query) ||
@@ -100,6 +107,44 @@ export default function DeliveryPartnersPage() {
     },
   ];
 
+  const handleCreatePartner = async (partnerData: any) => {
+    try {
+      await deliveryPartnersApi.create({
+        ...partnerData,
+        serviceAreas: JSON.stringify(partnerData.serviceAreas || []),
+      });
+      await loadData();
+      setShowCreateModal(false);
+    } catch (err) {
+      console.error("Error creating delivery partner:", err);
+      alert("Error creating delivery partner. Please try again.");
+    }
+  };
+
+  const handleUpdatePartner = async (id: string, partnerData: any) => {
+    try {
+      await deliveryPartnersApi.update(id, {
+        ...partnerData,
+        serviceAreas: JSON.stringify(partnerData.serviceAreas || []),
+      });
+      await loadData();
+      setShowEditModal(false);
+    } catch (err) {
+      console.error("Error updating delivery partner:", err);
+      alert("Error updating delivery partner. Please try again.");
+    }
+  };
+
+  const handleDeletePartner = async (id: string) => {
+    try {
+      await deliveryPartnersApi.delete(id);
+      await loadData();
+    } catch (err) {
+      console.error("Error deleting delivery partner:", err);
+      alert("Error deleting delivery partner. Please try again.");
+    }
+  };
+
   const columns = [
     {
       key: "partnerCode",
@@ -109,7 +154,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "companyName",
       label: "Company Name",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DisplayPartner) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -141,7 +186,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "serviceAreas",
       label: "Service Areas",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DisplayPartner) => (
         <div className="flex flex-wrap gap-1">
           {partner.serviceAreas.slice(0, 2).map((area, idx) => (
             <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">
@@ -159,7 +204,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "rating",
       label: "Rating",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DisplayPartner) => (
         <div className="flex items-center gap-1">
           <span className="text-warning">★</span>
           <span>{partner.rating.toFixed(1)}</span>
@@ -170,13 +215,13 @@ export default function DeliveryPartnersPage() {
     {
       key: "costPerDelivery",
       label: "Cost per Delivery",
-      render: (partner: typeof deliveryPartners[0]) => `$${partner.costPerDelivery.toFixed(2)}`,
+      render: (partner: DisplayPartner) => `$${partner.costPerDelivery.toFixed(2)}`,
       sortable: true,
     },
     {
       key: "status",
       label: "Status",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DisplayPartner) => (
         <span className={`badge ${partner.status === "active" ? "badge-success" : "badge-error"}`}>
           {partner.status === "active" ? "Active" : "Inactive"}
         </span>
@@ -184,7 +229,7 @@ export default function DeliveryPartnersPage() {
     },
   ];
 
-  const renderActions = (partner: typeof deliveryPartners[0]) => (
+  const renderActions = (partner: DisplayPartner) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -243,9 +288,7 @@ export default function DeliveryPartnersPage() {
             className="text-error"
             onClick={() => {
               if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
-                // TODO: API call to delete partner
-                console.log("Deleting partner:", partner.id);
-                alert("Partner deleted successfully!");
+                handleDeletePartner(partner.id);
               }
             }}
           >
@@ -347,6 +390,7 @@ export default function DeliveryPartnersPage() {
       <CreateDeliveryPartnerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreatePartner}
       />
 
       {/* Delivery Partner Detail Modal */}
@@ -370,6 +414,7 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
+          onSubmit={handleUpdatePartner}
         />
       )}
 
@@ -388,7 +433,7 @@ export default function DeliveryPartnersPage() {
 }
 
 // Edit Delivery Partner Event Listener Component
-function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: typeof deliveryPartners[0]) => void }) {
+function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: DisplayPartner) => void }) {
   React.useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
       onEdit(event.detail);
@@ -409,7 +454,7 @@ function DeliveryPartnerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  partner: typeof deliveryPartners[0];
+  partner: DisplayPartner;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Delivery Partner: ${partner.companyName}`} size="lg">
@@ -421,7 +466,7 @@ function DeliveryPartnerDetailModal({
           </div>
           <div>
             <label className="text-sm text-base-content/60">Contact Person</label>
-            <p className="font-semibold">{partner.contactPerson}</p>
+            <p className="font-semibold">{partner.contactPerson || "N/A"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Email</label>
@@ -485,10 +530,12 @@ function EditDeliveryPartnerModal({
   isOpen,
   onClose,
   partner,
+  onSubmit,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  partner: typeof deliveryPartners[0];
+  partner: DisplayPartner;
+  onSubmit?: (id: string, data: any) => void;
 }) {
   const [formData, setFormData] = useState({
     partnerCode: partner.partnerCode,
@@ -666,7 +713,15 @@ function EditDeliveryPartnerModal({
 }
 
 // Create Delivery Partner Modal
-function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function CreateDeliveryPartnerModal({ 
+  isOpen, 
+  onClose, 
+  onSubmit 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void;
+  onSubmit?: (data: any) => void;
+}) {
   const [formData, setFormData] = useState({
     partnerCode: "",
     companyName: "",
@@ -674,16 +729,21 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     email: "",
     phone: "",
     address: "",
+    city: "",
+    country: "",
     serviceAreas: [] as string[],
     costPerDelivery: "",
     rating: "",
+    status: "active",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create delivery partner
-    console.log("Creating delivery partner:", formData);
-    onClose();
+    if (onSubmit) {
+      await onSubmit(formData);
+    } else {
+      onClose();
+    }
     setFormData({
       partnerCode: "",
       companyName: "",
@@ -691,9 +751,12 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
       email: "",
       phone: "",
       address: "",
+      city: "",
+      country: "",
       serviceAreas: [],
       costPerDelivery: "",
       rating: "",
+      status: "active",
     });
   };
 
