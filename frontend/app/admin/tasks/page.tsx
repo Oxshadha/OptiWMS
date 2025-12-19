@@ -6,6 +6,8 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
   useAvailableWorkers,
   useTaskAssignment,
@@ -113,23 +115,33 @@ const priorityConfig = {
 };
 
 export default function TasksPage() {
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
+  const canCancel = hasPermission(ADMIN_ROUTES.TASKS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<(typeof tasks)[0] | null>(
     null
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  
+  // Filter tasks by warehouse for warehouse managers
+  const tasksForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? tasks.filter((t) => t.warehouseName === assignedWarehouseName)
+    : tasks;
 
   const summary = {
-    totalTasksToday: 45,
-    pending: 8,
-    inProgress: 12,
-    completedToday: 25,
+    totalTasksToday: tasksForWarehouse.length,
+    pending: tasksForWarehouse.filter((t) => t.status === "assigned").length,
+    inProgress: tasksForWarehouse.filter((t) => t.status === "in_progress").length,
+    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && t.assignedDate.includes(new Date().toISOString().split("T")[0])).length,
   };
 
-  const filteredTasks = tasks.filter((task) => {
+  const filteredTasks = tasksForWarehouse.filter((task) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||
@@ -293,9 +305,16 @@ export default function TasksPage() {
             </button>
           </li>
         )}
-        {task.status === "in_progress" && (
+        {task.status === "in_progress" && canCancel && (
           <li>
-            <button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedTask(task);
+                setShowCancelModal(true);
+              }}
+              className="text-error"
+            >
               <span className="material-symbols-outlined text-sm">cancel</span>
               Cancel Task
             </button>
@@ -310,9 +329,19 @@ export default function TasksPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Tasks</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-base-content">Tasks</h1>
+            {isWarehouseManager && assignedWarehouseName && (
+              <div className="badge badge-primary badge-lg">
+                <span className="material-symbols-outlined text-sm mr-1">warehouse</span>
+                {assignedWarehouseName}
+              </div>
+            )}
+          </div>
           <p className="text-sm text-base-content/60 mt-1">
-            Monitor and manage worker tasks
+            {isWarehouseManager && assignedWarehouseName
+              ? `Tasks for ${assignedWarehouseName}`
+              : "Monitor and manage worker tasks"}
           </p>
         </div>
         <div className="flex gap-3">
@@ -534,7 +563,9 @@ function TaskDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">View Full Details</button>
+          <Link href={`/admin/tasks/${task.id}`}>
+            <button className="btn btn-primary">View Full Details</button>
+          </Link>
         </div>
       </div>
     </DetailModal>

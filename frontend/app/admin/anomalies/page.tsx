@@ -5,6 +5,8 @@ import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const anomalies = [
@@ -92,6 +94,8 @@ const detectedByConfig = {
 };
 
 export default function AnomaliesPage() {
+  const { hasPermission } = useAdmin();
+  const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<typeof anomalies[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -275,7 +279,7 @@ export default function AnomaliesPage() {
             View Details
           </Link>
         </li>
-        {anomaly.status === "open" && (
+        {anomaly.status === "open" && canEdit && (
           <li>
             <button
               onClick={() => {
@@ -288,7 +292,7 @@ export default function AnomaliesPage() {
             </button>
           </li>
         )}
-        {anomaly.status === "investigating" && (
+        {anomaly.status === "investigating" && canEdit && (
           <li>
             <button
               onClick={() => {

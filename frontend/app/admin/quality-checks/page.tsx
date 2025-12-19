@@ -6,6 +6,8 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const qualityChecks = [
@@ -63,10 +65,14 @@ const resultConfig = {
 };
 
 export default function QualityChecksPage() {
+  const { hasPermission } = useAdmin();
+  const canApprove = hasPermission(ADMIN_ROUTES.QUALITY_CHECKS, "approve");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedCheck, setSelectedCheck] = useState<typeof qualityChecks[0] | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const summary = {
     totalChecksThisMonth: 145,
@@ -231,7 +237,7 @@ export default function QualityChecksPage() {
             View Details
           </Link>
         </li>
-        {!check.approvedByName && (
+        {!check.approvedByName && canApprove && (
           <>
             <li>
               <button
@@ -239,6 +245,7 @@ export default function QualityChecksPage() {
                   if (confirm(`Approve quality check ${check.checkId}?`)) {
                     // TODO: API call to approve quality check
                     console.log("Approving quality check:", check.id);
+                    alert("Quality check approved successfully!");
                   }
                 }}
               >
@@ -250,10 +257,8 @@ export default function QualityChecksPage() {
               <button 
                 className="text-error"
                 onClick={() => {
-                  if (confirm(`Reject quality check ${check.checkId}?`)) {
-                    // TODO: API call to reject quality check
-                    console.log("Rejecting quality check:", check.id);
-                  }
+                  setSelectedCheck(check);
+                  setShowRejectModal(true);
                 }}
               >
                 <span className="material-symbols-outlined text-sm">close</span>
@@ -332,7 +337,76 @@ export default function QualityChecksPage() {
             setSelectedCheck(null);
           }}
           check={selectedCheck}
+          canApprove={canApprove}
+          onReject={() => {
+            setShowDetailModal(false);
+            setShowRejectModal(true);
+          }}
         />
+      )}
+
+      {/* Reject Quality Check Modal */}
+      {selectedCheck && (
+        <Modal
+          isOpen={showRejectModal}
+          onClose={() => {
+            setShowRejectModal(false);
+            setSelectedCheck(null);
+            setRejectReason("");
+          }}
+          title="Reject Quality Check"
+        >
+          <div className="space-y-4">
+            <div className="alert alert-warning">
+              <span className="material-symbols-outlined">warning</span>
+              <span>
+                Are you sure you want to reject quality check {selectedCheck.checkId}?
+              </span>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Rejection Reason *</span>
+              </label>
+              <textarea
+                className="textarea textarea-bordered w-full"
+                rows={4}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Enter detailed reason for rejection..."
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowRejectModal(false);
+                  setSelectedCheck(null);
+                  setRejectReason("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-error"
+                onClick={() => {
+                  if (!rejectReason.trim()) {
+                    alert("Please enter a rejection reason");
+                    return;
+                  }
+                  // TODO: API call to reject quality check
+                  console.log("Rejecting quality check:", selectedCheck.id, rejectReason);
+                  alert("Quality check rejected successfully!");
+                  setShowRejectModal(false);
+                  setSelectedCheck(null);
+                  setRejectReason("");
+                }}
+              >
+                Reject Quality Check
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -343,10 +417,14 @@ function QualityCheckDetailModal({
   isOpen,
   onClose,
   check,
+  canApprove,
+  onReject,
 }: {
   isOpen: boolean;
   onClose: () => void;
   check: typeof qualityChecks[0];
+  canApprove: boolean;
+  onReject: () => void;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Quality Check: ${check.checkId}`} size="lg">
@@ -408,10 +486,23 @@ function QualityCheckDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          {!check.approvedByName && (
-            <button className="btn btn-primary">
-              Approve Quality Check
-            </button>
+          {!check.approvedByName && canApprove && (
+            <>
+              <button className="btn btn-error" onClick={onReject}>
+                Reject
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  // TODO: API call to approve quality check
+                  console.log("Approving quality check:", check.id);
+                  alert("Quality check approved successfully!");
+                  onClose();
+                }}
+              >
+                Approve Quality Check
+              </button>
+            </>
           )}
         </div>
       </div>

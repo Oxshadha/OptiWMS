@@ -75,7 +75,9 @@ const statusConfig = {
 };
 
 export default function WorkersPage() {
-  const { hasPermission, role } = useAdmin();
+  const { hasPermission, role, admin } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -92,14 +94,19 @@ export default function WorkersPage() {
   const canAssignRole =
     role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
 
+  // Filter workers by warehouse for warehouse managers
+  const filteredWorkersByWarehouse = isWarehouseManager && assignedWarehouseName
+    ? workers.filter((w) => w.warehouseName === assignedWarehouseName)
+    : workers;
+
   const summary = {
-    totalWorkers: 24,
-    activeNow: 18,
-    offline: 6,
-    tasksCompletedToday: 156,
+    totalWorkers: filteredWorkersByWarehouse.length,
+    activeNow: filteredWorkersByWarehouse.filter((w) => w.availabilityStatus === "available" || w.availabilityStatus === "busy").length,
+    offline: filteredWorkersByWarehouse.filter((w) => w.availabilityStatus === "offline").length,
+    tasksCompletedToday: filteredWorkersByWarehouse.reduce((sum, w) => sum + w.tasksToday, 0),
   };
 
-  const filteredWorkers = workers.filter((worker) => {
+  const filteredWorkers = filteredWorkersByWarehouse.filter((worker) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||
@@ -261,23 +268,23 @@ export default function WorkersPage() {
         </li>
         {canEdit && (
           <li>
-            <button>
+            <Link href={`/admin/workers/${worker.id}?edit=true`}>
               <span className="material-symbols-outlined text-sm">edit</span>
               Edit Worker
-            </button>
+            </Link>
           </li>
         )}
         <li>
-          <button>
+          <Link href={`/admin/tasks?worker=${worker.id}`}>
             <span className="material-symbols-outlined text-sm">task</span>
             View Tasks
-          </button>
+          </Link>
         </li>
         <li>
-          <button>
+          <Link href={`/admin/workers/${worker.id}?tab=performance`}>
             <span className="material-symbols-outlined text-sm">bar_chart</span>
             Performance
-          </button>
+          </Link>
         </li>
         {canDelete && (
           <li>
@@ -303,9 +310,19 @@ export default function WorkersPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Workers</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-base-content">Workers</h1>
+            {isWarehouseManager && assignedWarehouseName && (
+              <div className="badge badge-primary badge-lg">
+                <span className="material-symbols-outlined text-sm mr-1">warehouse</span>
+                {assignedWarehouseName}
+              </div>
+            )}
+          </div>
           <p className="text-sm text-base-content/60 mt-1">
-            Manage warehouse workers and their performance
+            {isWarehouseManager && assignedWarehouseName
+              ? `Workers assigned to ${assignedWarehouseName}`
+              : "Manage warehouse workers and their performance"}
           </p>
         </div>
         <div className="flex gap-3">

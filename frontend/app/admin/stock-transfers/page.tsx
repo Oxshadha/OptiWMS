@@ -314,7 +314,13 @@ export default function StockTransfersPage() {
                           </li>
                         )}
                         <li>
-                          <button>
+                          <button
+                            onClick={() => {
+                              // TODO: Implement print functionality
+                              window.print();
+                              console.log("Printing transfer slip:", transfer.transferNumber);
+                            }}
+                          >
                             <span className="material-symbols-outlined text-sm">print</span>
                             Print Transfer Slip
                           </button>
@@ -426,7 +432,14 @@ export default function StockTransfersPage() {
               </div>
             </div>
             <div className="flex gap-3 pt-4">
-              <button className="btn btn-primary flex-1">
+              <button
+                className="btn btn-primary flex-1"
+                onClick={() => {
+                  // TODO: Implement print functionality
+                  window.print();
+                  console.log("Printing transfer slip:", selectedTransfer.transferNumber);
+                }}
+              >
                 <span className="material-symbols-outlined">print</span>
                 Print Transfer Slip
               </button>

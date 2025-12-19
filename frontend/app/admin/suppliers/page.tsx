@@ -17,6 +17,7 @@ const suppliers = [
     supplierCode: "SUP-001",
     name: "Tech Supplies Inc",
     country: "United States",
+    type: "local" as const,
     contactPerson: "John Smith",
     email: "john@techsupplies.com",
     phone: "+1-555-0101",
@@ -30,6 +31,7 @@ const suppliers = [
     supplierCode: "SUP-002",
     name: "Global Electronics",
     country: "China",
+    type: "foreign" as const,
     contactPerson: "Li Wei",
     email: "li@globalelec.com",
     phone: "+86-555-0102",
@@ -43,6 +45,7 @@ const suppliers = [
     supplierCode: "SUP-003",
     name: "Quality Goods Co",
     country: "United Kingdom",
+    type: "foreign" as const,
     contactPerson: "Emma Johnson",
     email: "emma@qualitygoods.co.uk",
     phone: "+44-555-0103",
@@ -55,6 +58,7 @@ const suppliers = [
 
 export default function SuppliersPage() {
   const { hasPermission } = useAdmin();
+  const canDelete = hasPermission(ADMIN_ROUTES.SUPPLIERS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -63,13 +67,17 @@ export default function SuppliersPage() {
   >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">(
+    "all"
+  );
 
   const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
 
   const summary = {
-    totalSuppliers: 24,
-    active: 22,
-    byCountry: 8,
+    totalSuppliers: suppliers.length,
+    active: suppliers.filter((s) => s.status === "active").length,
+    local: suppliers.filter((s) => s.type === "local").length,
+    foreign: suppliers.filter((s) => s.type === "foreign").length,
   };
 
   const filteredSuppliers = suppliers.filter((supplier) => {
@@ -85,10 +93,12 @@ export default function SuppliersPage() {
       supplier.productsSupplied.toString().includes(query) ||
       supplier.leadTimeDays.toString().includes(query) ||
       supplier.rating.toString().includes(query) ||
-      supplier.status.toLowerCase().includes(query);
+      supplier.status.toLowerCase().includes(query) ||
+      supplier.type.toLowerCase().includes(query);
     const matchesStatus =
       statusFilter === "all" || supplier.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesType = typeFilter === "all" || supplier.type === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const summaryCards = [
@@ -105,8 +115,14 @@ export default function SuppliersPage() {
       color: "success" as const,
     },
     {
-      label: "Countries",
-      value: summary.byCountry,
+      label: "Local Suppliers",
+      value: summary.local,
+      icon: "location_on",
+      color: "success" as const,
+    },
+    {
+      label: "Foreign Suppliers",
+      value: summary.foreign,
       icon: "public",
       color: "info" as const,
     },
@@ -138,6 +154,20 @@ export default function SuppliersPage() {
     {
       key: "country",
       label: "Country",
+      sortable: true,
+    },
+    {
+      key: "type",
+      label: "Type",
+      render: (supplier: (typeof suppliers)[0]) => (
+        <span
+          className={`badge ${
+            supplier.type === "local" ? "badge-success" : "badge-info"
+          }`}
+        >
+          {supplier.type === "local" ? "Local" : "Foreign"}
+        </span>
+      ),
       sortable: true,
     },
     {
@@ -265,22 +295,24 @@ export default function SuppliersPage() {
             </button>
           </li>
         )}
-        <li>
-          <button
-            className="text-error"
-            onClick={() => {
-              if (
-                confirm(`Are you sure you want to delete ${supplier.name}?`)
-              ) {
-                // TODO: API call to delete supplier
-                console.log("Deleting supplier:", supplier.id);
-              }
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">delete</span>
-            Delete Supplier
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button
+              className="text-error"
+              onClick={() => {
+                if (
+                  confirm(`Are you sure you want to delete ${supplier.name}?`)
+                ) {
+                  // TODO: API call to delete supplier
+                  console.log("Deleting supplier:", supplier.id);
+                }
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Supplier
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -330,6 +362,9 @@ export default function SuppliersPage() {
               tabIndex={0}
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
+              <li className="menu-title">
+                <span>Status</span>
+              </li>
               <li>
                 <button onClick={() => setStatusFilter("all")}>
                   All Status
@@ -343,6 +378,20 @@ export default function SuppliersPage() {
               <li>
                 <button onClick={() => setStatusFilter("inactive")}>
                   Inactive
+                </button>
+              </li>
+              <li className="menu-title">
+                <span>Type</span>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("all")}>All Types</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("local")}>Local</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("foreign")}>
+                  Foreign
                 </button>
               </li>
             </ul>
@@ -483,6 +532,18 @@ function SupplierDetailModal({
             <p className="font-semibold">{supplier.country}</p>
           </div>
           <div>
+            <label className="text-sm text-base-content/60">Type</label>
+            <p>
+              <span
+                className={`badge ${
+                  supplier.type === "local" ? "badge-success" : "badge-info"
+                }`}
+              >
+                {supplier.type === "local" ? "Local" : "Foreign"}
+              </span>
+            </p>
+          </div>
+          <div>
             <label className="text-sm text-base-content/60">
               Contact Person
             </label>
@@ -567,6 +628,7 @@ function EditSupplierModal({
     email: supplier.email,
     phone: supplier.phone,
     country: supplier.country,
+    type: supplier.type,
     leadTimeDays: supplier.leadTimeDays.toString(),
     rating: supplier.rating.toString(),
   });
@@ -674,6 +736,27 @@ function EditSupplierModal({
           </select>
         </div>
 
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Supplier Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                type: e.target.value as "local" | "foreign",
+              })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
@@ -739,6 +822,7 @@ function CreateSupplierModal({
     city: "",
     state: "",
     country: "",
+    type: "" as "local" | "foreign" | "",
     postalCode: "",
     paymentTerms: "",
     leadTimeDays: "",
@@ -760,6 +844,7 @@ function CreateSupplierModal({
       city: "",
       state: "",
       country: "",
+      type: "" as "local" | "foreign" | "",
       postalCode: "",
       paymentTerms: "",
       leadTimeDays: "",
@@ -904,6 +989,27 @@ function CreateSupplierModal({
               <option value="Canada">Canada</option>
             </select>
           </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Supplier Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                type: e.target.value as "local" | "foreign",
+              })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
         </div>
 
         <div className="form-control">

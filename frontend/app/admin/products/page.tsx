@@ -6,6 +6,8 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import React from "react";
 
 // Mock data - will be replaced with API calls
@@ -61,6 +63,7 @@ const products = [
 ];
 
 export default function ProductsPage() {
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -69,6 +72,9 @@ export default function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+
+  const canEdit = hasPermission(ADMIN_ROUTES.PRODUCTS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.PRODUCTS, "delete");
 
   const summary = {
     totalProducts: 156,
@@ -205,17 +211,19 @@ export default function ProductsPage() {
             View Details
           </button>
         </li>
-        <li>
-          <button
-            onClick={() => {
-              setEditingProduct(product);
-              setShowEditModal(true);
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">edit</span>
-            Edit Product
-          </button>
-        </li>
+        {canEdit && (
+          <li>
+            <button
+              onClick={() => {
+                setEditingProduct(product);
+                setShowEditModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">edit</span>
+              Edit Product
+            </button>
+          </li>
+        )}
         <li>
           <button
             onClick={() => {
@@ -227,20 +235,22 @@ export default function ProductsPage() {
             View Inventory
           </button>
         </li>
-        <li>
-          <button 
-            className="text-error"
-            onClick={() => {
-              if (confirm(`Are you sure you want to delete ${product.name}?`)) {
-                // TODO: API call to delete product
-                console.log("Deleting product:", product.id);
-              }
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">delete</span>
-            Delete Product
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button 
+              className="text-error"
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete ${product.name}?`)) {
+                  // TODO: API call to delete product
+                  console.log("Deleting product:", product.id);
+                }
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Product
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );

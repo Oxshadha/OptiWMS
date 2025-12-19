@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useAdmin } from "@/contexts/AdminContext";
 import { getRoleDisplayName } from "@/lib/admin-roles";
+import { AIServiceStatus } from "@/components/AIServiceStatus";
+import { AI_SERVICES } from "@/lib/ai-services/registry";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
@@ -158,6 +160,12 @@ export function Topbar() {
 
       {/* Icons - Right Aligned */}
       <div className="flex items-center gap-3">
+        {/* AI Services Status - Only show if user has access to any AI service */}
+        <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-base-200/50">
+          <span className="text-xs text-base-content/60">AI:</span>
+          <AIServiceStatus serviceId={AI_SERVICES.ANOMALY_DETECTION} size="sm" />
+        </div>
+        
         <button className="btn btn-ghost btn-circle" title="Notifications">
           <span className="material-symbols-outlined">notifications</span>
         </button>

@@ -5,13 +5,39 @@ import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 
-// Mock sections data for visualization (will be replaced with inventory data later)
-const mockSections = {
-  A: { label: "A-Electronics", slots: 12, filled: [1, 2, 5, 6, 7, 12] },
-  B: { label: "B-Appliances", slots: 12, filled: [1, 3, 7, 8, 9, 12] },
-  C: { label: "C-Home Decor", slots: 12, filled: [2, 3, 5, 6, 7, 12] },
-  D: { label: "D-Sports", slots: 12, filled: [1, 4, 5, 7, 10, 11] },
+// Type definition for sections
+type SectionData = {
+  label: string;
+  slots: number;
+  filled: number[];
+};
+
+type SectionsData = Record<string, SectionData>;
+
+// Initial sections data for visualization (will be replaced with inventory data later)
+// Different sections for different warehouses
+const getInitialSectionsForWarehouse = (warehouseId: string): SectionsData => {
+  // Warehouse 1 sections
+  if (
+    warehouseId.includes("1") ||
+    warehouseId.toLowerCase().includes("warehouse 1")
+  ) {
+    return {
+      A: { label: "A-Electronics", slots: 12, filled: [1, 2, 5, 6, 7, 12] },
+      B: { label: "B-Appliances", slots: 12, filled: [1, 3, 7, 8, 9, 12] },
+      C: { label: "C-Home Decor", slots: 12, filled: [2, 3, 5, 6, 7, 12] },
+      D: { label: "D-Sports", slots: 12, filled: [1, 4, 5, 7, 10, 11] },
+    };
+  }
+  // Warehouse 2 sections (different sections)
+  return {
+    E: { label: "E-Furniture", slots: 12, filled: [2, 3, 6, 8, 9, 11] },
+    F: { label: "F-Textiles", slots: 12, filled: [1, 4, 5, 7, 10, 12] },
+    G: { label: "G-Tools", slots: 12, filled: [1, 2, 5, 8, 9, 11] },
+    H: { label: "H-Automotive", slots: 12, filled: [3, 4, 6, 7, 10, 12] },
+  };
 };
 
 const slotNumbers = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -20,40 +46,270 @@ const slotLabels: Record<string, string[]> = {
   B: slotNumbers.map((n) => `B${n}`),
   C: slotNumbers.map((n) => `C${n}`),
   D: slotNumbers.map((n) => `D${n}`),
+  E: slotNumbers.map((n) => `E${n}`),
+  F: slotNumbers.map((n) => `F${n}`),
+  G: slotNumbers.map((n) => `G${n}`),
+  H: slotNumbers.map((n) => `H${n}`),
 };
 
 export default function WarehousesPage() {
-  const { hasPermission } = useAdmin();
-  const [selected, setSelected] = React.useState(warehouseList[0]);
+  const { hasPermission, admin, role } = useAdmin();
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [selected, setSelected] = React.useState<Warehouse | null>(null);
+
+  // For warehouse managers, filter to only their assigned warehouse
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAddRequestModal, setShowAddRequestModal] = useState(false);
+  const [showEditSectionModal, setShowEditSectionModal] = useState(false);
+  const [showDeleteSectionModal, setShowDeleteSectionModal] = useState(false);
+  const [selectedSection, setSelectedSection] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [filterBy, setFilterBy] = useState<string[]>([]);
+  const [warehouseIndex, setWarehouseIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Store sections per warehouse ID
+  const [sectionsByWarehouse, setSectionsByWarehouse] = useState<
+    Record<string, SectionsData>
+  >({});
 
   useEffect(() => {
     loadWarehouses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-select first warehouse if none selected
+  // Auto-select first warehouse if none selected (only for non-warehouse managers)
   useEffect(() => {
-    if (!selected && warehouses.length > 0) {
+    if (!isWarehouseManager && !selected && warehouses.length > 0) {
+      console.log("Auto-selecting first warehouse for admin:", warehouses[0]);
       setSelected(warehouses[0]);
+      setWarehouseIndex(0);
     }
-  }, [warehouses, selected]);
+  }, [warehouses, selected, isWarehouseManager]);
+
+  // Update warehouse index when selected changes
+  useEffect(() => {
+    if (selected) {
+      const index = warehouses.findIndex((w) => w.id === selected.id);
+      if (index >= 0) {
+        setWarehouseIndex(index);
+      }
+    }
+  }, [selected, warehouses]);
 
   const loadWarehouses = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await warehousesApi.getAll();
+      let data: Warehouse[] = [];
+
+      try {
+        data = await warehousesApi.getAll();
+        console.log("Loaded warehouses from API:", data.length);
+        console.log("Current role:", role);
+        console.log("Is warehouse manager:", isWarehouseManager);
+        console.log("Warehouses data:", data);
+      } catch (apiError) {
+        console.error("API Error loading warehouses:", apiError);
+        // If API fails, show mock warehouses for both warehouse managers and system admins
+        // This handles cases where backend is not running
+        if (isWarehouseManager && assignedWarehouseName) {
+          // Create a mock warehouse for the assigned warehouse
+          data = [
+            {
+              id:
+                assignedWarehouseId ||
+                `mock-${assignedWarehouseName
+                  .toLowerCase()
+                  .replace(/\s+/g, "-")}`,
+              code: assignedWarehouseName.substring(0, 3).toUpperCase(),
+              name: assignedWarehouseName,
+              status: "active",
+            },
+          ];
+          console.log("Using mock warehouse for warehouse manager:", data);
+        } else {
+          // For system admins, show all mock warehouses (same as default seed data)
+          data = [
+            {
+              id: "mock-wh-001",
+              code: "WH-001",
+              name: "Colombo Main Warehouse",
+              city: "Colombo",
+              country: "Sri Lanka",
+              status: "active",
+            },
+            {
+              id: "mock-wh-002",
+              code: "WH-002",
+              name: "Kandy Distribution Center",
+              city: "Kandy",
+              country: "Sri Lanka",
+              status: "active",
+            },
+            {
+              id: "mock-wh-003",
+              code: "WH-003",
+              name: "Galle Warehouse",
+              city: "Galle",
+              country: "Sri Lanka",
+              status: "active",
+            },
+          ];
+          console.log("Using mock warehouses for system admin:", data.length);
+        }
+      }
+
+      // For warehouse managers, filter to only their assigned warehouse
+      // System admins should see ALL warehouses (no filtering)
+      if (
+        isWarehouseManager &&
+        (assignedWarehouseId || assignedWarehouseName) &&
+        data.length > 0
+      ) {
+        const filteredData = data.filter((w) => {
+          // Match by ID, name, or code
+          const matchesId =
+            assignedWarehouseId &&
+            (w.id === assignedWarehouseId ||
+              w.id.toLowerCase().includes(assignedWarehouseId.toLowerCase()));
+          const matchesName =
+            assignedWarehouseName &&
+            (w.name === assignedWarehouseName ||
+              w.name
+                .toLowerCase()
+                .includes(assignedWarehouseName.toLowerCase()) ||
+              assignedWarehouseName
+                .toLowerCase()
+                .includes(w.name.toLowerCase()));
+          const matchesCode =
+            assignedWarehouseId &&
+            (w.code.toLowerCase().includes(assignedWarehouseId.toLowerCase()) ||
+              assignedWarehouseId.toLowerCase().includes(w.code.toLowerCase()));
+          return matchesId || matchesName || matchesCode;
+        });
+
+        // If filtering results in empty array, show all warehouses (fallback)
+        // This handles cases where warehouse names/IDs don't match exactly
+        if (filteredData.length > 0) {
+          data = filteredData;
+          console.log(
+            "Filtered warehouses for warehouse manager:",
+            data.length
+          );
+        } else {
+          console.warn(
+            "No warehouses matched filter criteria. Showing all warehouses as fallback."
+          );
+          console.log("Assigned warehouse:", {
+            assignedWarehouseId,
+            assignedWarehouseName,
+          });
+          console.log(
+            "Available warehouses:",
+            data.map((w) => ({ id: w.id, name: w.name, code: w.code }))
+          );
+          // Keep all warehouses if filter doesn't match - better UX than showing nothing
+        }
+      } else if (role === "admin") {
+        // System admins should see ALL warehouses - no filtering
+        console.log("System admin - showing all warehouses:", data.length);
+      }
+
       setWarehouses(data);
-      if (data.length > 0 && !selected) {
+
+      // Initialize sections for each warehouse if not already initialized
+      const updatedSections: Record<string, SectionsData> = {
+        ...sectionsByWarehouse,
+      };
+      data.forEach((warehouse) => {
+        if (!updatedSections[warehouse.id]) {
+          updatedSections[warehouse.id] = getInitialSectionsForWarehouse(
+            warehouse.id
+          );
+        }
+      });
+      setSectionsByWarehouse(updatedSections);
+
+      // Auto-select assigned warehouse for warehouse managers
+      if (
+        isWarehouseManager &&
+        (assignedWarehouseId || assignedWarehouseName) &&
+        data.length > 0
+      ) {
+        // Try to find exact match first
+        let assignedWarehouse = data.find(
+          (w) =>
+            w.id === assignedWarehouseId || w.name === assignedWarehouseName
+        );
+
+        // If no exact match, try partial matches
+        if (!assignedWarehouse && assignedWarehouseName) {
+          assignedWarehouse = data.find(
+            (w) =>
+              w.name
+                .toLowerCase()
+                .includes(assignedWarehouseName.toLowerCase()) ||
+              assignedWarehouseName.toLowerCase().includes(w.name.toLowerCase())
+          );
+        }
+
+        if (assignedWarehouse) {
+          setSelected(assignedWarehouse);
+          setWarehouseIndex(0);
+        } else if (data.length > 0) {
+          // Fallback to first warehouse if no match found
+          setSelected(data[0]);
+          setWarehouseIndex(0);
+        }
+      } else if (data.length > 0) {
+        // For admins or if no warehouse manager assignment, select first warehouse
+        console.log(
+          "Selecting first warehouse for admin/non-manager:",
+          data[0]
+        );
         setSelected(data[0]);
+        setWarehouseIndex(0);
+      } else {
+        console.log("No warehouses to select. Data length:", data.length);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load warehouses");
-      console.error("Error loading warehouses:", err);
+      // Errors are handled in the inner try-catch with mock data fallback
+      // This outer catch is for unexpected errors
+      console.error("Unexpected error loading warehouses:", err);
+      // If we get here, something unexpected happened - show empty state
+      if (warehouses.length === 0) {
+        setWarehouses([]);
+      }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCreateWarehouse = async (
+    warehouseData: Omit<Warehouse, "id">
+  ) => {
+    try {
+      const newWarehouse = await warehousesApi.create(warehouseData);
+      setWarehouses([...warehouses, newWarehouse]);
+
+      // Initialize sections for the new warehouse
+      setSectionsByWarehouse((prev) => ({
+        ...prev,
+        [newWarehouse.id]: getInitialSectionsForWarehouse(newWarehouse.id),
+      }));
+
+      setSelected(newWarehouse);
+      setShowCreateModal(false);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to create warehouse"
+      );
+      console.error("Error creating warehouse:", err);
+      throw err;
     }
   };
 
@@ -61,16 +317,37 @@ export default function WarehousesPage() {
   const canEdit = hasPermission(ADMIN_ROUTES.WAREHOUSES, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.WAREHOUSES, "delete");
 
-  const sectionCards = Object.entries(selected.sections).map(([key, val]) => {
-    const typedKey = key as keyof typeof slotLabels;
-    return {
-      key: typedKey,
-      label: val.label,
-      slots: slotLabels[typedKey],
-      filledSet: new Set(val.filled),
-      filledCount: val.filled.length,
-    };
-  });
+  // Get sections for the selected warehouse
+  const currentWarehouseSections = selected
+    ? sectionsByWarehouse[selected.id] ||
+      getInitialSectionsForWarehouse(selected.id)
+    : null;
+
+  // Initialize sections for selected warehouse if not already initialized
+  useEffect(() => {
+    if (selected && !sectionsByWarehouse[selected.id]) {
+      setSectionsByWarehouse((prev) => ({
+        ...prev,
+        [selected.id]: getInitialSectionsForWarehouse(selected.id),
+      }));
+    }
+  }, [selected, sectionsByWarehouse]);
+
+  // Mock data for sections (will be replaced with actual API data later)
+  const sectionCards = currentWarehouseSections
+    ? Object.entries(currentWarehouseSections).map(([key, val]) => {
+        const typedKey = key;
+        const sectionData = val as SectionData;
+        return {
+          key: typedKey,
+          label: sectionData.label,
+          slots:
+            slotLabels[typedKey] || slotNumbers.map((n) => `${typedKey}${n}`),
+          filledSet: new Set(sectionData.filled),
+          filledCount: sectionData.filled.length,
+        };
+      })
+    : [];
 
   if (loading) {
     return (
@@ -82,18 +359,81 @@ export default function WarehousesPage() {
 
   if (error) {
     return (
-      <div className="alert alert-error">
-        <span>Error: {error}</span>
-        <button className="btn btn-sm" onClick={loadWarehouses}>Retry</button>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-base-content">Warehouses</h1>
+        </div>
+        <div className="alert alert-error">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="stroke-current shrink-0 h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <div className="flex-1">
+            <h3 className="font-bold">Connection Error</h3>
+            <div className="text-sm">{error}</div>
+            <div className="text-xs mt-2 opacity-75">
+              Make sure the backend server is running on port 8080.
+            </div>
+          </div>
+          <button className="btn btn-sm btn-primary" onClick={loadWarehouses}>
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
+
+  // Show empty state only if loading is complete and no warehouses exist
+  if (!loading && warehouses.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-base-content">
+            Warehouses (0)
+          </h1>
+        </div>
+        <div className="alert alert-info">
+          <span>No warehouses available. Create one to get started.</span>
+          {canCreate && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowCreateModal(true)}
+            >
+              Create Warehouse
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // If we have warehouses but no selection, show loading while useEffect selects one
+  // This should be rare as useEffect and loadWarehouses should handle selection
+  if (!selected && warehouses.length > 0) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  // Mock usage percentage (will be replaced with actual API data later)
+  const usage = 65;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-3xl font-bold text-base-content">
-          Warehouses ({warehouseList.length})
+          Warehouses ({warehouses.length})
         </h1>
         <div className="flex gap-3">
           <button className="btn btn-sm btn-ghost">
@@ -132,71 +472,105 @@ export default function WarehousesPage() {
       </div>
 
       <div className="flex items-center gap-4 mb-6">
-        <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
-          {warehouses.map((w) => (
+        {isWarehouseManager && assignedWarehouseName ? (
+          <div className="flex items-center gap-3">
+            <div className="badge badge-primary badge-lg px-4 py-3">
+              <span className="material-symbols-outlined text-sm mr-2">
+                warehouse
+              </span>
+              {assignedWarehouseName}
+            </div>
+            <span className="text-sm text-base-content/60">
+              You are assigned to this warehouse
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
+              {warehouses.map((w) => (
+                <button
+                  key={w.id}
+                  className={clsx(
+                    "px-6 py-2 rounded-lg text-sm transition-all",
+                    w.id === selected?.id
+                      ? "bg-neutral text-neutral-content font-medium"
+                      : "text-base-content/60 hover:text-base-content"
+                  )}
+                  onClick={() => setSelected(w)}
+                >
+                  {w.name}
+                </button>
+              ))}
+            </div>
             <button
-              key={w.id}
-              className={clsx(
-                "px-6 py-2 rounded-lg text-sm transition-all",
-                w.id === selected?.id
-                  ? "bg-neutral text-neutral-content font-medium"
-                  : "text-base-content/60 hover:text-base-content"
-              )}
-              onClick={() => setSelected(w)}
+              className="btn btn-sm btn-ghost btn-circle"
+              onClick={() => {
+                if (warehouseIndex > 0) {
+                  setWarehouseIndex(warehouseIndex - 1);
+                  setSelected(warehouses[warehouseIndex - 1]);
+                }
+              }}
+              disabled={warehouseIndex === 0}
             >
-              {w.name}
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
             </button>
-          ))}
-        </div>
-        <button className="btn btn-sm btn-ghost btn-circle">
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
-        <button className="btn btn-sm btn-ghost btn-circle">
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 5l7 7-7 7"
-            />
-          </svg>
-        </button>
-        {canCreate && (
-          <button
-            className="btn btn-sm bg-neutral text-neutral-content btn-circle"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+            <button
+              className="btn btn-sm btn-ghost btn-circle"
+              onClick={() => {
+                if (warehouseIndex < warehouses.length - 1) {
+                  setWarehouseIndex(warehouseIndex + 1);
+                  setSelected(warehouses[warehouseIndex + 1]);
+                }
+              }}
+              disabled={warehouseIndex >= warehouses.length - 1}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-          </button>
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+            </button>
+            {canCreate && (
+              <button
+                className="btn btn-sm bg-neutral text-neutral-content btn-circle"
+                onClick={() => setShowCreateModal(true)}
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -210,7 +584,10 @@ export default function WarehousesPage() {
               <div className="flex gap-3">
                 {canEdit && (
                   <>
-                    <button className="btn btn-sm btn-ghost text-error">
+                    <button
+                      className="btn btn-sm btn-ghost text-error"
+                      onClick={() => setShowAddRequestModal(true)}
+                    >
                       <svg
                         className="w-5 h-5"
                         fill="none"
@@ -226,7 +603,13 @@ export default function WarehousesPage() {
                       </svg>
                       <span>Add Request</span>
                     </button>
-                    <button className="btn btn-sm btn-ghost">
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => {
+                        setSelectedSection(null);
+                        setShowEditSectionModal(true);
+                      }}
+                    >
                       <svg
                         className="w-5 h-5"
                         fill="none"
@@ -245,7 +628,13 @@ export default function WarehousesPage() {
                   </>
                 )}
                 {canDelete && (
-                  <button className="btn btn-sm btn-ghost text-error">
+                  <button
+                    className="btn btn-sm btn-ghost text-error"
+                    onClick={() => {
+                      setSelectedSection(null);
+                      setShowDeleteSectionModal(true);
+                    }}
+                  >
                     <svg
                       className="w-5 h-5"
                       fill="none"
@@ -313,6 +702,7 @@ export default function WarehousesPage() {
               );
             })}
           </div>
+        </div>
 
         <div className="space-y-6">
           <div className="card bg-base-100 border border-base-300 p-6">
@@ -340,13 +730,13 @@ export default function WarehousesPage() {
                     strokeWidth="12"
                     fill="none"
                     className="text-primary"
-                    strokeDasharray={`${(selected.usage / 100) * 352} 352`}
+                    strokeDasharray={`${(usage / 100) * 352} 352`}
                     strokeLinecap="round"
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-2xl font-bold text-base-content">
-                    {selected.usage}%
+                    {usage}%
                   </span>
                 </div>
               </div>
@@ -466,7 +856,7 @@ export default function WarehousesPage() {
             </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Create Warehouse Modal */}
       <CreateWarehouseModal
@@ -474,6 +864,231 @@ export default function WarehousesPage() {
         onClose={() => setShowCreateModal(false)}
         onCreate={handleCreateWarehouse}
       />
+
+      {/* Add Request Modal */}
+      <Modal
+        isOpen={showAddRequestModal}
+        onClose={() => setShowAddRequestModal(false)}
+        title="Add Section Request"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-base-content/60">
+            This feature allows you to request a new section for the warehouse.
+          </p>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Section Name</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              placeholder="Enter section name"
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Reason</span>
+            </label>
+            <textarea
+              className="textarea textarea-bordered w-full"
+              rows={3}
+              placeholder="Explain why this section is needed"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowAddRequestModal(false)}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                // TODO: API call to submit request
+                console.log("Submitting section request");
+                setShowAddRequestModal(false);
+              }}
+            >
+              Submit Request
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Edit Section Modal */}
+      <Modal
+        isOpen={showEditSectionModal}
+        onClose={() => {
+          setShowEditSectionModal(false);
+          setSelectedSection(null);
+        }}
+        title="Edit Section"
+      >
+        <div className="space-y-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Section Name</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              defaultValue={selectedSection || ""}
+              placeholder="Enter section name"
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Description</span>
+            </label>
+            <textarea
+              className="textarea textarea-bordered w-full"
+              rows={3}
+              placeholder="Section description"
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setShowEditSectionModal(false);
+                setSelectedSection(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                // TODO: API call to update section
+                console.log("Updating section:", selectedSection);
+                setShowEditSectionModal(false);
+                setSelectedSection(null);
+              }}
+            >
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Section Modal */}
+      <Modal
+        isOpen={showDeleteSectionModal}
+        onClose={() => {
+          setShowDeleteSectionModal(false);
+          setSelectedSection(null);
+        }}
+        title="Delete Section"
+      >
+        <div className="space-y-4">
+          <div className="alert alert-warning">
+            <span className="material-symbols-outlined">warning</span>
+            <span>
+              Are you sure you want to delete this section? This action cannot
+              be undone.
+            </span>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">
+                Select Section to Delete *
+              </span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={selectedSection || ""}
+              onChange={(e) => setSelectedSection(e.target.value)}
+              required
+            >
+              <option value="">Select a section...</option>
+              {sectionCards.map((section) => (
+                <option key={section.key} value={section.key}>
+                  {section.label} ({section.filledCount}/{section.slots.length}{" "}
+                  filled)
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedSection && (
+            <div className="alert alert-info">
+              <span className="material-symbols-outlined">info</span>
+              <span>
+                You are about to delete section "
+                {sectionCards.find((s) => s.key === selectedSection)?.label}".
+                This will remove all slots and inventory data for this section.
+              </span>
+            </div>
+          )}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">
+                Confirm Section Name
+              </span>
+              <span className="label-text-alt">
+                Type the section name to confirm deletion
+              </span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              placeholder={
+                selectedSection
+                  ? sectionCards.find((s) => s.key === selectedSection)?.label
+                  : "Select a section first"
+              }
+              disabled={!selectedSection}
+            />
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setShowDeleteSectionModal(false);
+                setSelectedSection(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-error"
+              disabled={!selectedSection}
+              onClick={() => {
+                if (!selectedSection) {
+                  alert("Please select a section to delete");
+                  return;
+                }
+                // TODO: API call to delete section
+                const sectionLabel = sectionCards.find(
+                  (s) => s.key === selectedSection
+                )?.label;
+                console.log("Deleting section:", selectedSection, sectionLabel);
+
+                // Remove section from current warehouse's sections only
+                if (selected) {
+                  const currentSections =
+                    sectionsByWarehouse[selected.id] ||
+                    getInitialSectionsForWarehouse(selected.id);
+                  const updatedSections = { ...currentSections };
+                  delete updatedSections[selectedSection];
+                  setSectionsByWarehouse((prev) => ({
+                    ...prev,
+                    [selected.id]: updatedSections,
+                  }));
+                }
+
+                alert(
+                  `Section "${sectionLabel}" has been deleted successfully!`
+                );
+                setShowDeleteSectionModal(false);
+                setSelectedSection(null);
+              }}
+            >
+              Delete Section
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -482,9 +1097,11 @@ export default function WarehousesPage() {
 function CreateWarehouseModal({
   isOpen,
   onClose,
+  onCreate,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onCreate: (warehouse: Omit<Warehouse, "id">) => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     code: "",
@@ -539,7 +1156,9 @@ function CreateWarehouseModal({
               type="text"
               className="input input-bordered w-full"
               value={formData.code}
-              onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, code: e.target.value })
+              }
               required
             />
           </div>
@@ -582,7 +1201,9 @@ function CreateWarehouseModal({
               type="text"
               className="input input-bordered w-full"
               value={formData.country}
-              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, country: e.target.value })
+              }
             />
           </div>
         </div>
@@ -601,21 +1222,7 @@ function CreateWarehouseModal({
           />
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Capacity (shelves)</span>
-          </label>
-          <input
-            type="number"
-            className="input input-bordered w-full"
-            value={formData.capacity}
-            onChange={(e) =>
-              setFormData({ ...formData, capacity: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="divider">Warehouse Manager</div>
+        <div className="divider">Contact Information</div>
 
         <div className="form-control">
           <label className="label">
@@ -624,9 +1231,9 @@ function CreateWarehouseModal({
           <input
             type="text"
             className="input input-bordered w-full"
-            value={formData.managerName}
+            value={formData.contactPerson}
             onChange={(e) =>
-              setFormData({ ...formData, managerName: e.target.value })
+              setFormData({ ...formData, contactPerson: e.target.value })
             }
           />
         </div>
@@ -639,9 +1246,9 @@ function CreateWarehouseModal({
             <input
               type="email"
               className="input input-bordered w-full"
-              value={formData.managerEmail}
+              value={formData.email}
               onChange={(e) =>
-                setFormData({ ...formData, managerEmail: e.target.value })
+                setFormData({ ...formData, email: e.target.value })
               }
             />
           </div>
@@ -652,20 +1259,33 @@ function CreateWarehouseModal({
             <input
               type="tel"
               className="input input-bordered w-full"
-              value={formData.managerPhone}
+              value={formData.phone}
               onChange={(e) =>
-                setFormData({ ...formData, managerPhone: e.target.value })
+                setFormData({ ...formData, phone: e.target.value })
               }
             />
           </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onClose}
+            disabled={submitting}
+          >
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? <span className="loading loading-spinner"></span> : "Create Warehouse"}
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting}
+          >
+            {submitting ? (
+              <span className="loading loading-spinner"></span>
+            ) : (
+              "Create Warehouse"
+            )}
           </button>
         </div>
       </form>
