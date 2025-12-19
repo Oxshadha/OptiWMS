@@ -5,8 +5,10 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 import Image from "next/image";
+import { useAdmin } from "@/contexts/AdminContext";
+import { filterRoutesByRole } from "@/lib/admin-roles";
 
-const navItems = [
+const allNavItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
   { href: "/admin/warehouses", label: "Warehouses", icon: "warehouse" },
   {
@@ -45,6 +47,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { role } = useAdmin();
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
@@ -52,6 +55,9 @@ export function Sidebar() {
     }
     return [];
   });
+
+  // Filter nav items based on admin role
+  const navItems = filterRoutesByRole(allNavItems, role);
 
   const toggleExpand = (href: string) => {
     setExpandedItems((prev) =>
