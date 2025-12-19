@@ -8,7 +8,7 @@
 /**
  * Admin role types
  */
-export type AdminRole = 'admin' | 'warehouse_manager';
+export type AdminRole = 'admin' | 'warehouse_manager' | 'procurement_manager';
 
 /**
  * Permission types for granular access control
@@ -28,6 +28,7 @@ export const ADMIN_ROUTES = {
   PRODUCTS: '/admin/products',
   SUPPLIERS: '/admin/suppliers',
   WORKERS: '/admin/workers',
+  ADMINS: '/admin/admins',
   TASKS: '/admin/tasks',
   CYCLE_COUNTS: '/admin/cycle-counts',
   STOCK_TRANSFERS: '/admin/stock-transfers',
@@ -59,6 +60,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.WORKERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.ADMINS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.CYCLE_COUNTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.STOCK_TRANSFERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -83,6 +85,32 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
+    [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.CYCLE_COUNTS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.STOCK_TRANSFERS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.PACKING]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.QUALITY_CHECKS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.RETURNS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve returns
+    [ADMIN_ROUTES.ANOMALIES]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.CUSTOMERS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.REPORTS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.SETTINGS]: new Set([]), // No access
+    [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.HELP]: new Set(['view']),
+  },
+  procurement_manager: {
+    // Procurement Manager: focused on suppliers, orders, and inventory management
+    [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only
+    [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
+    [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.CYCLE_COUNTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.STOCK_TRANSFERS]: new Set(['view', 'create', 'edit']),
@@ -104,6 +132,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
 export const ROLE_DISPLAY_NAMES: Record<AdminRole, string> = {
   admin: 'System Administrator',
   warehouse_manager: 'Warehouse Manager',
+  procurement_manager: 'Procurement Manager',
 };
 
 /**
@@ -151,7 +180,9 @@ export function hasPermission(
  * @returns true if the role can access the route, false otherwise
  */
 export function canAccessRoute(role: AdminRole | null | undefined, route: string): boolean {
-  return hasPermission(role, route, 'view');
+  // Strip query parameters for route checking
+  const routePath = route.split('?')[0];
+  return hasPermission(role, routePath, 'view');
 }
 
 /**
@@ -232,7 +263,7 @@ export function isValidAdminRole(role: string | null | undefined): role is Admin
  * @param role - The admin's role
  * @returns Array of routes that the role has permission to access
  */
-export function filterRoutesByRole<T extends { href?: string }>(
+export function filterRoutesByRole<T extends { href?: string; subItems?: { href: string }[] }>(
   routes: T[],
   role: AdminRole | null | undefined
 ): T[] {
@@ -241,10 +272,33 @@ export function filterRoutesByRole<T extends { href?: string }>(
   }
 
   return routes.filter((route) => {
-    if (route.href) {
-      return canAccessRoute(role, route.href);
+    // Check if user can access the main route
+    if (route.href && canAccessRoute(role, route.href)) {
+      return true;
     }
+    
+    // Check if user can access any sub-item
+    if (route.subItems && route.subItems.length > 0) {
+      const hasAccessibleSubItem = route.subItems.some((subItem) =>
+        canAccessRoute(role, subItem.href)
+      );
+      if (hasAccessibleSubItem) {
+        return true;
+      }
+    }
+    
     return false;
+  }).map((route) => {
+    // Filter sub-items to only include accessible ones
+    if (route.subItems && route.subItems.length > 0) {
+      return {
+        ...route,
+        subItems: route.subItems.filter((subItem) =>
+          canAccessRoute(role, subItem.href)
+        ),
+      };
+    }
+    return route;
   });
 }
 

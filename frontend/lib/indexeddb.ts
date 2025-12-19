@@ -193,6 +193,9 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   synced: boolean;
+  workerId?: string; // Worker assigned to this task
+  assignedTo?: string; // Alternative field name for worker assignment
+  warehouseId?: string; // Warehouse where task is located
 }
 
 export async function saveTask(task: Task): Promise<void> {
