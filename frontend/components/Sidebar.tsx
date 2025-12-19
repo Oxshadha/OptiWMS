@@ -50,6 +50,7 @@ const allNavItems = [
   { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
   { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
   { href: "/admin/customers", label: "Customers", icon: "people" },
+  { href: "/admin/sops", label: "SOPs", icon: "description" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
 ];
 
