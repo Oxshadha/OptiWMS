@@ -93,3 +93,49 @@ export const receivingApi = {
   },
 };
 
+// Putaway
+export interface PutawayRequest {
+  locationCode: string;
+  lpn: string;
+}
+
+export interface PutawayResponse {
+  success: boolean;
+  message: string;
+  taskId: string | null;
+}
+
+export const putawayApi = {
+  completePutaway: async (taskId: string, locationCode: string, lpn: string): Promise<PutawayResponse> => {
+    return apiClient.post<PutawayResponse>(`/operations/putaway/complete/${taskId}`, {
+      locationCode,
+      lpn,
+    });
+  },
+};
+
+// Picking
+export interface PickedItem {
+  materialId: string;
+  quantity: string;
+  locationCode: string;
+}
+
+export interface PickingRequest {
+  items: PickedItem[];
+}
+
+export interface PickingResponse {
+  success: boolean;
+  message: string;
+  taskId: string | null;
+}
+
+export const pickingApi = {
+  completePicking: async (taskId: string, items: PickedItem[]): Promise<PickingResponse> => {
+    return apiClient.post<PickingResponse>(`/operations/picking/complete/${taskId}`, {
+      items,
+    });
+  },
+};
+

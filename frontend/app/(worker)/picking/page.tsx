@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { pickingApi } from "@/lib/api/operations";
 
 const picks = [
   {
@@ -47,6 +48,7 @@ export default function PickingPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedPicks, setSavedPicks] = useState<any[]>([]);
   const [showLocationScanner, setShowLocationScanner] = useState(false);
+  const [taskId, setTaskId] = useState<string>(""); // TODO: Get from task context
   const currentPick = picks.find((p) => p.status === "current");
   const upcomingPicks = picks.filter((p) => p.status === "upcoming");
 
@@ -83,18 +85,31 @@ export default function PickingPage() {
 
       // Add to sync queue (will sync when online)
       await addToSyncQueue({
-        type: "scan",
-        action: "create",
+        type: "picking",
+        action: "complete",
         data: {
-          taskId: "picking",
-          order: currentPick.order,
-          location: currentPick.location,
-          sku: currentPick.sku,
-          item: currentPick.item,
-          qty: pickedQty,
+          taskId: taskId || "picking",
+          items: [{
+            materialId: currentPick.sku, // TODO: Map SKU to materialId
+            quantity: pickedQty.toString(),
+            locationCode: currentPick.location,
+          }],
           timestamp: Date.now(),
         },
       });
+
+      // If online, sync immediately
+      if (isOnline && taskId) {
+        try {
+          await pickingApi.completePicking(taskId, [{
+            materialId: currentPick.sku, // TODO: Map SKU to materialId
+            quantity: pickedQty.toString(),
+            locationCode: currentPick.location,
+          }]);
+        } catch (err) {
+          console.error("Error syncing picking:", err);
+        }
+      }
 
       setSaveStatus("saved");
       

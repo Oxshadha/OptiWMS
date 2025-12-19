@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { LocationPicker } from "@/components/LocationPicker";
 import { QRScanner } from "@/components/QRScanner";
+import { stockTransfersApi } from "@/lib/api/operations";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -88,19 +89,39 @@ export default function StockTransferPage() {
     // Save to IndexedDB
     await saveScanRecord({
       taskId: transfer.id,
-      taskType: "stock_transfer",
-      locationCode: transfer.sourceLocationCode,
+      location: transfer.sourceLocationCode,
       sku: transfer.sku,
-      quantity: transfer.quantity,
-      timestamp: new Date().toISOString(),
+      qty: transfer.quantity,
     });
 
-    // Add to sync queue
+    // Sync with API if online
+    if (isOnline) {
+      try {
+        if (transfer.sourceWarehouseId && transfer.destWarehouseId) {
+          await stockTransfersApi.create({
+            transferNumber: transfer.transferNumber,
+            transferType: transfer.transferType,
+            materialId: transfer.itemId || "",
+            sourceWarehouseId: transfer.sourceWarehouseId,
+            sourceLocationCode: transfer.sourceLocationCode,
+            destWarehouseId: transfer.destWarehouseId,
+            destLocationCode: transfer.destLocationCode,
+            quantity: transfer.quantity.toString(),
+            status: transfer.status,
+            notes: transfer.notes,
+          });
+        }
+      } catch (err) {
+        console.error("Error syncing transfer to API:", err);
+        // Fall through to add to sync queue
+      }
+    }
+    
+    // Add to sync queue for offline or as backup
     await addToSyncQueue({
-      type: "stock_transfer",
-      action: "dispatch",
+      type: "operation",
+      action: "create",
       data: transfer,
-      timestamp: new Date().toISOString(),
     });
 
     setTransfers([...transfers, transfer]);
@@ -129,10 +150,9 @@ export default function StockTransferPage() {
 
     // Update in IndexedDB and sync queue
     await addToSyncQueue({
-      type: "stock_transfer",
-      action: "receive",
+      type: "operation",
+      action: "update",
       data: updatedTransfer,
-      timestamp: new Date().toISOString(),
     });
 
     setTransfers(transfers.map(t => t.id === transfer.id ? updatedTransfer : t));

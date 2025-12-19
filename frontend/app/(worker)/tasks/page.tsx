@@ -1,11 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { tasksApi, Task } from "@/lib/api/tasks";
+import { useOffline } from "@/hooks/useOffline";
 
-const tasks = [
+// Frontend task structure
+interface WorkerTask {
+  id: string;
+  title: string;
+  detail: string;
+  type: string;
+  icon: string;
+  priority: string;
+  dueTime: string;
+}
+
+// Mock data for fallback
+const mockTasks: WorkerTask[] = [
   { 
-    id: 1,
+    id: "1",
     title: "Receiving", 
     detail: "PO/ASN 452368", 
     type: "info",
@@ -14,7 +28,7 @@ const tasks = [
     dueTime: "2:00 PM"
   },
   { 
-    id: 2,
+    id: "2",
     title: "Putaway", 
     detail: "Stage -> Aisle A", 
     type: "primary",
@@ -23,7 +37,7 @@ const tasks = [
     dueTime: "3:30 PM"
   },
   { 
-    id: 3,
+    id: "3",
     title: "Picking", 
     detail: "Order #56281", 
     type: "accent",
@@ -32,7 +46,7 @@ const tasks = [
     dueTime: "4:00 PM"
   },
   { 
-    id: 4,
+    id: "4",
     title: "Cycle Count", 
     detail: "Zone B", 
     type: "warning",
@@ -49,7 +63,80 @@ const priorityColors = {
 };
 
 export default function WorkerTasksPage() {
+  const { isOnline } = useOffline();
+  const [tasks, setTasks] = useState<WorkerTask[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState("all");
+
+  // Load tasks from API
+  useEffect(() => {
+    if (isOnline) {
+      loadTasks();
+    } else {
+      // Use mock data when offline
+      setTasks(mockTasks);
+      setLoading(false);
+    }
+  }, [isOnline]);
+
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+      // Get tasks assigned to current worker (would need worker ID from auth)
+      const apiTasks = await tasksApi.getAll();
+      
+      // Filter to pending/assigned tasks and map to frontend structure
+      const workerTasks: WorkerTask[] = apiTasks
+        .filter(t => t.status === "pending" || t.status === "assigned")
+        .map((task: Task) => {
+          // Map task type to icon and color
+          let icon = "task";
+          let type = "info";
+          if (task.taskType === "receiving") {
+            icon = "inventory_2";
+            type = "info";
+          } else if (task.taskType === "putaway") {
+            icon = "move_to_inbox";
+            type = "primary";
+          } else if (task.taskType === "picking") {
+            icon = "shopping_cart";
+            type = "accent";
+          } else if (task.taskType === "cycle_count") {
+            icon = "calculate";
+            type = "warning";
+          }
+          
+          // Map priority
+          let priority = "medium";
+          if (task.priority === "high" || task.priority === "urgent") priority = "high";
+          else if (task.priority === "low") priority = "low";
+          
+          // Format due time
+          let dueTime = "N/A";
+          if (task.dueDate) {
+            const due = new Date(task.dueDate);
+            dueTime = due.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          }
+          
+          return {
+            id: task.id,
+            title: task.taskType.charAt(0).toUpperCase() + task.taskType.slice(1).replace("_", " "),
+            detail: task.locationCode || task.referenceId || "Task",
+            type,
+            icon,
+            priority,
+            dueTime,
+          };
+        });
+      
+      setTasks(workerTasks.length > 0 ? workerTasks : mockTasks);
+    } catch (err) {
+      console.error("Error loading tasks:", err);
+      setTasks(mockTasks);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredTasks = selectedFilter === "all" 
     ? tasks 
@@ -75,8 +162,13 @@ export default function WorkerTasksPage() {
       </div>
 
       {/* Tasks List */}
-      <div className="space-y-3">
-        {filteredTasks.map((task) => (
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredTasks.map((task) => (
           <Link
             key={task.id}
             href={`/worker/tasks/${task.id}`}
@@ -115,7 +207,8 @@ export default function WorkerTasksPage() {
             </div>
           </Link>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Empty State */}
       {filteredTasks.length === 0 && (

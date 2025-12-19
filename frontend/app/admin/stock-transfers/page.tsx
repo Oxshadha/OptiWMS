@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { stockTransfersApi, StockTransfer as ApiStockTransfer } from "@/lib/api/operations";
+import { materialsApi, Material } from "@/lib/api/materials";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -12,11 +15,14 @@ interface StockTransfer {
   transferNumber: string;
   transferType: TransferType;
   sourceWarehouse?: string;
+  sourceWarehouseId: string;
   sourceLocationCode: string;
   destWarehouse?: string;
+  destWarehouseId: string;
   destLocationCode: string;
   itemSku: string;
   itemName: string;
+  materialId: string;
   quantity: number;
   status: TransferStatus;
   notes?: string;
@@ -27,54 +33,6 @@ interface StockTransfer {
   createdAt: string;
 }
 
-const mockTransfers: StockTransfer[] = [
-  {
-    id: "tf-1",
-    transferNumber: "TF-2025-001",
-    transferType: "intra_warehouse",
-    sourceLocationCode: "A-01-01-4-A",
-    destLocationCode: "B-02-03-2-C",
-    itemSku: "SKU-001",
-    itemName: "Product A",
-    quantity: 50,
-    status: "received",
-    notes: "Replenishment",
-    dispatchedBy: "John Doe",
-    dispatchedAt: "2025-12-15T10:30:00",
-    receivedBy: "Jane Smith",
-    receivedAt: "2025-12-15T14:20:00",
-    createdAt: "2025-12-15T09:00:00",
-  },
-  {
-    id: "tf-2",
-    transferNumber: "TF-2025-002",
-    transferType: "inter_warehouse",
-    sourceWarehouse: "Warehouse 1",
-    sourceLocationCode: "A-02-05-3-B",
-    destWarehouse: "Warehouse 2",
-    destLocationCode: "C-01-02-1-A",
-    itemSku: "SKU-002",
-    itemName: "Product B",
-    quantity: 100,
-    status: "in_transit",
-    dispatchedBy: "Mike Johnson",
-    dispatchedAt: "2025-12-16T08:15:00",
-    createdAt: "2025-12-16T07:00:00",
-  },
-  {
-    id: "tf-3",
-    transferNumber: "TF-2025-003",
-    transferType: "intra_warehouse",
-    sourceLocationCode: "C-03-01-4-A",
-    destLocationCode: "A-01-02-2-B",
-    itemSku: "SKU-003",
-    itemName: "Product C",
-    quantity: 25,
-    status: "draft",
-    createdAt: "2025-12-16T11:00:00",
-  },
-];
-
 const statusClass = (status: TransferStatus) => {
   if (status === "received") return "badge-success";
   if (status === "in_transit") return "badge-info";
@@ -84,13 +42,75 @@ const statusClass = (status: TransferStatus) => {
 };
 
 export default function StockTransfersPage() {
+  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TransferStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
 
-  const filteredTransfers = mockTransfers.filter((transfer) => {
+  // Load transfers from API
+  useEffect(() => {
+    loadTransfers();
+  }, []);
+
+  const loadTransfers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch transfers, materials, and warehouses
+      const [apiTransfers, materials, warehouses] = await Promise.all([
+        stockTransfersApi.getAll(),
+        materialsApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
+
+      // Create maps for quick lookup
+      const materialMap = new Map(materials.map(m => [m.id, m]));
+      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
+
+      // Map API transfers to frontend structure
+      const transfersData: StockTransfer[] = apiTransfers.map((transfer) => {
+        const material = materialMap.get(transfer.materialId);
+        const sourceWarehouse = warehouseMap.get(transfer.sourceWarehouseId);
+        const destWarehouse = warehouseMap.get(transfer.destWarehouseId);
+        
+        // Determine if intra or inter warehouse
+        const isIntraWarehouse = transfer.sourceWarehouseId === transfer.destWarehouseId;
+        
+        return {
+          id: transfer.id,
+          transferNumber: transfer.transferNumber,
+          transferType: (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse") as TransferType,
+          sourceWarehouse: sourceWarehouse?.name,
+          sourceWarehouseId: transfer.sourceWarehouseId,
+          sourceLocationCode: transfer.sourceLocationCode || "",
+          destWarehouse: destWarehouse?.name,
+          destWarehouseId: transfer.destWarehouseId,
+          destLocationCode: transfer.destLocationCode || "",
+          itemSku: material?.materialCode || "N/A",
+          itemName: material?.description || "Unknown Material",
+          materialId: transfer.materialId,
+          quantity: parseFloat(transfer.quantity || "0"),
+          status: (transfer.status || "draft") as TransferStatus,
+          notes: transfer.notes,
+          createdAt: new Date().toISOString(), // API doesn't return createdAt yet
+        };
+      });
+
+      setTransfers(transfersData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load stock transfers");
+      console.error("Error loading stock transfers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredTransfers = transfers.filter((transfer) => {
     const matchesSearch = !searchQuery.trim() || (
       transfer.transferNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       transfer.itemSku.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -103,23 +123,46 @@ export default function StockTransfersPage() {
     return matchesSearch && matchesStatus && matchesType;
   });
 
-  const totalTransfers = mockTransfers.length;
-  const inTransit = mockTransfers.filter(t => t.status === "in_transit").length;
-  const received = mockTransfers.filter(t => t.status === "received").length;
-  const pending = mockTransfers.filter(t => t.status === "draft").length;
+  const totalTransfers = transfers.length;
+  const inTransit = transfers.filter(t => t.status === "in_transit").length;
+  const received = transfers.filter(t => t.status === "received").length;
+  const pending = transfers.filter(t => t.status === "draft").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
     setShowDetailModal(true);
   };
 
-  const handleCancelTransfer = (transfer: StockTransfer) => {
+  const handleCancelTransfer = async (transfer: StockTransfer) => {
     if (confirm(`Are you sure you want to cancel transfer ${transfer.transferNumber}?`)) {
-      // TODO: API call to cancel transfer
-      console.log("Cancelling transfer:", transfer.id);
-      alert("Transfer cancelled successfully!");
+      try {
+        // Note: Backend needs DELETE or cancel endpoint
+        // For now, show message
+        alert("Cancel transfer functionality requires backend DELETE endpoint implementation.");
+        // await stockTransfersApi.delete(transfer.id);
+        // await loadTransfers();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to cancel transfer");
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadTransfers}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

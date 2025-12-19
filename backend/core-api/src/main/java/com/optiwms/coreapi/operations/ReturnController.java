@@ -1,0 +1,176 @@
+package com.optiwms.coreapi.operations;
+
+import com.optiwms.coreapp.operations.ReturnService;
+import com.optiwms.domain.operations.ReturnRecord;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@RestController
+@RequestMapping("/api/returns")
+public class ReturnController {
+
+    private final ReturnService service;
+
+    public ReturnController(ReturnService service) {
+        this.service = service;
+    }
+
+    @GetMapping
+    public ResponseEntity<List<ReturnDto>> listAll(
+            @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) String status
+    ) {
+        List<ReturnRecord> returns;
+        if (orderId != null) {
+            returns = service.findByOrderId(UUID.fromString(orderId));
+        } else if (customerId != null) {
+            returns = service.findByCustomerId(UUID.fromString(customerId));
+        } else if (status != null) {
+            returns = service.findByStatus(status);
+        } else {
+            returns = service.listAll();
+        }
+
+        List<ReturnDto> returnDtos = returns.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(returnDtos);
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<ReturnDto> getById(@PathVariable UUID id) {
+        try {
+            ReturnRecord returnRecord = service.findById(id);
+            return ResponseEntity.ok(toDto(returnRecord));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    @PostMapping
+    public ResponseEntity<ReturnDto> create(@RequestBody CreateReturnRequest request) {
+        try {
+            ReturnRecord returnRecord = new ReturnRecord();
+            returnRecord.setReturnNumber(request.returnNumber());
+            returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
+            returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
+            returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
+            if (request.returnDate() != null && !request.returnDate().isEmpty()) {
+                returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
+            } else {
+                returnRecord.setReturnDate(LocalDate.now());
+            }
+            returnRecord.setReason(request.reason());
+            returnRecord.setStatus(request.status() != null ? request.status() : "pending");
+            returnRecord.setResolution(request.resolution());
+            returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
+            returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
+
+            ReturnRecord created = service.create(returnRecord);
+            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<ReturnDto> update(@PathVariable UUID id, @RequestBody UpdateReturnRequest request) {
+        try {
+            ReturnRecord returnRecord = service.findById(id);
+            if (request.reason() != null) returnRecord.setReason(request.reason());
+            if (request.resolution() != null) returnRecord.setResolution(request.resolution());
+            if (request.status() != null) returnRecord.setStatus(request.status());
+            if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
+            if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
+
+            ReturnRecord updated = service.update(returnRecord);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}/status")
+    public ResponseEntity<ReturnDto> updateStatus(
+            @PathVariable UUID id,
+            @RequestBody UpdateStatusRequest request
+    ) {
+        try {
+            ReturnRecord updated = service.updateStatus(id, request.status());
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(@PathVariable UUID id) {
+        try {
+            service.deleteById(id);
+            return ResponseEntity.noContent().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    private ReturnDto toDto(ReturnRecord returnRecord) {
+        return new ReturnDto(
+                returnRecord.getId().toString(),
+                returnRecord.getReturnNumber(),
+                returnRecord.getOriginalOrderId() != null ? returnRecord.getOriginalOrderId().toString() : null,
+                returnRecord.getCustomerId() != null ? returnRecord.getCustomerId().toString() : null,
+                returnRecord.getWarehouseId() != null ? returnRecord.getWarehouseId().toString() : null,
+                returnRecord.getReturnDate() != null ? returnRecord.getReturnDate().toString() : null,
+                returnRecord.getReason(),
+                returnRecord.getStatus(),
+                returnRecord.getResolution(),
+                returnRecord.getReceivedBy() != null ? returnRecord.getReceivedBy().toString() : null,
+                returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy().toString() : null
+        );
+    }
+
+    public record CreateReturnRequest(
+            String returnNumber,
+            String originalOrderId,
+            String customerId,
+            String warehouseId,
+            String returnDate,
+            String reason,
+            String status,
+            String resolution,
+            String receivedBy,
+            String inspectedBy
+    ) {}
+
+    public record UpdateReturnRequest(
+            String reason,
+            String resolution,
+            String status,
+            String receivedBy,
+            String inspectedBy
+    ) {}
+
+    public record UpdateStatusRequest(String status) {}
+
+    public record ReturnDto(
+            String id,
+            String returnNumber,
+            String originalOrderId,
+            String customerId,
+            String warehouseId,
+            String returnDate,
+            String reason,
+            String status,
+            String resolution,
+            String receivedBy,
+            String inspectedBy
+    ) {}
+}
+

@@ -36,8 +36,44 @@ export const inventoryApi = {
     return apiClient.get<InventoryItem[]>(`/inventory/warehouse/${warehouseId}`);
   },
 
+  create: async (data: {
+    materialId: string;
+    warehouseId: string;
+    locationCode?: string;
+    quantity?: number;
+    availableQuantity?: number;
+    reservedQuantity?: number;
+    bufferStock?: number;
+    maxStock?: number;
+    minStock?: number;
+    reorderPoint?: number;
+    stackingQuantity?: number;
+    moq?: number;
+    leadTimeDays?: number;
+    status?: string;
+  }): Promise<InventoryItem> => {
+    return apiClient.post<InventoryItem>('/inventory', data);
+  },
+
   updateQuantity: async (id: string, quantityChange: number): Promise<InventoryItem> => {
     return apiClient.patch<InventoryItem>(`/inventory/${id}/quantity?quantityChange=${quantityChange}`, {});
+  },
+
+  update: async (id: string, data: {
+    locationCode?: string;
+    quantity?: number;
+    availableQuantity?: number;
+    reservedQuantity?: number;
+    bufferStock?: number;
+    maxStock?: number;
+    minStock?: number;
+    reorderPoint?: number;
+    stackingQuantity?: number;
+    moq?: number;
+    leadTimeDays?: number;
+    status?: string;
+  }): Promise<InventoryItem> => {
+    return apiClient.put<InventoryItem>(`/inventory/${id}`, data);
   },
 };
 

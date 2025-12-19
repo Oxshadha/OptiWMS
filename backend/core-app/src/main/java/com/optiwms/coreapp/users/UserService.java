@@ -1,0 +1,150 @@
+package com.optiwms.coreapp.users;
+
+import com.optiwms.domain.users.User;
+import com.optiwms.infra.users.UserEntity;
+import com.optiwms.infra.users.UserRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+public class UserService {
+
+    private final UserRepository repository;
+
+    public UserService(UserRepository repository) {
+        this.repository = repository;
+    }
+
+    public List<User> listAll() {
+        return repository.findAll().stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<User> findByRole(String role) {
+        return repository.findByRole(role).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<User> findByWarehouseId(UUID warehouseId) {
+        return repository.findByWarehouseId(warehouseId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<User> findByStatus(String status) {
+        return repository.findByStatus(status).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public User findById(UUID id) {
+        return repository.findById(id)
+                .map(this::toDomain)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+    }
+
+    public User findByUsername(String username) {
+        return repository.findByUsername(username)
+                .map(this::toDomain)
+                .orElseThrow(() -> new RuntimeException("User not found: " + username));
+    }
+
+    @Transactional
+    public User create(User user) {
+        if (repository.findByUsername(user.getUsername()).isPresent()) {
+            throw new RuntimeException("Username already exists: " + user.getUsername());
+        }
+        if (user.getEmail() != null && repository.findByEmail(user.getEmail()).isPresent()) {
+            throw new RuntimeException("Email already exists: " + user.getEmail());
+        }
+        if (user.getEmployeeId() != null && repository.findByEmployeeId(user.getEmployeeId()).isPresent()) {
+            throw new RuntimeException("Employee ID already exists: " + user.getEmployeeId());
+        }
+
+        UserEntity entity = new UserEntity();
+        entity.setUsername(user.getUsername());
+        entity.setEmail(user.getEmail());
+        entity.setPasswordHash(user.getPasswordHash());
+        entity.setEmployeeId(user.getEmployeeId());
+        entity.setFirstName(user.getFirstName());
+        entity.setLastName(user.getLastName());
+        entity.setRole(user.getRole());
+        entity.setWarehouseId(user.getWarehouseId());
+        entity.setPhone(user.getPhone());
+        entity.setAvatarUrl(user.getAvatarUrl());
+        entity.setStatus(user.getStatus() != null ? user.getStatus() : "active");
+        entity.setDeviceId(user.getDeviceId());
+
+        UserEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public User update(User user) {
+        UserEntity entity = repository.findById(user.getId())
+                .orElseThrow(() -> new RuntimeException("User not found: " + user.getId()));
+
+        if (user.getEmail() != null && !user.getEmail().equals(entity.getEmail())) {
+            if (repository.findByEmail(user.getEmail()).isPresent()) {
+                throw new RuntimeException("Email already exists: " + user.getEmail());
+            }
+            entity.setEmail(user.getEmail());
+        }
+        if (user.getPasswordHash() != null) {
+            entity.setPasswordHash(user.getPasswordHash());
+        }
+        if (user.getFirstName() != null) entity.setFirstName(user.getFirstName());
+        if (user.getLastName() != null) entity.setLastName(user.getLastName());
+        if (user.getRole() != null) entity.setRole(user.getRole());
+        if (user.getWarehouseId() != null) entity.setWarehouseId(user.getWarehouseId());
+        if (user.getPhone() != null) entity.setPhone(user.getPhone());
+        if (user.getAvatarUrl() != null) entity.setAvatarUrl(user.getAvatarUrl());
+        if (user.getStatus() != null) entity.setStatus(user.getStatus());
+        if (user.getDeviceId() != null) entity.setDeviceId(user.getDeviceId());
+
+        UserEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public void updateLastLogin(UUID id) {
+        UserEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found: " + id));
+        entity.setLastLoginAt(LocalDateTime.now());
+        repository.save(entity);
+    }
+
+    @Transactional
+    public void deleteById(UUID id) {
+        repository.deleteById(id);
+    }
+
+    private User toDomain(UserEntity entity) {
+        User u = new User();
+        u.setId(entity.getId());
+        u.setUsername(entity.getUsername());
+        u.setEmail(entity.getEmail());
+        u.setPasswordHash(entity.getPasswordHash());
+        u.setEmployeeId(entity.getEmployeeId());
+        u.setFirstName(entity.getFirstName());
+        u.setLastName(entity.getLastName());
+        u.setRole(entity.getRole());
+        u.setWarehouseId(entity.getWarehouseId());
+        u.setPhone(entity.getPhone());
+        u.setAvatarUrl(entity.getAvatarUrl());
+        u.setStatus(entity.getStatus());
+        u.setDeviceId(entity.getDeviceId());
+        u.setLastLoginAt(entity.getLastLoginAt());
+        u.setCreatedAt(entity.getCreatedAt());
+        u.setUpdatedAt(entity.getUpdatedAt());
+        return u;
+    }
+}
+

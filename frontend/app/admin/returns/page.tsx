@@ -1,14 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import Link from "next/link";
+import { returnsApi, Return as ApiReturn } from "@/lib/api/returns";
+import { customersApi } from "@/lib/api/customers";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { ordersApi } from "@/lib/api/orders";
 
-const returns = [
+// Frontend return structure
+interface Return {
+  id: string;
+  returnNumber: string;
+  originalOrder: string;
+  customerName: string;
+  customerId?: string;
+  warehouse: string;
+  warehouseId?: string;
+  returnDate: string;
+  reason?: string;
+  totalItems: number;
+  status: string;
+  resolution?: string | null;
+  receivedBy?: string | null;
+  inspectedBy?: string | null;
+}
+
+// Mock data for fallback
+const mockReturns: Return[] = [
   {
     id: "RET-1001",
     returnNumber: "RET-1001",
@@ -85,12 +108,91 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
+  const [returns, setReturns] = useState<Return[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
-  const [selectedReturn, setSelectedReturn] = useState<typeof returns[0] | null>(null);
+  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load returns from API
+  useEffect(() => {
+    loadReturns();
+  }, []);
+
+  const loadReturns = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [apiReturns, customers, warehouses, orders] = await Promise.all([
+        returnsApi.getAll(),
+        customersApi.getAll(),
+        warehousesApi.getAll(),
+        ordersApi.getAll(),
+      ]);
+
+      // Create maps for lookups
+      const customerMap = new Map(customers.map(c => [c.id, c]));
+      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
+      const orderMap = new Map(orders.map(o => [o.id, o.orderNumber]));
+
+      // Map API returns to frontend structure
+      const returnsData: Return[] = apiReturns.map((returnRecord) => {
+        const customer = returnRecord.customerId ? customerMap.get(returnRecord.customerId) : null;
+        const warehouse = returnRecord.warehouseId ? warehouseMap.get(returnRecord.warehouseId) : null;
+        const orderNumber = returnRecord.originalOrderId 
+          ? (orderMap.get(returnRecord.originalOrderId) || returnRecord.originalOrderId) 
+          : "N/A";
+        
+        return {
+          id: returnRecord.id,
+          returnNumber: returnRecord.returnNumber,
+          originalOrder: orderNumber || "N/A",
+          customerName: customer?.name || "Unknown Customer",
+          customerId: returnRecord.customerId,
+          warehouse: warehouse?.name || "Unknown Warehouse",
+          warehouseId: returnRecord.warehouseId,
+          returnDate: returnRecord.returnDate || new Date().toISOString().split('T')[0],
+          reason: returnRecord.reason,
+          totalItems: 0, // TODO: Get from return items
+          status: returnRecord.status || "pending",
+          resolution: returnRecord.resolution,
+          receivedBy: returnRecord.receivedBy,
+          inspectedBy: returnRecord.inspectedBy,
+        };
+      });
+
+      setReturns(returnsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load returns");
+      console.error("Error loading returns:", err);
+      // Fallback to mock data on error
+      setReturns(mockReturns);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && returns.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadReturns}>Retry</button>
+      </div>
+    );
+  }
 
   const filteredReturns = returns.filter(returnItem => {
     const query = searchQuery.trim().toLowerCase();
@@ -100,7 +202,7 @@ export default function ReturnsPage() {
       returnItem.customerName.toLowerCase().includes(query) ||
       returnItem.warehouse.toLowerCase().includes(query) ||
       returnItem.status.toLowerCase().includes(query) ||
-      returnItem.reason.toLowerCase().includes(query) ||
+      (returnItem.reason && returnItem.reason.toLowerCase().includes(query)) ||
       returnItem.returnDate.toLowerCase().includes(query) ||
       returnItem.totalItems.toString().includes(query) ||
       (returnItem.resolution && returnItem.resolution.toLowerCase().includes(query)) ||
@@ -112,12 +214,12 @@ export default function ReturnsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleRowClick = (returnItem: typeof returns[0]) => {
+  const handleRowClick = (returnItem: Return) => {
     setSelectedReturn(returnItem);
     setShowDetailModal(true);
   };
 
-  const handleInspect = (returnItem: typeof returns[0]) => {
+  const handleInspect = (returnItem: Return) => {
     setSelectedReturn(returnItem);
     setShowInspectModal(true);
   };
@@ -127,25 +229,25 @@ export default function ReturnsPage() {
       label: "Total Returns This Month",
       value: returns.length,
       icon: "keyboard_return",
-      color: "primary",
+      color: "primary" as const,
     },
     {
       label: "Pending Inspection",
       value: returns.filter(r => r.status === "pending" || r.status === "received").length,
       icon: "pending_actions",
-      color: "warning",
+      color: "warning" as const,
     },
     {
       label: "Approved for Restock",
       value: returns.filter(r => r.status === "approved" && r.resolution === "refund").length,
       icon: "check_circle",
-      color: "success",
+      color: "success" as const,
     },
     {
       label: "Rejected",
       value: returns.filter(r => r.status === "rejected").length,
       icon: "cancel",
-      color: "error",
+      color: "error" as const,
     },
   ];
 
@@ -153,7 +255,7 @@ export default function ReturnsPage() {
     {
       key: "returnNumber",
       label: "Return #",
-      render: (returnItem: typeof returns[0]) => (
+      render: (returnItem: Return) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -169,7 +271,7 @@ export default function ReturnsPage() {
     {
       key: "originalOrder",
       label: "Original Order",
-      render: (returnItem: typeof returns[0]) => (
+      render: (returnItem: Return) => (
         <Link href={`/admin/orders/outbound/${returnItem.originalOrder}`} className="text-primary hover:underline">
           {returnItem.originalOrder}
         </Link>
@@ -184,7 +286,7 @@ export default function ReturnsPage() {
     {
       key: "status",
       label: "Status",
-      render: (returnItem: typeof returns[0]) => {
+      render: (returnItem: Return) => {
         const status = statusConfig[returnItem.status as keyof typeof statusConfig];
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
@@ -193,7 +295,7 @@ export default function ReturnsPage() {
     {
       key: "resolution",
       label: "Resolution",
-      render: (returnItem: typeof returns[0]) => {
+      render: (returnItem: Return) => {
         if (!returnItem.resolution) return <span className="text-base-content/50">-</span>;
         const resolution = resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig];
         return <span className={`badge ${resolution.class}`}>{resolution.label}</span>;
@@ -202,7 +304,7 @@ export default function ReturnsPage() {
     },
   ];
 
-  const renderActions = (returnItem: typeof returns[0]) => (
+  const renderActions = (returnItem: Return) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -442,7 +544,7 @@ function ReturnDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: typeof returns[0];
+  returnItem: Return;
 }) {
   const status = statusConfig[returnItem.status as keyof typeof statusConfig];
   const resolution = returnItem.resolution
@@ -530,7 +632,7 @@ function InspectReturnModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: typeof returns[0];
+  returnItem: Return;
 }) {
   const [inspectionData, setInspectionData] = useState({
     items: [

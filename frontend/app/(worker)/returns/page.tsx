@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { returnsApi, Return } from "@/lib/api/returns";
+import { useOffline } from "@/hooks/useOffline";
+import { addToSyncQueue } from "@/lib/indexeddb";
 
 export default function ReturnsPage() {
-  const [selectedReturn, setSelectedReturn] = useState<any>(null);
+  const { isOnline } = useOffline();
+  const [returns, setReturns] = useState<Return[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showReturnScanner, setShowReturnScanner] = useState(false);
   const [showProductScanner, setShowProductScanner] = useState(false);
@@ -13,30 +19,57 @@ export default function ReturnsPage() {
   const [scannedProducts, setScannedProducts] = useState<Array<{ sku: string; qty: number }>>([]);
   const [currentProductQty, setCurrentProductQty] = useState(0);
 
-  const returns = [
+  // Load returns from API
+  useEffect(() => {
+    if (isOnline) {
+      loadReturns();
+    }
+  }, [isOnline]);
+
+  const loadReturns = async () => {
+    try {
+      setLoading(true);
+      const data = await returnsApi.getAll(undefined, undefined, "pending");
+      setReturns(data);
+    } catch (err) {
+      console.error("Error loading returns:", err);
+      setReturns([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Mock data for fallback/offline
+  const mockReturns: Return[] = [
     {
       id: "RET-1001",
       returnNumber: "RET-1001",
-      orderNumber: "SO-1001",
-      item: "Wireless Earbuds",
-      sku: "SKU-1001",
+      originalOrderId: "SO-1001",
+      customerId: undefined,
+      warehouseId: undefined,
+      returnDate: new Date().toISOString().split('T')[0],
       reason: "Defective",
-      qty: 2,
-      status: "Pending",
+      status: "pending",
+      resolution: undefined,
+      receivedBy: undefined,
+      inspectedBy: undefined,
     },
     {
       id: "RET-1002",
       returnNumber: "RET-1002",
-      orderNumber: "SO-1002",
-      item: "Smart Projector",
-      sku: "SKU-1002",
+      originalOrderId: "SO-1002",
+      customerId: undefined,
+      warehouseId: undefined,
+      returnDate: new Date().toISOString().split('T')[0],
       reason: "Customer Request",
-      qty: 1,
-      status: "Pending",
+      status: "pending",
+      resolution: undefined,
+      receivedBy: undefined,
+      inspectedBy: undefined,
     },
   ];
 
-  const handleProcessReturn = (returnItem: typeof returns[0]) => {
+  const handleProcessReturn = (returnItem: Return) => {
     setSelectedReturn(returnItem);
     setShowProcessModal(true);
   };
@@ -45,16 +78,26 @@ export default function ReturnsPage() {
     setShowReturnScanner(true);
   };
 
-  const handleReturnScan = (result: string) => {
+  const handleReturnScan = async (result: string) => {
     setScannedReturnId(result);
     setShowReturnScanner(false);
+    
     // Find return by scanned ID
     const foundReturn = returns.find(r => r.returnNumber === result || r.id === result);
     if (foundReturn) {
       setSelectedReturn(foundReturn);
       setShowProcessModal(true);
+    } else if (isOnline) {
+      // Try to fetch from API
+      try {
+        const returnData = await returnsApi.getById(result);
+        setSelectedReturn(returnData);
+        setShowProcessModal(true);
+      } catch (err) {
+        alert("Return not found. Please scan a valid return QR code.");
+      }
     } else {
-      alert("Return not found. Please scan a valid return QR code.");
+      alert("Return not found. Please check your connection and try again.");
     }
   };
 
@@ -85,23 +128,28 @@ export default function ReturnsPage() {
       return;
     }
     
+    if (!selectedReturn) return;
+    
     try {
-      // Save to IndexedDB for offline-first
-      const returnData = {
-        returnId: selectedReturn?.id,
-        returnNumber: selectedReturn?.returnNumber,
-        scannedProducts,
-        receivedAt: new Date().toISOString(),
-        status: "received",
-      };
+      if (isOnline) {
+        // Update via API
+        await returnsApi.updateStatus(selectedReturn.id, "received");
+        await loadReturns(); // Refresh list
+      } else {
+        // Save to sync queue for offline
+        await addToSyncQueue({
+          type: "operation",
+          action: "update",
+          data: {
+            returnId: selectedReturn.id,
+            scannedProducts,
+            receivedAt: new Date().toISOString(),
+          },
+        });
+      }
       
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing return:", returnData);
-      
-      // Show success message
       alert("Return processed successfully! Items have been received and will be inspected.");
       
-      // Update return status to 'received'
       setShowProcessModal(false);
       setScannedProducts([]);
       setScannedReturnId("");
@@ -124,8 +172,13 @@ export default function ReturnsPage() {
         </p>
       </div>
 
-      <div className="space-y-3">
-        {returns.map((returnItem) => (
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(returns.length > 0 ? returns : mockReturns).map((returnItem) => (
           <div
             key={returnItem.id}
             className="bg-base-100 rounded-xl p-4 border border-base-300"
@@ -133,28 +186,18 @@ export default function ReturnsPage() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <div className="font-bold text-base-content">{returnItem.returnNumber}</div>
-                <div className="text-sm text-base-content/60">Order: {returnItem.orderNumber}</div>
+                <div className="text-sm text-base-content/60">Order: {returnItem.originalOrderId || "N/A"}</div>
               </div>
               <span className="badge badge-warning">{returnItem.status}</span>
             </div>
-            <div className="space-y-2 mb-3">
-              <div className="flex items-center gap-2 text-sm">
-                <span className="material-symbols-outlined text-base-content/60">inventory</span>
-                <span className="text-base-content/70">{returnItem.item}</span>
+            {returnItem.reason && (
+              <div className="space-y-2 mb-3">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="material-symbols-outlined text-base-content/60">info</span>
+                  <span className="text-base-content/70">Reason: {returnItem.reason}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="material-symbols-outlined text-base-content/60">tag</span>
-                <span className="text-base-content/70">SKU: {returnItem.sku}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="material-symbols-outlined text-base-content/60">info</span>
-                <span className="text-base-content/70">Reason: {returnItem.reason}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="material-symbols-outlined text-base-content/60">numbers</span>
-                <span className="text-base-content/70">Qty: {returnItem.qty}</span>
-              </div>
-            </div>
+            )}
             <button
               onClick={() => handleProcessReturn(returnItem)}
               className="btn btn-primary btn-sm w-full"
@@ -164,7 +207,8 @@ export default function ReturnsPage() {
             </button>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Process Return Modal */}
       {selectedReturn && (
@@ -185,24 +229,14 @@ export default function ReturnsPage() {
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-base-content/60">Order:</span>
-                  <span className="font-medium">{selectedReturn.orderNumber}</span>
+                  <span className="font-medium">{selectedReturn.originalOrderId || "N/A"}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-base-content/60">Item:</span>
-                  <span className="font-medium">{selectedReturn.item}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-base-content/60">SKU:</span>
-                  <span className="font-medium">{selectedReturn.sku}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-base-content/60">Expected Qty:</span>
-                  <span className="font-medium">{selectedReturn.qty}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-base-content/60">Reason:</span>
-                  <span className="font-medium">{selectedReturn.reason}</span>
-                </div>
+                {selectedReturn.reason && (
+                  <div className="flex justify-between">
+                    <span className="text-base-content/60">Reason:</span>
+                    <span className="font-medium">{selectedReturn.reason}</span>
+                  </div>
+                )}
               </div>
             </div>
 

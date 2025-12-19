@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
+import { ordersApi } from "@/lib/api/orders";
+import { usersApi } from "@/lib/api/users";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -26,6 +29,7 @@ interface PackingRecord {
   createdAt: string;
 }
 
+// Mock data for fallback
 const mockPackingRecords: PackingRecord[] = [
   {
     id: "pk-1",
@@ -85,13 +89,107 @@ const statusClass = (status: PackingStatus) => {
 };
 
 export default function PackingPage() {
+  const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<PackingRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
 
-  const filteredRecords = mockPackingRecords.filter((record) => {
+  // Load packing records from API
+  useEffect(() => {
+    loadPackingRecords();
+  }, []);
+
+  const loadPackingRecords = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [apiRecords, orders, users] = await Promise.all([
+        packingApi.getAll(),
+        ordersApi.getAll(),
+        usersApi.getAll(),
+      ]);
+
+      // Create maps for lookups
+      const orderMap = new Map(orders.map((o: any) => [o.id, o]));
+      const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+      // Map API records to frontend structure
+      const recordsData: PackingRecord[] = apiRecords.map((record: any) => {
+        const order = record.orderId ? orderMap.get(record.orderId) : null;
+        const packer = record.packerId ? userMap.get(record.packerId) : null;
+        
+        // Parse box dimensions if available
+        let boxDimensions: { length: number; width: number; height: number } | undefined;
+        if (record.boxDimensions) {
+          try {
+            const dims = JSON.parse(record.boxDimensions);
+            boxDimensions = { length: dims.length || 0, width: dims.width || 0, height: dims.height || 0 };
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        
+        // Map status
+        let statusDisplay: PackingStatus = "pending";
+        if (record.status === "completed") statusDisplay = "packed";
+        else if (record.status === "in_progress") statusDisplay = "in_progress";
+        else if (record.status === "shipped") statusDisplay = "shipped";
+        
+        return {
+          id: record.id,
+          orderId: record.orderId || "",
+          orderNumber: record.orderNumber || (order as any)?.orderNumber || "N/A",
+          customer: (order as any)?.customerId || "Unknown",
+          priority: "normal" as const, // TODO: Get from order
+          packagingType: record.boxType || "",
+          boxDimensions,
+          actualWeight: record.actualWeightKg ? parseFloat(record.actualWeightKg) : 0,
+          dimensionalWeight: record.dimensionalWeightKg ? parseFloat(record.dimensionalWeightKg) : 0,
+          chargeableWeight: record.chargeableWeightKg ? parseFloat(record.chargeableWeightKg) : 0,
+          trackingNumber: record.trackingNumber,
+          packerId: record.packerId,
+          packerName: packer ? `${(packer as any).firstName || ""} ${(packer as any).lastName || ""}`.trim() : undefined,
+          status: statusDisplay,
+          startedAt: record.startedAt,
+          completedAt: record.completedAt,
+          createdAt: record.startedAt || new Date().toISOString(),
+        };
+      });
+
+      setPackingRecords(recordsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load packing records");
+      console.error("Error loading packing records:", err);
+      // Fallback to mock data on error
+      setPackingRecords(mockPackingRecords);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && packingRecords.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadPackingRecords}>Retry</button>
+      </div>
+    );
+  }
+
+  const filteredRecords = packingRecords.filter((record) => {
     const matchesSearch = !searchQuery.trim() || (
       record.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       record.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||

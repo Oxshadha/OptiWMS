@@ -1,14 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { tasksApi, Task as ApiTask } from "@/lib/api/tasks";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 
-// Mock data - will be replaced with API calls
-const tasks = [
+// Frontend task structure
+interface Task {
+  id: string;
+  taskNumber: string;
+  taskType: string;
+  workerName: string;
+  workerId?: string;
+  warehouseName: string;
+  warehouseId?: string;
+  priority: string;
+  status: string;
+  assignedDate: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  duration: number | null;
+}
+
+// Mock data for fallback
+const mockTasks: Task[] = [
   {
     id: "task-1",
     taskNumber: "TASK-452368",
@@ -91,12 +110,74 @@ const priorityConfig = {
 };
 
 export default function TasksPage() {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<typeof tasks[0] | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load tasks from API
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch tasks and warehouses
+      const [apiTasks, warehouses] = await Promise.all([
+        tasksApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
+
+      // Create warehouse map
+      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
+
+      // Map API tasks to frontend structure
+      const tasksData: Task[] = apiTasks.map((task) => {
+        const warehouse = task.warehouseId ? warehouseMap.get(task.warehouseId) : null;
+        
+        // Calculate duration if completed
+        let duration: number | null = null;
+        if (task.completedAt && task.dueDate) {
+          const start = new Date(task.dueDate);
+          const end = new Date(task.completedAt);
+          duration = Math.round((end.getTime() - start.getTime()) / 60000); // minutes
+        }
+        
+        return {
+          id: task.id,
+          taskNumber: task.taskNumber,
+          taskType: task.taskType,
+          workerName: task.assignedTo || "Unassigned", // TODO: Get worker name
+          workerId: task.assignedTo,
+          warehouseName: warehouse?.name || "Unknown Warehouse",
+          warehouseId: task.warehouseId,
+          priority: task.priority || "normal",
+          status: task.status || "pending",
+          assignedDate: task.dueDate || new Date().toISOString(),
+          startedAt: task.dueDate || null,
+          completedAt: task.completedAt || null,
+          duration: duration,
+        };
+      });
+
+      setTasks(tasksData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tasks");
+      console.error("Error loading tasks:", err);
+      // Fallback to mock data on error
+      setTasks(mockTasks);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const summary = {
     totalTasksToday: 45,
@@ -104,6 +185,23 @@ export default function TasksPage() {
     inProgress: 12,
     completedToday: 25,
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && tasks.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadTasks}>Retry</button>
+      </div>
+    );
+  }
 
   const filteredTasks = tasks.filter((task) => {
     const query = searchQuery.trim().toLowerCase();
@@ -155,7 +253,7 @@ export default function TasksPage() {
     {
       key: "taskNumber",
       label: "Task Number",
-      render: (task: typeof tasks[0]) => (
+      render: (task: Task) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -172,7 +270,7 @@ export default function TasksPage() {
     {
       key: "taskType",
       label: "Task Type",
-      render: (task: typeof tasks[0]) => {
+      render: (task: Task) => {
         const type = taskTypeConfig[task.taskType as keyof typeof taskTypeConfig];
         return (
           <div className="flex items-center gap-2">
@@ -198,7 +296,7 @@ export default function TasksPage() {
     {
       key: "priority",
       label: "Priority",
-      render: (task: typeof tasks[0]) => {
+      render: (task: Task) => {
         const priority = priorityConfig[task.priority as keyof typeof priorityConfig];
         return <span className={`badge ${priority.class} whitespace-nowrap`}>{priority.label}</span>;
       },
@@ -207,7 +305,7 @@ export default function TasksPage() {
     {
       key: "status",
       label: "Status",
-      render: (task: typeof tasks[0]) => {
+      render: (task: Task) => {
         const status = statusConfig[task.status as keyof typeof statusConfig];
         return <span className={`badge ${status.class} whitespace-nowrap`}>{status.label}</span>;
       },
@@ -216,7 +314,7 @@ export default function TasksPage() {
     {
       key: "assignedDate",
       label: "Assigned Date",
-      render: (task: typeof tasks[0]) => task.assignedDate.split(" ")[0],
+      render: (task: Task) => task.assignedDate.split(" ")[0],
       className: "text-base-content/70",
       sortable: true,
     },
@@ -229,7 +327,7 @@ export default function TasksPage() {
     },
   ];
 
-  const renderActions = (task: typeof tasks[0]) => (
+  const renderActions = (task: Task) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -377,7 +475,7 @@ function TaskDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  task: typeof tasks[0];
+  task: Task;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Task: ${task.taskNumber}`} size="lg">
