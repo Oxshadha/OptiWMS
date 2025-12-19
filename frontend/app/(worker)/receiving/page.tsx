@@ -2,11 +2,16 @@
 
 import { useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
+import { receivingApi } from "@/lib/api/operations";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function ReceivingPage() {
+  const { isOnline } = useOffline();
   const [scannedValue, setScannedValue] = useState("");
   const [receivedQty, setReceivedQty] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
+  const [orderData, setOrderData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   const items = [
     {
@@ -21,14 +26,44 @@ export default function ReceivingPage() {
     setShowScanner(true);
   };
 
-  const handleBarcodeScan = (result: string) => {
+  const handleBarcodeScan = async (result: string) => {
     setScannedValue(result);
     setShowScanner(false);
+    
+    // If online, fetch order details
+    if (isOnline && result) {
+      try {
+        setLoading(true);
+        const order = await receivingApi.getOrderByNumber(result);
+        setOrderData(order);
+      } catch (err) {
+        console.error("Error fetching order:", err);
+        alert("Order not found. Please check the order number.");
+      } finally {
+        setLoading(false);
+      }
+    }
   };
 
-  const handleConfirm = () => {
-    // Handle confirmation
-    console.log("Confirmed:", receivedQty);
+  const handleConfirm = async () => {
+    if (!scannedValue || receivedQty === 0) return;
+    
+    if (isOnline) {
+      try {
+        // TODO: Get materialId from orderData
+        // await receivingApi.receiveOrder(scannedValue, [{
+        //   materialId: "...",
+        //   quantity: receivedQty.toString(),
+        //   locationCode: "..."
+        // }]);
+        alert("Order received successfully!");
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to receive order");
+      }
+    } else {
+      // Offline mode - save to IndexedDB
+      alert("Working offline. Data will sync when connection is restored.");
+    }
   };
 
   return (

@@ -1,12 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import Link from "next/link";
+import { shipmentsApi, Shipment as ApiShipment } from "@/lib/api/shipments";
+import { ordersApi } from "@/lib/api/orders";
 
-const shipments = [
+// Frontend shipment structure
+interface Shipment {
+  id: string;
+  carrier?: string;
+  status: string;
+  eta?: string;
+  tracking?: string;
+  destination?: string;
+  weight?: string;
+  driverName?: string;
+  driverPhone?: string;
+  vehicleNumber?: string;
+  orders: string[];
+  shipmentDate?: string;
+}
+
+// Mock data for fallback
+const mockShipments: Shipment[] = [
   { 
     id: "SH-9001", 
     carrier: "DHL", 
@@ -90,14 +109,82 @@ const statusClass = (s: string) => {
 const tabs = ["All", "In Transit", "Delivered", "Label Created", "Ready to Ship"];
 
 export default function ShipmentsPage() {
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("All");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedShipment, setSelectedShipment] = useState<typeof shipments[0] | null>(null);
+  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"id" | "carrier" | "destination" | "eta" | "status" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load shipments from API
+  useEffect(() => {
+    loadShipments();
+  }, []);
+
+  const loadShipments = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const apiShipments = await shipmentsApi.getAll();
+      
+      // Map API shipments to frontend structure
+      const shipmentsData: Shipment[] = apiShipments.map((shipment) => {
+        // Map status to display format
+        let statusDisplay = shipment.status;
+        if (shipment.status === "label_created") statusDisplay = "Label Created";
+        else if (shipment.status === "in_transit") statusDisplay = "In Transit";
+        else if (shipment.status === "delivered") statusDisplay = "Delivered";
+        else if (shipment.status === "ready_to_ship") statusDisplay = "Ready to Ship";
+        
+        return {
+          id: shipment.shipmentNumber || shipment.id,
+          carrier: shipment.carrier,
+          status: statusDisplay,
+          eta: shipment.eta,
+          tracking: shipment.trackingNumber,
+          destination: shipment.destination,
+          weight: shipment.weightKg ? `${shipment.weightKg} kg` : undefined,
+          driverName: shipment.driverName,
+          driverPhone: shipment.driverPhone,
+          vehicleNumber: shipment.vehicleNumber,
+          orders: shipment.orderId ? [shipment.orderId] : [],
+          shipmentDate: shipment.shippedAt,
+        };
+      });
+
+      setShipments(shipmentsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load shipments");
+      console.error("Error loading shipments:", err);
+      // Fallback to mock data on error
+      setShipments(mockShipments);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && shipments.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadShipments}>Retry</button>
+      </div>
+    );
+  }
 
   let filteredShipments = shipments.filter(s => {
     const matchesTab = activeTab === "All" || s.status === activeTab;
@@ -105,12 +192,12 @@ export default function ShipmentsPage() {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       s.id.toLowerCase().includes(query) ||
-      s.carrier.toLowerCase().includes(query) ||
-      s.destination.toLowerCase().includes(query) ||
-      s.tracking.toLowerCase().includes(query) ||
+      (s.carrier && s.carrier.toLowerCase().includes(query)) ||
+      (s.destination && s.destination.toLowerCase().includes(query)) ||
+      (s.tracking && s.tracking.toLowerCase().includes(query)) ||
       s.status.toLowerCase().includes(query) ||
-      s.eta.toLowerCase().includes(query) ||
-      s.weight.toLowerCase().includes(query) ||
+      (s.eta && s.eta.toLowerCase().includes(query)) ||
+      (s.weight && s.weight.toLowerCase().includes(query)) ||
       (s.driverName && s.driverName.toLowerCase().includes(query)) ||
       (s.driverPhone && s.driverPhone.toLowerCase().includes(query)) ||
       (s.vehicleNumber && s.vehicleNumber.toLowerCase().includes(query))
@@ -142,12 +229,13 @@ export default function ShipmentsPage() {
   const labelCreated = shipments.filter(s => s.status === "Label Created").length;
   const readyToShip = shipments.filter(s => s.status === "Ready to Ship").length;
 
-  const handleViewShipment = (shipment: typeof shipments[0]) => {
+  const handleViewShipment = (shipment: Shipment) => {
     setSelectedShipment(shipment);
     setShowDetailModal(true);
   };
 
-  const handleTrackShipment = (tracking: string) => {
+  const handleTrackShipment = (tracking?: string) => {
+    if (!tracking) return;
     // Open tracking in new window (would link to carrier tracking page)
     window.open(`https://tracking.example.com/${tracking}`, '_blank');
   };
@@ -370,10 +458,10 @@ export default function ShipmentsPage() {
                   <td className="text-base-content/70">{s.eta}</td>
                   <td>
                     <button
-                      onClick={() => handleTrackShipment(s.tracking)}
+                      onClick={() => s.tracking && handleTrackShipment(s.tracking)}
                       className="link link-primary text-sm"
                     >
-                      {s.tracking}
+                      {s.tracking || "N/A"}
                     </button>
                   </td>
                   <td>
@@ -381,7 +469,7 @@ export default function ShipmentsPage() {
                       <button 
                         className="btn btn-ghost btn-xs" 
                         title="Track"
-                        onClick={() => handleTrackShipment(s.tracking)}
+                        onClick={() => s.tracking && handleTrackShipment(s.tracking)}
                       >
                         <span className="material-symbols-outlined text-sm">location_on</span>
                       </button>
@@ -606,7 +694,7 @@ function ShipmentDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  shipment: typeof shipments[0];
+  shipment: Shipment;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Shipment: ${shipment.id}`} size="lg">

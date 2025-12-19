@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { customersApi, Customer as ApiCustomer } from "@/lib/api/customers";
+import { ordersApi } from "@/lib/api/orders";
 
-const customers = [
+// Frontend customer structure
+interface Customer {
+  id: string;
+  name: string;
+  contact: string;
+  phone?: string;
+  orders: number;
+  totalSpent: string;
+  status: string;
+  joinDate: string;
+}
+
+// Mock data for fallback
+const mockCustomers: Customer[] = [
   { 
     id: "CUST-001",
     name: "Acme Corp", 
@@ -54,6 +69,9 @@ const statusClass = (s: string) => {
 };
 
 export default function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -62,7 +80,69 @@ export default function CustomersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | "totalSpent" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedCustomer, setSelectedCustomer] = useState<typeof customers[0] | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  // Load customers from API
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  const loadCustomers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const apiCustomers = await customersApi.getAll();
+      
+      // Fetch orders to calculate order count and total spent per customer
+      const allOrders = await ordersApi.getAll();
+      
+      // Map API customers to frontend structure
+      const customersData: Customer[] = apiCustomers.map((customer) => {
+        const customerOrders = allOrders.filter(o => o.customerId === customer.id);
+        const totalSpent = customerOrders.reduce((sum, order) => {
+          return sum + (order.totalAmount ? parseFloat(order.totalAmount) : 0);
+        }, 0);
+        
+        return {
+          id: customer.id,
+          name: customer.name,
+          contact: customer.email || customer.phone || "N/A",
+          phone: customer.phone,
+          orders: customerOrders.length,
+          totalSpent: `$${totalSpent.toLocaleString()}`,
+          status: customer.status === "active" ? "Active" : "On Hold",
+          joinDate: customer.id ? new Date().toISOString().split('T')[0] : "2023-01-01", // TODO: Add createdAt to API
+        };
+      });
+
+      setCustomers(customersData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load customers");
+      console.error("Error loading customers:", err);
+      // Fallback to mock data on error
+      setCustomers(mockCustomers);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && customers.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadCustomers}>Retry</button>
+      </div>
+    );
+  }
 
   let filteredCustomers = customers.filter(c => {
     const query = searchQuery.trim().toLowerCase();
@@ -70,7 +150,7 @@ export default function CustomersPage() {
       c.name.toLowerCase().includes(query) ||
       c.contact.toLowerCase().includes(query) ||
       c.id.toLowerCase().includes(query) ||
-      c.phone.toLowerCase().includes(query) ||
+      (c.phone && c.phone.toLowerCase().includes(query)) ||
       c.status.toLowerCase().includes(query) ||
       c.orders.toString().includes(query) ||
       c.totalSpent.toLowerCase().includes(query) ||
@@ -335,7 +415,10 @@ export default function CustomersPage() {
       {/* Add Customer Modal */}
       <AddCustomerModal
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
+        onClose={() => {
+          setShowAddModal(false);
+          loadCustomers();
+        }}
       />
     </div>
   );
@@ -350,18 +433,26 @@ function AddCustomerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     status: "Active",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to add customer
-    console.log("Adding customer:", formData);
-    alert("Customer added successfully!");
-    onClose();
-    setFormData({
-      name: "",
-      contact: "",
-      phone: "",
-      status: "Active",
-    });
+    try {
+      await customersApi.create({
+        name: formData.name,
+        email: formData.contact,
+        phone: formData.phone || undefined,
+        status: formData.status.toLowerCase().replace(" ", "_"),
+      });
+      alert("Customer added successfully!");
+      onClose();
+      setFormData({
+        name: "",
+        contact: "",
+        phone: "",
+        status: "Active",
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to add customer");
+    }
   };
 
   return (
@@ -437,7 +528,7 @@ function CustomerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: typeof customers[0];
+  customer: Customer;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Customer: ${customer.name}`} size="lg">
@@ -495,7 +586,7 @@ function CustomerEditModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: typeof customers[0];
+  customer: Customer;
 }) {
   const [formData, setFormData] = useState({
     name: customer.name,

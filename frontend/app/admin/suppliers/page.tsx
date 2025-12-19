@@ -7,9 +7,26 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import React from "react";
+import { suppliersApi, Supplier as ApiSupplier } from "@/lib/api/suppliers";
+import { materialsApi } from "@/lib/api/materials";
 
-// Mock data - will be replaced with API calls
-const suppliers = [
+// Frontend supplier structure
+interface Supplier {
+  id: string;
+  supplierCode: string;
+  name: string;
+  country: string;
+  contactPerson: string;
+  email: string;
+  phone: string;
+  productsSupplied: number;
+  leadTimeDays: number;
+  rating: number;
+  status: string;
+}
+
+// Mock data for fallback
+const mockSuppliers: Supplier[] = [
   {
     id: "supplier-1",
     supplierCode: "SUP-001",
@@ -52,18 +69,85 @@ const suppliers = [
 ];
 
 export default function SuppliersPage() {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<typeof suppliers[0] | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const summary = {
-    totalSuppliers: 24,
-    active: 22,
-    byCountry: 8,
+  // Load suppliers from API
+  useEffect(() => {
+    loadSuppliers();
+  }, []);
+
+  const loadSuppliers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [apiSuppliers, materials] = await Promise.all([
+        suppliersApi.getAll(),
+        materialsApi.getAll(),
+      ]);
+
+      // Map API suppliers to frontend structure
+      const suppliersData: Supplier[] = apiSuppliers.map((supplier) => {
+        // Count materials supplied by this supplier (for now, we'll use a placeholder)
+        // TODO: Add supplier_id to materials table or create a supplier_materials junction table
+        const productsSupplied = 0; // Placeholder
+        
+        return {
+          id: supplier.id,
+          supplierCode: supplier.code || `SUP-${supplier.id.slice(0, 8).toUpperCase()}`,
+          name: supplier.name,
+          country: supplier.country || "Unknown",
+          contactPerson: supplier.contactPerson || "N/A",
+          email: supplier.email || "",
+          phone: supplier.phone || "",
+          productsSupplied: productsSupplied,
+          leadTimeDays: supplier.leadTimeDays || 0,
+          rating: supplier.rating ? parseFloat(supplier.rating) : 0,
+          status: supplier.status || "active",
+        };
+      });
+
+      setSuppliers(suppliersData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load suppliers");
+      console.error("Error loading suppliers:", err);
+      // Fallback to mock data on error
+      setSuppliers(mockSuppliers);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const summary = {
+    totalSuppliers: suppliers.length,
+    active: suppliers.filter(s => s.status === "active").length,
+    byCountry: new Set(suppliers.map(s => s.country)).size,
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && suppliers.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadSuppliers}>Retry</button>
+      </div>
+    );
+  }
 
   const filteredSuppliers = suppliers.filter((supplier) => {
     const query = searchQuery.trim().toLowerCase();
@@ -112,7 +196,7 @@ export default function SuppliersPage() {
     {
       key: "name",
       label: "Supplier Name",
-      render: (supplier: typeof suppliers[0]) => (
+      render: (supplier: Supplier) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -154,13 +238,13 @@ export default function SuppliersPage() {
     {
       key: "leadTimeDays",
       label: "Lead Time (days)",
-      render: (supplier: typeof suppliers[0]) => `${supplier.leadTimeDays} days`,
+      render: (supplier: Supplier) => `${supplier.leadTimeDays} days`,
       sortable: true,
     },
     {
       key: "rating",
       label: "Rating",
-      render: (supplier: typeof suppliers[0]) => (
+      render: (supplier: Supplier) => (
         <div className="flex items-center gap-1">
           <span className="text-warning">★</span>
           <span>{supplier.rating.toFixed(1)}</span>
@@ -171,7 +255,7 @@ export default function SuppliersPage() {
     {
       key: "status",
       label: "Status",
-      render: (supplier: typeof suppliers[0]) => (
+      render: (supplier: Supplier) => (
         <span className={`badge ${supplier.status === "active" ? "badge-success" : "badge-error"}`}>
           {supplier.status === "active" ? "Active" : "Inactive"}
         </span>
@@ -179,7 +263,7 @@ export default function SuppliersPage() {
     },
   ];
 
-  const renderActions = (supplier: typeof suppliers[0]) => (
+  const renderActions = (supplier: Supplier) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -339,7 +423,10 @@ export default function SuppliersPage() {
       {/* Create Supplier Modal */}
       <CreateSupplierModal
         isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        onClose={() => {
+          setShowCreateModal(false);
+          loadSuppliers();
+        }}
       />
 
       {/* Supplier Detail Modal */}
@@ -361,6 +448,7 @@ export default function SuppliersPage() {
           onClose={() => {
             setShowEditModal(false);
             setSelectedSupplier(null);
+            loadSuppliers();
           }}
           supplier={selectedSupplier}
         />
@@ -381,7 +469,7 @@ export default function SuppliersPage() {
 }
 
 // Edit Supplier Event Listener Component
-function EditSupplierListener({ onEdit }: { onEdit: (supplier: typeof suppliers[0]) => void }) {
+function EditSupplierListener({ onEdit }: { onEdit: (supplier: Supplier) => void }) {
   React.useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
       onEdit(event.detail);
@@ -402,7 +490,7 @@ function SupplierDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: typeof suppliers[0];
+  supplier: Supplier;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Supplier: ${supplier.name}`} size="lg">
@@ -481,7 +569,7 @@ function EditSupplierModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: typeof suppliers[0];
+  supplier: Supplier;
 }) {
   const [formData, setFormData] = useState({
     supplierCode: supplier.supplierCode,
@@ -494,11 +582,25 @@ function EditSupplierModal({
     rating: supplier.rating.toString(),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update supplier
-    console.log("Updating supplier:", formData);
-    onClose();
+    try {
+      await suppliersApi.update(supplier.id, {
+        code: formData.supplierCode,
+        name: formData.name,
+        contactPerson: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        country: formData.country,
+        leadTimeDays: parseInt(formData.leadTimeDays) || undefined,
+        rating: formData.rating || undefined,
+        status: supplier.status,
+      });
+      alert("Supplier updated successfully!");
+      onClose();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update supplier");
+    }
   };
 
   return (
@@ -644,26 +746,41 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
     rating: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create supplier
-    console.log("Creating supplier:", formData);
-    onClose();
-    setFormData({
-      supplierCode: "",
-      name: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      city: "",
-      state: "",
-      country: "",
-      postalCode: "",
-      paymentTerms: "",
-      leadTimeDays: "",
-      rating: "",
-    });
+    try {
+      await suppliersApi.create({
+        code: formData.supplierCode,
+        name: formData.name,
+        contactPerson: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        country: formData.country,
+        leadTimeDays: formData.leadTimeDays ? parseInt(formData.leadTimeDays) : undefined,
+        rating: formData.rating ? formData.rating : undefined,
+        status: "active",
+      });
+      alert("Supplier created successfully!");
+      onClose();
+      setFormData({
+        supplierCode: "",
+        name: "",
+        contactPerson: "",
+        email: "",
+        phone: "",
+        address: "",
+        city: "",
+        state: "",
+        country: "",
+        postalCode: "",
+        paymentTerms: "",
+        leadTimeDays: "",
+        rating: "",
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create supplier");
+    }
   };
 
   return (

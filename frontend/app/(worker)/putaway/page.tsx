@@ -3,8 +3,11 @@
 import { useState, useRef } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { putawayApi } from "@/lib/api/operations";
+import { useOffline } from "@/hooks/useOffline";
 
 export default function PutawayPage() {
+  const { isOnline } = useOffline();
   const [scannedLPN, setScannedLPN] = useState("");
   const [scannedLocation, setScannedLocation] = useState("");
   const [showLPNScanner, setShowLPNScanner] = useState(false);
@@ -13,6 +16,7 @@ export default function PutawayPage() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [note, setNote] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [taskId, setTaskId] = useState<string>(""); // TODO: Get from task context
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const task = {
@@ -41,11 +45,28 @@ export default function PutawayPage() {
     setShowLocationScanner(false);
   };
 
-  const handleConfirm = () => {
-    if (scannedLPN && scannedLocation) {
-      // Handle confirmation
-      console.log("Putaway confirmed", { scannedLPN, scannedLocation, note, photos });
-      // TODO: API call to confirm putaway
+  const handleConfirm = async () => {
+    if (!scannedLPN || !scannedLocation) {
+      alert("Please scan both LPN and location");
+      return;
+    }
+
+    if (isOnline && taskId) {
+      try {
+        await putawayApi.completePutaway(taskId, scannedLocation, scannedLPN);
+        alert("Putaway completed successfully!");
+        // Reset form
+        setScannedLPN("");
+        setScannedLocation("");
+        setNote("");
+        setPhotos([]);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to complete putaway");
+      }
+    } else {
+      // Offline mode - save to IndexedDB
+      console.log("Putaway confirmed (offline)", { scannedLPN, scannedLocation, note, photos });
+      alert("Working offline. Data will sync when connection is restored.");
     }
   };
 

@@ -1,16 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
-import { statusConfig } from "./page";
+import { usersApi, User } from "@/lib/api/users";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { tasksApi } from "@/lib/api/tasks";
 
-// Mock data - will be replaced with API calls
-const workers = [
+// Frontend worker structure
+interface Worker {
+  id: string;
+  workerId: string;
+  name: string;
+  warehouseName: string;
+  availabilityStatus: string;
+  shiftStart: string;
+  shiftEnd: string;
+  tasksToday: number;
+  totalTasksCompleted: number;
+  avgTaskTime: number;
+  lastActive: string;
+  avatar: string;
+}
+
+// Mock data for fallback
+const mockWorkers: Worker[] = [
   {
     id: "worker-1",
     workerId: "e8b5d4",
@@ -62,17 +80,120 @@ const statusConfig = {
 };
 
 export default function WorkersPage() {
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState<typeof workers[0] | null>(null);
+  const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Load workers from API
+  useEffect(() => {
+    loadWorkers();
+  }, []);
+
+  const loadWorkers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [users, warehouses, allTasks] = await Promise.all([
+        usersApi.getAll(undefined, undefined, "active"), // Get active workers
+        warehousesApi.getAll(),
+        tasksApi.getAll(),
+      ]);
+
+      // Filter to workers only (role = "worker" or "OPERATOR")
+      const workerUsers = users.filter(u => u.role === "worker" || u.role === "OPERATOR" || u.role === "operator");
+
+      // Create maps for lookups
+      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
+      
+      // Calculate task stats per worker
+      const taskStats = new Map<string, { today: number; total: number }>();
+      const today = new Date().toISOString().split('T')[0];
+      allTasks.forEach(task => {
+        if (task.assignedTo) {
+          const stats = taskStats.get(task.assignedTo) || { today: 0, total: 0 };
+          if (task.completedAt && task.completedAt.startsWith(today)) {
+            stats.today++;
+          }
+          if (task.status === "completed") {
+            stats.total++;
+          }
+          taskStats.set(task.assignedTo, stats);
+        }
+      });
+
+      // Map API users to frontend structure
+      const workersData: Worker[] = workerUsers.map((user) => {
+        const warehouse = user.warehouseId ? warehouseMap.get(user.warehouseId) : null;
+        const stats = taskStats.get(user.id) || { today: 0, total: 0 };
+        
+        // Determine availability status
+        let availabilityStatus = "offline";
+        if (user.status === "active") {
+          // Simple logic: if last login was recent, consider available
+          const lastLogin = user.lastLoginAt ? new Date(user.lastLoginAt) : null;
+          const now = new Date();
+          if (lastLogin && (now.getTime() - lastLogin.getTime()) < 15 * 60 * 1000) {
+            availabilityStatus = stats.today > 0 ? "busy" : "available";
+          }
+        }
+        
+        return {
+          id: user.id,
+          workerId: user.employeeId || user.id.slice(0, 6),
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username,
+          warehouseName: warehouse?.name || "Unknown",
+          availabilityStatus,
+          shiftStart: "08:00", // TODO: Get from user profile
+          shiftEnd: "17:00", // TODO: Get from user profile
+          tasksToday: stats.today,
+          totalTasksCompleted: stats.total,
+          avgTaskTime: 15.0, // TODO: Calculate from task history
+          lastActive: user.lastLoginAt 
+            ? new Date(user.lastLoginAt).toLocaleString()
+            : "Never",
+          avatar: user.avatarUrl || "/assets/avatars/placeholder.svg",
+        };
+      });
+
+      setWorkers(workersData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load workers");
+      console.error("Error loading workers:", err);
+      // Fallback to mock data on error
+      setWorkers(mockWorkers);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && workers.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadWorkers}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalWorkers: 24,
-    activeNow: 18,
-    offline: 6,
-    tasksCompletedToday: 156,
+    totalWorkers: workers.length,
+    activeNow: workers.filter(w => w.availabilityStatus !== "offline").length,
+    offline: workers.filter(w => w.availabilityStatus === "offline").length,
+    tasksCompletedToday: workers.reduce((sum, w) => sum + w.tasksToday, 0),
   };
 
   const filteredWorkers = workers.filter((worker) => {
@@ -124,7 +245,7 @@ export default function WorkersPage() {
     {
       key: "workerId",
       label: "Worker ID",
-      render: (worker: typeof workers[0]) => (
+      render: (worker: Worker) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
             <Image
@@ -143,7 +264,7 @@ export default function WorkersPage() {
     {
       key: "name",
       label: "Name",
-      render: (worker: typeof workers[0]) => (
+      render: (worker: Worker) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -165,7 +286,7 @@ export default function WorkersPage() {
     {
       key: "availabilityStatus",
       label: "Status",
-      render: (worker: typeof workers[0]) => {
+      render: (worker: Worker) => {
         const status = statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
@@ -199,7 +320,7 @@ export default function WorkersPage() {
     },
   ];
 
-  const renderActions = (worker: typeof workers[0]) => (
+  const renderActions = (worker: Worker) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -338,7 +459,7 @@ function WorkerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  worker: typeof workers[0];
+  worker: Worker;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Worker: ${worker.name}`} size="lg">

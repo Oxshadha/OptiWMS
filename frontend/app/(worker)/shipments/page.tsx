@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
+import { shipmentsApi, Shipment } from "@/lib/api/shipments";
+import { useOffline } from "@/hooks/useOffline";
+import { addToSyncQueue } from "@/lib/indexeddb";
 
 export default function ShipmentsPage() {
-  const [selectedShipment, setSelectedShipment] = useState<any>(null);
+  const { isOnline } = useOffline();
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedOrder, setScannedOrder] = useState("");
@@ -17,37 +23,59 @@ export default function ShipmentsPage() {
     notes: "",
   });
 
-  const shipments = [
+  // Load shipments from API
+  useEffect(() => {
+    if (isOnline) {
+      loadShipments();
+    }
+  }, [isOnline]);
+
+  const loadShipments = async () => {
+    try {
+      setLoading(true);
+      const data = await shipmentsApi.getAll(undefined, "ready_to_ship");
+      setShipments(data);
+    } catch (err) {
+      console.error("Error loading shipments:", err);
+      // Fallback to empty array
+      setShipments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Mock data for fallback/offline
+  const mockShipments: Shipment[] = [
     {
       id: "SH-9001",
-      orderNumber: "SO-1001",
+      shipmentNumber: "SH-9001",
+      orderId: "SO-1001",
       carrier: "DHL",
-      status: "Ready to Ship",
+      status: "ready_to_ship",
       destination: "New York, NY",
-      items: 5,
-      orders: ["SO-1001"],
+      weightKg: "5.0",
     },
     {
       id: "SH-9002",
-      orderNumber: "SO-1002",
+      shipmentNumber: "SH-9002",
+      orderId: "SO-1002",
       carrier: "FedEx",
-      status: "In Transit",
+      status: "in_transit",
       destination: "Los Angeles, CA",
-      items: 3,
-      orders: ["SO-1002"],
+      weightKg: "3.0",
     },
     {
       id: "SH-9003",
-      orderNumber: "SO-1003",
+      shipmentNumber: "SH-9003",
+      orderId: "SO-1003",
       carrier: "UPS",
-      status: "Ready to Ship",
+      status: "ready_to_ship",
       destination: "Chicago, IL",
-      items: 8,
-      orders: ["SO-1003"],
+      weightKg: "8.0",
     },
   ];
 
-  const handleProcessShipment = (shipment: typeof shipments[0]) => {
+  const handleProcessShipment = (shipment: Shipment) => {
     setSelectedShipment(shipment);
     setShowProcessModal(true);
   };
@@ -59,11 +87,11 @@ export default function ShipmentsPage() {
   const handleOrderScan = (result: string) => {
     setScannedOrder(result);
     setShowScanner(false);
-    // Validate scanned order is part of shipment
-    if (selectedShipment && selectedShipment.orders.includes(result)) {
+    // Validate scanned order matches shipment
+    if (selectedShipment && selectedShipment.orderId === result) {
       // Order is valid
     } else {
-      alert("Scanned order is not part of this shipment");
+      alert("Scanned order does not match this shipment");
     }
   };
 
@@ -73,20 +101,33 @@ export default function ShipmentsPage() {
       return;
     }
     
+    if (!selectedShipment) return;
+    
     try {
-      // Save to IndexedDB for offline-first
-      const shipmentData = {
-        shipmentId: selectedShipment?.id,
-        deliveryDetails,
-        scannedOrder,
-        processedAt: new Date().toISOString(),
-        status: "processed",
+      const updateData = {
+        driverName: deliveryDetails.driverName,
+        driverPhone: deliveryDetails.driverPhone,
+        vehicleNumber: deliveryDetails.vehicleNumber,
+        trackingNumber: deliveryDetails.trackingNumber || undefined,
+        status: "in_transit" as const,
       };
+
+      if (isOnline) {
+        // Update via API
+        await shipmentsApi.update(selectedShipment.id, updateData);
+        await loadShipments(); // Refresh list
+      } else {
+        // Save to sync queue for offline
+        await addToSyncQueue({
+          type: "operation",
+          action: "update",
+          data: {
+            shipmentId: selectedShipment.id,
+            ...updateData,
+          },
+        });
+      }
       
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing shipment:", shipmentData);
-      
-      // Show success message
       alert("Shipment processed successfully! Delivery details have been saved.");
       
       setShowProcessModal(false);
@@ -113,36 +154,43 @@ export default function ShipmentsPage() {
         </p>
       </div>
 
-      <div className="space-y-3">
-        {shipments.map((shipment) => (
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(shipments.length > 0 ? shipments : mockShipments).map((shipment) => (
           <div
             key={shipment.id}
             className="bg-base-100 rounded-xl p-4 border border-base-300"
           >
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="font-bold text-base-content">{shipment.id}</div>
-                <div className="text-sm text-base-content/60">Order: {shipment.orderNumber}</div>
+                <div className="font-bold text-base-content">{shipment.shipmentNumber || shipment.id}</div>
+                <div className="text-sm text-base-content/60">Order: {shipment.orderId || "N/A"}</div>
               </div>
               <span className={`badge ${
-                shipment.status === "Ready to Ship" ? "badge-warning" : "badge-info"
+                shipment.status === "ready_to_ship" || shipment.status === "Ready to Ship" ? "badge-warning" : "badge-info"
               }`}>
-                {shipment.status}
+                {shipment.status === "ready_to_ship" ? "Ready to Ship" : shipment.status}
               </span>
             </div>
             <div className="space-y-2 mb-3">
               <div className="flex items-center gap-2 text-sm">
                 <span className="material-symbols-outlined text-base-content/60">local_shipping</span>
-                <span className="text-base-content/70">{shipment.carrier}</span>
+                <span className="text-base-content/70">{shipment.carrier || "N/A"}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <span className="material-symbols-outlined text-base-content/60">location_on</span>
-                <span className="text-base-content/70">{shipment.destination}</span>
+                <span className="text-base-content/70">{shipment.destination || "N/A"}</span>
               </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="material-symbols-outlined text-base-content/60">inventory</span>
-                <span className="text-base-content/70">{shipment.items} items</span>
-              </div>
+              {shipment.weightKg && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="material-symbols-outlined text-base-content/60">scale</span>
+                  <span className="text-base-content/70">{shipment.weightKg} kg</span>
+                </div>
+              )}
             </div>
             <button
               onClick={() => handleProcessShipment(shipment)}
@@ -153,7 +201,8 @@ export default function ShipmentsPage() {
             </button>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Process Shipment Modal */}
       {selectedShipment && (
@@ -170,7 +219,7 @@ export default function ShipmentsPage() {
             });
             setScannedOrder("");
           }}
-          title={`Process Shipment: ${selectedShipment.id}`}
+          title={`Process Shipment: ${selectedShipment.shipmentNumber || selectedShipment.id}`}
           size="lg"
         >
           <div className="p-6 space-y-4">
@@ -180,16 +229,18 @@ export default function ShipmentsPage() {
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between">
                   <span className="text-base-content/60">Carrier:</span>
-                  <span className="font-medium">{selectedShipment.carrier}</span>
+                  <span className="font-medium">{selectedShipment.carrier || "N/A"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-base-content/60">Destination:</span>
-                  <span className="font-medium">{selectedShipment.destination}</span>
+                  <span className="font-medium">{selectedShipment.destination || "N/A"}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-base-content/60">Items:</span>
-                  <span className="font-medium">{selectedShipment.items}</span>
-                </div>
+                {selectedShipment.weightKg && (
+                  <div className="flex justify-between">
+                    <span className="text-base-content/60">Weight:</span>
+                    <span className="font-medium">{selectedShipment.weightKg} kg</span>
+                  </div>
+                )}
               </div>
             </div>
 

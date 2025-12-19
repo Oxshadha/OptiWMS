@@ -1,18 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { cycleCountsApi, CycleCount as ApiCycleCount } from "@/lib/api/operations";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 
-// Mock data - will be replaced with API calls
-const cycleCounts = [
+// Frontend cycle count structure
+interface CycleCount {
+  id: string;
+  countNumber: string;
+  warehouseName: string;
+  warehouseId: string;
+  sectionName: string;
+  countType: string;
+  scheduledDate: string | null;
+  actualDate: string | null;
+  status: string;
+  assignedWorkers: string[];
+  assignedBy: string;
+  assignedDate: string;
+  totalLocations: number;
+  countedLocations: number;
+  discrepanciesFound: number;
+  performedBy: string | null;
+  locationCode?: string;
+  variance?: string;
+}
+
+// Mock data for now - will be replaced with API calls
+const mockCycleCounts: CycleCount[] = [
   {
     id: "cc-1",
     countNumber: "CC-2025-001",
     warehouseName: "Warehouse 1",
+    warehouseId: "wh-1",
     sectionName: "Section A - Electronics",
     countType: "scheduled",
     scheduledDate: "2025-12-20",
@@ -30,6 +55,7 @@ const cycleCounts = [
     id: "cc-2",
     countNumber: "CC-2025-002",
     warehouseName: "Warehouse 1",
+    warehouseId: "wh-1",
     sectionName: "Full Warehouse",
     countType: "full",
     scheduledDate: "2025-12-18",
@@ -47,6 +73,7 @@ const cycleCounts = [
     id: "cc-3",
     countNumber: "CC-2025-003",
     warehouseName: "Warehouse 2",
+    warehouseId: "wh-2",
     sectionName: "Section B - Appliances",
     countType: "ad_hoc",
     scheduledDate: "2025-12-15",
@@ -76,19 +103,78 @@ const statusConfig = {
 };
 
 export default function CycleCountsPage() {
+  const [cycleCounts, setCycleCounts] = useState<CycleCount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAdHocModal, setShowAdHocModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<typeof cycleCounts[0] | null>(null);
+  const [selectedCount, setSelectedCount] = useState<CycleCount | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Load cycle counts from API
+  useEffect(() => {
+    loadCycleCounts();
+  }, []);
+
+  const loadCycleCounts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Fetch cycle counts and warehouses
+      const [apiCounts, warehouses] = await Promise.all([
+        cycleCountsApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
+
+      // Create warehouse map
+      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
+
+      // Map API counts to frontend structure
+      const countsData: CycleCount[] = apiCounts.map((count) => {
+        const warehouse = warehouseMap.get(count.warehouseId);
+        
+        return {
+          id: count.id,
+          countNumber: count.countNumber,
+          warehouseName: warehouse?.name || "Unknown Warehouse",
+          warehouseId: count.warehouseId,
+          sectionName: count.locationCode || "N/A",
+          countType: "scheduled", // Default, API doesn't return this yet
+          scheduledDate: null, // API doesn't return this yet
+          actualDate: null, // API doesn't return this yet
+          status: count.status || "scheduled",
+          assignedWorkers: [], // API doesn't return this yet
+          assignedBy: "", // API doesn't return this yet
+          assignedDate: "", // API doesn't return this yet
+          totalLocations: 0, // API doesn't return this yet
+          countedLocations: 0, // API doesn't return this yet
+          discrepanciesFound: count.variance ? 1 : 0,
+          performedBy: null, // API doesn't return this yet
+          locationCode: count.locationCode,
+          variance: count.variance,
+        };
+      });
+
+      setCycleCounts(countsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load cycle counts");
+      console.error("Error loading cycle counts:", err);
+      // Fallback to mock data on error
+      setCycleCounts(mockCycleCounts);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const summary = {
-    scheduledThisMonth: 8,
-    inProgress: 2,
-    completedThisWeek: 5,
-    discrepanciesFound: 15,
+    scheduledThisMonth: cycleCounts.filter(c => c.status === "scheduled").length,
+    inProgress: cycleCounts.filter(c => c.status === "in_progress").length,
+    completedThisWeek: cycleCounts.filter(c => c.status === "completed").length,
+    discrepanciesFound: cycleCounts.filter(c => c.variance && parseFloat(c.variance) !== 0).length,
   };
 
   const filteredCounts = cycleCounts.filter((count) => {
@@ -140,11 +226,28 @@ export default function CycleCountsPage() {
     },
   ];
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && cycleCounts.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span>Error: {error}</span>
+        <button className="btn btn-sm" onClick={loadCycleCounts}>Retry</button>
+      </div>
+    );
+  }
+
   const columns = [
     {
       key: "countNumber",
       label: "Count Number",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCount) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -166,12 +269,12 @@ export default function CycleCountsPage() {
     {
       key: "sectionName",
       label: "Section",
-      render: (count: typeof cycleCounts[0]) => count.sectionName || "Full Warehouse",
+      render: (count: CycleCount) => count.sectionName || "Full Warehouse",
     },
     {
       key: "countType",
       label: "Count Type",
-      render: (count: typeof cycleCounts[0]) => {
+      render: (count: CycleCount) => {
         const type = countTypeConfig[count.countType as keyof typeof countTypeConfig];
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (type.class === "badge-outline" || !type.class) {
@@ -196,13 +299,13 @@ export default function CycleCountsPage() {
     {
       key: "actualDate",
       label: "Actual Date",
-      render: (count: typeof cycleCounts[0]) => count.actualDate || "-",
+      render: (count: CycleCount) => count.actualDate || "-",
       className: "text-base-content/70",
     },
     {
       key: "status",
       label: "Status",
-      render: (count: typeof cycleCounts[0]) => {
+      render: (count: CycleCount) => {
         const status = statusConfig[count.status as keyof typeof statusConfig];
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (status.class === "badge-outline") {
@@ -222,7 +325,7 @@ export default function CycleCountsPage() {
     {
       key: "progress",
       label: "Progress",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCount) => (
         <div className="flex items-center gap-2">
           <span className="text-sm">{count.countedLocations}/{count.totalLocations}</span>
           <div className="w-16 bg-base-300 rounded-full h-2">
@@ -239,7 +342,7 @@ export default function CycleCountsPage() {
     {
       key: "discrepanciesFound",
       label: "Discrepancies",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCount) => (
         <span className={count.discrepanciesFound > 0 ? "text-warning font-semibold" : ""}>
           {count.discrepanciesFound}
         </span>
@@ -248,7 +351,7 @@ export default function CycleCountsPage() {
     },
   ];
 
-  const renderActions = (count: typeof cycleCounts[0]) => (
+  const renderActions = (count: CycleCount) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -451,7 +554,7 @@ function CycleCountDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  count: typeof cycleCounts[0];
+  count: CycleCount;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Cycle Count: ${count.countNumber}`} size="lg">
@@ -522,7 +625,7 @@ function CycleCountDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Assigned Workers</label>
             <div className="flex flex-wrap gap-2 mt-1">
-              {count.assignedWorkers.map((worker, idx) => (
+              {count.assignedWorkers.map((worker: string, idx: number) => (
                 <span key={idx} className="badge badge-primary badge-sm">{worker}</span>
               ))}
             </div>
@@ -966,7 +1069,7 @@ function EditScheduleModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  count: typeof cycleCounts[0];
+  count: CycleCount;
 }) {
   const [formData, setFormData] = useState({
     scheduledDate: count.scheduledDate || "",

@@ -5,6 +5,7 @@ import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { cycleCountsApi } from "@/lib/api/operations";
 
 export default function CycleCountPage() {
   const { isOnline, dbReady } = useOffline();
