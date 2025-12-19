@@ -7,6 +7,8 @@ import { DetailModal } from "@/components/DetailModal";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import Link from "next/link";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 const returns = [
   {
@@ -85,16 +87,22 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
-  const [selectedReturn, setSelectedReturn] = useState<typeof returns[0] | null>(null);
+  const [selectedReturn, setSelectedReturn] = useState<
+    (typeof returns)[0] | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const filteredReturns = returns.filter(returnItem => {
+  const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
+
+  const filteredReturns = returns.filter((returnItem) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
+    const matchesSearch =
+      !query ||
       returnItem.returnNumber.toLowerCase().includes(query) ||
       returnItem.originalOrder.toLowerCase().includes(query) ||
       returnItem.customerName.toLowerCase().includes(query) ||
@@ -103,21 +111,24 @@ export default function ReturnsPage() {
       returnItem.reason.toLowerCase().includes(query) ||
       returnItem.returnDate.toLowerCase().includes(query) ||
       returnItem.totalItems.toString().includes(query) ||
-      (returnItem.resolution && returnItem.resolution.toLowerCase().includes(query)) ||
-      (returnItem.receivedBy && returnItem.receivedBy.toLowerCase().includes(query)) ||
-      (returnItem.inspectedBy && returnItem.inspectedBy.toLowerCase().includes(query)) ||
-      returnItem.id.toLowerCase().includes(query)
-    );
-    const matchesStatus = statusFilter === "all" || returnItem.status === statusFilter;
+      (returnItem.resolution &&
+        returnItem.resolution.toLowerCase().includes(query)) ||
+      (returnItem.receivedBy &&
+        returnItem.receivedBy.toLowerCase().includes(query)) ||
+      (returnItem.inspectedBy &&
+        returnItem.inspectedBy.toLowerCase().includes(query)) ||
+      returnItem.id.toLowerCase().includes(query);
+    const matchesStatus =
+      statusFilter === "all" || returnItem.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const handleRowClick = (returnItem: typeof returns[0]) => {
+  const handleRowClick = (returnItem: (typeof returns)[0]) => {
     setSelectedReturn(returnItem);
     setShowDetailModal(true);
   };
 
-  const handleInspect = (returnItem: typeof returns[0]) => {
+  const handleInspect = (returnItem: (typeof returns)[0]) => {
     setSelectedReturn(returnItem);
     setShowInspectModal(true);
   };
@@ -127,25 +138,29 @@ export default function ReturnsPage() {
       label: "Total Returns This Month",
       value: returns.length,
       icon: "keyboard_return",
-      color: "primary",
+      color: "primary" as const,
     },
     {
       label: "Pending Inspection",
-      value: returns.filter(r => r.status === "pending" || r.status === "received").length,
+      value: returns.filter(
+        (r) => r.status === "pending" || r.status === "received"
+      ).length,
       icon: "pending_actions",
-      color: "warning",
+      color: "warning" as const,
     },
     {
       label: "Approved for Restock",
-      value: returns.filter(r => r.status === "approved" && r.resolution === "refund").length,
+      value: returns.filter(
+        (r) => r.status === "approved" && r.resolution === "refund"
+      ).length,
       icon: "check_circle",
-      color: "success",
+      color: "success" as const,
     },
     {
       label: "Rejected",
-      value: returns.filter(r => r.status === "rejected").length,
+      value: returns.filter((r) => r.status === "rejected").length,
       icon: "cancel",
-      color: "error",
+      color: "error" as const,
     },
   ];
 
@@ -153,7 +168,7 @@ export default function ReturnsPage() {
     {
       key: "returnNumber",
       label: "Return #",
-      render: (returnItem: typeof returns[0]) => (
+      render: (returnItem: (typeof returns)[0]) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -169,8 +184,11 @@ export default function ReturnsPage() {
     {
       key: "originalOrder",
       label: "Original Order",
-      render: (returnItem: typeof returns[0]) => (
-        <Link href={`/admin/orders/outbound/${returnItem.originalOrder}`} className="text-primary hover:underline">
+      render: (returnItem: (typeof returns)[0]) => (
+        <Link
+          href={`/admin/orders/outbound/${returnItem.originalOrder}`}
+          className="text-primary hover:underline"
+        >
           {returnItem.originalOrder}
         </Link>
       ),
@@ -178,14 +196,25 @@ export default function ReturnsPage() {
     },
     { key: "customerName", label: "Customer", sortable: true },
     { key: "warehouse", label: "Warehouse", sortable: true },
-    { key: "returnDate", label: "Return Date", className: "text-base-content/70", sortable: true },
+    {
+      key: "returnDate",
+      label: "Return Date",
+      className: "text-base-content/70",
+      sortable: true,
+    },
     { key: "reason", label: "Reason", sortable: true },
-    { key: "totalItems", label: "Total Items", className: "text-base-content/70", sortable: true },
+    {
+      key: "totalItems",
+      label: "Total Items",
+      className: "text-base-content/70",
+      sortable: true,
+    },
     {
       key: "status",
       label: "Status",
-      render: (returnItem: typeof returns[0]) => {
-        const status = statusConfig[returnItem.status as keyof typeof statusConfig];
+      render: (returnItem: (typeof returns)[0]) => {
+        const status =
+          statusConfig[returnItem.status as keyof typeof statusConfig];
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
       sortable: true,
@@ -193,16 +222,24 @@ export default function ReturnsPage() {
     {
       key: "resolution",
       label: "Resolution",
-      render: (returnItem: typeof returns[0]) => {
-        if (!returnItem.resolution) return <span className="text-base-content/50">-</span>;
-        const resolution = resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig];
-        return <span className={`badge ${resolution.class}`}>{resolution.label}</span>;
+      render: (returnItem: (typeof returns)[0]) => {
+        if (!returnItem.resolution)
+          return <span className="text-base-content/50">-</span>;
+        const resolution =
+          resolutionConfig[
+            returnItem.resolution as keyof typeof resolutionConfig
+          ];
+        return (
+          <span className={`badge ${resolution.class}`}>
+            {resolution.label}
+          </span>
+        );
       },
       sortable: true,
     },
   ];
 
-  const renderActions = (returnItem: typeof returns[0]) => (
+  const renderActions = (returnItem: (typeof returns)[0]) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -213,22 +250,43 @@ export default function ReturnsPage() {
       >
         <li>
           <button onClick={() => handleRowClick(returnItem)}>
-            <span className="material-symbols-outlined text-sm">visibility</span>
+            <span className="material-symbols-outlined text-sm">
+              visibility
+            </span>
             View Details
           </button>
         </li>
         {returnItem.status === "received" && (
           <li>
             <button onClick={() => handleInspect(returnItem)}>
-              <span className="material-symbols-outlined text-sm">verified</span>
+              <span className="material-symbols-outlined text-sm">
+                verified
+              </span>
               Inspect Return
+            </button>
+          </li>
+        )}
+        {canApprove && returnItem.status === "inspecting" && (
+          <li>
+            <button
+              onClick={() => {
+                // TODO: Handle approval
+                console.log("Approving return:", returnItem.id);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">
+                check_circle
+              </span>
+              Approve Return
             </button>
           </li>
         )}
         {returnItem.status === "pending" && (
           <li>
             <button>
-              <span className="material-symbols-outlined text-sm">person_add</span>
+              <span className="material-symbols-outlined text-sm">
+                person_add
+              </span>
               Assign Worker
             </button>
           </li>
@@ -249,7 +307,9 @@ export default function ReturnsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Returns</h1>
-          <p className="text-sm text-base-content/60 mt-1">Manage returned items and inspections</p>
+          <p className="text-sm text-base-content/60 mt-1">
+            Manage returned items and inspections
+          </p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -270,15 +330,42 @@ export default function ReturnsPage() {
               tabIndex={0}
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
-              <li><button onClick={() => setStatusFilter("all")}>All Status</button></li>
-              <li><button onClick={() => setStatusFilter("pending")}>Pending</button></li>
-              <li><button onClick={() => setStatusFilter("received")}>Received</button></li>
-              <li><button onClick={() => setStatusFilter("inspecting")}>Inspecting</button></li>
-              <li><button onClick={() => setStatusFilter("approved")}>Approved</button></li>
-              <li><button onClick={() => setStatusFilter("rejected")}>Rejected</button></li>
+              <li>
+                <button onClick={() => setStatusFilter("all")}>
+                  All Status
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("pending")}>
+                  Pending
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("received")}>
+                  Received
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("inspecting")}>
+                  Inspecting
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("approved")}>
+                  Approved
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("rejected")}>
+                  Rejected
+                </button>
+              </li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowCreateModal(true)}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => setShowCreateModal(true)}
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Register Return</span>
           </button>
@@ -355,14 +442,18 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
       <div className="p-6 space-y-4">
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Original Order Number *</span>
+            <span className="label-text font-medium">
+              Original Order Number *
+            </span>
           </label>
           <input
             type="text"
             className="input input-bordered w-full"
             placeholder="Enter order number"
             value={formData.originalOrder}
-            onChange={(e) => setFormData({ ...formData, originalOrder: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, originalOrder: e.target.value })
+            }
             required
           />
         </div>
@@ -373,7 +464,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
           <select
             className="select select-bordered w-full"
             value={formData.warehouse}
-            onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouse: e.target.value })
+            }
             required
           >
             <option value="">Select Warehouse</option>
@@ -389,7 +482,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
             type="text"
             className="input input-bordered w-full"
             value={formData.customerName}
-            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, customerName: e.target.value })
+            }
           />
         </div>
         <div className="form-control">
@@ -399,7 +494,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
           <select
             className="select select-bordered w-full"
             value={formData.reason}
-            onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, reason: e.target.value })
+            }
             required
           >
             <option value="">Select Reason</option>
@@ -418,7 +515,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
             className="textarea textarea-bordered w-full"
             rows={3}
             value={formData.notes}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, notes: e.target.value })
+            }
           />
         </div>
         <div className="flex justify-end gap-2 pt-4">
@@ -442,7 +541,7 @@ function ReturnDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: typeof returns[0];
+  returnItem: (typeof returns)[0];
 }) {
   const status = statusConfig[returnItem.status as keyof typeof statusConfig];
   const resolution = returnItem.resolution
@@ -450,11 +549,18 @@ function ReturnDetailModal({
     : null;
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Return: ${returnItem.returnNumber}`} size="lg">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Return: ${returnItem.returnNumber}`}
+      size="lg"
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-sm text-base-content/60">Return Number</label>
+            <label className="text-sm text-base-content/60">
+              Return Number
+            </label>
             <p className="font-semibold">{returnItem.returnNumber}</p>
           </div>
           <div>
@@ -464,15 +570,22 @@ function ReturnDetailModal({
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Original Order</label>
+            <label className="text-sm text-base-content/60">
+              Original Order
+            </label>
             <p>
-              <Link href={`/admin/orders/outbound/${returnItem.originalOrder}`} className="text-primary hover:underline">
+              <Link
+                href={`/admin/orders/outbound/${returnItem.originalOrder}`}
+                className="text-primary hover:underline"
+              >
                 {returnItem.originalOrder}
               </Link>
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Customer Name</label>
+            <label className="text-sm text-base-content/60">
+              Customer Name
+            </label>
             <p className="font-semibold">{returnItem.customerName}</p>
           </div>
           <div>
@@ -493,13 +606,17 @@ function ReturnDetailModal({
           </div>
           {returnItem.receivedBy && (
             <div>
-              <label className="text-sm text-base-content/60">Received By</label>
+              <label className="text-sm text-base-content/60">
+                Received By
+              </label>
               <p className="font-semibold">{returnItem.receivedBy}</p>
             </div>
           )}
           {returnItem.inspectedBy && (
             <div>
-              <label className="text-sm text-base-content/60">Inspected By</label>
+              <label className="text-sm text-base-content/60">
+                Inspected By
+              </label>
               <p className="font-semibold">{returnItem.inspectedBy}</p>
             </div>
           )}
@@ -507,7 +624,9 @@ function ReturnDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Resolution</label>
               <p>
-                <span className={`badge ${resolution.class}`}>{resolution.label}</span>
+                <span className={`badge ${resolution.class}`}>
+                  {resolution.label}
+                </span>
               </p>
             </div>
           )}
@@ -530,11 +649,19 @@ function InspectReturnModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: typeof returns[0];
+  returnItem: (typeof returns)[0];
 }) {
   const [inspectionData, setInspectionData] = useState({
     items: [
-      { productId: "SKU-1001", productName: "Wireless Earbuds", quantity: returnItem.totalItems, condition: "", defectDescription: "", resolution: "", images: [] as string[] },
+      {
+        productId: "SKU-1001",
+        productName: "Wireless Earbuds",
+        quantity: returnItem.totalItems,
+        condition: "",
+        defectDescription: "",
+        resolution: "",
+        images: [] as string[],
+      },
     ],
     overallResolution: "",
     notes: "",
@@ -551,10 +678,17 @@ function InspectReturnModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Inspect Return: ${returnItem.returnNumber}`} size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Inspect Return: ${returnItem.returnNumber}`}
+      size="lg"
+    >
       <div className="p-6 space-y-4">
         <div className="bg-base-200 rounded-lg p-4">
-          <h4 className="font-semibold text-base-content mb-2">Return Information</h4>
+          <h4 className="font-semibold text-base-content mb-2">
+            Return Information
+          </h4>
           <div className="text-sm space-y-1">
             <div>Order: {returnItem.originalOrder}</div>
             <div>Customer: {returnItem.customerName}</div>
@@ -568,7 +702,9 @@ function InspectReturnModal({
           <div key={idx} className="bg-base-200 rounded-lg p-4 space-y-3">
             <div>
               <div className="font-semibold">{item.productName}</div>
-              <div className="text-sm text-base-content/60">SKU: {item.productId} • Qty: {item.quantity}</div>
+              <div className="text-sm text-base-content/60">
+                SKU: {item.productId} • Qty: {item.quantity}
+              </div>
             </div>
             <div className="form-control">
               <label className="label">
@@ -591,10 +727,13 @@ function InspectReturnModal({
                 <option value="defective">Defective</option>
               </select>
             </div>
-            {(item.condition === "damaged" || item.condition === "defective") && (
+            {(item.condition === "damaged" ||
+              item.condition === "defective") && (
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">Defect Description</span>
+                  <span className="label-text font-medium">
+                    Defect Description
+                  </span>
                 </label>
                 <textarea
                   className="textarea textarea-bordered w-full"
@@ -646,7 +785,12 @@ function InspectReturnModal({
                 value="refund"
                 className="radio"
                 checked={inspectionData.overallResolution === "refund"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Refund</span>
             </label>
@@ -657,7 +801,12 @@ function InspectReturnModal({
                 value="replace"
                 className="radio"
                 checked={inspectionData.overallResolution === "replace"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Replace</span>
             </label>
@@ -668,7 +817,12 @@ function InspectReturnModal({
                 value="repair"
                 className="radio"
                 checked={inspectionData.overallResolution === "repair"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Repair</span>
             </label>
@@ -679,7 +833,12 @@ function InspectReturnModal({
                 value="reject"
                 className="radio"
                 checked={inspectionData.overallResolution === "reject"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Reject</span>
             </label>
@@ -694,7 +853,9 @@ function InspectReturnModal({
             className="textarea textarea-bordered w-full"
             rows={3}
             value={inspectionData.notes}
-            onChange={(e) => setInspectionData({ ...inspectionData, notes: e.target.value })}
+            onChange={(e) =>
+              setInspectionData({ ...inspectionData, notes: e.target.value })
+            }
           />
         </div>
 
@@ -710,4 +871,3 @@ function InspectReturnModal({
     </Modal>
   );
 }
-

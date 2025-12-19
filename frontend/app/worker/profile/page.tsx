@@ -1,62 +1,78 @@
 "use client";
 
-import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useWorker } from "@/contexts/WorkerContext";
+import { getRoleDisplayName, getOperationDisplayName } from "@/lib/worker-roles";
 
 export default function WorkerProfilePage() {
-  const worker = {
-    name: "John Doe",
-    id: "EMP-2045",
-    warehouse: "Warehouse 1",
+  const { worker, allowedOperations } = useWorker();
+
+  if (!worker) {
+    return (
+      <div className="p-4">
+        <div className="alert alert-warning">
+          <span>Please log in to view your profile.</span>
+          <Link href="/worker/login" className="btn btn-sm btn-primary ml-2">
+            Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const displayWorker = {
+    name: worker.name,
+    id: worker.workerId || worker.id,
+    warehouse: worker.warehouse,
     status: "Online",
-    deviceId: "e8b5d4",
-    avatar: "/assets/avatars/Jhon Doe.jpg",
-    email: "john.doe@optiwms.com",
-    phone: "+1-555-0100",
-    joinDate: "2023-01-15",
-    shift: "Day Shift (8:00 AM - 5:00 PM)",
-    department: "Warehouse Operations",
+    deviceId: worker.deviceId || "N/A",
+    avatar: worker.avatar || "/assets/avatars/placeholder.svg",
+    email: worker.email || "N/A",
+    phone: worker.phone || "N/A",
+    role: worker.role,
   };
 
   const stats = [
-    { label: "Tasks Completed", value: "1,234", icon: "task_alt" },
-    { label: "Tasks Today", value: "12", icon: "today" },
-    { label: "Avg Task Time", value: "15 min", icon: "schedule" },
-    { label: "Accuracy Rate", value: "98.5%", icon: "verified" },
+    { label: "Total Tasks", value: "1,247", icon: "task" },
+    { label: "Completed", value: "1,189", icon: "check_circle" },
+    { label: "Success Rate", value: "95.3%", icon: "trending_up" },
   ];
 
   return (
     <div className="p-4 space-y-4">
       {/* Profile Header */}
-      <div className="bg-base-100 rounded-xl p-6 border border-base-300">
-        <div className="flex flex-col items-center">
-          <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden mb-4">
-            <Image
-              src="/assets/avatars/Jhon Doe.jpg"
-              alt={worker.name}
-              width={96}
-              height={96}
-              className="rounded-full object-cover"
-            />
+      <div className="bg-base-100 rounded-xl p-6 border border-base-300 text-center">
+        <div className="flex justify-center mb-4">
+          <Image
+            src={displayWorker.avatar}
+            alt={displayWorker.name}
+            width={100}
+            height={100}
+            className="rounded-full border-4 border-primary"
+          />
+        </div>
+        <h2 className="text-2xl font-bold text-base-content mb-1">{displayWorker.name}</h2>
+        <div className="text-sm text-base-content/60 mb-2">{displayWorker.id}</div>
+        {displayWorker.role && (
+          <div className="badge badge-primary badge-lg mb-3">
+            {getRoleDisplayName(displayWorker.role)}
           </div>
-          <h2 className="text-2xl font-bold text-base-content">{worker.name}</h2>
-          <p className="text-sm text-base-content/60 mt-1">Worker ID: {worker.id}</p>
-          <div className="flex items-center gap-2 mt-2">
-            <div className="w-2 h-2 bg-success rounded-full"></div>
-            <span className="text-sm text-base-content/60">{worker.status}</span>
-          </div>
+        )}
+        <div className="flex items-center justify-center gap-2">
+          <div className="w-2 h-2 bg-success rounded-full"></div>
+          <span className="text-sm text-success font-medium">{displayWorker.status}</span>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-4">
-        {stats.map((stat, idx) => (
-          <div key={idx} className="bg-base-100 rounded-xl p-4 border border-base-300">
-            <div className="flex items-center justify-between mb-2">
-              <span className="material-symbols-outlined text-2xl text-primary">{stat.icon}</span>
+      <div className="grid grid-cols-3 gap-3">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
+            <div className="text-2xl mb-2">
+              <span className="material-symbols-outlined text-primary">{stat.icon}</span>
             </div>
-            <div className="text-2xl font-bold text-base-content">{stat.value}</div>
+            <div className="text-xl font-bold text-base-content">{stat.value}</div>
             <div className="text-xs text-base-content/60 mt-1">{stat.label}</div>
           </div>
         ))}
@@ -67,67 +83,86 @@ export default function WorkerProfilePage() {
         <h3 className="font-bold text-base-content mb-4">Personal Information</h3>
         <div className="space-y-3">
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Email</div>
-              <div className="font-semibold text-base-content">{worker.email}</div>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-base-content/60">email</span>
+              <span className="text-sm text-base-content/60">Email</span>
             </div>
+            <span className="font-medium text-base-content">{displayWorker.email}</span>
           </div>
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Phone</div>
-              <div className="font-semibold text-base-content">{worker.phone}</div>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-base-content/60">phone</span>
+              <span className="text-sm text-base-content/60">Phone</span>
             </div>
+            <span className="font-medium text-base-content">{displayWorker.phone}</span>
           </div>
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Warehouse</div>
-              <div className="font-semibold text-base-content">{worker.warehouse}</div>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-base-content/60">warehouse</span>
+              <span className="text-sm text-base-content/60">Warehouse</span>
             </div>
+            <span className="font-medium text-base-content">{displayWorker.warehouse}</span>
           </div>
+          {displayWorker.role && (
+            <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-base-content/60">badge</span>
+                <span className="text-sm text-base-content/60">Role</span>
+              </div>
+              <span className="font-medium text-base-content">{getRoleDisplayName(displayWorker.role)}</span>
+            </div>
+          )}
           <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Shift</div>
-              <div className="font-semibold text-base-content">{worker.shift}</div>
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-base-content/60">devices</span>
+              <span className="text-sm text-base-content/60">Device ID</span>
             </div>
+            <span className="font-medium text-base-content">{displayWorker.deviceId}</span>
           </div>
-          <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Department</div>
-              <div className="font-semibold text-base-content">{worker.department}</div>
+          {allowedOperations.length > 0 && (
+            <div className="p-3 bg-primary/10 rounded-lg">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="material-symbols-outlined text-primary">verified</span>
+                <span className="text-sm font-semibold text-base-content">Allowed Operations</span>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {allowedOperations.map((op) => (
+                  <span key={op} className="badge badge-primary badge-sm">
+                    {getOperationDisplayName(op)}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-            <div>
-              <div className="text-sm text-base-content/60">Join Date</div>
-              <div className="font-semibold text-base-content">{worker.joinDate}</div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
       {/* Actions */}
       <div className="space-y-2">
-        <Link 
-          href="/worker/account-settings"
-          className="btn btn-outline w-full"
-        >
+        <button className="btn btn-outline w-full">
           <span className="material-symbols-outlined">edit</span>
           Edit Profile
-        </Link>
-        <button 
-          className="btn btn-outline w-full"
-          onClick={() => {
-            // TODO: Open help & support modal or navigate to help page
-            // For now, show a simple message
-            if (confirm("Need help? Contact support at support@optiwms.com or call +1-555-0100")) {
-              // Could open email client or phone dialer
-              window.location.href = "mailto:support@optiwms.com";
+        </button>
+        <button className="btn btn-outline w-full">
+          <span className="material-symbols-outlined">settings</span>
+          Settings
+        </button>
+        <Link 
+          href="/worker/login" 
+          className="btn btn-error w-full"
+          onClick={async () => {
+            // Clear worker data on logout
+            const { deleteFromStore, STORES } = await import("@/lib/indexeddb");
+            try {
+              await deleteFromStore(STORES.WORKER_DATA, "current_worker");
+            } catch (error) {
+              console.error("Error clearing worker data:", error);
             }
           }}
         >
-          <span className="material-symbols-outlined">help</span>
-          Help & Support
-        </button>
+          <span className="material-symbols-outlined">logout</span>
+          Logout
+        </Link>
       </div>
     </div>
   );

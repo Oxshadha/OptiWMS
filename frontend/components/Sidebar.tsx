@@ -1,53 +1,85 @@
- "use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 import Image from "next/image";
+import { useAdmin } from "@/contexts/AdminContext";
+import { filterRoutesByRole } from "@/lib/admin-roles";
 
-const navItems = [
+const allNavItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
   { href: "/admin/warehouses", label: "Warehouses", icon: "warehouse" },
-  { 
-    href: "/admin/orders", 
-    label: "Orders", 
+  {
+    href: "/admin/orders",
+    label: "Orders",
     icon: "inventory_2",
     subItems: [
       { href: "/admin/orders/inbound", label: "Inbound Orders" },
       { href: "/admin/orders/outbound", label: "Outbound Orders" },
-    ]
+    ],
   },
   { href: "/admin/shipments", label: "Shipments", icon: "local_shipping" },
-  { href: "/admin/delivery-partners", label: "Delivery Partners", icon: "local_shipping" },
+  {
+    href: "/admin/delivery-partners",
+    label: "Delivery Partners",
+    icon: "local_shipping",
+  },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/products", label: "Products", icon: "category" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
-  { href: "/admin/workers", label: "Workers", icon: "group" },
+  {
+    href: "/admin/team",
+    label: "Team",
+    icon: "group",
+    subItems: [
+      { href: "/admin/workers", label: "Workers" },
+      { href: "/admin/admins", label: "Managers" },
+    ],
+  },
   { href: "/admin/tasks", label: "Tasks", icon: "task" },
   { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
-  { href: "/admin/stock-transfers", label: "Stock Transfers", icon: "swap_horiz" },
+  {
+    href: "/admin/stock-transfers",
+    label: "Stock Transfers",
+    icon: "swap_horiz",
+  },
   { href: "/admin/packing", label: "Packing", icon: "inventory" },
   { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
   { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
   { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
   { href: "/admin/customers", label: "Customers", icon: "people" },
+  { href: "/admin/sops", label: "SOPs", icon: "description" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { role } = useAdmin();
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
       return ["/admin/orders"];
     }
+    // Auto-expand Team if on workers or admins page
+    if (
+      pathname.startsWith("/admin/workers") ||
+      pathname.startsWith("/admin/admins")
+    ) {
+      return ["/admin/team"];
+    }
     return [];
   });
 
+  // Filter nav items based on admin role
+  const navItems = filterRoutesByRole(allNavItems, role);
+
   const toggleExpand = (href: string) => {
     setExpandedItems((prev) =>
-      prev.includes(href) ? prev.filter((item) => item !== href) : [...prev, href]
+      prev.includes(href)
+        ? prev.filter((item) => item !== href)
+        : [...prev, href]
     );
   };
 
@@ -55,7 +87,10 @@ export function Sidebar() {
     <aside className="hidden lg:flex flex-col w-64 bg-neutral text-neutral-content fixed h-screen">
       <div className="p-4 border-b border-white/10">
         <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1" style={{ backgroundColor: "#EEEEEE" }}>
+          <div
+            className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
+            style={{ backgroundColor: "#EEEEEE" }}
+          >
             <Image
               src="/assets/logos/OptiWMS Logo.JPG"
               alt="OptiWMS Logo"
@@ -73,7 +108,9 @@ export function Sidebar() {
           const active = pathname.startsWith(item.href);
           const hasSubItems = item.subItems && item.subItems.length > 0;
           const isExpanded = expandedItems.includes(item.href);
-          const hasActiveSubItem = hasSubItems && item.subItems?.some((sub) => pathname.startsWith(sub.href));
+          const hasActiveSubItem =
+            hasSubItems &&
+            item.subItems?.some((sub) => pathname.startsWith(sub.href));
 
           return (
             <div key={item.href} className="space-y-1">
@@ -83,13 +120,15 @@ export function Sidebar() {
                     onClick={() => toggleExpand(item.href)}
                     className={clsx(
                       "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all",
-                      (active || hasActiveSubItem)
+                      active || hasActiveSubItem
                         ? "bg-primary text-primary-content"
                         : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                      <span className="material-symbols-outlined text-xl">
+                        {item.icon}
+                      </span>
                       <span>{item.label}</span>
                     </div>
                     <span
@@ -134,7 +173,9 @@ export function Sidebar() {
                       : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
                   )}
                 >
-                  <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                  <span className="material-symbols-outlined text-xl">
+                    {item.icon}
+                  </span>
                   <span>{item.label}</span>
                 </Link>
               )}
@@ -142,19 +183,19 @@ export function Sidebar() {
           );
         })}
       </nav>
-             <div className="p-4 border-t border-white/10 space-y-2">
-               <Link
-                 href="/admin/dashboard-settings"
-                 className={clsx(
-                   "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-                   pathname.startsWith("/admin/dashboard-settings")
-                     ? "bg-primary text-primary-content"
-                     : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                 )}
-               >
-                 <span className="material-symbols-outlined text-xl">settings</span>
-                 <span>Settings</span>
-               </Link>
+      <div className="p-4 border-t border-white/10 space-y-2">
+        <Link
+          href="/admin/dashboard-settings"
+          className={clsx(
+            "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+            pathname.startsWith("/admin/dashboard-settings")
+              ? "bg-primary text-primary-content"
+              : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+          )}
+        >
+          <span className="material-symbols-outlined text-xl">settings</span>
+          <span>Settings</span>
+        </Link>
         <Link
           href="/admin/help"
           className={clsx(
@@ -171,5 +212,3 @@ export function Sidebar() {
     </aside>
   );
 }
-
-

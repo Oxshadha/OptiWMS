@@ -16,6 +16,7 @@ export const STORES = {
   OPERATION_LOGS: "operation_logs",
   SYNC_QUEUE: "sync_queue",
   WORKER_DATA: "worker_data",
+  ADMIN_DATA: "admin_data",
 } as const;
 
 let db: IDBDatabase | null = null;
@@ -78,6 +79,11 @@ export async function initDB(): Promise<IDBDatabase> {
       // Worker data store
       if (!database.objectStoreNames.contains(STORES.WORKER_DATA)) {
         database.createObjectStore(STORES.WORKER_DATA, { keyPath: "key" });
+      }
+
+      // Admin data store
+      if (!database.objectStoreNames.contains(STORES.ADMIN_DATA)) {
+        database.createObjectStore(STORES.ADMIN_DATA, { keyPath: "key" });
       }
     };
   });
@@ -187,6 +193,9 @@ export interface Task {
   createdAt: number;
   updatedAt: number;
   synced: boolean;
+  workerId?: string; // Worker assigned to this task
+  assignedTo?: string; // Alternative field name for worker assignment
+  warehouseId?: string; // Warehouse where task is located
 }
 
 export async function saveTask(task: Task): Promise<void> {
@@ -229,6 +238,7 @@ export interface OptimalPath {
 export async function saveOptimalPath(path: OptimalPath): Promise<void> {
   return updateInStore(STORES.OPTIMAL_PATHS, {
     ...path,
+    id: path.taskId, // Use taskId as the id since it's the keyPath
     calculatedAt: Date.now(),
   });
 }
