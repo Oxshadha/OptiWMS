@@ -7,6 +7,8 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import React from "react";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const suppliers = [
@@ -52,12 +54,17 @@ const suppliers = [
 ];
 
 export default function SuppliersPage() {
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<typeof suppliers[0] | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<
+    (typeof suppliers)[0] | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
 
   const summary = {
     totalSuppliers: 24,
@@ -67,7 +74,8 @@ export default function SuppliersPage() {
 
   const filteredSuppliers = suppliers.filter((supplier) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = query === "" || 
+    const matchesSearch =
+      query === "" ||
       supplier.name.toLowerCase().includes(query) ||
       supplier.supplierCode.toLowerCase().includes(query) ||
       supplier.email.toLowerCase().includes(query) ||
@@ -78,7 +86,8 @@ export default function SuppliersPage() {
       supplier.leadTimeDays.toString().includes(query) ||
       supplier.rating.toString().includes(query) ||
       supplier.status.toLowerCase().includes(query);
-    const matchesStatus = statusFilter === "all" || supplier.status === statusFilter;
+    const matchesStatus =
+      statusFilter === "all" || supplier.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -112,7 +121,7 @@ export default function SuppliersPage() {
     {
       key: "name",
       label: "Supplier Name",
-      render: (supplier: typeof suppliers[0]) => (
+      render: (supplier: (typeof suppliers)[0]) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -154,13 +163,14 @@ export default function SuppliersPage() {
     {
       key: "leadTimeDays",
       label: "Lead Time (days)",
-      render: (supplier: typeof suppliers[0]) => `${supplier.leadTimeDays} days`,
+      render: (supplier: (typeof suppliers)[0]) =>
+        `${supplier.leadTimeDays} days`,
       sortable: true,
     },
     {
       key: "rating",
       label: "Rating",
-      render: (supplier: typeof suppliers[0]) => (
+      render: (supplier: (typeof suppliers)[0]) => (
         <div className="flex items-center gap-1">
           <span className="text-warning">★</span>
           <span>{supplier.rating.toFixed(1)}</span>
@@ -171,15 +181,19 @@ export default function SuppliersPage() {
     {
       key: "status",
       label: "Status",
-      render: (supplier: typeof suppliers[0]) => (
-        <span className={`badge ${supplier.status === "active" ? "badge-success" : "badge-error"}`}>
+      render: (supplier: (typeof suppliers)[0]) => (
+        <span
+          className={`badge ${
+            supplier.status === "active" ? "badge-success" : "badge-error"
+          }`}
+        >
           {supplier.status === "active" ? "Active" : "Inactive"}
         </span>
       ),
     },
   ];
 
-  const renderActions = (supplier: typeof suppliers[0]) => (
+  const renderActions = (supplier: (typeof suppliers)[0]) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -195,7 +209,9 @@ export default function SuppliersPage() {
               setShowDetailModal(true);
             }}
           >
-            <span className="material-symbols-outlined text-sm">visibility</span>
+            <span className="material-symbols-outlined text-sm">
+              visibility
+            </span>
             View Details
           </button>
         </li>
@@ -228,15 +244,34 @@ export default function SuppliersPage() {
               window.location.href = `/admin/orders/inbound?supplier=${supplier.id}`;
             }}
           >
-            <span className="material-symbols-outlined text-sm">description</span>
+            <span className="material-symbols-outlined text-sm">
+              description
+            </span>
             View Orders
           </button>
         </li>
+        {canApprovePO && (
+          <li>
+            <button
+              onClick={() => {
+                // TODO: Handle PO approval
+                console.log("Approving PO for supplier:", supplier.id);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">
+                check_circle
+              </span>
+              Approve Purchase Order
+            </button>
+          </li>
+        )}
         <li>
-          <button 
+          <button
             className="text-error"
             onClick={() => {
-              if (confirm(`Are you sure you want to delete ${supplier.name}?`)) {
+              if (
+                confirm(`Are you sure you want to delete ${supplier.name}?`)
+              ) {
                 // TODO: API call to delete supplier
                 console.log("Deleting supplier:", supplier.id);
               }
@@ -256,7 +291,9 @@ export default function SuppliersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Suppliers</h1>
-          <p className="text-sm text-base-content/60 mt-1">Manage supplier relationships and information</p>
+          <p className="text-sm text-base-content/60 mt-1">
+            Manage supplier relationships and information
+          </p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -277,7 +314,9 @@ export default function SuppliersPage() {
                   className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-xs">close</span>
+                  <span className="material-symbols-outlined text-xs">
+                    close
+                  </span>
                 </button>
               )}
             </div>
@@ -292,13 +331,19 @@ export default function SuppliersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => setStatusFilter("all")}>
+                  All Status
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("active")}>Active</button>
+                <button onClick={() => setStatusFilter("active")}>
+                  Active
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("inactive")}>Inactive</button>
+                <button onClick={() => setStatusFilter("inactive")}>
+                  Inactive
+                </button>
               </li>
             </ul>
           </div>
@@ -319,7 +364,10 @@ export default function SuppliersPage() {
       {searchQuery && (
         <div className="text-sm text-base-content/60 flex items-center gap-2">
           <span className="material-symbols-outlined text-sm">search</span>
-          <span>Found {filteredSuppliers.length} supplier{filteredSuppliers.length !== 1 ? 's' : ''} matching "{searchQuery}"</span>
+          <span>
+            Found {filteredSuppliers.length} supplier
+            {filteredSuppliers.length !== 1 ? "s" : ""} matching "{searchQuery}"
+          </span>
         </div>
       )}
 
@@ -333,7 +381,11 @@ export default function SuppliersPage() {
           setShowDetailModal(true);
         }}
         actions={renderActions}
-        emptyMessage={searchQuery ? `No suppliers found matching "${searchQuery}"` : "No suppliers found"}
+        emptyMessage={
+          searchQuery
+            ? `No suppliers found matching "${searchQuery}"`
+            : "No suppliers found"
+        }
       />
 
       {/* Create Supplier Modal */}
@@ -367,7 +419,7 @@ export default function SuppliersPage() {
       )}
 
       {/* Listen for edit event from detail modal */}
-      {typeof window !== 'undefined' && (
+      {typeof window !== "undefined" && (
         <EditSupplierListener
           onEdit={(supplier) => {
             setShowDetailModal(false);
@@ -381,14 +433,21 @@ export default function SuppliersPage() {
 }
 
 // Edit Supplier Event Listener Component
-function EditSupplierListener({ onEdit }: { onEdit: (supplier: typeof suppliers[0]) => void }) {
+function EditSupplierListener({
+  onEdit,
+}: {
+  onEdit: (supplier: (typeof suppliers)[0]) => void;
+}) {
   React.useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
       onEdit(event.detail);
     };
-    window.addEventListener('editSupplier' as any, handleEdit as EventListener);
+    window.addEventListener("editSupplier" as any, handleEdit as EventListener);
     return () => {
-      window.removeEventListener('editSupplier' as any, handleEdit as EventListener);
+      window.removeEventListener(
+        "editSupplier" as any,
+        handleEdit as EventListener
+      );
     };
   }, [onEdit]);
   return null;
@@ -402,14 +461,21 @@ function SupplierDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: typeof suppliers[0];
+  supplier: (typeof suppliers)[0];
 }) {
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Supplier: ${supplier.name}`} size="lg">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Supplier: ${supplier.name}`}
+      size="lg"
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-sm text-base-content/60">Supplier Code</label>
+            <label className="text-sm text-base-content/60">
+              Supplier Code
+            </label>
             <p className="font-semibold">{supplier.supplierCode}</p>
           </div>
           <div>
@@ -417,7 +483,9 @@ function SupplierDetailModal({
             <p className="font-semibold">{supplier.country}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Contact Person</label>
+            <label className="text-sm text-base-content/60">
+              Contact Person
+            </label>
             <p className="font-semibold">{supplier.contactPerson}</p>
           </div>
           <div>
@@ -429,7 +497,9 @@ function SupplierDetailModal({
             <p className="font-semibold">{supplier.phone}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Products Supplied</label>
+            <label className="text-sm text-base-content/60">
+              Products Supplied
+            </label>
             <p className="font-semibold">{supplier.productsSupplied}</p>
           </div>
           <div>
@@ -439,13 +509,18 @@ function SupplierDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Rating</label>
             <p className="font-semibold">
-              <span className="text-warning">★</span> {supplier.rating.toFixed(1)}
+              <span className="text-warning">★</span>{" "}
+              {supplier.rating.toFixed(1)}
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${supplier.status === "active" ? "badge-success" : "badge-error"}`}>
+              <span
+                className={`badge ${
+                  supplier.status === "active" ? "badge-success" : "badge-error"
+                }`}
+              >
                 {supplier.status === "active" ? "Active" : "Inactive"}
               </span>
             </p>
@@ -455,13 +530,15 @@ function SupplierDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button 
+          <button
             className="btn btn-primary"
             onClick={() => {
               onClose();
               // Trigger edit modal - will be handled by parent
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('editSupplier', { detail: supplier }));
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(
+                  new CustomEvent("editSupplier", { detail: supplier })
+                );
               }
             }}
           >
@@ -481,7 +558,7 @@ function EditSupplierModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: typeof suppliers[0];
+  supplier: (typeof suppliers)[0];
 }) {
   const [formData, setFormData] = useState({
     supplierCode: supplier.supplierCode,
@@ -513,7 +590,9 @@ function EditSupplierModal({
               type="text"
               className="input input-bordered w-full"
               value={formData.supplierCode}
-              onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, supplierCode: e.target.value })
+              }
               required
             />
           </div>
@@ -525,7 +604,9 @@ function EditSupplierModal({
               type="text"
               className="input input-bordered w-full"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, name: e.target.value })
+              }
               required
             />
           </div>
@@ -540,7 +621,9 @@ function EditSupplierModal({
               type="text"
               className="input input-bordered w-full"
               value={formData.contactPerson}
-              onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, contactPerson: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -551,7 +634,9 @@ function EditSupplierModal({
               type="email"
               className="input input-bordered w-full"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, email: e.target.value })
+              }
             />
           </div>
         </div>
@@ -564,7 +649,9 @@ function EditSupplierModal({
             type="tel"
             className="input input-bordered w-full"
             value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, phone: e.target.value })
+            }
           />
         </div>
 
@@ -575,7 +662,9 @@ function EditSupplierModal({
           <select
             className="select select-bordered w-full"
             value={formData.country}
-            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, country: e.target.value })
+            }
             required
           >
             <option value="United States">United States</option>
@@ -588,13 +677,17 @@ function EditSupplierModal({
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Average Lead Time (days)</span>
+              <span className="label-text font-medium">
+                Average Lead Time (days)
+              </span>
             </label>
             <input
               type="number"
               className="input input-bordered w-full"
               value={formData.leadTimeDays}
-              onChange={(e) => setFormData({ ...formData, leadTimeDays: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, leadTimeDays: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -608,7 +701,9 @@ function EditSupplierModal({
               max="5"
               className="input input-bordered w-full"
               value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, rating: e.target.value })
+              }
             />
           </div>
         </div>
@@ -627,7 +722,13 @@ function EditSupplierModal({
 }
 
 // Create Supplier Modal
-function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function CreateSupplierModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
   const [formData, setFormData] = useState({
     supplierCode: "",
     name: "",
@@ -678,7 +779,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="text"
               className="input input-bordered w-full"
               value={formData.supplierCode}
-              onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, supplierCode: e.target.value })
+              }
               required
             />
           </div>
@@ -690,7 +793,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="text"
               className="input input-bordered w-full"
               value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, name: e.target.value })
+              }
               required
             />
           </div>
@@ -705,7 +810,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="text"
               className="input input-bordered w-full"
               value={formData.contactPerson}
-              onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, contactPerson: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -716,7 +823,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="email"
               className="input input-bordered w-full"
               value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, email: e.target.value })
+              }
             />
           </div>
         </div>
@@ -729,7 +838,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             type="tel"
             className="input input-bordered w-full"
             value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, phone: e.target.value })
+            }
           />
         </div>
 
@@ -741,7 +852,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             className="textarea textarea-bordered w-full"
             rows={2}
             value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, address: e.target.value })
+            }
           />
         </div>
 
@@ -754,7 +867,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="text"
               className="input input-bordered w-full"
               value={formData.city}
-              onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, city: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -765,7 +880,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               type="text"
               className="input input-bordered w-full"
               value={formData.state}
-              onChange={(e) => setFormData({ ...formData, state: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, state: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -775,7 +892,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             <select
               className="select select-bordered w-full"
               value={formData.country}
-              onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, country: e.target.value })
+              }
               required
             >
               <option value="">Select country</option>
@@ -795,7 +914,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             type="text"
             className="input input-bordered w-full"
             value={formData.postalCode}
-            onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, postalCode: e.target.value })
+            }
           />
         </div>
 
@@ -807,7 +928,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             className="textarea textarea-bordered w-full"
             rows={2}
             value={formData.paymentTerms}
-            onChange={(e) => setFormData({ ...formData, paymentTerms: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, paymentTerms: e.target.value })
+            }
             placeholder="e.g., Net 30, COD, etc."
           />
         </div>
@@ -815,13 +938,17 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Average Lead Time (days)</span>
+              <span className="label-text font-medium">
+                Average Lead Time (days)
+              </span>
             </label>
             <input
               type="number"
               className="input input-bordered w-full"
               value={formData.leadTimeDays}
-              onChange={(e) => setFormData({ ...formData, leadTimeDays: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, leadTimeDays: e.target.value })
+              }
             />
           </div>
           <div className="form-control">
@@ -835,7 +962,9 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
               max="5"
               className="input input-bordered w-full"
               value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, rating: e.target.value })
+              }
             />
           </div>
         </div>
@@ -852,4 +981,3 @@ function CreateSupplierModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
     </Modal>
   );
 }
-
