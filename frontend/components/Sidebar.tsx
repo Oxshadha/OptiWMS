@@ -29,7 +29,15 @@ const allNavItems = [
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/products", label: "Products", icon: "category" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
-  { href: "/admin/workers", label: "Workers", icon: "group" },
+  {
+    href: "/admin/team",
+    label: "Team",
+    icon: "group",
+    subItems: [
+      { href: "/admin/workers", label: "Workers" },
+      { href: "/admin/admins", label: "Managers" },
+    ],
+  },
   { href: "/admin/tasks", label: "Tasks", icon: "task" },
   { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
   {
@@ -52,6 +60,13 @@ export function Sidebar() {
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
       return ["/admin/orders"];
+    }
+    // Auto-expand Team if on workers or admins page
+    if (
+      pathname.startsWith("/admin/workers") ||
+      pathname.startsWith("/admin/admins")
+    ) {
+      return ["/admin/team"];
     }
     return [];
   });

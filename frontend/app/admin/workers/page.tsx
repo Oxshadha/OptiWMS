@@ -15,6 +15,9 @@ import {
 } from "@/lib/worker-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { RolePermissions } from "@/components/RolePermissions";
+import { getWorkerAvailabilityDetails } from "@/lib/worker-availability";
+import { useEffect } from "react";
 
 // Mock data - will be replaced with API calls
 const workers = [
@@ -72,9 +75,10 @@ const statusConfig = {
 };
 
 export default function WorkersPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, role } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<
     (typeof workers)[0] | null
   >(null);
@@ -84,6 +88,9 @@ export default function WorkersPage() {
   const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.WORKERS, "delete");
+  // Only Admin can assign roles
+  const canAssignRole =
+    role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
 
   const summary = {
     totalWorkers: 24,
@@ -187,9 +194,11 @@ export default function WorkersPage() {
         if (!worker.role)
           return <span className="text-base-content/50">-</span>;
         return (
-          <span className="badge badge-outline">
-            {getRoleDisplayName(worker.role)}
-          </span>
+          <div className="inline-block max-w-full">
+            <span className=" whitespace-normal break-words block w-fit">
+              {getRoleDisplayName(worker.role)}
+            </span>
+          </div>
         );
       },
       sortable: true,
@@ -272,11 +281,16 @@ export default function WorkersPage() {
         </li>
         {canDelete && (
           <li>
-            <button className="text-error">
-              <span className="material-symbols-outlined text-sm">
-                person_remove
-              </span>
-              Deactivate
+            <button
+              className="text-error"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedWorker(worker);
+                setShowDeleteModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Worker
             </button>
           </li>
         )}
@@ -378,6 +392,24 @@ export default function WorkersPage() {
           worker={selectedWorker}
         />
       )}
+
+      {/* Delete Worker Modal */}
+      {selectedWorker && (
+        <DeleteWorkerModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedWorker(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete worker
+            console.log("Deleting worker:", selectedWorker.id);
+            setShowDeleteModal(false);
+            setSelectedWorker(null);
+          }}
+          worker={selectedWorker}
+        />
+      )}
     </div>
   );
 }
@@ -392,6 +424,31 @@ function WorkerDetailModal({
   onClose: () => void;
   worker: (typeof workers)[0];
 }) {
+  const [availabilityDetails, setAvailabilityDetails] = useState<{
+    status: string;
+    message: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (isOpen && worker) {
+      getWorkerAvailabilityDetails({
+        id: worker.id,
+        shiftStart: worker.shiftStart,
+        shiftEnd: worker.shiftEnd,
+        availabilityStatus: worker.availabilityStatus as
+          | "available"
+          | "busy"
+          | "offline"
+          | undefined,
+      }).then((details) => {
+        setAvailabilityDetails({
+          status: details.status,
+          message: details.message,
+        });
+      });
+    }
+  }, [isOpen, worker]);
+
   return (
     <DetailModal
       isOpen={isOpen}
@@ -439,6 +496,11 @@ function WorkerDetailModal({
                 }
               </span>
             </p>
+            {availabilityDetails && (
+              <p className="text-xs text-base-content/60 mt-1">
+                {availabilityDetails.message}
+              </p>
+            )}
           </div>
           <div>
             <label className="text-sm text-base-content/60">Shift</label>
@@ -477,6 +539,11 @@ function WorkerDetailModal({
             </div>
           )}
         </div>
+        {worker.role && (
+          <div className="border-t pt-4">
+            <RolePermissions role={worker.role} />
+          </div>
+        )}
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>
             Close
@@ -496,6 +563,10 @@ function CreateWorkerModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const { hasPermission, role } = useAdmin();
+  const canAssignRole =
+    role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
+
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -660,22 +731,37 @@ function CreateWorkerModal({
         <div className="form-control">
           <label className="label">
             <span className="label-text font-medium">Role *</span>
+            {!canAssignRole && (
+              <span className="label-text-alt text-warning">
+                Only Admin can assign roles
+              </span>
+            )}
           </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.role}
-            onChange={(e) =>
-              setFormData({ ...formData, role: e.target.value as WorkerRole })
-            }
-            required
-          >
-            <option value="">Select role</option>
-            {getAllWorkerRoles().map((role) => (
-              <option key={role} value={role}>
-                {ROLE_DISPLAY_NAMES[role]}
-              </option>
-            ))}
-          </select>
+          {canAssignRole ? (
+            <select
+              className="select select-bordered w-full"
+              value={formData.role}
+              onChange={(e) =>
+                setFormData({ ...formData, role: e.target.value as WorkerRole })
+              }
+              required
+            >
+              <option value="">Select role</option>
+              {getAllWorkerRoles().map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_DISPLAY_NAMES[role]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered w-full input-disabled"
+              value="Role assignment restricted to Admin"
+              disabled
+              readOnly
+            />
+          )}
         </div>
 
         <div className="form-control">
@@ -717,6 +803,63 @@ function CreateWorkerModal({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// Delete Worker Modal
+function DeleteWorkerModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  worker,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  worker: (typeof workers)[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Worker" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{worker.name}</strong> (Worker ID:{" "}
+              {worker.workerId}). This will permanently remove their access to
+              the system and all associated data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Name:</strong> {worker.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Worker ID:</strong> {worker.workerId}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Role:</strong>{" "}
+            {worker.role ? getRoleDisplayName(worker.role) : "N/A"}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Warehouse:</strong> {worker.warehouseName}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Worker
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }
