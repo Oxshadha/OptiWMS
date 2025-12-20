@@ -1,28 +1,24 @@
 package com.optiwms.coreapp.operations;
 
-import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.tasks.TaskService;
-import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.tasks.Task;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.UUID;
 
 @Service
 public class PutawayService {
 
     private final TaskService taskService;
-    private final InventoryService inventoryService;
 
-    public PutawayService(TaskService taskService, InventoryService inventoryService) {
+    public PutawayService(TaskService taskService) {
         this.taskService = taskService;
-        this.inventoryService = inventoryService;
     }
 
     @Transactional
-    public PutawayResult completePutaway(UUID taskId, String locationCode, String lpn) {
+    public PutawayResult completePutaway(@NonNull UUID taskId, String locationCode, String lpn) {
         Task task = taskService.findById(taskId);
         
         if (!"putaway".equals(task.getTaskType())) {
