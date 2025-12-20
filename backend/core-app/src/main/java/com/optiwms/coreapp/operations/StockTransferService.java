@@ -68,8 +68,13 @@ public class StockTransferService {
         }
 
         // Reduce inventory at source
+        var materialId = entity.getMaterialId();
+        var sourceWarehouseId = entity.getSourceWarehouseId();
+        if (materialId == null || sourceWarehouseId == null) {
+            throw new RuntimeException("Stock transfer missing required IDs");
+        }
         List<InventoryItem> sourceInventory = inventoryService.findByMaterialAndWarehouse(
-                entity.getMaterialId(), entity.getSourceWarehouseId());
+                materialId, sourceWarehouseId);
         
         if (sourceInventory.isEmpty()) {
             throw new RuntimeException("Source inventory not found");
@@ -100,14 +105,19 @@ public class StockTransferService {
         }
 
         // Add inventory at destination
+        var materialId = entity.getMaterialId();
+        var destWarehouseId = entity.getDestWarehouseId();
+        if (materialId == null || destWarehouseId == null) {
+            throw new RuntimeException("Stock transfer missing required IDs");
+        }
         List<InventoryItem> destInventory = inventoryService.findByMaterialAndWarehouse(
-                entity.getMaterialId(), entity.getDestWarehouseId());
+                materialId, destWarehouseId);
 
         InventoryItem destItem;
         if (destInventory.isEmpty()) {
             destItem = new InventoryItem();
-            destItem.setMaterialId(entity.getMaterialId());
-            destItem.setWarehouseId(entity.getDestWarehouseId());
+            destItem.setMaterialId(materialId);
+            destItem.setWarehouseId(destWarehouseId);
             destItem.setQuantity(BigDecimal.ZERO);
             destItem.setAvailableQuantity(BigDecimal.ZERO);
             destItem.setReservedQuantity(BigDecimal.ZERO);

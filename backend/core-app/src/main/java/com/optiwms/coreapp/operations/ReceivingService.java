@@ -62,8 +62,9 @@ public class ReceivingService {
 
             // Update inventory
             var warehouseId = order.getWarehouseId();
-            if (warehouseId != null) {
-                updateInventory(warehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            var materialId = receivedItem.materialId();
+            if (warehouseId != null && materialId != null) {
+                updateInventory(warehouseId, materialId, receivedItem.quantity(), receivedItem.locationCode());
             }
         }
 

@@ -60,7 +60,11 @@ public class CycleCountService {
                 .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
 
         // Find inventory at location
-        List<InventoryItem> inventory = inventoryService.findByWarehouse(entity.getWarehouseId());
+        var warehouseId = entity.getWarehouseId();
+        if (warehouseId == null) {
+            throw new RuntimeException("Cycle count has no warehouse ID");
+        }
+        List<InventoryItem> inventory = inventoryService.findByWarehouse(warehouseId);
         InventoryItem item = inventory.stream()
                 .filter(inv -> inv.getMaterialId().equals(materialId) && 
                              (entity.getLocationCode() == null || entity.getLocationCode().equals(inv.getLocationCode())))
