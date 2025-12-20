@@ -2,6 +2,7 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.CustomerService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -35,7 +36,7 @@ public class CustomerController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<CustomerDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<CustomerDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var customer = service.findById(id);
             return ResponseEntity.ok(new CustomerDto(
@@ -85,7 +86,7 @@ public class CustomerController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<CustomerDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateCustomerRequest request) {
+    public ResponseEntity<CustomerDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateCustomerRequest request) {
         try {
             var customer = new com.optiwms.domain.master.Customer();
             customer.setCode(request.code());
@@ -115,7 +116,7 @@ public class CustomerController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

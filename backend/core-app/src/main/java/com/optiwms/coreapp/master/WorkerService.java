@@ -3,6 +3,7 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Worker;
 import com.optiwms.infra.master.WorkerEntity;
 import com.optiwms.infra.master.WorkerRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,13 +24,13 @@ public class WorkerService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Worker findById(UUID id) {
+    public Worker findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Worker not found: " + id));
     }
 
-    public List<Worker> findByWarehouseId(UUID warehouseId) {
+    public List<Worker> findByWarehouseId(@NonNull UUID warehouseId) {
         return repository.findByWarehouseId(warehouseId).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
@@ -64,7 +65,7 @@ public class WorkerService {
     }
 
     @Transactional
-    public Worker update(UUID id, Worker worker) {
+    public Worker update(@NonNull UUID id, Worker worker) {
         WorkerEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Worker not found: " + id));
 
@@ -95,7 +96,7 @@ public class WorkerService {
     }
 
     @Transactional
-    public void delete(UUID id) {
+    public void delete(@NonNull UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Worker not found: " + id);
         }

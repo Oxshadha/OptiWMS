@@ -3,6 +3,7 @@ package com.optiwms.coreapp.inventory;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,32 +25,32 @@ public class InventoryService {
                 .collect(Collectors.toList());
     }
 
-    public InventoryItem findById(java.util.UUID id) {
+    public InventoryItem findById(@NonNull java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Inventory item not found: " + id));
     }
 
-    public List<InventoryItem> findByMaterial(java.util.UUID materialId) {
+    public List<InventoryItem> findByMaterial(@NonNull java.util.UUID materialId) {
         return repository.findByMaterialId(materialId).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
 
-    public List<InventoryItem> findByWarehouse(java.util.UUID warehouseId) {
+    public List<InventoryItem> findByWarehouse(@NonNull java.util.UUID warehouseId) {
         return repository.findByWarehouseId(warehouseId).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
 
-    public List<InventoryItem> findByMaterialAndWarehouse(java.util.UUID materialId, java.util.UUID warehouseId) {
+    public List<InventoryItem> findByMaterialAndWarehouse(@NonNull java.util.UUID materialId, @NonNull java.util.UUID warehouseId) {
         return repository.findByMaterialIdAndWarehouseId(materialId, warehouseId).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
 
     @Transactional
-    public InventoryItem update(java.util.UUID id, InventoryItem item) {
+    public InventoryItem update(@NonNull java.util.UUID id, InventoryItem item) {
         InventoryItemEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Inventory item not found: " + id));
 

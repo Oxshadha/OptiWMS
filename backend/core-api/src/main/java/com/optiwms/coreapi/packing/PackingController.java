@@ -2,6 +2,7 @@ package com.optiwms.coreapi.packing;
 
 import com.optiwms.coreapp.packing.PackingService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -46,7 +47,7 @@ public class PackingController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PackingDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<PackingDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var packing = service.findById(id);
             return ResponseEntity.ok(new PackingDto(
@@ -156,7 +157,7 @@ public class PackingController {
     }
 
     @PostMapping("/{id}/complete")
-    public ResponseEntity<PackingDto> complete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<PackingDto> complete(@PathVariable @NonNull java.util.UUID id) {
         try {
             var packing = service.complete(id);
             return ResponseEntity.ok(new PackingDto(

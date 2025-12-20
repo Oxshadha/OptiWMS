@@ -2,6 +2,7 @@ package com.optiwms.coreapi.shipments;
 
 import com.optiwms.coreapp.shipments.ShipmentService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -40,7 +41,7 @@ public class ShipmentController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ShipmentDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<ShipmentDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var shipment = service.findById(id);
             return ResponseEntity.ok(new ShipmentDto(
@@ -103,7 +104,7 @@ public class ShipmentController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ShipmentDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateShipmentRequest request) {
+    public ResponseEntity<ShipmentDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateShipmentRequest request) {
         try {
             var shipment = new com.optiwms.domain.shipments.Shipment();
             shipment.setCarrier(request.carrier());
@@ -139,7 +140,7 @@ public class ShipmentController {
     }
 
     @PostMapping("/{id}/process")
-    public ResponseEntity<ShipmentDto> process(@PathVariable java.util.UUID id) {
+    public ResponseEntity<ShipmentDto> process(@PathVariable @NonNull java.util.UUID id) {
         try {
             var shipment = service.process(id);
             return ResponseEntity.ok(new ShipmentDto(
@@ -164,7 +165,7 @@ public class ShipmentController {
     }
 
     @PostMapping("/{id}/track")
-    public ResponseEntity<ShipmentDto> track(@PathVariable java.util.UUID id, @RequestBody TrackShipmentRequest request) {
+    public ResponseEntity<ShipmentDto> track(@PathVariable @NonNull java.util.UUID id, @RequestBody TrackShipmentRequest request) {
         try {
             var shipment = service.track(id, request.trackingNumber());
             return ResponseEntity.ok(new ShipmentDto(

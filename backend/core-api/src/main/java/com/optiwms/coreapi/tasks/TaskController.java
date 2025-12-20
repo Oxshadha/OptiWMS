@@ -2,9 +2,11 @@ package com.optiwms.coreapi.tasks;
 
 import com.optiwms.coreapp.tasks.TaskService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/tasks")
@@ -39,7 +41,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<TaskDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<TaskDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var task = service.findById(id);
             return ResponseEntity.ok(new TaskDto(
@@ -100,7 +102,7 @@ public class TaskController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<TaskDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateTaskRequest request) {
+    public ResponseEntity<TaskDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateTaskRequest request) {
         try {
             var task = new com.optiwms.domain.tasks.Task();
             task.setTaskNumber(request.taskNumber());
@@ -137,9 +139,10 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/assign")
-    public ResponseEntity<TaskDto> assign(@PathVariable java.util.UUID id, @RequestBody AssignTaskRequest request) {
+    public ResponseEntity<TaskDto> assign(@PathVariable @NonNull java.util.UUID id, @RequestBody AssignTaskRequest request) {
         try {
-            var task = service.assign(id, request.assignedTo());
+            var assignedTo = Objects.requireNonNull(request.assignedTo(), "assignedTo cannot be null");
+            var task = service.assign(id, assignedTo);
             return ResponseEntity.ok(new TaskDto(
                     task.getId(),
                     task.getTaskNumber(),
@@ -161,7 +164,7 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/complete")
-    public ResponseEntity<TaskDto> complete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<TaskDto> complete(@PathVariable @NonNull java.util.UUID id) {
         try {
             var task = service.complete(id);
             return ResponseEntity.ok(new TaskDto(
@@ -185,7 +188,7 @@ public class TaskController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

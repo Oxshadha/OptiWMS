@@ -3,6 +3,7 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Customer;
 import com.optiwms.infra.master.CustomerEntity;
 import com.optiwms.infra.master.CustomerRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,7 @@ public class CustomerService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Customer findById(UUID id) {
+    public Customer findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Customer not found: " + id));
@@ -50,7 +51,7 @@ public class CustomerService {
     }
 
     @Transactional
-    public Customer update(UUID id, Customer customer) {
+    public Customer update(@NonNull UUID id, Customer customer) {
         CustomerEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Customer not found: " + id));
 
@@ -74,7 +75,7 @@ public class CustomerService {
     }
 
     @Transactional
-    public void delete(UUID id) {
+    public void delete(@NonNull UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Customer not found: " + id);
         }

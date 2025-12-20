@@ -7,7 +7,6 @@ import com.optiwms.domain.tasks.Task;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -35,9 +34,9 @@ public class PutawayService {
         }
 
         // Update inventory location
-        List<InventoryItem> inventory = inventoryService.findByWarehouse(task.getWarehouseId());
-        // In a real scenario, we'd match by LPN or reference
-        // For now, we'll update based on task reference
+        // In a real scenario, we'd match by LPN or reference and update location
+        // For now, we'll just complete the task
+        // TODO: Implement actual inventory location update based on LPN
         
         taskService.updateStatus(taskId, "completed");
 

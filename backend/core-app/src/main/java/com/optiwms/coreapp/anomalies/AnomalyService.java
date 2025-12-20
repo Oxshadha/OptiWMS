@@ -3,6 +3,7 @@ package com.optiwms.coreapp.anomalies;
 import com.optiwms.domain.anomalies.Anomaly;
 import com.optiwms.infra.anomalies.AnomalyEntity;
 import com.optiwms.infra.anomalies.AnomalyRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,7 @@ public class AnomalyService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Anomaly findById(UUID id) {
+    public Anomaly findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Anomaly not found: " + id));
@@ -35,7 +36,7 @@ public class AnomalyService {
     }
 
     @Transactional
-    public Anomaly resolve(UUID id, UUID resolvedBy, String resolution) {
+    public Anomaly resolve(@NonNull UUID id, @NonNull UUID resolvedBy, String resolution) {
         AnomalyEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Anomaly not found: " + id));
         entity.setStatus("resolved");

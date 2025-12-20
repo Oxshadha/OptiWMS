@@ -3,6 +3,7 @@ package com.optiwms.coreapp.tasks;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.tasks.TaskEntity;
 import com.optiwms.infra.tasks.TaskRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,11 +33,11 @@ public class TaskService {
         return repository.findByStatus(status).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public List<Task> findByAssignedTo(UUID assignedTo) {
+    public List<Task> findByAssignedTo(@NonNull UUID assignedTo) {
         return repository.findByAssignedTo(assignedTo).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Task findById(UUID id) {
+    public Task findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
@@ -62,7 +63,7 @@ public class TaskService {
     }
 
     @Transactional
-    public Task update(UUID id, Task task) {
+    public Task update(@NonNull UUID id, Task task) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
 
@@ -90,7 +91,7 @@ public class TaskService {
     }
 
     @Transactional
-    public Task assign(UUID id, UUID assignedTo) {
+    public Task assign(@NonNull UUID id, @NonNull UUID assignedTo) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setAssignedTo(assignedTo);
@@ -100,7 +101,7 @@ public class TaskService {
     }
 
     @Transactional
-    public Task complete(UUID id) {
+    public Task complete(@NonNull UUID id) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setStatus("completed");
@@ -110,7 +111,7 @@ public class TaskService {
     }
 
     @Transactional
-    public Task updateStatus(UUID id, String status) {
+    public Task updateStatus(@NonNull UUID id, String status) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setStatus(status);
@@ -122,7 +123,7 @@ public class TaskService {
     }
 
     @Transactional
-    public void delete(UUID id) {
+    public void delete(@NonNull UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Task not found: " + id);
         }

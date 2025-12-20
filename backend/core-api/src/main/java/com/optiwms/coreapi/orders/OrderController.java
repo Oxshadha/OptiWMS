@@ -2,6 +2,7 @@ package com.optiwms.coreapi.orders;
 
 import com.optiwms.coreapp.orders.OrderService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -38,7 +39,7 @@ public class OrderController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<OrderDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var order = service.findById(id);
             return ResponseEntity.ok(new OrderDto(
@@ -139,7 +140,7 @@ public class OrderController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<OrderDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateOrderRequest request) {
+    public ResponseEntity<OrderDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateOrderRequest request) {
         try {
             var order = new com.optiwms.domain.orders.Order();
             order.setOrderNumber(request.orderNumber());
@@ -175,7 +176,7 @@ public class OrderController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

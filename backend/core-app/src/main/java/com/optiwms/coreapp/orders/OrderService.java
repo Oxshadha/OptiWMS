@@ -3,6 +3,7 @@ package com.optiwms.coreapp.orders;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderEntity;
 import com.optiwms.infra.orders.OrderRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,7 +37,7 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
-    public Order findById(java.util.UUID id) {
+    public Order findById(@NonNull java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
@@ -72,7 +73,7 @@ public class OrderService {
     }
 
     @Transactional
-    public Order update(java.util.UUID id, Order order) {
+    public Order update(@NonNull java.util.UUID id, Order order) {
         OrderEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
 
@@ -100,7 +101,7 @@ public class OrderService {
     }
 
     @Transactional
-    public Order updateStatus(java.util.UUID id, String status) {
+    public Order updateStatus(@NonNull java.util.UUID id, String status) {
         OrderEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
         entity.setStatus(status);
@@ -109,7 +110,7 @@ public class OrderService {
     }
 
     @Transactional
-    public void delete(java.util.UUID id) {
+    public void delete(@NonNull java.util.UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Order not found: " + id);
         }

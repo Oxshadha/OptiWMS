@@ -3,6 +3,7 @@ package com.optiwms.coreapp.packing;
 import com.optiwms.domain.packing.PackingRecord;
 import com.optiwms.infra.packing.PackingRecordEntity;
 import com.optiwms.infra.packing.PackingRecordRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,13 +25,13 @@ public class PackingService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public PackingRecord findById(UUID id) {
+    public PackingRecord findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
     }
 
-    public List<PackingRecord> findByOrderId(UUID orderId) {
+    public List<PackingRecord> findByOrderId(@NonNull UUID orderId) {
         return repository.findByOrderId(orderId).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
@@ -65,7 +66,7 @@ public class PackingService {
     }
 
     @Transactional
-    public PackingRecord complete(UUID id) {
+    public PackingRecord complete(@NonNull UUID id) {
         PackingRecordEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
         entity.setStatus("completed");

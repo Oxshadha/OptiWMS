@@ -3,6 +3,7 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Warehouse;
 import com.optiwms.infra.master.WarehouseEntity;
 import com.optiwms.infra.master.WarehouseRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +23,7 @@ public class WarehouseService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Warehouse findById(java.util.UUID id) {
+    public Warehouse findById(@NonNull java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Warehouse not found: " + id));
@@ -50,7 +51,7 @@ public class WarehouseService {
     }
 
     @Transactional
-    public Warehouse update(java.util.UUID id, Warehouse warehouse) {
+    public Warehouse update(@NonNull java.util.UUID id, Warehouse warehouse) {
         WarehouseEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Warehouse not found: " + id));
 
@@ -76,7 +77,7 @@ public class WarehouseService {
     }
 
     @Transactional
-    public void delete(java.util.UUID id) {
+    public void delete(@NonNull java.util.UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Warehouse not found: " + id);
         }

@@ -2,6 +2,7 @@ package com.optiwms.infra.events;
 
 import com.optiwms.domain.events.DomainEventPublisher;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,7 +15,7 @@ public class SpringDomainEventPublisher implements DomainEventPublisher {
     }
 
     @Override
-    public void publish(Object event) {
+    public void publish(@NonNull Object event) {
         delegate.publishEvent(event);
     }
 }

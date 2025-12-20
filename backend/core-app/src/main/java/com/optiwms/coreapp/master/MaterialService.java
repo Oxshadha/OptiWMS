@@ -3,6 +3,7 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Material;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,7 @@ public class MaterialService {
                 .collect(Collectors.toList());
     }
 
-    public Material findById(java.util.UUID id) {
+    public Material findById(@NonNull java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Material not found: " + id));
@@ -45,7 +46,7 @@ public class MaterialService {
     }
 
     @Transactional
-    public Material update(java.util.UUID id, Material material) {
+    public Material update(@NonNull java.util.UUID id, Material material) {
         MaterialEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Material not found: " + id));
 
@@ -66,7 +67,7 @@ public class MaterialService {
     }
 
     @Transactional
-    public void delete(java.util.UUID id) {
+    public void delete(@NonNull java.util.UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Material not found: " + id);
         }
