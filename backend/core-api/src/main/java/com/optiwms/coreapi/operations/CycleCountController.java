@@ -2,6 +2,7 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.CycleCountService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -28,7 +29,7 @@ public class CycleCountController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<CycleCountDto> getById(@PathVariable UUID id) {
+    public ResponseEntity<CycleCountDto> getById(@PathVariable @NonNull UUID id) {
         try {
             CycleCountService.CycleCount count = service.findById(id);
             return ResponseEntity.ok(toDto(count));
@@ -39,14 +40,16 @@ public class CycleCountController {
 
     @PostMapping("/{id}/record")
     public ResponseEntity<CycleCountResultDto> recordCount(
-            @PathVariable UUID id,
+            @PathVariable @NonNull UUID id,
             @RequestBody RecordCountRequest request) {
         try {
+            var materialId = UUID.fromString(request.materialId());
+            var countedBy = UUID.fromString(request.countedBy());
             var result = service.recordCount(
                     id,
-                    UUID.fromString(request.materialId()),
+                    materialId,
                     new BigDecimal(request.countedQuantity()),
-                    UUID.fromString(request.countedBy())
+                    countedBy
             );
             return ResponseEntity.ok(new CycleCountResultDto(
                     result.success(),

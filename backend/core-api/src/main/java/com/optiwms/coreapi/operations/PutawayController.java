@@ -2,6 +2,7 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.PutawayService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -18,7 +19,7 @@ public class PutawayController {
 
     @PostMapping("/complete/{taskId}")
     public ResponseEntity<PutawayResponse> completePutaway(
-            @PathVariable UUID taskId,
+            @PathVariable @NonNull UUID taskId,
             @RequestBody CompletePutawayRequest request) {
         try {
             var result = putawayService.completePutaway(taskId, request.locationCode(), request.lpn());

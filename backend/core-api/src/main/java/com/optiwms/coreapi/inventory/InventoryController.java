@@ -2,6 +2,7 @@ package com.optiwms.coreapi.inventory;
 
 import com.optiwms.coreapp.inventory.InventoryService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -57,7 +58,7 @@ public class InventoryController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<InventoryItemDto> getById(@PathVariable UUID id) {
+    public ResponseEntity<InventoryItemDto> getById(@PathVariable @NonNull UUID id) {
         try {
             var item = inventoryService.findById(id);
             return ResponseEntity.ok(new InventoryItemDto(
@@ -83,7 +84,7 @@ public class InventoryController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<InventoryItemDto> update(@PathVariable UUID id, @RequestBody UpdateInventoryRequest request) {
+    public ResponseEntity<InventoryItemDto> update(@PathVariable @NonNull UUID id, @RequestBody UpdateInventoryRequest request) {
         try {
             var item = new com.optiwms.domain.inventory.InventoryItem();
             item.setLocationCode(request.locationCode());

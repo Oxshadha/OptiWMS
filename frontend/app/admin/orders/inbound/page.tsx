@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { ordersApi, Order } from "@/lib/api/orders";
 
-// Mock data - will be replaced with API calls
-const inboundOrders = [
+// Extended order interface for display
+interface OrderDisplay extends Order {
+  supplierName?: string;
+  warehouseName?: string;
+  totalItems?: number;
+  receivedItems?: number;
+}
   {
     id: "IO-1001",
     orderNumber: "PO-452368",
@@ -66,18 +72,65 @@ const statusConfig = {
 };
 
 export default function InboundOrdersPage() {
+  const [inboundOrders, setInboundOrders] = useState<OrderDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<typeof inboundOrders[0] | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<OrderDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Load inbound orders from API
+  useEffect(() => {
+    loadInboundOrders();
+  }, []);
+
+  const loadInboundOrders = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await ordersApi.getInbound();
+      // Map API data to display format
+      const displayData: OrderDisplay[] = data.map(o => ({
+        ...o,
+        supplierName: "Supplier", // TODO: Fetch supplier name from suppliers API
+        warehouseName: "Warehouse", // TODO: Fetch warehouse name from warehouses API
+        totalItems: 0, // TODO: Calculate from order items
+        receivedItems: 0, // TODO: Calculate from received items
+      }));
+      setInboundOrders(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load inbound orders");
+      console.error("Error loading inbound orders:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading orders: {error}</span>
+        <button className="btn btn-sm" onClick={loadInboundOrders}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalOrders: 145,
-    inTransit: 23,
-    receiving: 8,
-    completedThisMonth: 98,
+    totalOrders: inboundOrders.length,
+    inTransit: inboundOrders.filter(o => o.status === "in_transit" || o.status === "in-transit").length,
+    receiving: inboundOrders.filter(o => o.status === "receiving").length,
+    completedThisMonth: inboundOrders.filter(o => o.status === "completed").length,
   };
 
   const filteredOrders = inboundOrders.filter((order) => {

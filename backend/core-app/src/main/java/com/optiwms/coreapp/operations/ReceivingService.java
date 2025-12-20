@@ -61,7 +61,10 @@ public class ReceivingService {
             orderItemRepository.save(orderItem);
 
             // Update inventory
-            updateInventory(order.getWarehouseId(), receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            var warehouseId = order.getWarehouseId();
+            if (warehouseId != null) {
+                updateInventory(warehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            }
         }
 
         // Update order status

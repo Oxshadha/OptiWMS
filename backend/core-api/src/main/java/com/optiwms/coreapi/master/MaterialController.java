@@ -3,6 +3,7 @@ package com.optiwms.coreapi.master;
 import com.optiwms.coreapp.imports.CsvImportService;
 import com.optiwms.coreapp.master.MaterialService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,7 +30,7 @@ public class MaterialController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<MaterialDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<MaterialDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var material = materialService.findById(id);
             return ResponseEntity.ok(new MaterialDto(
@@ -67,7 +68,7 @@ public class MaterialController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<MaterialDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateMaterialRequest request) {
+    public ResponseEntity<MaterialDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateMaterialRequest request) {
         try {
             var material = new com.optiwms.domain.master.Material();
             material.setMaterialCode(request.materialCode());
@@ -89,7 +90,7 @@ public class MaterialController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             materialService.delete(id);
             return ResponseEntity.noContent().build();

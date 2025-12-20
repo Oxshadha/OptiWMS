@@ -1,51 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { customersApi, Customer } from "@/lib/api/customers";
 
-const customers = [
-  { 
-    id: "CUST-001",
-    name: "Acme Corp", 
-    contact: "alice@acme.com", 
-    phone: "+1 234-567-8900",
-    orders: 42, 
-    totalSpent: "$45,230",
-    status: "Active",
-    joinDate: "2023-01-15"
-  },
-  { 
-    id: "CUST-002",
-    name: "Bright Retail", 
-    contact: "ops@bright.com",
-    phone: "+1 234-567-8901",
-    orders: 18, 
-    totalSpent: "$18,500",
-    status: "Active",
-    joinDate: "2023-03-22"
-  },
-  { 
-    id: "CUST-003",
-    name: "Delta Mart", 
-    contact: "supply@delta.com",
-    phone: "+1 234-567-8902",
-    orders: 9, 
-    totalSpent: "$9,200",
-    status: "On Hold",
-    joinDate: "2023-06-10"
-  },
-  { 
-    id: "CUST-004",
-    name: "Echo Stores", 
-    contact: "contact@echo.com",
-    phone: "+1 234-567-8903",
-    orders: 25, 
-    totalSpent: "$32,100",
-    status: "Active",
-    joinDate: "2023-02-08"
-  },
-];
+// Extended customer interface for display (includes computed fields)
+interface CustomerDisplay extends Customer {
+  orders?: number;
+  totalSpent?: string;
+  joinDate?: string;
+}
 
 const statusClass = (s: string) => {
   if (s === "Active") return "badge-success";
@@ -54,6 +19,9 @@ const statusClass = (s: string) => {
 };
 
 export default function CustomersPage() {
+  const [customers, setCustomers] = useState<CustomerDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -62,21 +30,47 @@ export default function CustomersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | "totalSpent" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedCustomer, setSelectedCustomer] = useState<typeof customers[0] | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDisplay | null>(null);
+
+  // Load customers from API
+  useEffect(() => {
+    loadCustomers();
+  }, []);
+
+  const loadCustomers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await customersApi.getAll();
+      // Map API data to display format
+      const displayData: CustomerDisplay[] = data.map(c => ({
+        ...c,
+        orders: 0, // TODO: Calculate from orders API
+        totalSpent: "$0", // TODO: Calculate from orders API
+        joinDate: new Date().toISOString().split('T')[0], // Use created date if available
+      }));
+      setCustomers(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load customers");
+      console.error("Error loading customers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   let filteredCustomers = customers.filter(c => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       c.name.toLowerCase().includes(query) ||
-      c.contact.toLowerCase().includes(query) ||
-      c.id.toLowerCase().includes(query) ||
-      c.phone.toLowerCase().includes(query) ||
-      c.status.toLowerCase().includes(query) ||
-      c.orders.toString().includes(query) ||
-      c.totalSpent.toLowerCase().includes(query) ||
-      c.joinDate.toLowerCase().includes(query)
+      (c.email && c.email.toLowerCase().includes(query)) ||
+      (c.code && c.code.toLowerCase().includes(query)) ||
+      (c.phone && c.phone.toLowerCase().includes(query)) ||
+      (c.status && c.status.toLowerCase().includes(query)) ||
+      (c.orders && c.orders.toString().includes(query)) ||
+      (c.totalSpent && c.totalSpent.toLowerCase().includes(query)) ||
+      (c.joinDate && c.joinDate.toLowerCase().includes(query))
     );
-    const matchesStatus = statusFilter === "all" || c.status.toLowerCase() === statusFilter.toLowerCase();
+    const matchesStatus = statusFilter === "all" || (c.status && c.status.toLowerCase() === statusFilter.toLowerCase());
     return matchesSearch && matchesStatus;
   });
 
@@ -86,14 +80,14 @@ export default function CustomersPage() {
       let aVal: any = a[sortBy];
       let bVal: any = b[sortBy];
       if (sortBy === "orders") {
-        aVal = Number(aVal);
-        bVal = Number(bVal);
+        aVal = Number(aVal || 0);
+        bVal = Number(bVal || 0);
       } else if (sortBy === "totalSpent") {
-        aVal = parseFloat(aVal.replace(/[^0-9.]/g, ''));
-        bVal = parseFloat(bVal.replace(/[^0-9.]/g, ''));
+        aVal = parseFloat((aVal || "$0").replace(/[^0-9.]/g, ''));
+        bVal = parseFloat((bVal || "$0").replace(/[^0-9.]/g, ''));
       } else {
-        aVal = String(aVal).toLowerCase();
-        bVal = String(bVal).toLowerCase();
+        aVal = String(aVal || "").toLowerCase();
+        bVal = String(bVal || "").toLowerCase();
       }
       if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
       if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
@@ -102,12 +96,29 @@ export default function CustomersPage() {
   }
 
   const totalCustomers = customers.length;
-  const activeCustomers = customers.filter(c => c.status === "Active").length;
-  const totalOrders = customers.reduce((sum, c) => sum + c.orders, 0);
+  const activeCustomers = customers.filter(c => c.status === "active" || c.status === "Active").length;
+  const totalOrders = customers.reduce((sum, c) => sum + (c.orders || 0), 0);
   const totalRevenue = customers.reduce((sum, c) => {
-    const amount = parseFloat(c.totalSpent.replace(/[^0-9.]/g, ''));
+    const amount = parseFloat((c.totalSpent || "$0").replace(/[^0-9.]/g, ''));
     return sum + amount;
   }, 0);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading customers: {error}</span>
+        <button className="btn btn-sm" onClick={loadCustomers}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -261,14 +272,14 @@ export default function CustomersPage() {
             <tbody>
               {filteredCustomers.map((c) => (
                 <tr key={c.id} className="hover:bg-base-200/50">
-                  <td className="font-semibold text-primary">{c.id}</td>
+                  <td className="font-semibold text-primary">{c.code || c.id}</td>
                   <td className="font-medium">{c.name}</td>
-                  <td className="text-base-content/70">{c.contact}</td>
-                  <td className="text-base-content/70">{c.phone}</td>
-                  <td>{c.orders}</td>
-                  <td className="font-semibold">{c.totalSpent}</td>
+                  <td className="text-base-content/70">{c.email || "-"}</td>
+                  <td className="text-base-content/70">{c.phone || "-"}</td>
+                  <td>{c.orders || 0}</td>
+                  <td className="font-semibold">{c.totalSpent || "$0"}</td>
                   <td>
-                    <span className={`badge ${statusClass(c.status)}`}>{c.status}</span>
+                    <span className={`badge ${statusClass(c.status || "Active")}`}>{c.status || "Active"}</span>
                   </td>
                   <td>
                     <div className="flex gap-2">
@@ -350,18 +361,28 @@ function AddCustomerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () =>
     status: "Active",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to add customer
-    console.log("Adding customer:", formData);
-    alert("Customer added successfully!");
-    onClose();
-    setFormData({
-      name: "",
-      contact: "",
-      phone: "",
-      status: "Active",
-    });
+    try {
+      await customersApi.create({
+        name: formData.name,
+        email: formData.contact,
+        phone: formData.phone,
+        status: formData.status.toLowerCase(),
+      });
+      alert("Customer added successfully!");
+      onClose();
+      setFormData({
+        name: "",
+        contact: "",
+        phone: "",
+        status: "Active",
+      });
+      // Reload customers list
+      window.location.reload();
+    } catch (err) {
+      alert(`Failed to add customer: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
   };
 
   return (
@@ -437,7 +458,7 @@ function CustomerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: typeof customers[0];
+  customer: CustomerDisplay;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Customer: ${customer.name}`} size="lg">
@@ -445,33 +466,37 @@ function CustomerDetailModal({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm text-base-content/60">Customer ID</label>
-            <p className="font-semibold">{customer.id}</p>
+            <p className="font-semibold">{customer.code || customer.id}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusClass(customer.status)}`}>{customer.status}</span>
+              <span className={`badge ${statusClass(customer.status || "Active")}`}>{customer.status || "Active"}</span>
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Contact Email</label>
-            <p className="font-semibold">{customer.contact}</p>
+            <p className="font-semibold">{customer.email || "-"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Phone</label>
-            <p className="font-semibold">{customer.phone}</p>
+            <p className="font-semibold">{customer.phone || "-"}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Address</label>
+            <p className="font-semibold">{customer.address || "-"}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">City</label>
+            <p className="font-semibold">{customer.city || "-"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Total Orders</label>
-            <p className="font-semibold">{customer.orders}</p>
+            <p className="font-semibold">{customer.orders || 0}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Total Spent</label>
-            <p className="font-semibold">{customer.totalSpent}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Join Date</label>
-            <p className="font-semibold">{customer.joinDate}</p>
+            <p className="font-semibold">{customer.totalSpent || "$0"}</p>
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4">
@@ -495,20 +520,31 @@ function CustomerEditModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: typeof customers[0];
+  customer: CustomerDisplay;
 }) {
   const [formData, setFormData] = useState({
     name: customer.name,
-    contact: customer.contact,
-    phone: customer.phone,
-    status: customer.status,
+    contact: customer.email || "",
+    phone: customer.phone || "",
+    status: customer.status || "Active",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update customer
-    console.log("Updating customer:", formData);
-    onClose();
+    try {
+      await customersApi.update(customer.id, {
+        name: formData.name,
+        email: formData.contact,
+        phone: formData.phone,
+        status: formData.status.toLowerCase(),
+      });
+      alert("Customer updated successfully!");
+      onClose();
+      // Reload customers list
+      window.location.reload();
+    } catch (err) {
+      alert(`Failed to update customer: ${err instanceof Error ? err.message : "Unknown error"}`);
+    }
   };
 
   return (

@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import clsx from "clsx";
+import { ordersApi, Order } from "@/lib/api/orders";
 
-// Mock data - will be replaced with API calls
-const outboundOrders = [
+// Extended order interface for display
+interface OrderDisplay extends Order {
+  customerName?: string;
+  warehouseName?: string;
+  totalItems?: number;
+  pickedItems?: number;
+}
   {
     id: "OO-1001",
     orderNumber: "#56281",
@@ -90,16 +96,66 @@ const priorityConfig = {
 };
 
 export default function OutboundOrdersPage() {
+  const [outboundOrders, setOutboundOrders] = useState<OrderDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<OrderDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
 
+  // Load outbound orders from API
+  useEffect(() => {
+    loadOutboundOrders();
+  }, []);
+
+  const loadOutboundOrders = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await ordersApi.getOutbound();
+      // Map API data to display format
+      const displayData: OrderDisplay[] = data.map(o => ({
+        ...o,
+        customerName: "Customer", // TODO: Fetch customer name from customers API
+        warehouseName: "Warehouse", // TODO: Fetch warehouse name from warehouses API
+        totalItems: 0, // TODO: Calculate from order items
+        pickedItems: 0, // TODO: Calculate from picked items
+      }));
+      setOutboundOrders(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load outbound orders");
+      console.error("Error loading outbound orders:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading orders: {error}</span>
+        <button className="btn btn-sm" onClick={loadOutboundOrders}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalOrders: 245,
-    pendingPicking: 18,
-    readyToShip: 12,
-    shippedToday: 35,
+    totalOrders: outboundOrders.length,
+    pendingPicking: outboundOrders.filter(o => o.status === "pending" || o.status === "picking").length,
+    readyToShip: outboundOrders.filter(o => o.status === "ready_to_ship" || o.status === "readyToShip").length,
+    shippedToday: outboundOrders.filter(o => o.status === "shipped").length,
   };
 
   const filteredOrders = outboundOrders.filter((order) => {

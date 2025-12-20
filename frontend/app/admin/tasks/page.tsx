@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { tasksApi, Task } from "@/lib/api/tasks";
 
-// Mock data - will be replaced with API calls
-const tasks = [
+// Extended task interface for display
+interface TaskDisplay extends Task {
+  workerName?: string;
+  warehouseName?: string;
+  assignedDate?: string;
+  duration?: number;
+}
   {
     id: "task-1",
     taskNumber: "TASK-452368",
@@ -91,12 +97,61 @@ const priorityConfig = {
 };
 
 export default function TasksPage() {
+  const [tasks, setTasks] = useState<TaskDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<typeof tasks[0] | null>(null);
+  const [selectedTask, setSelectedTask] = useState<TaskDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load tasks from API
+  useEffect(() => {
+    loadTasks();
+  }, []);
+
+  const loadTasks = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await tasksApi.getAll();
+      // Map API data to display format
+      const displayData: TaskDisplay[] = data.map(t => ({
+        ...t,
+        workerName: "Worker", // TODO: Fetch worker name from workers API
+        warehouseName: "Warehouse", // TODO: Fetch warehouse name from warehouses API
+        assignedDate: t.dueDate || new Date().toISOString(),
+        duration: t.completedAt && t.dueDate 
+          ? Math.floor((new Date(t.completedAt).getTime() - new Date(t.dueDate).getTime()) / 60000)
+          : null,
+      }));
+      setTasks(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tasks");
+      console.error("Error loading tasks:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading tasks: {error}</span>
+        <button className="btn btn-sm" onClick={loadTasks}>Retry</button>
+      </div>
+    );
+  }
 
   const summary = {
     totalTasksToday: 45,
