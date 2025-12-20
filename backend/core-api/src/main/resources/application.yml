@@ -9,7 +9,9 @@ spring:
   application:
     name: optiwms-core
   datasource:
-    url: jdbc:postgresql://localhost:5434/optiwms
+    url: jdbc:postgresql://127.0.0.1:5435/optiwms?connectTimeout=30&socketTimeout=30
+    #url: jdbc:postgresql://127.0.0.1:5434/optiwms
+    #url: jdbc:postgresql://localhost:5434/optiwms
     username: optiwms
     password: optiwms
   jpa:
