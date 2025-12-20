@@ -42,11 +42,10 @@ public class PickingService {
             throw new RuntimeException("Task is not a picking task");
         }
 
-        if (task.getReferenceId() == null) {
+        var referenceId = task.getReferenceId();
+        if (referenceId == null) {
             throw new RuntimeException("Task has no associated order");
         }
-
-        var referenceId = task.getReferenceId();
         Order order = orderService.findById(referenceId);
         List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(order.getId());
 
@@ -64,8 +63,9 @@ public class PickingService {
 
             // Update inventory (reduce available quantity)
             var warehouseId = order.getWarehouseId();
-            if (warehouseId != null) {
-                updateInventory(warehouseId, pickedItem.materialId(), pickedItem.quantity(), pickedItem.locationCode());
+            var materialId = pickedItem.materialId();
+            if (warehouseId != null && materialId != null) {
+                updateInventory(warehouseId, materialId, pickedItem.quantity(), pickedItem.locationCode());
             }
         }
 
