@@ -58,12 +58,28 @@ public class DeliveryPartnerController {
     }
 
     @GetMapping("/{id}/shipments")
-    public ResponseEntity<List<Object>> getShipments(@PathVariable @NonNull java.util.UUID id) {
+    public ResponseEntity<List<ShipmentDto>> getShipments(@PathVariable @NonNull java.util.UUID id) {
         try {
-            service.getShipments(id);
-            // Convert to DTOs - simplified for now
-            // TODO: Implement proper DTO conversion
-            return ResponseEntity.ok(List.of());
+            var shipments = service.getShipments(id);
+            var data = shipments.stream()
+                    .map(s -> new ShipmentDto(
+                            s.getId(),
+                            s.getShipmentNumber(),
+                            s.getOrderId(),
+                            s.getCarrier(),
+                            s.getTrackingNumber(),
+                            s.getDestination(),
+                            s.getWeightKg(),
+                            s.getDriverName(),
+                            s.getDriverPhone(),
+                            s.getVehicleNumber(),
+                            s.getStatus(),
+                            s.getEta(),
+                            s.getShippedAt(),
+                            s.getDeliveredAt()
+                    ))
+                    .toList();
+            return ResponseEntity.ok(data);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
@@ -188,6 +204,23 @@ public class DeliveryPartnerController {
             String country,
             String serviceType,
             String status
+    ) {}
+
+    public record ShipmentDto(
+            java.util.UUID id,
+            String shipmentNumber,
+            java.util.UUID orderId,
+            String carrier,
+            String trackingNumber,
+            String destination,
+            java.math.BigDecimal weightKg,
+            String driverName,
+            String driverPhone,
+            String vehicleNumber,
+            String status,
+            java.time.LocalDate eta,
+            java.time.LocalDateTime shippedAt,
+            java.time.LocalDateTime deliveredAt
     ) {}
 }
 
