@@ -64,7 +64,6 @@ public class PickingService {
 
             // Update inventory (reduce available quantity)
             var warehouseId = order.getWarehouseId();
-            var orderId = order.getId();
             if (warehouseId != null) {
                 updateInventory(warehouseId, pickedItem.materialId(), pickedItem.quantity(), pickedItem.locationCode());
             }
