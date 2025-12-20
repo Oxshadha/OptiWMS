@@ -2,9 +2,11 @@ package com.optiwms.coreapi.anomalies;
 
 import com.optiwms.coreapp.anomalies.AnomalyService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/anomalies")
@@ -40,7 +42,7 @@ public class AnomalyController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<AnomalyDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<AnomalyDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var anomaly = service.findById(id);
             return ResponseEntity.ok(new AnomalyDto(
@@ -65,9 +67,10 @@ public class AnomalyController {
     }
 
     @PostMapping("/{id}/resolve")
-    public ResponseEntity<AnomalyDto> resolve(@PathVariable java.util.UUID id, @RequestBody ResolveAnomalyRequest request) {
+    public ResponseEntity<AnomalyDto> resolve(@PathVariable @NonNull java.util.UUID id, @RequestBody ResolveAnomalyRequest request) {
         try {
-            var anomaly = service.resolve(id, request.resolvedBy(), request.resolution());
+            var resolvedBy = Objects.requireNonNull(request.resolvedBy(), "resolvedBy cannot be null");
+            var anomaly = service.resolve(id, resolvedBy, request.resolution());
             return ResponseEntity.ok(new AnomalyDto(
                     anomaly.getId(),
                     anomaly.getAnomalyNumber(),

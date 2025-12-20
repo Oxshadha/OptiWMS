@@ -168,8 +168,10 @@ public class CsvImportService {
         }
 
         String materialCode = parts[0].trim();
-        String unitType = parts[1].trim();
-        String description = parts[2].trim();
+        // unitType and description are parsed but not used in current implementation
+        // They are available in the CSV but material lookup is done by code only
+        // parts[1].trim(); // unitType - reserved for future use
+        // parts[2].trim(); // description - reserved for future use
 
         if (materialCode.isEmpty()) {
             return null;

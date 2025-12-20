@@ -3,6 +3,7 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Supplier;
 import com.optiwms.infra.master.SupplierEntity;
 import com.optiwms.infra.master.SupplierRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,7 @@ public class SupplierService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Supplier findById(UUID id) {
+    public Supplier findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Supplier not found: " + id));
@@ -52,7 +53,7 @@ public class SupplierService {
     }
 
     @Transactional
-    public Supplier update(UUID id, Supplier supplier) {
+    public Supplier update(@NonNull UUID id, Supplier supplier) {
         SupplierEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Supplier not found: " + id));
 
@@ -78,7 +79,7 @@ public class SupplierService {
     }
 
     @Transactional
-    public void delete(UUID id) {
+    public void delete(@NonNull UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Supplier not found: " + id);
         }

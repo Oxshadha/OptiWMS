@@ -3,6 +3,7 @@ package com.optiwms.coreapp.returns;
 import com.optiwms.domain.returns.Return;
 import com.optiwms.infra.returns.ReturnEntity;
 import com.optiwms.infra.returns.ReturnRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,7 +24,7 @@ public class ReturnService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Return findById(UUID id) {
+    public Return findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Return not found: " + id));
@@ -56,7 +57,7 @@ public class ReturnService {
     }
 
     @Transactional
-    public Return update(UUID id, Return returnObj) {
+    public Return update(@NonNull UUID id, Return returnObj) {
         ReturnEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Return not found: " + id));
 
@@ -73,7 +74,7 @@ public class ReturnService {
     }
 
     @Transactional
-    public Return process(UUID id) {
+    public Return process(@NonNull UUID id) {
         ReturnEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Return not found: " + id));
         entity.setStatus("processed");
@@ -82,7 +83,7 @@ public class ReturnService {
     }
 
     @Transactional
-    public Return inspect(UUID id, UUID inspectedBy, String resolution) {
+    public Return inspect(@NonNull UUID id, @NonNull UUID inspectedBy, String resolution) {
         ReturnEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Return not found: " + id));
         entity.setInspectedBy(inspectedBy);

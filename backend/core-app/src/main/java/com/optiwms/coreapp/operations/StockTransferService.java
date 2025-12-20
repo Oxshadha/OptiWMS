@@ -5,6 +5,7 @@ import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.operations.StockTransfer;
 import com.optiwms.infra.operations.StockTransferEntity;
 import com.optiwms.infra.operations.StockTransferRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,7 +34,7 @@ public class StockTransferService {
         return repository.findByStatus(status).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public StockTransfer findById(UUID id) {
+    public StockTransfer findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + id));
@@ -58,7 +59,7 @@ public class StockTransferService {
     }
 
     @Transactional
-    public StockTransfer dispatch(UUID id, UUID userId) {
+    public StockTransfer dispatch(@NonNull UUID id, @NonNull UUID userId) {
         StockTransferEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + id));
 
@@ -90,7 +91,7 @@ public class StockTransferService {
     }
 
     @Transactional
-    public StockTransfer receive(UUID id, UUID userId) {
+    public StockTransfer receive(@NonNull UUID id, @NonNull UUID userId) {
         StockTransferEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + id));
 

@@ -2,9 +2,11 @@ package com.optiwms.coreapi.returns;
 
 import com.optiwms.coreapp.returns.ReturnService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/returns")
@@ -37,7 +39,7 @@ public class ReturnController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ReturnDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<ReturnDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var returnObj = service.findById(id);
             return ResponseEntity.ok(new ReturnDto(
@@ -91,7 +93,7 @@ public class ReturnController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ReturnDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateReturnRequest request) {
+    public ResponseEntity<ReturnDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateReturnRequest request) {
         try {
             var returnObj = new com.optiwms.domain.returns.Return();
             returnObj.setOriginalOrderId(request.originalOrderId());
@@ -122,7 +124,7 @@ public class ReturnController {
     }
 
     @PostMapping("/{id}/process")
-    public ResponseEntity<ReturnDto> process(@PathVariable java.util.UUID id) {
+    public ResponseEntity<ReturnDto> process(@PathVariable @NonNull java.util.UUID id) {
         try {
             var returnObj = service.process(id);
             return ResponseEntity.ok(new ReturnDto(
@@ -144,9 +146,10 @@ public class ReturnController {
     }
 
     @PostMapping("/{id}/inspect")
-    public ResponseEntity<ReturnDto> inspect(@PathVariable java.util.UUID id, @RequestBody InspectReturnRequest request) {
+    public ResponseEntity<ReturnDto> inspect(@PathVariable @NonNull java.util.UUID id, @RequestBody InspectReturnRequest request) {
         try {
-            var returnObj = service.inspect(id, request.inspectedBy(), request.resolution());
+            var inspectedBy = Objects.requireNonNull(request.inspectedBy(), "inspectedBy cannot be null");
+            var returnObj = service.inspect(id, inspectedBy, request.resolution());
             return ResponseEntity.ok(new ReturnDto(
                     returnObj.getId(),
                     returnObj.getReturnNumber(),

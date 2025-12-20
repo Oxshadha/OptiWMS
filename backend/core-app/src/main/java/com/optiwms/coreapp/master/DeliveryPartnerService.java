@@ -5,6 +5,7 @@ import com.optiwms.infra.master.DeliveryPartnerEntity;
 import com.optiwms.infra.master.DeliveryPartnerRepository;
 import com.optiwms.infra.shipments.ShipmentEntity;
 import com.optiwms.infra.shipments.ShipmentRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,13 +28,13 @@ public class DeliveryPartnerService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public DeliveryPartner findById(UUID id) {
+    public DeliveryPartner findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Delivery partner not found: " + id));
     }
 
-    public List<ShipmentEntity> getShipments(UUID id) {
+    public List<ShipmentEntity> getShipments(@NonNull UUID id) {
         // Get shipments by carrier name - this is a simplified approach
         // In a real system, you'd have a carrier_id field in shipments
         DeliveryPartnerEntity partner = repository.findById(id)
@@ -65,7 +66,7 @@ public class DeliveryPartnerService {
     }
 
     @Transactional
-    public DeliveryPartner update(UUID id, DeliveryPartner partner) {
+    public DeliveryPartner update(@NonNull UUID id, DeliveryPartner partner) {
         DeliveryPartnerEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Delivery partner not found: " + id));
 
@@ -90,7 +91,7 @@ public class DeliveryPartnerService {
     }
 
     @Transactional
-    public void delete(UUID id) {
+    public void delete(@NonNull UUID id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Delivery partner not found: " + id);
         }

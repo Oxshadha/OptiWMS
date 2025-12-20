@@ -3,6 +3,7 @@ package com.optiwms.coreapp.shipments;
 import com.optiwms.domain.shipments.Shipment;
 import com.optiwms.infra.shipments.ShipmentEntity;
 import com.optiwms.infra.shipments.ShipmentRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,7 @@ public class ShipmentService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public Shipment findById(UUID id) {
+    public Shipment findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
@@ -60,7 +61,7 @@ public class ShipmentService {
     }
 
     @Transactional
-    public Shipment update(UUID id, Shipment shipment) {
+    public Shipment update(@NonNull UUID id, Shipment shipment) {
         ShipmentEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
 
@@ -79,7 +80,7 @@ public class ShipmentService {
     }
 
     @Transactional
-    public Shipment process(UUID id) {
+    public Shipment process(@NonNull UUID id) {
         ShipmentEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
         entity.setStatus("shipped");
@@ -89,7 +90,7 @@ public class ShipmentService {
     }
 
     @Transactional
-    public Shipment track(UUID id, String trackingNumber) {
+    public Shipment track(@NonNull UUID id, String trackingNumber) {
         ShipmentEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
         entity.setTrackingNumber(trackingNumber);

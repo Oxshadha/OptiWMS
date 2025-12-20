@@ -2,6 +2,7 @@ package com.optiwms.coreapi.quality;
 
 import com.optiwms.coreapp.quality.QualityCheckService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,7 +38,7 @@ public class QualityCheckController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<QualityCheckDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<QualityCheckDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var check = service.findById(id);
             return ResponseEntity.ok(new QualityCheckDto(
@@ -93,7 +94,7 @@ public class QualityCheckController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<QualityCheckDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateQualityCheckRequest request) {
+    public ResponseEntity<QualityCheckDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateQualityCheckRequest request) {
         try {
             var check = new com.optiwms.domain.quality.QualityCheck();
             check.setOrderId(request.orderId());

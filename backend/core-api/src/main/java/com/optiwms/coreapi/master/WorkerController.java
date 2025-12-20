@@ -2,6 +2,7 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.WorkerService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -39,7 +40,7 @@ public class WorkerController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<WorkerDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<WorkerDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var worker = service.findById(id);
             return ResponseEntity.ok(new WorkerDto(
@@ -101,7 +102,7 @@ public class WorkerController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<WorkerDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateWorkerRequest request) {
+    public ResponseEntity<WorkerDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateWorkerRequest request) {
         try {
             var worker = new com.optiwms.domain.master.Worker();
             worker.setUsername(request.username());
@@ -139,7 +140,7 @@ public class WorkerController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

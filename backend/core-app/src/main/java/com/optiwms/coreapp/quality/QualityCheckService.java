@@ -3,6 +3,7 @@ package com.optiwms.coreapp.quality;
 import com.optiwms.domain.quality.QualityCheck;
 import com.optiwms.infra.quality.QualityCheckEntity;
 import com.optiwms.infra.quality.QualityCheckRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,7 +25,7 @@ public class QualityCheckService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public QualityCheck findById(UUID id) {
+    public QualityCheck findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
@@ -55,7 +56,7 @@ public class QualityCheckService {
     }
 
     @Transactional
-    public QualityCheck update(UUID id, QualityCheck check) {
+    public QualityCheck update(@NonNull UUID id, QualityCheck check) {
         QualityCheckEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
 

@@ -4,6 +4,7 @@ import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.infra.cyclecount.CycleCountEntity;
 import com.optiwms.infra.cyclecount.CycleCountRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +33,7 @@ public class CycleCountService {
         return repository.findByStatus(status).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
-    public CycleCount findById(UUID id) {
+    public CycleCount findById(@NonNull UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
@@ -54,7 +55,7 @@ public class CycleCountService {
     }
 
     @Transactional
-    public CycleCountResult recordCount(UUID id, UUID materialId, BigDecimal countedQuantity, UUID countedBy) {
+    public CycleCountResult recordCount(@NonNull UUID id, @NonNull UUID materialId, BigDecimal countedQuantity, @NonNull UUID countedBy) {
         CycleCountEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
 
@@ -80,7 +81,7 @@ public class CycleCountService {
         entity.setCountedBy(countedBy);
         entity.setCountedAt(LocalDateTime.now());
         entity.setStatus("completed");
-        CycleCountEntity saved = repository.save(entity);
+        repository.save(entity);
 
         return new CycleCountResult(true, "Count recorded successfully", variance);
     }

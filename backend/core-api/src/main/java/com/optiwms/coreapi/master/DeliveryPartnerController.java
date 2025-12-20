@@ -2,6 +2,7 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.DeliveryPartnerService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -36,7 +37,7 @@ public class DeliveryPartnerController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<DeliveryPartnerDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<DeliveryPartnerDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var partner = service.findById(id);
             return ResponseEntity.ok(new DeliveryPartnerDto(
@@ -57,10 +58,11 @@ public class DeliveryPartnerController {
     }
 
     @GetMapping("/{id}/shipments")
-    public ResponseEntity<List<Object>> getShipments(@PathVariable java.util.UUID id) {
+    public ResponseEntity<List<Object>> getShipments(@PathVariable @NonNull java.util.UUID id) {
         try {
-            var shipments = service.getShipments(id);
+            service.getShipments(id);
             // Convert to DTOs - simplified for now
+            // TODO: Implement proper DTO conversion
             return ResponseEntity.ok(List.of());
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -68,7 +70,7 @@ public class DeliveryPartnerController {
     }
 
     @GetMapping("/{id}/metrics")
-    public ResponseEntity<Object> getMetrics(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Object> getMetrics(@PathVariable @NonNull java.util.UUID id) {
         try {
             // Placeholder for metrics
             return ResponseEntity.ok(new Object() {});
@@ -110,7 +112,7 @@ public class DeliveryPartnerController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<DeliveryPartnerDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateDeliveryPartnerRequest request) {
+    public ResponseEntity<DeliveryPartnerDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateDeliveryPartnerRequest request) {
         try {
             var partner = new com.optiwms.domain.master.DeliveryPartner();
             partner.setCode(request.code());
@@ -142,7 +144,7 @@ public class DeliveryPartnerController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

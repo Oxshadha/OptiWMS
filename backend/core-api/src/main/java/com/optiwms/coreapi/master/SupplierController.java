@@ -2,6 +2,7 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.SupplierService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,7 +38,7 @@ public class SupplierController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<SupplierDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<SupplierDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var supplier = service.findById(id);
             return ResponseEntity.ok(new SupplierDto(
@@ -93,7 +94,7 @@ public class SupplierController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<SupplierDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateSupplierRequest request) {
+    public ResponseEntity<SupplierDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateSupplierRequest request) {
         try {
             var supplier = new com.optiwms.domain.master.Supplier();
             supplier.setCode(request.code());
@@ -127,7 +128,7 @@ public class SupplierController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();
