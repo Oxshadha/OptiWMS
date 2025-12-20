@@ -58,6 +58,7 @@ export default function DeliveryPartnersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -278,12 +279,10 @@ export default function DeliveryPartnersPage() {
           <li>
             <button 
               className="text-error"
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
-                  // TODO: API call to delete partner
-                  console.log("Deleting partner:", partner.id);
-                  alert("Partner deleted successfully!");
-                }
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedPartner(partner);
+                setShowDeleteModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">delete</span>
@@ -422,6 +421,24 @@ export default function DeliveryPartnersPage() {
           isOpen={showEditModal}
           onClose={() => {
             setShowEditModal(false);
+            setSelectedPartner(null);
+          }}
+          partner={selectedPartner}
+        />
+      )}
+
+      {/* Delete Delivery Partner Modal */}
+      {selectedPartner && (
+        <DeleteDeliveryPartnerModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedPartner(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete delivery partner
+            console.log("Deleting delivery partner:", selectedPartner.id);
+            setShowDeleteModal(false);
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
@@ -1030,6 +1047,62 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// Delete Delivery Partner Modal
+function DeleteDeliveryPartnerModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  partner,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  partner: typeof deliveryPartners[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Delivery Partner" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{partner.companyName}</strong> (Partner
+              Code: {partner.partnerCode}). This will permanently remove the
+              delivery partner from the system and all associated data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Company Name:</strong> {partner.companyName}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Partner Code:</strong> {partner.partnerCode}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Type:</strong> {partner.type === "local" ? "Local" : "Foreign"}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Service Areas:</strong> {partner.serviceAreas.join(", ")}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Partner
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

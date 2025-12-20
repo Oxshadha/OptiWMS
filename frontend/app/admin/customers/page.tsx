@@ -3,6 +3,7 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
@@ -54,10 +55,12 @@ const statusClass = (s: string) => {
 export default function CustomersPage() {
   const { hasPermission } = useAdmin();
   const canCreate = hasPermission(ADMIN_ROUTES.CUSTOMERS, "create");
+  const canDelete = hasPermission(ADMIN_ROUTES.CUSTOMERS, "delete");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(
@@ -336,6 +339,20 @@ export default function CustomersPage() {
                           edit
                         </span>
                       </button>
+                      {canDelete && (
+                        <button
+                          className="btn btn-ghost btn-xs text-error"
+                          title="Delete"
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setShowDeleteModal(true);
+                          }}
+                        >
+                          <span className="material-symbols-outlined text-sm">
+                            delete
+                          </span>
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -387,6 +404,24 @@ export default function CustomersPage() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
       />
+
+      {/* Delete Customer Modal */}
+      {selectedCustomer && (
+        <DeleteCustomerModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedCustomer(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete customer
+            console.log("Deleting customer:", selectedCustomer.id);
+            setShowDeleteModal(false);
+            setSelectedCustomer(null);
+          }}
+          customer={selectedCustomer}
+        />
+      )}
     </div>
   );
 }
@@ -654,5 +689,61 @@ function CustomerEditModal({
         </div>
       </form>
     </DetailModal>
+  );
+}
+
+// Delete Customer Modal
+function DeleteCustomerModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  customer,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  customer: (typeof customers)[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Customer" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{customer.name}</strong> (Customer
+              ID: {customer.id}). This will permanently remove the customer from
+              the system and all associated data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Customer Name:</strong> {customer.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Customer ID:</strong> {customer.id}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Contact:</strong> {customer.contact}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Total Orders:</strong> {customer.orders}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Customer
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }

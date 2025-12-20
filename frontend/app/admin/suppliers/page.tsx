@@ -62,6 +62,7 @@ export default function SuppliersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<
     (typeof suppliers)[0] | null
   >(null);
@@ -299,13 +300,10 @@ export default function SuppliersPage() {
           <li>
             <button
               className="text-error"
-              onClick={() => {
-                if (
-                  confirm(`Are you sure you want to delete ${supplier.name}?`)
-                ) {
-                  // TODO: API call to delete supplier
-                  console.log("Deleting supplier:", supplier.id);
-                }
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedSupplier(supplier);
+                setShowDeleteModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">delete</span>
@@ -461,6 +459,24 @@ export default function SuppliersPage() {
           isOpen={showEditModal}
           onClose={() => {
             setShowEditModal(false);
+            setSelectedSupplier(null);
+          }}
+          supplier={selectedSupplier}
+        />
+      )}
+
+      {/* Delete Supplier Modal */}
+      {selectedSupplier && (
+        <DeleteSupplierModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedSupplier(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete supplier
+            console.log("Deleting supplier:", selectedSupplier.id);
+            setShowDeleteModal(false);
             setSelectedSupplier(null);
           }}
           supplier={selectedSupplier}
@@ -1084,6 +1100,62 @@ function CreateSupplierModal({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// Delete Supplier Modal
+function DeleteSupplierModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  supplier,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  supplier: (typeof suppliers)[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Supplier" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{supplier.name}</strong> (Supplier
+              Code: {supplier.supplierCode}). This will permanently remove the
+              supplier from the system and all associated data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Supplier Name:</strong> {supplier.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Supplier Code:</strong> {supplier.supplierCode}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Country:</strong> {supplier.country}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Products Supplied:</strong> {supplier.productsSupplied}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Supplier
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

@@ -79,6 +79,7 @@ export default function WorkersPage() {
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<
@@ -407,6 +408,24 @@ export default function WorkersPage() {
             setSelectedWorker(null);
           }}
           worker={selectedWorker}
+          onEdit={(worker) => {
+            setShowDetailModal(false);
+            setSelectedWorker(worker);
+            setShowEditModal(true);
+          }}
+          canEdit={canEdit}
+        />
+      )}
+
+      {/* Edit Worker Modal */}
+      {selectedWorker && (
+        <EditWorkerModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedWorker(null);
+          }}
+          worker={selectedWorker}
         />
       )}
 
@@ -436,10 +455,14 @@ function WorkerDetailModal({
   isOpen,
   onClose,
   worker,
+  onEdit,
+  canEdit,
 }: {
   isOpen: boolean;
   onClose: () => void;
   worker: (typeof workers)[0];
+  onEdit?: (worker: (typeof workers)[0]) => void;
+  canEdit?: boolean;
 }) {
   const [availabilityDetails, setAvailabilityDetails] = useState<{
     status: string;
@@ -565,7 +588,11 @@ function WorkerDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">Edit Worker</button>
+          {canEdit && onEdit && (
+            <button className="btn btn-primary" onClick={() => onEdit(worker)}>
+              Edit Worker
+            </button>
+          )}
         </div>
       </div>
     </DetailModal>
@@ -817,6 +844,246 @@ function CreateWorkerModal({
           </button>
           <button type="submit" className="btn btn-primary">
             Create Worker
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// Edit Worker Modal
+function EditWorkerModal({
+  isOpen,
+  onClose,
+  worker,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  worker: (typeof workers)[0];
+}) {
+  const { hasPermission, role } = useAdmin();
+  const canAssignRole =
+    role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "edit");
+
+  const [formData, setFormData] = useState({
+    firstName: worker.name.split(" ")[0] || "",
+    lastName: worker.name.split(" ").slice(1).join(" ") || "",
+    email: "",
+    phone: "",
+    workerId: worker.workerId,
+    warehouseId: worker.warehouseName,
+    shiftStart: worker.shiftStart,
+    shiftEnd: worker.shiftEnd,
+    password: "",
+    role: worker.role || ("" as WorkerRole | ""),
+    avatar: null as File | null,
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // TODO: API call to update worker
+    console.log("Updating worker:", formData);
+    onClose();
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Edit Worker" size="lg">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">First Name *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.firstName}
+              onChange={(e) =>
+                setFormData({ ...formData, firstName: e.target.value })
+              }
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Last Name *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.lastName}
+              onChange={(e) =>
+                setFormData({ ...formData, lastName: e.target.value })
+              }
+              required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Email *</span>
+            </label>
+            <input
+              type="email"
+              className="input input-bordered w-full"
+              value={formData.email}
+              onChange={(e) =>
+                setFormData({ ...formData, email: e.target.value })
+              }
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Phone</span>
+            </label>
+            <input
+              type="tel"
+              className="input input-bordered w-full"
+              value={formData.phone}
+              onChange={(e) =>
+                setFormData({ ...formData, phone: e.target.value })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Worker ID *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.workerId}
+              onChange={(e) =>
+                setFormData({ ...formData, workerId: e.target.value })
+              }
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Warehouse *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.warehouseId}
+              onChange={(e) =>
+                setFormData({ ...formData, warehouseId: e.target.value })
+              }
+              required
+            >
+              <option value="">Select warehouse</option>
+              <option value="Warehouse 1">Warehouse 1</option>
+              <option value="Warehouse 2">Warehouse 2</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Shift Start Time</span>
+            </label>
+            <input
+              type="time"
+              className="input input-bordered w-full"
+              value={formData.shiftStart}
+              onChange={(e) =>
+                setFormData({ ...formData, shiftStart: e.target.value })
+              }
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Shift End Time</span>
+            </label>
+            <input
+              type="time"
+              className="input input-bordered w-full"
+              value={formData.shiftEnd}
+              onChange={(e) =>
+                setFormData({ ...formData, shiftEnd: e.target.value })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Role</span>
+            {!canAssignRole && (
+              <span className="label-text-alt text-warning">
+                Only Admin can assign roles
+              </span>
+            )}
+          </label>
+          {canAssignRole ? (
+            <select
+              className="select select-bordered w-full"
+              value={formData.role}
+              onChange={(e) =>
+                setFormData({ ...formData, role: e.target.value as WorkerRole })
+              }
+            >
+              <option value="">No role assigned</option>
+              {getAllWorkerRoles().map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_DISPLAY_NAMES[role]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="input input-bordered w-full input-disabled"
+              value={worker.role ? getRoleDisplayName(worker.role) : "No role assigned"}
+              disabled
+              readOnly
+            />
+          )}
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">New Password</span>
+            <span className="label-text-alt">Leave blank to keep current password</span>
+          </label>
+          <input
+            type="password"
+            className="input input-bordered w-full"
+            value={formData.password}
+            onChange={(e) =>
+              setFormData({ ...formData, password: e.target.value })
+            }
+          />
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Avatar</span>
+          </label>
+          <input
+            type="file"
+            className="file-input file-input-bordered w-full"
+            accept="image/*"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) setFormData({ ...formData, avatar: file });
+            }}
+          />
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Update Worker
           </button>
         </div>
       </form>

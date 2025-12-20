@@ -42,6 +42,7 @@ export const ADMIN_ROUTES = {
   DASHBOARD_SETTINGS: '/admin/dashboard-settings',
   HELP: '/admin/help',
   SOPS: '/admin/sops',
+  NOTIFICATIONS: '/admin/notifications',
 } as const;
 
 export type AdminRoute = typeof ADMIN_ROUTES[keyof typeof ADMIN_ROUTES];
@@ -75,6 +76,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.HELP]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SOPS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
   },
   warehouse_manager: {
     // Warehouse Manager: Operational focus - day-to-day warehouse operations
@@ -102,6 +104,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']), // Limited configuration - dashboard only
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
   },
   procurement_manager: {
     // Procurement Manager: focused on suppliers, orders, and inventory management
@@ -128,6 +131,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
   },
 };
 

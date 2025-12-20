@@ -67,6 +67,7 @@ export default function ProductsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<typeof products[0] | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
@@ -239,11 +240,10 @@ export default function ProductsPage() {
           <li>
             <button 
               className="text-error"
-              onClick={() => {
-                if (confirm(`Are you sure you want to delete ${product.name}?`)) {
-                  // TODO: API call to delete product
-                  console.log("Deleting product:", product.id);
-                }
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedProduct(product);
+                setShowDeleteModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">delete</span>
@@ -390,6 +390,24 @@ export default function ProductsPage() {
       {/* Import Products Modal */}
       {showImportModal && (
         <ImportProductsModal onClose={() => setShowImportModal(false)} />
+      )}
+
+      {/* Delete Product Modal */}
+      {selectedProduct && (
+        <DeleteProductModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedProduct(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete product
+            console.log("Deleting product:", selectedProduct.id);
+            setShowDeleteModal(false);
+            setSelectedProduct(null);
+          }}
+          product={selectedProduct}
+        />
       )}
 
       {/* Listen for edit event from detail modal */}
@@ -1176,6 +1194,62 @@ function ProductDetailModal({
         </div>
       </div>
     </DetailModal>
+  );
+}
+
+// Delete Product Modal
+function DeleteProductModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  product,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  product: typeof products[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Product" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{product.name}</strong> (SKU:{" "}
+              {product.sku}). This will permanently remove the product from the
+              system and all associated inventory data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Product Name:</strong> {product.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>SKU:</strong> {product.sku}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Category:</strong> {product.category}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Total Stock:</strong> {product.totalStock}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Product
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

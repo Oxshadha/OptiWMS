@@ -87,7 +87,9 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
@@ -100,7 +102,12 @@ export default function ReturnsPage() {
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
-  const filteredReturns = returns.filter((returnItem) => {
+  // Filter returns by warehouse for warehouse managers
+  const returnsForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? returns.filter((r) => r.warehouse === assignedWarehouseName)
+    : returns;
+
+  const filteredReturns = returnsForWarehouse.filter((returnItem) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||

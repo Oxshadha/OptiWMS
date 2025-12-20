@@ -6,7 +6,11 @@ import { useState } from "react";
 import clsx from "clsx";
 import Image from "next/image";
 import { useAdmin } from "@/contexts/AdminContext";
-import { filterRoutesByRole } from "@/lib/admin-roles";
+import {
+  filterRoutesByRole,
+  canAccessRoute,
+  type AdminRole,
+} from "@/lib/admin-roles";
 
 const allNavItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
@@ -54,6 +58,86 @@ const allNavItems = [
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
 ];
 
+/**
+ * Get role-specific navigation items based on role focus areas
+ * This filters out items that are not relevant to each role's primary responsibilities
+ */
+function getRoleRelevantNavItems(
+  items: typeof allNavItems,
+  role: AdminRole | null | undefined
+) {
+  if (!role) {
+    return [];
+  }
+
+  // Admin sees everything
+  if (role === "admin") {
+    return filterRoutesByRole(items, role);
+  }
+
+  // Warehouse Manager: Focus on operational and inventory management
+  // Hide: Admins (no access), Settings (no access), Customers (not primary focus)
+  if (role === "warehouse_manager") {
+    return filterRoutesByRole(items, role).filter((item) => {
+      // Hide Admins sub-item from Staff menu
+      if (item.href === "/admin/staff" && item.subItems) {
+        item.subItems = item.subItems.filter(
+          (sub) => sub.href !== "/admin/admins"
+        );
+        // If no sub-items left, hide the parent item
+        if (item.subItems.length === 0) {
+          return false;
+        }
+      }
+      // Keep all other accessible items
+      return true;
+    });
+  }
+
+  // Procurement Manager: Focus on inbound coordination
+  // Hide: Outbound-focused items (Packing, Shipments - outbound focus), Customers (view only, not primary)
+  // Keep: Inbound Orders, Suppliers, Inventory, Products, Quality Checks (inbound), Returns (to supplier), Tasks (receiving)
+  if (role === "procurement_manager") {
+    return filterRoutesByRole(items, role).filter((item) => {
+      // Hide outbound-focused operational items
+      if (
+        item.href === "/admin/packing" ||
+        item.href === "/admin/shipments" ||
+        item.href === "/admin/customers"
+      ) {
+        return false;
+      }
+
+      // Filter Orders sub-items to show only Inbound
+      if (item.href === "/admin/orders" && item.subItems) {
+        item.subItems = item.subItems.filter(
+          (sub) => sub.href === "/admin/orders/inbound"
+        );
+        // If no sub-items left, hide the parent item
+        if (item.subItems.length === 0) {
+          return false;
+        }
+      }
+
+      // Hide Admins sub-item from Staff menu
+      if (item.href === "/admin/staff" && item.subItems) {
+        item.subItems = item.subItems.filter(
+          (sub) => sub.href !== "/admin/admins"
+        );
+        // If no sub-items left, hide the parent item
+        if (item.subItems.length === 0) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  // Default: use permission-based filtering
+  return filterRoutesByRole(items, role);
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { role } = useAdmin();
@@ -72,8 +156,8 @@ export function Sidebar() {
     return [];
   });
 
-  // Filter nav items based on admin role
-  const navItems = filterRoutesByRole(allNavItems, role);
+  // Filter nav items based on admin role and role relevance
+  const navItems = getRoleRelevantNavItems(allNavItems, role);
 
   const toggleExpand = (href: string) => {
     setExpandedItems((prev) =>
@@ -184,30 +268,34 @@ export function Sidebar() {
         })}
       </nav>
       <div className="p-4 border-t border-white/10 space-y-2">
-        <Link
-          href="/admin/dashboard-settings"
-          className={clsx(
-            "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-            pathname.startsWith("/admin/dashboard-settings")
-              ? "bg-primary text-primary-content"
-              : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-          )}
-        >
-          <span className="material-symbols-outlined text-xl">settings</span>
-          <span>Settings</span>
-        </Link>
-        <Link
-          href="/admin/help"
-          className={clsx(
-            "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-            pathname.startsWith("/admin/help")
-              ? "bg-primary text-primary-content"
-              : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-          )}
-        >
-          <span className="material-symbols-outlined text-xl">help</span>
-          <span>Help Center</span>
-        </Link>
+        {canAccessRoute(role, "/admin/dashboard-settings") && (
+          <Link
+            href="/admin/dashboard-settings"
+            className={clsx(
+              "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+              pathname.startsWith("/admin/dashboard-settings")
+                ? "bg-primary text-primary-content"
+                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+            )}
+          >
+            <span className="material-symbols-outlined text-xl">settings</span>
+            <span>Settings</span>
+          </Link>
+        )}
+        {canAccessRoute(role, "/admin/help") && (
+          <Link
+            href="/admin/help"
+            className={clsx(
+              "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+              pathname.startsWith("/admin/help")
+                ? "bg-primary text-primary-content"
+                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+            )}
+          >
+            <span className="material-symbols-outlined text-xl">help</span>
+            <span>Help Center</span>
+          </Link>
+        )}
       </div>
     </aside>
   );
