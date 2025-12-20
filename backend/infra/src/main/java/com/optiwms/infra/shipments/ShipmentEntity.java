@@ -1,0 +1,104 @@
+package com.optiwms.infra.shipments;
+
+import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Entity
+@Table(name = "shipments")
+public class ShipmentEntity {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    @JdbcTypeCode(SqlTypes.UUID)
+    @Column(name = "id", columnDefinition = "UUID", updatable = false)
+    private UUID id;
+
+    @Column(name = "shipment_number", unique = true, nullable = false, length = 50)
+    private String shipmentNumber;
+
+    @Column(name = "order_id", columnDefinition = "UUID")
+    private UUID orderId;
+
+    @Column(name = "carrier", length = 100)
+    private String carrier;
+
+    @Column(name = "tracking_number", length = 100)
+    private String trackingNumber;
+
+    @Column(name = "destination", columnDefinition = "TEXT")
+    private String destination;
+
+    @Column(name = "weight_kg", precision = 10, scale = 2)
+    private BigDecimal weightKg;
+
+    @Column(name = "driver_name", length = 200)
+    private String driverName;
+
+    @Column(name = "driver_phone", length = 50)
+    private String driverPhone;
+
+    @Column(name = "vehicle_number", length = 50)
+    private String vehicleNumber;
+
+    @Column(name = "status", length = 50)
+    private String status;
+
+    @Column(name = "eta")
+    private LocalDate eta;
+
+    @Column(name = "shipped_at")
+    private LocalDateTime shippedAt;
+
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    protected void onCreate() {
+        createdAt = LocalDateTime.now();
+        if (status == null) {
+            status = "label_created";
+        }
+    }
+
+    // Getters and Setters
+    public UUID getId() { return id; }
+    public void setId(UUID id) { this.id = id; }
+    public String getShipmentNumber() { return shipmentNumber; }
+    public void setShipmentNumber(String shipmentNumber) { this.shipmentNumber = shipmentNumber; }
+    public UUID getOrderId() { return orderId; }
+    public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public String getCarrier() { return carrier; }
+    public void setCarrier(String carrier) { this.carrier = carrier; }
+    public String getTrackingNumber() { return trackingNumber; }
+    public void setTrackingNumber(String trackingNumber) { this.trackingNumber = trackingNumber; }
+    public String getDestination() { return destination; }
+    public void setDestination(String destination) { this.destination = destination; }
+    public BigDecimal getWeightKg() { return weightKg; }
+    public void setWeightKg(BigDecimal weightKg) { this.weightKg = weightKg; }
+    public String getDriverName() { return driverName; }
+    public void setDriverName(String driverName) { this.driverName = driverName; }
+    public String getDriverPhone() { return driverPhone; }
+    public void setDriverPhone(String driverPhone) { this.driverPhone = driverPhone; }
+    public String getVehicleNumber() { return vehicleNumber; }
+    public void setVehicleNumber(String vehicleNumber) { this.vehicleNumber = vehicleNumber; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public LocalDate getEta() { return eta; }
+    public void setEta(LocalDate eta) { this.eta = eta; }
+    public LocalDateTime getShippedAt() { return shippedAt; }
+    public void setShippedAt(LocalDateTime shippedAt) { this.shippedAt = shippedAt; }
+    public LocalDateTime getDeliveredAt() { return deliveredAt; }
+    public void setDeliveredAt(LocalDateTime deliveredAt) { this.deliveredAt = deliveredAt; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+}
+

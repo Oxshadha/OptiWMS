@@ -72,12 +72,48 @@ public class OrderService {
     }
 
     @Transactional
+    public Order update(java.util.UUID id, Order order) {
+        OrderEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + id));
+
+        // Check if order number is being changed and if it conflicts
+        if (!entity.getOrderNumber().equals(order.getOrderNumber())) {
+            if (repository.findByOrderNumber(order.getOrderNumber()).isPresent()) {
+                throw new RuntimeException("Order number already exists: " + order.getOrderNumber());
+            }
+        }
+
+        entity.setOrderNumber(order.getOrderNumber());
+        entity.setOrderType(order.getOrderType());
+        entity.setCustomerId(order.getCustomerId());
+        entity.setSupplierId(order.getSupplierId());
+        entity.setWarehouseId(order.getWarehouseId());
+        entity.setStatus(order.getStatus());
+        entity.setPriority(order.getPriority());
+        entity.setOrderDate(order.getOrderDate());
+        entity.setExpectedDate(order.getExpectedDate());
+        entity.setTotalAmount(order.getTotalAmount());
+        entity.setNotes(order.getNotes());
+
+        OrderEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public Order updateStatus(java.util.UUID id, String status) {
         OrderEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
         entity.setStatus(status);
         OrderEntity saved = repository.save(entity);
         return toDomain(saved);
+    }
+
+    @Transactional
+    public void delete(java.util.UUID id) {
+        if (!repository.existsById(id)) {
+            throw new RuntimeException("Order not found: " + id);
+        }
+        repository.deleteById(id);
     }
 
     private Order toDomain(OrderEntity entity) {

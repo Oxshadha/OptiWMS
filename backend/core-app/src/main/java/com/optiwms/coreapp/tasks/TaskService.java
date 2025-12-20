@@ -62,6 +62,54 @@ public class TaskService {
     }
 
     @Transactional
+    public Task update(UUID id, Task task) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+
+        // Check if task number is being changed and if it conflicts
+        if (!entity.getTaskNumber().equals(task.getTaskNumber())) {
+            if (repository.findByTaskNumber(task.getTaskNumber()).isPresent()) {
+                throw new RuntimeException("Task number already exists: " + task.getTaskNumber());
+            }
+        }
+
+        entity.setTaskNumber(task.getTaskNumber());
+        entity.setTaskType(task.getTaskType());
+        entity.setWarehouseId(task.getWarehouseId());
+        entity.setAssignedTo(task.getAssignedTo());
+        entity.setPriority(task.getPriority());
+        entity.setStatus(task.getStatus());
+        entity.setDueDate(task.getDueDate());
+        entity.setLocationCode(task.getLocationCode());
+        entity.setReferenceType(task.getReferenceType());
+        entity.setReferenceId(task.getReferenceId());
+        entity.setNotes(task.getNotes());
+
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public Task assign(UUID id, UUID assignedTo) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setAssignedTo(assignedTo);
+        entity.setStatus("in_progress");
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public Task complete(UUID id) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setStatus("completed");
+        entity.setCompletedAt(LocalDateTime.now());
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public Task updateStatus(UUID id, String status) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
@@ -71,6 +119,14 @@ public class TaskService {
         }
         TaskEntity saved = repository.save(entity);
         return toDomain(saved);
+    }
+
+    @Transactional
+    public void delete(UUID id) {
+        if (!repository.existsById(id)) {
+            throw new RuntimeException("Task not found: " + id);
+        }
+        repository.deleteById(id);
     }
 
     private Task toDomain(TaskEntity entity) {
