@@ -2,6 +2,7 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.WarehouseService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -36,7 +37,7 @@ public class WarehouseController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<WarehouseDto> getById(@PathVariable java.util.UUID id) {
+    public ResponseEntity<WarehouseDto> getById(@PathVariable @NonNull java.util.UUID id) {
         try {
             var warehouse = service.findById(id);
             return ResponseEntity.ok(new WarehouseDto(
@@ -89,7 +90,7 @@ public class WarehouseController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<WarehouseDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateWarehouseRequest request) {
+    public ResponseEntity<WarehouseDto> update(@PathVariable @NonNull java.util.UUID id, @RequestBody UpdateWarehouseRequest request) {
         try {
             var warehouse = new com.optiwms.domain.master.Warehouse();
             warehouse.setCode(request.code());
@@ -121,7 +122,7 @@ public class WarehouseController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable java.util.UUID id) {
+    public ResponseEntity<Void> delete(@PathVariable @NonNull java.util.UUID id) {
         try {
             service.delete(id);
             return ResponseEntity.noContent().build();

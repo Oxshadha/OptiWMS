@@ -7,9 +7,19 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import React from "react";
+import { materialsApi, Material } from "@/lib/api/materials";
 
-// Mock data - will be replaced with API calls
-const products = [
+// Extended material interface for display
+interface MaterialDisplay extends Material {
+  name?: string;
+  sku?: string;
+  category?: string;
+  weight?: number;
+  dimensions?: string;
+  totalStock?: number;
+  reorderPoint?: number;
+  imageUrl?: string;
+}
   {
     id: "prod-1",
     name: "Wireless Earbuds",
@@ -61,19 +71,67 @@ const products = [
 ];
 
 export default function ProductsPage() {
+  const [products, setProducts] = useState<MaterialDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<typeof products[0] | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
+  const [editingProduct, setEditingProduct] = useState<MaterialDisplay | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<MaterialDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
+  // Load materials from API
+  useEffect(() => {
+    loadMaterials();
+  }, []);
+
+  const loadMaterials = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await materialsApi.getAll();
+      // Map API data to display format
+      const displayData: MaterialDisplay[] = data.map(m => ({
+        ...m,
+        name: m.description,
+        sku: m.materialCode,
+        category: m.storageType,
+        totalStock: 0, // TODO: Calculate from inventory API
+        reorderPoint: 0, // TODO: Get from inventory settings
+      }));
+      setProducts(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load materials");
+      console.error("Error loading materials:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading products: {error}</span>
+        <button className="btn btn-sm" onClick={loadMaterials}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalProducts: 156,
-    categories: 12,
-    lowStock: 8,
+    totalProducts: products.length,
+    categories: new Set(products.map(p => p.category || p.storageType || "")).size,
+    lowStock: products.filter(p => (p.totalStock || 0) < (p.reorderPoint || 0)).length,
   };
 
   const filteredProducts = products.filter((product) => {

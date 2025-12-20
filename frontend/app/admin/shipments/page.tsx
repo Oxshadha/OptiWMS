@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import Link from "next/link";
+import { shipmentsApi, Shipment } from "@/lib/api/shipments";
 
-const shipments = [
+// Extended shipment interface for display
+interface ShipmentDisplay extends Shipment {
+  carrier?: string;
+  orders?: string[];
+  shipmentDate?: string;
+}
   { 
     id: "SH-9001", 
     carrier: "DHL", 
@@ -90,14 +96,60 @@ const statusClass = (s: string) => {
 const tabs = ["All", "In Transit", "Delivered", "Label Created", "Ready to Ship"];
 
 export default function ShipmentsPage() {
+  const [shipments, setShipments] = useState<ShipmentDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("All");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedShipment, setSelectedShipment] = useState<typeof shipments[0] | null>(null);
+  const [selectedShipment, setSelectedShipment] = useState<ShipmentDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"id" | "carrier" | "destination" | "eta" | "status" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load shipments from API
+  useEffect(() => {
+    loadShipments();
+  }, []);
+
+  const loadShipments = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await shipmentsApi.getAll();
+      // Map API data to display format
+      const displayData: ShipmentDisplay[] = data.map(s => ({
+        ...s,
+        carrier: s.carrier || "N/A",
+        orders: s.orderId ? [s.orderId] : [],
+        shipmentDate: s.shippedAt || new Date().toISOString().split('T')[0],
+      }));
+      setShipments(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load shipments");
+      console.error("Error loading shipments:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading shipments: {error}</span>
+        <button className="btn btn-sm" onClick={loadShipments}>Retry</button>
+      </div>
+    );
+  }
 
   let filteredShipments = shipments.filter(s => {
     const matchesTab = activeTab === "All" || s.status === activeTab;

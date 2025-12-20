@@ -43,6 +43,21 @@ docker-compose up -d db
 
 Wait for database to be ready (about 10-15 seconds).
 
+**Important:** Ensure the database is created before starting the backend:
+```bash
+# Windows (PowerShell)
+.\setup-database.ps1
+
+# Mac/Linux
+chmod +x setup-database.sh
+./setup-database.sh
+```
+
+Or manually verify:
+```bash
+docker exec optiwms-db psql -U optiwms -lqt | grep optiwms
+```
+
 ### Step 3: Start Backend
 ```bash
 cd ../backend
@@ -163,7 +178,7 @@ docker-compose up -d
 ```
 
 This will start:
-- PostgreSQL database on port 5434
+- PostgreSQL database on port 5435 (changed from 5434 to avoid conflict with local PostgreSQL)
 - Backend API on port 8080
 - Frontend on port 3000
 
@@ -176,7 +191,7 @@ This will start:
 #### Backend
 Create `backend/.env` (optional, defaults work for local dev):
 ```env
-SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5434/optiwms
+SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5435/optiwms
 SPRING_DATASOURCE_USERNAME=optiwms
 SPRING_DATASOURCE_PASSWORD=optiwms
 ```
@@ -191,10 +206,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8080/api
 
 Default connection (works with Docker setup):
 - **Host**: localhost
-- **Port**: 5434 (Docker) or 5432 (local PostgreSQL)
+- **Port**: 5435 (Docker - changed from 5434 to avoid conflict with local PostgreSQL) or 5432 (local PostgreSQL)
 - **Database**: optiwms
 - **Username**: optiwms
 - **Password**: optiwms
+
+**Note:** Port 5435 is used to avoid conflict with local PostgreSQL Server that may be running on port 5434.
 
 ## ✅ Verification Checklist
 
@@ -206,7 +223,7 @@ After setup, verify everything works:
 docker ps | grep optiwms-db
 
 # Or test connection
-psql -h localhost -p 5434 -U optiwms -d optiwms
+psql -h localhost -p 5435 -U optiwms -d optiwms
 # Password: optiwms
 ```
 
@@ -228,6 +245,43 @@ curl -u admin:admin123 http://localhost:8080/api/master/warehouses
 - Open http://localhost:3000/admin/warehouses
 - Should load warehouses from backend API
 - Try creating a new warehouse
+
+## ⚡ Quick Fix: Database "optiwms" does not exist
+
+If you see the error `FATAL: database "optiwms" does not exist` when starting the backend:
+
+**Windows (PowerShell):**
+```powershell
+cd infra
+.\setup-database.ps1
+```
+
+**Mac/Linux:**
+```bash
+cd infra
+chmod +x setup-database.sh
+./setup-database.sh
+```
+
+**Or manually:**
+```bash
+# Ensure Docker container is running
+docker ps | grep optiwms-db
+
+# Create database if it doesn't exist
+docker exec optiwms-db psql -U optiwms -d postgres -c "CREATE DATABASE optiwms;"
+
+# Verify
+docker exec optiwms-db psql -U optiwms -d optiwms -c "SELECT 1;"
+```
+
+Then restart the backend:
+```bash
+cd backend
+gradlew.bat :core-api:bootRun  # Windows
+# or
+./gradlew :core-api:bootRun    # Mac/Linux
+```
 
 ## 🐛 Troubleshooting
 
@@ -253,7 +307,7 @@ netstat -ano | findstr :3000  # Windows
 # Kill process (same as above)
 ```
 
-**Database (5434):**
+**Database (5435):**
 ```bash
 # Stop Docker container
 docker stop optiwms-db
@@ -275,9 +329,51 @@ cd backend
 
 ### Database Connection Issues
 
+#### Error: "FATAL: database 'optiwms' does not exist"
+
+This error occurs when the database hasn't been created yet. Here's how to fix it:
+
+**Option 1: Use the setup script (Recommended)**
+```bash
+# Windows (PowerShell)
+cd infra
+.\setup-database.ps1
+
+# Mac/Linux
+cd infra
+chmod +x setup-database.sh
+./setup-database.sh
+```
+
+**Option 2: Manual database creation**
+```bash
+# Check if container is running
+docker ps | grep optiwms-db
+
+# Create database manually
+docker exec optiwms-db psql -U optiwms -d postgres -c "CREATE DATABASE optiwms;"
+
+# Verify database exists
+docker exec optiwms-db psql -U optiwms -lqt | grep optiwms
+```
+
+**Option 3: Reset database container (WARNING: Deletes all data)**
+```bash
+cd infra
+docker-compose down -v
+docker-compose up -d db
+# Wait 10-15 seconds for database to initialize
+```
+
+#### Other Database Issues
+
 1. **Check if database is running:**
 ```bash
-docker ps | grep postgres
+# Windows
+docker ps | findstr optiwms-db
+
+# Mac/Linux
+docker ps | grep optiwms-db
 ```
 
 2. **Check database logs:**
@@ -285,11 +381,25 @@ docker ps | grep postgres
 docker logs optiwms-db
 ```
 
-3. **Reset database (WARNING: Deletes all data):**
+3. **Test database connection:**
 ```bash
-docker-compose down -v
-docker-compose up -d db
+# Windows
+docker exec optiwms-db psql -U optiwms -d optiwms -c "SELECT version();"
+
+# Mac/Linux (same command)
+docker exec optiwms-db psql -U optiwms -d optiwms -c "SELECT version();"
 ```
+
+4. **Verify database exists:**
+```bash
+docker exec optiwms-db psql -U optiwms -lqt
+```
+
+5. **Check connection settings:**
+- Verify `application.yml` has correct port (5435 for Docker, 5432 for local PostgreSQL)
+- Verify username and password match Docker environment variables
+- Check if firewall is blocking port 5435
+- **Note:** Port was changed from 5434 to 5435 to avoid conflict with local PostgreSQL Server
 
 ### Java Version Issues
 

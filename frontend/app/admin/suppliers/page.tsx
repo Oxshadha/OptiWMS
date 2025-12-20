@@ -7,9 +7,13 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import React from "react";
+import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 
-// Mock data - will be replaced with API calls
-const suppliers = [
+// Extended supplier interface for display
+interface SupplierDisplay extends Supplier {
+  supplierCode?: string;
+  productsSupplied?: number;
+}
   {
     id: "supplier-1",
     supplierCode: "SUP-001",
@@ -52,17 +56,62 @@ const suppliers = [
 ];
 
 export default function SuppliersPage() {
+  const [suppliers, setSuppliers] = useState<SupplierDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<typeof suppliers[0] | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Load suppliers from API
+  useEffect(() => {
+    loadSuppliers();
+  }, []);
+
+  const loadSuppliers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await suppliersApi.getAll();
+      // Map API data to display format
+      const displayData: SupplierDisplay[] = data.map(s => ({
+        ...s,
+        supplierCode: s.code,
+        productsSupplied: 0, // TODO: Calculate from materials API
+      }));
+      setSuppliers(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load suppliers");
+      console.error("Error loading suppliers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading suppliers: {error}</span>
+        <button className="btn btn-sm" onClick={loadSuppliers}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalSuppliers: 24,
-    active: 22,
-    byCountry: 8,
+    totalSuppliers: suppliers.length,
+    active: suppliers.filter(s => s.status === "active" || s.status === "Active").length,
+    byCountry: new Set(suppliers.map(s => s.country)).size,
   };
 
   const filteredSuppliers = suppliers.filter((supplier) => {

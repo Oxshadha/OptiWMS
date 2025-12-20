@@ -1,10 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
+import { materialsApi } from "@/lib/api/materials";
 
-const inventory = [
+// Extended inventory interface for display
+interface InventoryDisplay extends InventoryItem {
+  sku?: string;
+  name?: string;
+  category?: string;
+  qty?: number;
+  location?: string;
+  status?: string;
+}
   { sku: "SKU-1001", name: "Wireless Earbuds", qty: 240, location: "A1", status: "Available", category: "Electronics" },
   { sku: "SKU-1002", name: "Smart Projector", qty: 56, location: "B3", status: "Available", category: "Electronics" },
   { sku: "SKU-1003", name: "Smart Mug", qty: 18, location: "C2", status: "Low", category: "Home" },
@@ -23,6 +33,9 @@ const statusClass = (s: string) => {
 const categories = ["All", "Electronics", "Home", "Appliances", "Sports"];
 
 export default function InventoryPage() {
+  const [inventory, setInventory] = useState<InventoryDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -31,7 +44,72 @@ export default function InventoryPage() {
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedItem, setSelectedItem] = useState<typeof inventory[0] | null>(null);
+  const [selectedItem, setSelectedItem] = useState<InventoryDisplay | null>(null);
+
+  // Load inventory from API
+  useEffect(() => {
+    loadInventory();
+  }, []);
+
+  const loadInventory = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [inventoryData, materialsData] = await Promise.all([
+        inventoryApi.getAll(),
+        materialsApi.getAll(),
+      ]);
+      
+      // Create a map of material IDs to material details
+      const materialsMap = new Map(materialsData.map(m => [m.id, m]));
+      
+      // Map API data to display format
+      const displayData: InventoryDisplay[] = inventoryData.map(item => {
+        const material = materialsMap.get(item.materialId);
+        const qty = parseInt(item.quantity || "0", 10);
+        const minStock = parseInt(item.minStock || "0", 10);
+        const reorderPoint = parseInt(item.reorderPoint || "0", 10);
+        
+        let status = "Available";
+        if (qty === 0) status = "Out of Stock";
+        else if (qty < reorderPoint || qty < minStock) status = "Low";
+        
+        return {
+          ...item,
+          sku: material?.materialCode || "N/A",
+          name: material?.description || "Unknown",
+          category: material?.storageType || "Other",
+          qty,
+          location: item.locationCode || "N/A",
+          status,
+        };
+      });
+      
+      setInventory(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load inventory");
+      console.error("Error loading inventory:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading inventory: {error}</span>
+        <button className="btn btn-sm" onClick={loadInventory}>Retry</button>
+      </div>
+    );
+  }
 
   let filteredInventory = inventory.filter(item => {
     const matchesCategory = activeCategory === "All" || item.category === activeCategory;

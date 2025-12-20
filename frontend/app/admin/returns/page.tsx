@@ -1,14 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import Link from "next/link";
+import { returnsApi, Return } from "@/lib/api/returns";
 
-const returns = [
+// Extended return interface for display
+interface ReturnDisplay extends Return {
+  returnNumber?: string;
+  originalOrder?: string;
+  customerName?: string;
+  warehouse?: string;
+  returnDate?: string;
+  totalItems?: number;
+}
   {
     id: "RET-1001",
     returnNumber: "RET-1001",
@@ -85,12 +94,61 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
+  const [returns, setReturns] = useState<ReturnDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
-  const [selectedReturn, setSelectedReturn] = useState<typeof returns[0] | null>(null);
+  const [selectedReturn, setSelectedReturn] = useState<ReturnDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // Load returns from API
+  useEffect(() => {
+    loadReturns();
+  }, []);
+
+  const loadReturns = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await returnsApi.getAll();
+      // Map API data to display format
+      const displayData: ReturnDisplay[] = data.map(r => ({
+        ...r,
+        returnNumber: r.returnNumber || r.id,
+        originalOrder: r.originalOrderId || "N/A",
+        customerName: "Customer", // TODO: Fetch customer name from customers API
+        warehouse: "Warehouse", // TODO: Fetch warehouse name from warehouses API
+        returnDate: r.returnDate || new Date().toISOString().split('T')[0],
+        totalItems: 0, // TODO: Calculate from return items
+      }));
+      setReturns(displayData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load returns");
+      console.error("Error loading returns:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading returns: {error}</span>
+        <button className="btn btn-sm" onClick={loadReturns}>Retry</button>
+      </div>
+    );
+  }
 
   const filteredReturns = returns.filter(returnItem => {
     const query = searchQuery.trim().toLowerCase();

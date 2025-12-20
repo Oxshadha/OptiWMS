@@ -3,6 +3,7 @@ package com.optiwms.coreapi.operations;
 import com.optiwms.coreapp.operations.StockTransferService;
 import com.optiwms.domain.operations.StockTransfer;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -29,7 +30,7 @@ public class StockTransferController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<StockTransferDto> getById(@PathVariable UUID id) {
+    public ResponseEntity<StockTransferDto> getById(@PathVariable @NonNull UUID id) {
         try {
             StockTransfer transfer = service.findById(id);
             return ResponseEntity.ok(toDto(transfer));
@@ -60,7 +61,7 @@ public class StockTransferController {
     }
 
     @PostMapping("/{id}/dispatch")
-    public ResponseEntity<StockTransferDto> dispatch(@PathVariable UUID id, @RequestParam UUID userId) {
+    public ResponseEntity<StockTransferDto> dispatch(@PathVariable @NonNull UUID id, @RequestParam @NonNull UUID userId) {
         try {
             StockTransfer transfer = service.dispatch(id, userId);
             return ResponseEntity.ok(toDto(transfer));
@@ -70,7 +71,7 @@ public class StockTransferController {
     }
 
     @PostMapping("/{id}/receive")
-    public ResponseEntity<StockTransferDto> receive(@PathVariable UUID id, @RequestParam UUID userId) {
+    public ResponseEntity<StockTransferDto> receive(@PathVariable @NonNull UUID id, @RequestParam @NonNull UUID userId) {
         try {
             StockTransfer transfer = service.receive(id, userId);
             return ResponseEntity.ok(toDto(transfer));

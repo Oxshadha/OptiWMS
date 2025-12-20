@@ -2,6 +2,7 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.PickingService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -20,7 +21,7 @@ public class PickingController {
 
     @PostMapping("/complete/{taskId}")
     public ResponseEntity<PickingResponse> completePicking(
-            @PathVariable UUID taskId,
+            @PathVariable @NonNull UUID taskId,
             @RequestBody CompletePickingRequest request) {
         try {
             List<PickingService.PickedItem> pickedItems = request.items().stream()
