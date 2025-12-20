@@ -6,6 +6,7 @@ import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,12 +65,15 @@ public class ReceivingService {
         }
 
         // Update order status
-        orderService.updateStatus(order.getId(), "received");
+        var orderId = order.getId();
+        if (orderId != null) {
+            orderService.updateStatus(orderId, "received");
+        }
 
         return new ReceivingResult(true, "Order received successfully", order.getId());
     }
 
-    private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
+    private void updateInventory(@NonNull UUID warehouseId, @NonNull UUID materialId, BigDecimal quantity, String locationCode) {
         List<InventoryItem> existing = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         
         InventoryItem inventoryItem;

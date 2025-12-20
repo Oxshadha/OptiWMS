@@ -8,6 +8,7 @@ import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,7 +35,7 @@ public class PickingService {
     }
 
     @Transactional
-    public PickingResult completePicking(UUID taskId, List<PickedItem> pickedItems) {
+    public PickingResult completePicking(@NonNull UUID taskId, List<PickedItem> pickedItems) {
         Task task = taskService.findById(taskId);
         
         if (!"picking".equals(task.getTaskType())) {
@@ -45,7 +46,8 @@ public class PickingService {
             throw new RuntimeException("Task has no associated order");
         }
 
-        Order order = orderService.findById(task.getReferenceId());
+        var referenceId = task.getReferenceId();
+        Order order = orderService.findById(referenceId);
         List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(order.getId());
 
         // Update order items with picked quantities
@@ -61,16 +63,23 @@ public class PickingService {
             orderItemRepository.save(orderItem);
 
             // Update inventory (reduce available quantity)
-            updateInventory(order.getWarehouseId(), pickedItem.materialId(), pickedItem.quantity(), pickedItem.locationCode());
+            var warehouseId = order.getWarehouseId();
+            var orderId = order.getId();
+            if (warehouseId != null) {
+                updateInventory(warehouseId, pickedItem.materialId(), pickedItem.quantity(), pickedItem.locationCode());
+            }
         }
 
         taskService.updateStatus(taskId, "completed");
-        orderService.updateStatus(order.getId(), "picking");
+        var orderId = order.getId();
+        if (orderId != null) {
+            orderService.updateStatus(orderId, "picking");
+        }
 
         return new PickingResult(true, "Picking completed successfully", taskId);
     }
 
-    private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
+    private void updateInventory(@NonNull UUID warehouseId, @NonNull UUID materialId, BigDecimal quantity, String locationCode) {
         List<InventoryItem> existing = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         
         if (existing.isEmpty()) {
