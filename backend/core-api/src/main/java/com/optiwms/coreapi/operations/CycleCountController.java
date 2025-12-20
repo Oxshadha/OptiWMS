@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -43,8 +44,8 @@ public class CycleCountController {
             @PathVariable @NonNull UUID id,
             @RequestBody RecordCountRequest request) {
         try {
-            var materialId = UUID.fromString(request.materialId());
-            var countedBy = UUID.fromString(request.countedBy());
+            var materialId = Objects.requireNonNull(UUID.fromString(request.materialId()), "materialId cannot be null");
+            var countedBy = Objects.requireNonNull(UUID.fromString(request.countedBy()), "countedBy cannot be null");
             var result = service.recordCount(
                     id,
                     materialId,
