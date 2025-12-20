@@ -25,6 +25,7 @@ const qualityChecks = [
     checkDate: "2025-12-15 10:30",
     approvedByName: null,
     approvalDate: null,
+    warehouseName: "Warehouse 1",
   },
   {
     id: "qc-2",
@@ -40,6 +41,7 @@ const qualityChecks = [
     checkDate: "2025-12-15 11:00",
     approvedByName: "Manager A",
     approvalDate: "2025-12-15 11:15",
+    warehouseName: "Warehouse 1",
   },
   {
     id: "qc-3",
@@ -55,6 +57,7 @@ const qualityChecks = [
     checkDate: "2025-12-15 09:00",
     approvedByName: null,
     approvalDate: null,
+    warehouseName: "Warehouse 2",
   },
 ];
 
@@ -65,7 +68,9 @@ const resultConfig = {
 };
 
 export default function QualityChecksPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const canApprove = hasPermission(ADMIN_ROUTES.QUALITY_CHECKS, "approve");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -74,14 +79,21 @@ export default function QualityChecksPage() {
   const [selectedCheck, setSelectedCheck] = useState<typeof qualityChecks[0] | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
+  // Filter quality checks by warehouse for warehouse managers
+  const qualityChecksForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? qualityChecks.filter((qc) => qc.warehouseName === assignedWarehouseName)
+    : qualityChecks;
+
   const summary = {
-    totalChecksThisMonth: 145,
-    pendingApproval: 8,
-    passRate: 92.5,
-    rejectedItems: 15,
+    totalChecksThisMonth: qualityChecksForWarehouse.length,
+    pendingApproval: qualityChecksForWarehouse.filter((qc) => !qc.approvedByName).length,
+    passRate: qualityChecksForWarehouse.length > 0
+      ? (qualityChecksForWarehouse.filter((qc) => qc.result === "passed").length / qualityChecksForWarehouse.length) * 100
+      : 0,
+    rejectedItems: qualityChecksForWarehouse.reduce((sum, qc) => sum + qc.quantityFailed, 0),
   };
 
-  const filteredChecks = qualityChecks.filter((check) => {
+  const filteredChecks = qualityChecksForWarehouse.filter((check) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       check.checkId.toLowerCase().includes(query) ||

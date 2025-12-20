@@ -53,11 +53,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Reload admin data when navigating to admin routes (e.g., after login)
+  // Only reload if we don't already have admin data to avoid unnecessary reloads
   useEffect(() => {
-    if (pathname?.startsWith("/admin") && pathname !== "/admin/login") {
+    if (pathname?.startsWith("/admin") && pathname !== "/admin/login" && !admin) {
       loadAdminFromStorage();
     }
-  }, [pathname]);
+  }, [pathname, admin]);
 
   const loadAdminFromStorage = async () => {
     try {

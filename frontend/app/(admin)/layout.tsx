@@ -22,18 +22,24 @@ export default function AdminLayout({
       return;
     }
 
-    // If no admin, redirect to login
-    if (!admin || !role) {
-      router.push("/admin/login");
-      return;
-    }
+    // Wait a bit more to ensure IndexedDB has finished loading
+    // This prevents redirecting to login on page refresh before data is loaded
+    const checkAuth = setTimeout(() => {
+      // If no admin after loading completes, redirect to login
+      if (!admin || !role) {
+        router.push("/admin/login");
+        return;
+      }
 
-    // Check if admin has access to current route
-    if (!canAccessRoute(pathname)) {
-      // Redirect to dashboard if unauthorized
-      router.push("/admin/dashboard?error=unauthorized");
-      return;
-    }
+      // Check if admin has access to current route
+      if (!canAccessRoute(pathname)) {
+        // Redirect to dashboard if unauthorized
+        router.push("/admin/dashboard?error=unauthorized");
+        return;
+      }
+    }, 100); // Small delay to ensure IndexedDB has loaded
+
+    return () => clearTimeout(checkAuth);
   }, [pathname, admin, role, canAccessRoute, isLoading, router]);
 
   // Show loading while checking
@@ -45,8 +51,17 @@ export default function AdminLayout({
     );
   }
 
-  // Don't render layout if no admin (will redirect)
+  // Show loading while waiting for auth check (prevents flash of redirect)
+  // Only render layout if we have admin data or we're on login page
   if (!admin || !role) {
+    if (pathname !== "/admin/login") {
+      // Show loading while redirecting to login (gives time for IndexedDB to load)
+      return (
+        <div className="min-h-screen bg-base-200 flex items-center justify-center">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      );
+    }
     return null;
   }
 

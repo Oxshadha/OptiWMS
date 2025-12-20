@@ -94,7 +94,9 @@ const detectedByConfig = {
 };
 
 export default function AnomaliesPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<typeof anomalies[0] | null>(null);
@@ -102,14 +104,19 @@ export default function AnomaliesPage() {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Filter anomalies by warehouse for warehouse managers
+  const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? anomalies.filter((a) => a.warehouseName === assignedWarehouseName)
+    : anomalies;
+
   const summary = {
-    totalAnomalies: 45,
-    critical: 3,
-    open: 12,
-    resolvedToday: 8,
+    totalAnomalies: anomaliesForWarehouse.length,
+    critical: anomaliesForWarehouse.filter((a) => a.severity === "critical").length,
+    open: anomaliesForWarehouse.filter((a) => a.status === "open").length,
+    resolvedToday: anomaliesForWarehouse.filter((a) => a.status === "resolved").length,
   };
 
-  const filteredAnomalies = anomalies.filter((anomaly) => {
+  const filteredAnomalies = anomaliesForWarehouse.filter((anomaly) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       anomaly.anomalyId.toLowerCase().includes(query) ||

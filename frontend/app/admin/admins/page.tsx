@@ -82,12 +82,9 @@ export default function AdminsPage() {
     }
   }, [searchParams]);
 
-  const canCreate =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "create");
-  const canEdit =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "edit");
-  const canDelete =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "delete");
+  const canCreate = hasPermission(ADMIN_ROUTES.ADMINS, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.ADMINS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.ADMINS, "delete");
 
   const summary = {
     totalAdmins: admins.length,
