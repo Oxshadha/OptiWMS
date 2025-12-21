@@ -42,4 +42,34 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* Warehouse Layout Animations */
+@keyframes pulse-occupied {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-pulse-occupied {
+  animation: pulse-occupied 2s ease-in-out infinite;
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-2px);
+  }
+  75% {
+    transform: translateX(2px);
+  }
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out;
+}
+
 
