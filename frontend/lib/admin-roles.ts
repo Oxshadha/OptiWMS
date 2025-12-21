@@ -8,7 +8,7 @@
 /**
  * Admin role types
  */
-export type AdminRole = 'admin' | 'warehouse_manager' | 'procurement_manager';
+export type AdminRole = 'admin' | 'warehouse_manager' | 'inbound_coordinator';
 
 /**
  * Permission types for granular access control
@@ -112,8 +112,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // No access for warehouse manager
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
   },
-  procurement_manager: {
-    // Procurement Manager: focused on suppliers, orders, and inventory management
+  inbound_coordinator: {
+    // Inbound Coordinator: focused on inbound receipt coordination, dock scheduling, and ERP integration
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only
     [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']),
@@ -138,8 +138,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
-    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for procurement manager
-    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for procurement manager
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for inbound coordinator
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
   },
 };
 
@@ -149,7 +149,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
 export const ROLE_DISPLAY_NAMES: Record<AdminRole, string> = {
   admin: 'System Administrator',
   warehouse_manager: 'Warehouse Manager',
-  procurement_manager: 'Procurement Manager',
+  inbound_coordinator: 'Inbound Coordinator',
 };
 
 /**

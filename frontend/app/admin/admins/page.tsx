@@ -91,7 +91,7 @@ export default function AdminsPage() {
     activeAdmins: admins.filter((a) => a.status === "active").length,
     warehouseManagers: admins.filter((a) => a.role === "warehouse_manager")
       .length,
-    procurementManagers: admins.filter((a) => a.role === "procurement_manager")
+    inboundCoordinators: admins.filter((a) => a.role === "inbound_coordinator")
       .length,
     systemAdmins: admins.filter((a) => a.role === "admin").length,
   };
@@ -129,9 +129,9 @@ export default function AdminsPage() {
       color: "info" as const,
     },
     {
-      label: "Procurement Managers",
-      value: summary.procurementManagers,
-      icon: "shopping_cart",
+      label: "Inbound Coordinators",
+      value: summary.inboundCoordinators,
+      icon: "local_shipping",
       color: "warning" as const,
     },
   ];
@@ -329,8 +329,8 @@ export default function AdminsPage() {
                 </button>
               </li>
               <li>
-                <button onClick={() => setRoleFilter("procurement_manager")}>
-                  Procurement Manager
+                <button onClick={() => setRoleFilter("inbound_coordinator")}>
+                  Inbound Coordinator
                 </button>
               </li>
             </ul>
@@ -588,7 +588,7 @@ function CreateAdminModal({
             required
           >
             <option value="warehouse_manager">Warehouse Manager</option>
-            <option value="procurement_manager">Procurement Manager</option>
+            <option value="inbound_coordinator">Inbound Coordinator</option>
           </select>
           <label className="label">
             <span className="label-text-alt text-info">

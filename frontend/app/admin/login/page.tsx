@@ -139,7 +139,7 @@ export default function LoginPage() {
               >
                 <option value="admin">System Administrator</option>
                 <option value="warehouse_manager">Warehouse Manager</option>
-                <option value="procurement_manager">Procurement Manager</option>
+                <option value="inbound_coordinator">Inbound Coordinator</option>
               </select>
             </div>
             {formData.role === "warehouse_manager" && (
