@@ -238,3 +238,40 @@ export const procurementAgentAPI = {
   },
 };
 
+/**
+ * AI Feedback API
+ */
+export interface AIFeedback {
+  serviceId: AIServiceId;
+  suggestionId: string;
+  action: 'rejected' | 'deferred' | 'modified';
+  reason: string;
+  reasonCode: string;
+  context: Record<string, any>;
+}
+
+export const aiFeedbackAPI = {
+  submitFeedback: async (feedback: AIFeedback) => {
+    return callAIService({
+      serviceId: feedback.serviceId,
+      endpoint: '/feedback',
+      method: 'POST',
+      data: {
+        suggestionId: feedback.suggestionId,
+        action: feedback.action,
+        reason: feedback.reason,
+        reasonCode: feedback.reasonCode,
+        context: feedback.context,
+        timestamp: Date.now(),
+      },
+    });
+  },
+
+  getFeedbackStats: async (serviceId: AIServiceId) => {
+    return callAIService({
+      serviceId,
+      endpoint: '/feedback-stats',
+    });
+  },
+};
+

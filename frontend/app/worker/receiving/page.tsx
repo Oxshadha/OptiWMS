@@ -2,11 +2,16 @@
 
 import { useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
+import { receivingApi } from "@/lib/api/operations";
+import { useOffline } from "@/hooks/useOffline";
+import { addToSyncQueue } from "@/lib/indexeddb";
 
 export default function ReceivingPage() {
   const [scannedValue, setScannedValue] = useState("");
   const [receivedQty, setReceivedQty] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
+  const [blindMode, setBlindMode] = useState(false);
+  const { isOnline } = useOffline();
 
   const items = [
     {
@@ -26,13 +31,86 @@ export default function ReceivingPage() {
     setShowScanner(false);
   };
 
-  const handleConfirm = () => {
-    // Handle confirmation
-    console.log("Confirmed:", receivedQty);
+  const handleConfirm = async () => {
+    if (!scannedValue || receivedQty === 0) {
+      alert("Please scan a PO/ASN and enter received quantity");
+      return;
+    }
+
+    const receivedItems = [
+      {
+        materialId: items[0]?.sku || "",
+        quantity: receivedQty.toString(),
+        locationCode: "",
+      },
+    ];
+
+    try {
+      if (blindMode) {
+        // Use blind receiving API
+        if (isOnline) {
+          await receivingApi.blindReceive(scannedValue, receivedItems);
+        } else {
+          // Queue for sync when offline
+          await addToSyncQueue({
+            type: "operation",
+            action: "create",
+            data: {
+              type: "blind_receive",
+              orderNumber: scannedValue,
+              items: receivedItems,
+            },
+          });
+        }
+        alert(`Blind receiving confirmed: ${receivedQty} units received`);
+      } else {
+        // Use regular receiving API
+        if (isOnline) {
+          await receivingApi.receiveOrder(scannedValue, receivedItems);
+        } else {
+          // Queue for sync when offline
+          await addToSyncQueue({
+            type: "operation",
+            action: "create",
+            data: {
+              type: "receive",
+              orderNumber: scannedValue,
+              items: receivedItems,
+            },
+          });
+        }
+        alert(`Receiving confirmed: ${receivedQty} units received`);
+      }
+
+      // Reset form
+      setScannedValue("");
+      setReceivedQty(0);
+    } catch (error) {
+      console.error("Error confirming receipt:", error);
+      alert("Error confirming receipt. Please try again.");
+    }
   };
 
   return (
     <div className="p-4 space-y-4">
+      {/* Blind Mode Toggle */}
+      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+        <label className="label cursor-pointer gap-3">
+          <div className="flex-1">
+            <span className="label-text font-semibold">Blind Receiving Mode</span>
+            <div className="text-xs text-base-content/60 mt-1">
+              Hide expected quantities to improve accuracy
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            className="toggle toggle-primary"
+            checked={blindMode}
+            onChange={(e) => setBlindMode(e.target.checked)}
+          />
+        </label>
+      </div>
+
       {/* Scan Section */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <div className="text-sm text-base-content/60 mb-2">Scan PO / ASN</div>
@@ -61,10 +139,12 @@ export default function ReceivingPage() {
               <div className="font-bold text-lg text-base-content mb-1">{item.name}</div>
               <div className="text-sm text-base-content/60">SKU: {item.sku}</div>
             </div>
-            <div className="text-right">
-              <div className="text-xs text-base-content/60">Expected</div>
-              <div className="font-bold text-base-content">{item.expected}</div>
-            </div>
+            {!blindMode && (
+              <div className="text-right">
+                <div className="text-xs text-base-content/60">Expected</div>
+                <div className="font-bold text-base-content">{item.expected}</div>
+              </div>
+            )}
           </div>
 
           {/* Quantity Control */}
@@ -93,32 +173,36 @@ export default function ReceivingPage() {
                 <span className="material-symbols-outlined">add</span>
               </button>
             </div>
-            <div className="text-center mt-3">
-              <div className="text-xs text-base-content/60">
-                {item.expected - receivedQty > 0
-                  ? `${item.expected - receivedQty} remaining`
-                  : receivedQty > item.expected
-                  ? `${receivedQty - item.expected} over expected`
-                  : "Complete"}
+            {!blindMode && (
+              <div className="text-center mt-3">
+                <div className="text-xs text-base-content/60">
+                  {item.expected - receivedQty > 0
+                    ? `${item.expected - receivedQty} remaining`
+                    : receivedQty > item.expected
+                    ? `${receivedQty - item.expected} over expected`
+                    : "Complete"}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Action Buttons */}
           <div className="flex gap-2">
-            <button
-              onClick={() => setReceivedQty(item.expected)}
-              className="btn btn-outline flex-1"
-            >
-              Set to Expected
-            </button>
+            {!blindMode && (
+              <button
+                onClick={() => setReceivedQty(item.expected)}
+                className="btn btn-outline flex-1"
+              >
+                Set to Expected
+              </button>
+            )}
             <button
               onClick={handleConfirm}
-              className="btn btn-primary flex-1"
+              className={`btn btn-primary ${blindMode ? "flex-1" : "flex-1"}`}
               disabled={receivedQty === 0}
             >
               <span className="material-symbols-outlined">check_circle</span>
-              Confirm Receipt
+              {blindMode ? "Confirm Blind Receipt" : "Confirm Receipt"}
             </button>
           </div>
         </div>

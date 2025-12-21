@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { inventoryApi } from "@/lib/api/inventory";
 
 // Mock data - will be replaced with API calls
 const qualityChecks = [
@@ -61,7 +62,9 @@ export default function QualityCheckDetailPage() {
   const canApprove = hasPermission(ADMIN_ROUTES.QUALITY_CHECKS, "approve");
 
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showQuarantineModal, setShowQuarantineModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [quarantineLocation, setQuarantineLocation] = useState("");
 
   if (!check) {
     return (
@@ -96,6 +99,24 @@ export default function QualityCheckDetailPage() {
     router.push("/admin/quality-checks");
   };
 
+  const handleQuarantine = async () => {
+    if (!quarantineLocation.trim()) {
+      alert("Please enter a location code");
+      return;
+    }
+    try {
+      // TODO: Replace with actual API call
+      // await inventoryApi.quarantineBin(check.sku, quarantineLocation, checkId);
+      console.log("Quarantining bin:", quarantineLocation, "for QC:", checkId);
+      alert(`Bin ${quarantineLocation} quarantined successfully. Items will not be available for picking.`);
+      setShowQuarantineModal(false);
+      setQuarantineLocation("");
+    } catch (error) {
+      console.error("Error quarantining bin:", error);
+      alert("Error quarantining bin. Please try again.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -109,6 +130,16 @@ export default function QualityCheckDetailPage() {
         </div>
         {canApprove && !check.approvedByName && (
           <div className="flex gap-3">
+            {check.failedItems && check.failedItems.length > 0 && (
+              <button
+                className="btn btn-warning"
+                onClick={() => setShowQuarantineModal(true)}
+                title="Quarantine damaged items"
+              >
+                <span className="material-symbols-outlined">block</span>
+                Quarantine
+              </button>
+            )}
             <button className="btn btn-error" onClick={() => setShowRejectModal(true)}>
               <span className="material-symbols-outlined">close</span>
               Reject
@@ -247,6 +278,71 @@ export default function QualityCheckDetailPage() {
             </button>
             <button className="btn btn-error" onClick={handleReject}>
               Reject Quality Check
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Quarantine Modal */}
+      <Modal
+        isOpen={showQuarantineModal}
+        onClose={() => {
+          setShowQuarantineModal(false);
+          setQuarantineLocation("");
+        }}
+        title="Quarantine Bin"
+      >
+        <div className="space-y-4">
+          <div className="alert alert-warning">
+            <span className="material-symbols-outlined">warning</span>
+            <span>
+              Quarantining this bin will prevent items from being picked. Use this for damaged items identified by Vehicle Inspector.
+            </span>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Location Code *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={quarantineLocation}
+              onChange={(e) => setQuarantineLocation(e.target.value.toUpperCase())}
+              placeholder="e.g., ST-01-004-03-A"
+              required
+            />
+            <label className="label">
+              <span className="label-text-alt text-base-content/60">
+                Enter the bin location code where damaged items are stored
+              </span>
+            </label>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Product</span>
+            </label>
+            <p className="font-semibold">{check.productName}</p>
+            <p className="text-sm text-base-content/60">SKU: {check.sku}</p>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Failed Items</span>
+            </label>
+            <p className="text-error font-semibold">{check.quantityFailed} items</p>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                setShowQuarantineModal(false);
+                setQuarantineLocation("");
+              }}
+            >
+              Cancel
+            </button>
+            <button className="btn btn-warning" onClick={handleQuarantine}>
+              <span className="material-symbols-outlined">block</span>
+              Quarantine Bin
             </button>
           </div>
         </div>

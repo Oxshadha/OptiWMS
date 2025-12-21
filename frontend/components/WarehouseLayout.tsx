@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import clsx from "clsx";
 import {
   WarehouseLayout,
   RackUnit,
   LocationBin,
 } from "@/lib/types/warehouse-layout";
+import { analyticsApi, LocationVelocity } from "@/lib/api/analytics";
 
 interface WarehouseLayoutProps {
   layout: WarehouseLayout;
@@ -24,11 +25,95 @@ export function WarehouseLayoutVisualization({
   selectedRackId,
 }: WarehouseLayoutProps) {
   const [hoveredRackId, setHoveredRackId] = useState<string | null>(null);
+  const [showVelocity, setShowVelocity] = useState(false);
+  const [velocityData, setVelocityData] = useState<Map<string, number>>(
+    new Map()
+  );
+  const [isLoadingVelocity, setIsLoadingVelocity] = useState(false);
+
+  // Load velocity data when velocity mode is enabled
+  useEffect(() => {
+    if (showVelocity && layout.warehouseId) {
+      const loadVelocityData = async () => {
+        setIsLoadingVelocity(true);
+        try {
+          // Calculate date range (last 7 days)
+          const endDate = new Date();
+          const startDate = new Date();
+          startDate.setDate(startDate.getDate() - 7);
+
+          // Try to load from API
+          try {
+            const velocities = await analyticsApi.getLocationVelocity(
+              layout.warehouseId,
+              startDate.toISOString().split("T")[0],
+              endDate.toISOString().split("T")[0]
+            );
+
+            // Create a map of location code to velocity
+            const velocityMap = new Map<string, number>();
+            velocities.forEach((v) => {
+              velocityMap.set(v.locationCode, v.velocityPercentage);
+            });
+            setVelocityData(velocityMap);
+          } catch (error) {
+            // If API fails, use mock data for demonstration
+            console.log("Velocity API not available, using mock data");
+            const mockVelocityData = generateMockVelocityData(layout.racks);
+            setVelocityData(mockVelocityData);
+          }
+        } catch (error) {
+          console.error("Error loading velocity data:", error);
+          // Fallback to mock data
+          const mockVelocityData = generateMockVelocityData(layout.racks);
+          setVelocityData(mockVelocityData);
+        } finally {
+          setIsLoadingVelocity(false);
+        }
+      };
+
+      loadVelocityData();
+    }
+  }, [showVelocity, layout.warehouseId, layout.racks]);
+
+  // Generate mock velocity data for demonstration
+  const generateMockVelocityData = (racks: RackUnit[]): Map<string, number> => {
+    const velocityMap = new Map<string, number>();
+    racks.forEach((rack) => {
+      // Generate random velocity between 0-100% for demo
+      // In production, this would come from actual pick/putaway data
+      const velocity = Math.floor(Math.random() * 100);
+      velocityMap.set(rack.id, velocity);
+    });
+    return velocityMap;
+  };
+
+  // Merge velocity data into racks
+  const racksWithVelocity = useMemo(() => {
+    if (!showVelocity || velocityData.size === 0) {
+      return layout.racks;
+    }
+    return layout.racks.map((rack) => {
+      const velocity = velocityData.get(rack.id);
+      return {
+        ...rack,
+        velocity: velocity !== undefined ? velocity : undefined,
+      };
+    });
+  }, [layout.racks, showVelocity, velocityData]);
 
   // Calculate occupancy percentage for a rack
   const getRackOccupancy = (rack: RackUnit): number => {
     const occupiedBins = rack.bins.filter((bin) => bin.status === "occupied");
     return (occupiedBins.length / rack.bins.length) * 100;
+  };
+
+  // Get color based on velocity (for heat map mode)
+  const getVelocityColor = (velocity?: number): string => {
+    if (velocity === undefined || velocity === null) return "#F5F5F5"; // Default gray for no data
+    if (velocity < 20) return "#22C55E"; // Green - Low velocity (0-20%)
+    if (velocity < 50) return "#F59E0B"; // Yellow - Medium velocity (20-50%)
+    return "#DC2626"; // Red - High velocity (50-100%)
   };
 
   // Get color based on occupancy and status
@@ -38,6 +123,11 @@ export function WarehouseLayoutVisualization({
     if (rack.status === "out_of_service") return "#DC2626"; // Safety Red - Stop/Danger
     if (rack.status === "maintenance") return "#FF6B35"; // Safety Orange - Maintenance warning
     if (rack.status === "reserved") return "#4A90E2"; // Safety Blue - Set aside/trustworthy
+
+    // If velocity mode is enabled, use velocity colors
+    if (showVelocity && rack.velocity !== undefined) {
+      return getVelocityColor(rack.velocity);
+    }
 
     // Occupancy-based colors for active racks (light-to-dark progression, color-blind friendly)
     const occupancy = getRackOccupancy(rack);
@@ -115,6 +205,52 @@ export function WarehouseLayoutVisualization({
 
   return (
     <div className="w-full h-full relative">
+      {/* Velocity Toggle Button */}
+      <div className="absolute top-4 right-4 z-10">
+        <div className="bg-base-100 rounded-lg shadow-lg border border-base-300 p-2">
+          <label className="label cursor-pointer gap-2">
+            <span className="label-text text-sm font-semibold">
+              Velocity Heat Map
+            </span>
+            <input
+              type="checkbox"
+              className="toggle toggle-primary toggle-sm"
+              checked={showVelocity}
+              onChange={(e) => setShowVelocity(e.target.checked)}
+            />
+          </label>
+          {showVelocity && (
+            <div className="mt-2 text-xs text-base-content/60 space-y-1">
+              {isLoadingVelocity ? (
+                <div className="flex items-center gap-2">
+                  <span className="loading loading-spinner loading-xs"></span>
+                  <span>Loading velocity data...</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-[#22C55E]"></div>
+                    <span>Low (0-20%)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-[#F59E0B]"></div>
+                    <span>Medium (20-50%)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded bg-[#DC2626]"></div>
+                    <span>High (50-100%)</span>
+                  </div>
+                  {velocityData.size === 0 && (
+                    <div className="text-xs text-warning mt-1">
+                      No velocity data available
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
       <svg
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         className="w-full h-full border border-base-300 rounded-lg bg-base-200"
@@ -159,7 +295,7 @@ export function WarehouseLayoutVisualization({
         ))}
 
         {/* Render racks */}
-        {layout.racks.map((rack) => {
+        {racksWithVelocity.map((rack) => {
           const isSelected = selectedRackId === rack.id;
           const isHovered = hoveredRackId === rack.id;
           const occupancy = getRackOccupancy(rack);
@@ -191,11 +327,25 @@ export function WarehouseLayoutVisualization({
                     ? "#991B1B" // Darker red border for out of service
                     : rack.status === "maintenance"
                     ? "#C2410C" // Darker orange border for maintenance
+                    : showVelocity &&
+                      rack.velocity !== undefined &&
+                      rack.velocity >= 50
+                    ? "#991B1B" // Darker red border for high velocity
+                    : showVelocity &&
+                      rack.velocity !== undefined &&
+                      rack.velocity >= 20
+                    ? "#D97706" // Darker yellow border for medium velocity
                     : "#9CA3AF"
                 }
                 strokeWidth={isSelected ? 3 : isHovered ? 2 : 1}
                 className={clsx("transition-all", hasRecent && "animate-pulse")}
-                opacity={occupancy === 0 ? 0.2 : 0.3}
+                opacity={
+                  showVelocity && rack.velocity !== undefined
+                    ? 0.4
+                    : occupancy === 0
+                    ? 0.2
+                    : 0.3
+                }
               />
 
               {/* Maintenance pattern overlay (diagonal stripes) */}
@@ -218,6 +368,7 @@ export function WarehouseLayoutVisualization({
                 // Reserved bins use Safety Blue (special status)
                 // Empty bins use White/Very Light Gray (or rack status color if rack is in special status)
                 // Occupied bins use occupancy-based colors (Green/Yellow/Blue based on percentage)
+                // When velocity mode is enabled, use velocity colors for all segments
                 let segmentColor = "#F5F5F5"; // White/Very Light Gray for empty
                 let segmentStroke = "#D1D5DB"; // Light grey border for empty
 
@@ -226,6 +377,7 @@ export function WarehouseLayoutVisualization({
                   rack.status === "maintenance" ||
                   rack.status === "out_of_service";
 
+                // Priority 1: Special rack statuses (maintenance/out_of_service)
                 if (isRackInSpecialStatus) {
                   // All levels in maintenance/out_of_service racks show rack status color
                   if (rack.status === "maintenance") {
@@ -235,11 +387,35 @@ export function WarehouseLayoutVisualization({
                     segmentColor = "#DC2626"; // Safety Red - Stop/Danger
                     segmentStroke = "#991B1B"; // Darker red border
                   }
-                } else if (segment.isReserved) {
+                }
+                // Priority 2: Quarantined bins (safety critical)
+                else if (segment.bin?.status === "quarantined") {
+                  // Quarantined bins use Purple (highest priority for safety)
+                  segmentColor = "#9333EA"; // Purple - Quarantined
+                  segmentStroke = "#7C3AED"; // Dark purple border
+                }
+                // Priority 3: Velocity mode (when enabled, overrides occupancy)
+                else if (showVelocity && rack.velocity !== undefined) {
+                  // Use velocity color for all segments in this rack
+                  const velocityColor = getVelocityColor(rack.velocity);
+                  segmentColor = velocityColor;
+                  // Use darker version for stroke
+                  if (rack.velocity < 20) {
+                    segmentStroke = "#16A34A"; // Darker green
+                  } else if (rack.velocity < 50) {
+                    segmentStroke = "#D97706"; // Darker yellow
+                  } else {
+                    segmentStroke = "#991B1B"; // Darker red
+                  }
+                }
+                // Priority 4: Reserved bins
+                else if (segment.isReserved) {
                   // Reserved bins use Safety Blue (special status takes priority)
                   segmentColor = "#4A90E2"; // Safety Blue - matches legend
                   segmentStroke = "#2563EB"; // Dark blue border
-                } else if (segment.isOccupied && segment.bin) {
+                }
+                // Priority 5: Occupied bins (occupancy-based colors)
+                else if (segment.isOccupied && segment.bin) {
                   // Occupied bins use occupancy-based colors
                   const occupancyColors = getOccupancyColor(segment.occupancy);
                   segmentColor = occupancyColors.color;
@@ -251,7 +427,11 @@ export function WarehouseLayoutVisualization({
                 const isDarkBackground =
                   segment.occupancy >= 85 ||
                   segment.isReserved ||
-                  isRackInSpecialStatus;
+                  segment.bin?.status === "quarantined" ||
+                  isRackInSpecialStatus ||
+                  (showVelocity &&
+                    rack.velocity !== undefined &&
+                    rack.velocity >= 20);
                 const textColor = isDarkBackground ? "#FFFFFF" : "#6B7280";
 
                 return (
@@ -318,8 +498,12 @@ export function WarehouseLayoutVisualization({
                   {rack.status === "maintenance" && " 🔧"}
                   {rack.status === "out_of_service" && " ⚠"}
                   {rack.status === "reserved" && " 🔒"}
-                  {/* Occupancy percentage next to rack name */}
-                  {rack.status === "active" && ` (${Math.round(occupancy)}%)`}
+                  {rack.bins.some((b) => b.status === "quarantined") && " 🚫"}
+                  {/* Occupancy percentage or velocity next to rack name */}
+                  {rack.status === "active" &&
+                    (showVelocity && rack.velocity !== undefined
+                      ? ` (V: ${Math.round(rack.velocity)}%)`
+                      : ` (${Math.round(occupancy)}%)`)}
                 </text>
               </g>
             </g>

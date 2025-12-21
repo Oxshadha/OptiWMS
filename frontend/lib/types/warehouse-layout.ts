@@ -3,7 +3,7 @@
  * Based on the coordinate system: ZONE-AISLE-BAY-LEVEL-POSITION
  */
 
-export type BinStatus = 'empty' | 'occupied' | 'reserved';
+export type BinStatus = 'empty' | 'occupied' | 'reserved' | 'quarantined';
 
 export interface LocationBin {
   id: string; // "ST-01-004-03-A"
@@ -33,6 +33,7 @@ export interface RackUnit {
   status: RackStatus; // Rack operational status
   description?: string; // Notes/description about what's in the rack
   notes?: string; // Additional notes
+  velocity?: number; // Velocity percentage (0-100) for heat map visualization
 }
 
 export interface WarehouseLayout {
