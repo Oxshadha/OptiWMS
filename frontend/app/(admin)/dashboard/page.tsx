@@ -38,7 +38,7 @@ const COLORS = ["#CF0F47", "#E5E7EB"];
 export default function DashboardPage() {
   const { role, admin } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
-  const isProcurementManager = role === "procurement_manager";
+  const isInboundCoordinator = role === "inbound_coordinator";
   const isAdmin = role === "admin";
 
   return (
@@ -300,7 +300,7 @@ export default function DashboardPage() {
       </div>
 
       {/* AI Services Section - Role-Based Visibility */}
-      {(isWarehouseManager || isProcurementManager || isAdmin) && (
+      {(isWarehouseManager || isInboundCoordinator || isAdmin) && (
         <div className="space-y-6">
           <div className="divider">
             <span className="text-lg font-semibold">
@@ -357,8 +357,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Procurement Manager AI Panels */}
-          {isProcurementManager && (
+          {/* Inbound Coordinator AI Panels */}
+          {isInboundCoordinator && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AIDashboardPanel
                 serviceId={AI_SERVICES.PROCUREMENT_AGENT}

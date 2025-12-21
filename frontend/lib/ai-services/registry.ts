@@ -127,11 +127,11 @@ export const AI_SERVICE_ROLES: Record<string, AIServiceId[]> = {
     AI_SERVICES.OPTIMAL_PICKING_PATH, // Primary user
     AI_SERVICES.ANOMALY_DETECTION, // Operational anomalies
   ],
-  procurement_manager: [
-    AI_SERVICES.DEMAND_FORECASTING, // Primary user
-    AI_SERVICES.MIN_MAX_INVENTORY, // Primary user
+  inbound_coordinator: [
+    AI_SERVICES.DEMAND_FORECASTING, // View-only (data from ERP)
+    AI_SERVICES.MIN_MAX_INVENTORY, // View-only (Warehouse Manager primary)
     AI_SERVICES.ANOMALY_DETECTION, // Supplier anomalies
-    AI_SERVICES.PROCUREMENT_AGENT, // Primary user
+    AI_SERVICES.PROCUREMENT_AGENT, // View-only (data from ERP)
   ],
 };
 

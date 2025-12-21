@@ -33,8 +33,16 @@ const allNavItems = [
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/products", label: "Products", icon: "category" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
-  { href: "/admin/dock-management", label: "Dock Management", icon: "warehouse" },
-  { href: "/admin/labor-productivity", label: "Labor Productivity", icon: "trending_up" },
+  {
+    href: "/admin/dock-management",
+    label: "Dock Management",
+    icon: "warehouse",
+  },
+  {
+    href: "/admin/labor-productivity",
+    label: "Labor Productivity",
+    icon: "trending_up",
+  },
   {
     href: "/admin/staff",
     label: "Staff",
@@ -96,16 +104,17 @@ function getRoleRelevantNavItems(
     });
   }
 
-  // Procurement Manager: Focus on inbound coordination
-  // Hide: Outbound-focused items (Packing, Shipments - outbound focus), Customers (view only, not primary)
+  // Inbound Coordinator: Focus on inbound coordination
+  // Hide: Outbound-focused items (Packing, Shipments - outbound focus), Customers (view only, not primary), Labor Productivity (view-only, Warehouse Manager primary)
   // Keep: Inbound Orders, Suppliers, Inventory, Products, Quality Checks (inbound), Returns (to supplier), Tasks (receiving)
-  if (role === "procurement_manager") {
+  if (role === "inbound_coordinator") {
     return filterRoutesByRole(items, role).filter((item) => {
-      // Hide outbound-focused operational items
+      // Hide outbound-focused operational items and non-primary features
       if (
         item.href === "/admin/packing" ||
         item.href === "/admin/shipments" ||
-        item.href === "/admin/customers"
+        item.href === "/admin/customers" ||
+        item.href === "/admin/labor-productivity"
       ) {
         return false;
       }

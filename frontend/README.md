@@ -36,14 +36,14 @@ The application will be available at `http://localhost:3000`
 
 ### Admin Dashboard
 
-- **Role-Based Access Control**: Three admin roles (System Administrator, Warehouse Manager, Procurement Manager)
+- **Role-Based Access Control**: Three admin roles (System Administrator, Warehouse Manager, Inbound Coordinator)
 - **Dashboard**: Role-specific KPIs, AI service panels, and quick actions
 - **Warehouse Management**: Multi-warehouse support with layout visualization
 - **Inventory Management**: Real-time inventory tracking and cycle counts
 - **Order Management**: Inbound and outbound order processing
 - **Task Management**: Worker task assignment and tracking
 - **Reports**: Comprehensive reporting and analytics
-- **Dock Management**: Yard trailer queue and dock appointment scheduling (Procurement Manager)
+- **Dock Management**: Yard trailer queue and dock appointment scheduling (Inbound Coordinator)
 - **Labor Productivity**: Worker performance metrics, PPH tracking, and leaderboards (Warehouse Manager)
 - **Velocity Heat Map**: Activity velocity visualization for warehouse optimization
 
@@ -142,11 +142,12 @@ frontend/
    - Order fulfillment
    - Single warehouse scope
 
-3. **Procurement Manager** (`procurement_manager`)
-   - Inbound coordination
-   - Purchase order creation
+3. **Inbound Coordinator** (`inbound_coordinator`)
+   - Inbound receipt coordination
+   - Purchase order documentation
    - ERP integration
-   - Supplier management
+   - Dock scheduling
+   - Supplier coordination
    - All warehouses scope
 
 ### Worker Roles
@@ -224,14 +225,14 @@ The AI microservices are designed as a pluggable advisory layer:
 
 ### Service Access by Role
 
-| Service              | Admin | Warehouse Manager | Procurement Manager |
+| Service              | Admin | Warehouse Manager | Inbound Coordinator |
 | -------------------- | ----- | ----------------- | ------------------- |
-| Demand Forecasting   | Full  | View-only         | Primary             |
-| Min-Max Inventory    | Full  | View-only         | Primary             |
+| Demand Forecasting   | Full  | View-only         | View-only           |
+| Min-Max Inventory    | Full  | View-only         | View-only           |
 | Optimal Storage      | Full  | Primary           | No                  |
 | Optimal Picking Path | Full  | Primary           | No                  |
 | Anomaly Detection    | Full  | Operational       | Supplier            |
-| Procurement Agent    | Full  | No                | Primary             |
+| Procurement Agent    | Full  | No                | View-only           |
 
 ### Human-in-the-Loop Feedback
 
