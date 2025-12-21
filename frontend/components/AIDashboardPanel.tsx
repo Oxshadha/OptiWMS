@@ -6,9 +6,11 @@
 
 "use client";
 
+import { useState } from "react";
 import { AIServiceId } from "@/lib/ai-services/registry";
 import { useAIService } from "@/hooks/useAIService";
 import { AIServiceFallback, AIServiceStatus } from "./AIServiceStatus";
+import { AIFeedbackModal } from "./AIFeedbackModal";
 import clsx from "clsx";
 
 interface AIDashboardPanelProps {
@@ -17,6 +19,11 @@ interface AIDashboardPanelProps {
   description?: string;
   children?: React.ReactNode;
   className?: string;
+  suggestionId?: string;
+  suggestionContext?: Record<string, any>;
+  onReject?: () => void;
+  onDefer?: () => void;
+  onModify?: () => void;
 }
 
 export function AIDashboardPanel({
@@ -25,9 +32,16 @@ export function AIDashboardPanel({
   description,
   children,
   className,
+  suggestionId,
+  suggestionContext,
+  onReject,
+  onDefer,
+  onModify,
 }: AIDashboardPanelProps) {
   const { service, isAvailable, hasAccess, isLoading } =
     useAIService(serviceId);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"rejected" | "deferred" | "modified" | null>(null);
 
   if (!hasAccess) {
     return null;
@@ -47,6 +61,46 @@ export function AIDashboardPanel({
             <p className="text-sm text-base-content/60 mt-1">{description}</p>
           )}
         </div>
+        {(onReject || onDefer || onModify) && suggestionId && (
+          <div className="flex gap-2">
+            {onReject && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => {
+                  setPendingAction("rejected");
+                  setShowFeedbackModal(true);
+                }}
+                title="Reject suggestion"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            )}
+            {onDefer && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => {
+                  setPendingAction("deferred");
+                  setShowFeedbackModal(true);
+                }}
+                title="Defer suggestion"
+              >
+                <span className="material-symbols-outlined text-sm">schedule</span>
+              </button>
+            )}
+            {onModify && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={() => {
+                  setPendingAction("modified");
+                  setShowFeedbackModal(true);
+                }}
+                title="Modify suggestion"
+              >
+                <span className="material-symbols-outlined text-sm">edit</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <AIServiceFallback
@@ -90,6 +144,31 @@ export function AIDashboardPanel({
           )
         )}
       </AIServiceFallback>
+
+      {/* AI Feedback Modal */}
+      {suggestionId && (
+        <AIFeedbackModal
+          isOpen={showFeedbackModal}
+          onClose={() => {
+            setShowFeedbackModal(false);
+            setPendingAction(null);
+          }}
+          serviceId={serviceId}
+          suggestionId={suggestionId}
+          suggestionContext={suggestionContext}
+          onFeedbackSubmitted={() => {
+            // Execute the pending action after feedback is submitted
+            if (pendingAction === "rejected" && onReject) {
+              onReject();
+            } else if (pendingAction === "deferred" && onDefer) {
+              onDefer();
+            } else if (pendingAction === "modified" && onModify) {
+              onModify();
+            }
+            setPendingAction(null);
+          }}
+        />
+      )}
     </div>
   );
 }

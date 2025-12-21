@@ -43,6 +43,8 @@ export const ADMIN_ROUTES = {
   HELP: '/admin/help',
   SOPS: '/admin/sops',
   NOTIFICATIONS: '/admin/notifications',
+  DOCK_MANAGEMENT: '/admin/dock-management',
+  LABOR_PRODUCTIVITY: '/admin/labor-productivity',
 } as const;
 
 export type AdminRoute = typeof ADMIN_ROUTES[keyof typeof ADMIN_ROUTES];
@@ -77,6 +79,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SOPS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
   },
   warehouse_manager: {
     // Warehouse Manager: Operational focus - day-to-day warehouse operations
@@ -105,6 +109,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // No access for warehouse manager
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
   },
   procurement_manager: {
     // Procurement Manager: focused on suppliers, orders, and inventory management
@@ -132,6 +138,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for procurement manager
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for procurement manager
   },
 };
 

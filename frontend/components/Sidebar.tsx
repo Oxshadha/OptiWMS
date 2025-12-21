@@ -33,6 +33,8 @@ const allNavItems = [
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/products", label: "Products", icon: "category" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
+  { href: "/admin/dock-management", label: "Dock Management", icon: "warehouse" },
+  { href: "/admin/labor-productivity", label: "Labor Productivity", icon: "trending_up" },
   {
     href: "/admin/staff",
     label: "Staff",
