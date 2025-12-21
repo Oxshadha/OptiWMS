@@ -1,5 +1,5 @@
 "use client";
-import { SummaryCards } from "@/components/SummaryCards";
+import { KpiTile } from "@/components/KpiTile";
 import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
@@ -17,68 +17,23 @@ import {
   Line,
   YAxis,
   CartesianGrid,
-  Legend,
 } from "recharts";
 
 const ordersData = [
-  { day: "Mon", value: 42 },
-  { day: "Tue", value: 55 },
-  { day: "Wed", value: 48 },
-  { day: "Thu", value: 60 },
-  { day: "Fri", value: 50 },
-  { day: "Sat", value: 44 },
-  { day: "Sun", value: 38 },
+  { day: "25", value: 42 },
+  { day: "26", value: 55 },
+  { day: "27", value: 48 },
+  { day: "28", value: 60 },
+  { day: "29", value: 50 },
+  { day: "30", value: 44 },
 ];
 
 const summaryData = [
-  { name: "Completed", value: 72, color: "#CF0F47" },
-  { name: "Pending", value: 18, color: "#F59E0B" },
-  { name: "Processing", value: 10, color: "#3B82F6" },
+  { name: "Completed", value: 72 },
+  { name: "Remaining", value: 28 },
 ];
 
-const inventoryTrendData = [
-  { month: "Jan", received: 4200, shipped: 2800 },
-  { month: "Feb", received: 4500, shipped: 3000 },
-  { month: "Mar", received: 4800, shipped: 3200 },
-  { month: "Apr", received: 4100, shipped: 2900 },
-  { month: "May", received: 4600, shipped: 3100 },
-  { month: "Jun", received: 4400, shipped: 3000 },
-];
-
-const topProducts = [
-  {
-    name: "Wireless Earbuds",
-    sku: "SKU-1001",
-    icon: "headphones",
-    color: "primary",
-    units: 240,
-    trend: "+12%",
-  },
-  {
-    name: "Smart Projector",
-    sku: "SKU-1002",
-    icon: "tv",
-    color: "info",
-    units: 198,
-    trend: "+8%",
-  },
-  {
-    name: "Smart Mug",
-    sku: "SKU-1003",
-    icon: "coffee",
-    color: "success",
-    units: 156,
-    trend: "+15%",
-  },
-  {
-    name: "Instant Pot",
-    sku: "SKU-1004",
-    icon: "cooking",
-    color: "warning",
-    units: 142,
-    trend: "+5%",
-  },
-];
+const COLORS = ["#CF0F47", "#E5E7EB"];
 
 export default function DashboardPage() {
   const { role, admin } = useAdmin();
@@ -86,366 +41,260 @@ export default function DashboardPage() {
   const isProcurementManager = role === "procurement_manager";
   const isAdmin = role === "admin";
 
-  const kpiCards = [
-    {
-      label: "Total Orders",
-      value: "156",
-      icon: "inventory_2",
-      color: "primary" as const,
-    },
-    {
-      label: "Orders This Week",
-      value: "89",
-      icon: "trending_up",
-      color: "success" as const,
-    },
-    {
-      label: "Pending Tasks",
-      value: "23",
-      icon: "pending_actions",
-      color: "warning" as const,
-    },
-    {
-      label: "Anomalies",
-      value: "4",
-      icon: "warning",
-      color: "error" as const,
-    },
-  ];
-
-  const inventoryCards = [
-    {
-      label: "Orders Received",
-      value: "4,236",
-      icon: "inventory_2",
-      color: "success" as const,
-    },
-    {
-      label: "Orders Shipped",
-      value: "2,778",
-      icon: "local_shipping",
-      color: "info" as const,
-    },
-    {
-      label: "Orders Returned",
-      value: "147",
-      icon: "assignment_return",
-      color: "warning" as const,
-    },
-    {
-      label: "Orders Canceled",
-      value: "537",
-      icon: "cancel",
-      color: "error" as const,
-    },
-  ];
-
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-base-content">Dashboard</h1>
-          <p className="text-base text-base-content/70 mt-2">
+          <h1 className="text-3xl font-bold text-base-content">Dashboard</h1>
+          <p className="text-sm text-base-content/60 mt-1">
             Welcome back{admin?.name ? `, ${admin.name}` : ""}! Here's what's
             happening today.
           </p>
         </div>
         {/* AI Services Status Indicator */}
-        <div className="flex items-center gap-3 px-4 py-2 bg-base-200 rounded-lg">
-          <span className="text-sm font-medium text-base-content/70">
-            AI Services:
-          </span>
-          <div className="flex items-center gap-2">
-            <AIServiceStatus
-              serviceId={AI_SERVICES.DEMAND_FORECASTING}
-              size="sm"
-            />
-            <AIServiceStatus
-              serviceId={AI_SERVICES.ANOMALY_DETECTION}
-              size="sm"
-            />
-          </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-base-content/60">AI Services:</span>
+          <AIServiceStatus
+            serviceId={AI_SERVICES.DEMAND_FORECASTING}
+            size="sm"
+          />
+          <AIServiceStatus
+            serviceId={AI_SERVICES.ANOMALY_DETECTION}
+            size="sm"
+          />
         </div>
       </div>
 
-      {/* Key Performance Indicators */}
-      <div>
-        <h2 className="text-xl font-semibold text-base-content mb-4">
-          Key Performance Indicators
-        </h2>
-        <SummaryCards cards={kpiCards} columns={4} />
-      </div>
-
-      {/* Charts Section */}
+      {/* Main Stats Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Orders Chart */}
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-base-content">
-                Weekly Orders
-              </h3>
-              <p className="text-sm text-base-content/60 mt-1">
-                Orders processed this week
-              </p>
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm text-base-content/70 font-medium">
+              Orders This Month
             </div>
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary text-xl">
-                bar_chart
-              </span>
+            <span className="material-symbols-outlined text-primary">
+              inventory_2
+            </span>
+          </div>
+          <div className="text-4xl font-bold text-base-content mb-2">156</div>
+          <div className="text-sm text-base-content/60">
+            Orders processed this month
+          </div>
+          <div className="mt-4 pt-4 border-t border-base-200">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-success font-semibold">+12.5%</span>
+              <span className="text-base-content/60">vs last month</span>
             </div>
           </div>
-          <div className="h-48">
+        </div>
+
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm text-base-content/70 font-medium">
+              Order Statistics
+            </div>
+            <span className="material-symbols-outlined text-info">
+              bar_chart
+            </span>
+          </div>
+          <div className="h-40">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={ordersData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis
                   dataKey="day"
                   tickLine={false}
                   axisLine={false}
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
+                  tick={{ fontSize: 12 }}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "#fff",
-                    border: "1px solid #E5E7EB",
+                    border: "1px solid #e5e7eb",
                     borderRadius: "8px",
-                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                   }}
                 />
-                <Bar
-                  dataKey="value"
-                  radius={[8, 8, 0, 0]}
-                  fill="#CF0F47"
-                  opacity={0.9}
-                />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#CF0F47" />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Order Status Pie Chart */}
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-base-content">
-                Order Status
-              </h3>
-              <p className="text-sm text-base-content/60 mt-1">
-                Current order distribution
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-success/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-success text-xl">
-                pie_chart
-              </span>
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-sm text-base-content/70 font-medium">
+              Order Summary
             </div>
           </div>
-          <div className="h-48 flex items-center justify-center relative">
+          <div className="h-40 flex items-center justify-center relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
                   data={summaryData}
                   dataKey="value"
-                  innerRadius={45}
-                  outerRadius={75}
-                  paddingAngle={3}
-                  startAngle={90}
-                  endAngle={-270}
+                  innerRadius={50}
+                  outerRadius={70}
+                  startAngle={180}
+                  endAngle={0}
+                  paddingAngle={2}
                 >
                   {summaryData.map((entry, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill={entry.color}
-                      stroke="#fff"
-                      strokeWidth={2}
+                      fill={COLORS[index % COLORS.length]}
                     />
                   ))}
                 </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "8px",
-                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                  }}
-                />
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-center">
-              <div className="text-2xl font-bold text-base-content">156</div>
-              <div className="text-xs text-base-content/60">Total Orders</div>
+            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+              <div className="text-success font-semibold text-lg">42%</div>
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-base-200">
-            <div className="flex justify-around text-xs">
-              {summaryData.map((item, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: item.color }}
-                  ></div>
-                  <span className="text-base-content/70">{item.name}</span>
-                  <span className="font-semibold text-base-content">
-                    {item.value}%
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Inventory Trend */}
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-lg font-semibold text-base-content">
-                Inventory Trend
-              </h3>
-              <p className="text-sm text-base-content/60 mt-1">
-                Last 6 months overview
-              </p>
-            </div>
-            <div className="w-12 h-12 bg-info/10 rounded-lg flex items-center justify-center">
-              <span className="material-symbols-outlined text-info text-xl">
-                trending_up
-              </span>
-            </div>
-          </div>
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={inventoryTrendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
-                <XAxis
-                  dataKey="month"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                />
-                <YAxis
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12, fill: "#6B7280" }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #E5E7EB",
-                    borderRadius: "8px",
-                    boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                  }}
-                />
-                <Legend
-                  wrapperStyle={{ fontSize: "12px", paddingTop: "10px" }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="received"
-                  stroke="#10B981"
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  name="Received"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="shipped"
-                  stroke="#3B82F6"
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  name="Shipped"
-                />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="text-center font-semibold text-lg mt-2">156</div>
+          <div className="text-center text-sm text-base-content/60">
+            Orders Completed
           </div>
         </div>
       </div>
 
       {/* Inventory Overview and Top Products */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Inventory Overview */}
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow lg:col-span-2">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 lg:col-span-2">
           <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="text-xl font-semibold text-base-content">
-                Inventory Overview
-              </h3>
-              <p className="text-sm text-base-content/60 mt-1">
-                Key inventory metrics at a glance
-              </p>
-            </div>
-            <button className="btn btn-ghost btn-sm btn-circle">
+            <h3 className="text-xl font-bold text-base-content">
+              Inventory Overview
+            </h3>
+            <button className="btn btn-ghost btn-sm">
               <span className="material-symbols-outlined">more_vert</span>
             </button>
           </div>
-          <SummaryCards cards={inventoryCards} columns={4} />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-success mb-2 block">
+                inventory_2
+              </span>
+              <div className="text-xs text-success font-semibold mb-1">
+                26% ↑
+              </div>
+              <div className="text-2xl font-bold text-base-content">4,236</div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Orders Received
+              </div>
+            </div>
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-error mb-2 block">
+                local_shipping
+              </span>
+              <div className="text-xs text-error font-semibold mb-1">20% ↓</div>
+              <div className="text-2xl font-bold text-base-content">2,778</div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Orders Shipped
+              </div>
+            </div>
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
+                assignment_return
+              </span>
+              <div className="text-xs text-error font-semibold mb-1">8% ↓</div>
+              <div className="text-2xl font-bold text-base-content">147</div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Orders Returned
+              </div>
+            </div>
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
+                cancel
+              </span>
+              <div className="text-xs text-success font-semibold mb-1">
+                6% ↑
+              </div>
+              <div className="text-2xl font-bold text-base-content">537</div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Orders Canceled
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Top Selling Products */}
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="text-xl font-semibold text-base-content">
-                Top Products
-              </h3>
-              <p className="text-sm text-base-content/60 mt-1">
-                Best selling items this month
-              </p>
-            </div>
-            <button className="btn btn-ghost btn-sm btn-circle">
+            <h3 className="text-xl font-bold text-base-content">
+              Top Selling Products
+            </h3>
+            <button className="btn btn-ghost btn-sm">
               <span className="material-symbols-outlined">more_vert</span>
             </button>
           </div>
-          <ul className="space-y-3">
-            {topProducts.map((product, index) => {
-              const colorClasses: Record<string, { bg: string; text: string }> = {
-                primary: { bg: "bg-primary/10", text: "text-primary" },
-                info: { bg: "bg-info/10", text: "text-info" },
-                success: { bg: "bg-success/10", text: "text-success" },
-                warning: { bg: "bg-warning/10", text: "text-warning" },
-              };
-              const colors = colorClasses[product.color] || colorClasses.primary;
-
-              return (
-                <li
-                  key={index}
-                  className="flex items-center justify-between p-3 bg-base-200 rounded-lg hover:bg-base-300 transition-colors"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div
-                      className={`w-12 h-12 ${colors.bg} rounded-lg flex items-center justify-center flex-shrink-0`}
-                    >
-                      <span
-                        className={`material-symbols-outlined ${colors.text} text-xl`}
-                      >
-                        {product.icon}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-base-content truncate">
-                        {product.name}
-                      </div>
-                      <div className="text-xs text-base-content/60">
-                        {product.sku}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right ml-3">
-                    <div className="font-bold text-base-content">
-                      {product.units}
-                    </div>
-                    <div className="text-xs text-success font-medium">
-                      {product.trend}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
+          <ul className="space-y-4">
+            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-primary">
+                    headphones
+                  </span>
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Wireless Earbuds</div>
+                  <div className="text-xs text-base-content/60">SKU-1001</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-bold text-base-content">240</div>
+                <div className="text-xs text-base-content/60">units sold</div>
+              </div>
+            </li>
+            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-info/10 rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-info">
+                    tv
+                  </span>
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Smart Projector</div>
+                  <div className="text-xs text-base-content/60">SKU-1002</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-bold text-base-content">198</div>
+                <div className="text-xs text-base-content/60">units sold</div>
+              </div>
+            </li>
+            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-success">
+                    coffee
+                  </span>
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Smart Mug</div>
+                  <div className="text-xs text-base-content/60">SKU-1003</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-bold text-base-content">156</div>
+                <div className="text-xs text-base-content/60">units sold</div>
+              </div>
+            </li>
+            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center">
+                  <span className="material-symbols-outlined text-warning">
+                    cooking
+                  </span>
+                </div>
+                <div>
+                  <div className="font-semibold text-sm">Instant Pot</div>
+                  <div className="text-xs text-base-content/60">SKU-1004</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-bold text-base-content">142</div>
+                <div className="text-xs text-base-content/60">units sold</div>
+              </div>
+            </li>
           </ul>
         </div>
       </div>
@@ -454,7 +303,7 @@ export default function DashboardPage() {
       {(isWarehouseManager || isProcurementManager || isAdmin) && (
         <div className="space-y-6">
           <div className="divider">
-            <span className="text-xl font-semibold text-base-content">
+            <span className="text-lg font-semibold">
               AI Insights & Recommendations
             </span>
           </div>
@@ -619,5 +468,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-
-

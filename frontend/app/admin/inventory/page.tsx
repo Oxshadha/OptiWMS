@@ -5,24 +5,70 @@ import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Area,
-  AreaChart,
 } from "recharts";
 
 const inventory = [
-  { sku: "SKU-1001", name: "Wireless Earbuds", qty: 240, location: "A1", status: "Available", category: "Electronics", warehouseName: "Warehouse 1" },
-  { sku: "SKU-1002", name: "Smart Projector", qty: 56, location: "B3", status: "Available", category: "Electronics", warehouseName: "Warehouse 1" },
-  { sku: "SKU-1003", name: "Smart Mug", qty: 18, location: "C2", status: "Low", category: "Home", warehouseName: "Warehouse 1" },
-  { sku: "SKU-1004", name: "Instant Pot", qty: 90, location: "D4", status: "Available", category: "Appliances", warehouseName: "Warehouse 1" },
-  { sku: "SKU-1005", name: "Yoga Mat", qty: 5, location: "E1", status: "Out of Stock", category: "Sports", warehouseName: "Warehouse 2" },
-  { sku: "SKU-1006", name: "Bluetooth Speaker", qty: 120, location: "A5", status: "Available", category: "Electronics", warehouseName: "Warehouse 2" },
+  {
+    sku: "SKU-1001",
+    name: "Wireless Earbuds",
+    qty: 240,
+    location: "A1",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1002",
+    name: "Smart Projector",
+    qty: 56,
+    location: "B3",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1003",
+    name: "Smart Mug",
+    qty: 18,
+    location: "C2",
+    status: "Low",
+    category: "Home",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1004",
+    name: "Instant Pot",
+    qty: 90,
+    location: "D4",
+    status: "Available",
+    category: "Appliances",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1005",
+    name: "Yoga Mat",
+    qty: 5,
+    location: "E1",
+    status: "Out of Stock",
+    category: "Sports",
+    warehouseName: "Warehouse 2",
+  },
+  {
+    sku: "SKU-1006",
+    name: "Bluetooth Speaker",
+    qty: 120,
+    location: "A5",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 2",
+  },
 ];
 
 const statusClass = (s: string) => {
@@ -44,20 +90,26 @@ export default function InventoryPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
+  const [sortBy, setSortBy] = useState<
+    "name" | "sku" | "qty" | "location" | null
+  >(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedItem, setSelectedItem] = useState<typeof inventory[0] | null>(null);
+  const [selectedItem, setSelectedItem] = useState<
+    (typeof inventory)[0] | null
+  >(null);
 
   // Filter inventory by warehouse for warehouse managers
-  const inventoryForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? inventory.filter((item) => item.warehouseName === assignedWarehouseName)
-    : inventory;
+  const inventoryForWarehouse =
+    isWarehouseManager && assignedWarehouseName
+      ? inventory.filter((item) => item.warehouseName === assignedWarehouseName)
+      : inventory;
 
-  let filteredInventory = inventoryForWarehouse.filter(item => {
-    const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+  let filteredInventory = inventoryForWarehouse.filter((item) => {
+    const matchesCategory =
+      activeCategory === "All" || item.category === activeCategory;
     const query = searchQuery.trim().toLowerCase();
     if (!query) return matchesCategory;
-    const matchesSearch = 
+    const matchesSearch =
       item.name.toLowerCase().includes(query) ||
       item.sku.toLowerCase().includes(query) ||
       item.location.toLowerCase().includes(query) ||
@@ -85,9 +137,16 @@ export default function InventoryPage() {
     });
   }
 
-  const totalItems = inventoryForWarehouse.reduce((sum, item) => sum + item.qty, 0);
-  const lowStockItems = inventoryForWarehouse.filter(item => item.status === "Low" || item.status === "Out of Stock").length;
-  const availableItems = inventoryForWarehouse.filter(item => item.status === "Available").length;
+  const totalItems = inventoryForWarehouse.reduce(
+    (sum, item) => sum + item.qty,
+    0
+  );
+  const lowStockItems = inventoryForWarehouse.filter(
+    (item) => item.status === "Low" || item.status === "Out of Stock"
+  ).length;
+  const availableItems = inventoryForWarehouse.filter(
+    (item) => item.status === "Available"
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -105,35 +164,72 @@ export default function InventoryPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => {
-                  setSortBy("name");
-                  setSortDirection(sortBy === "name" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Name {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("name");
+                    setSortDirection(
+                      sortBy === "name" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Name{" "}
+                  {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("sku");
-                  setSortDirection(sortBy === "sku" && sortDirection === "asc" ? "desc" : "asc");
-                }}>SKU {sortBy === "sku" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("sku");
+                    setSortDirection(
+                      sortBy === "sku" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  SKU{" "}
+                  {sortBy === "sku" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("qty");
-                  setSortDirection(sortBy === "qty" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Quantity {sortBy === "qty" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("qty");
+                    setSortDirection(
+                      sortBy === "qty" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Quantity{" "}
+                  {sortBy === "qty" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("location");
-                  setSortDirection(sortBy === "location" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Location {sortBy === "location" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("location");
+                    setSortDirection(
+                      sortBy === "location" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Location{" "}
+                  {sortBy === "location" &&
+                    (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
                 <button onClick={() => setSortBy(null)}>Clear Sort</button>
               </li>
             </ul>
           </div>
-          <button 
+          <button
             className="btn btn-sm btn-primary"
             onClick={() => setShowAddModal(true)}
           >
@@ -149,36 +245,52 @@ export default function InventoryPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Total Items</div>
-              <div className="text-2xl font-bold text-base-content">{totalItems.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {totalItems.toLocaleString()}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-primary">inventory</span>
+            <span className="material-symbols-outlined text-3xl text-primary">
+              inventory
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Available</div>
-              <div className="text-2xl font-bold text-success">{availableItems}</div>
+              <div className="text-2xl font-bold text-success">
+                {availableItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-success">check_circle</span>
+            <span className="material-symbols-outlined text-3xl text-success">
+              check_circle
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Low Stock</div>
-              <div className="text-2xl font-bold text-warning">{lowStockItems}</div>
+              <div className="text-2xl font-bold text-warning">
+                {lowStockItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-warning">warning</span>
+            <span className="material-symbols-outlined text-3xl text-warning">
+              warning
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Categories</div>
-              <div className="text-2xl font-bold text-base-content">{categories.length - 1}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {categories.length - 1}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">category</span>
+            <span className="material-symbols-outlined text-3xl text-info">
+              category
+            </span>
           </div>
         </div>
       </div>
@@ -187,7 +299,9 @@ export default function InventoryPage() {
       <div className="flex gap-4 items-center">
         <div className="flex-1">
           <label className="input input-bordered flex items-center gap-2 w-full">
-            <span className="material-symbols-outlined text-base-content/60">search</span>
+            <span className="material-symbols-outlined text-base-content/60">
+              search
+            </span>
             <input
               type="text"
               className="grow"
@@ -247,9 +361,13 @@ export default function InventoryPage() {
                   </td>
                   <td>{item.name}</td>
                   <td>
-                    <span 
-                      className="badge text-xs whitespace-nowrap" 
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+                    <span
+                      className="badge text-xs whitespace-nowrap"
+                      style={{
+                        backgroundColor: "#EEEEEE",
+                        color: "#1F2937",
+                        border: "1px solid #E5E7EB",
+                      }}
                     >
                       {item.category}
                     </span>
@@ -259,29 +377,35 @@ export default function InventoryPage() {
                     <span className="badge badge-ghost">{item.location}</span>
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
+                    <span className={`badge ${statusClass(item.status)}`}>
+                      {item.status}
+                    </span>
                   </td>
                   <td>
                     <div className="flex gap-2">
-                      <button 
-                        className="btn btn-ghost btn-xs" 
+                      <button
+                        className="btn btn-ghost btn-xs"
                         title="View"
                         onClick={() => {
                           setSelectedItem(item);
                           setShowDetailModal(true);
                         }}
                       >
-                        <span className="material-symbols-outlined text-sm">visibility</span>
+                        <span className="material-symbols-outlined text-sm">
+                          visibility
+                        </span>
                       </button>
-                      <button 
-                        className="btn btn-ghost btn-xs" 
+                      <button
+                        className="btn btn-ghost btn-xs"
                         title="Edit"
                         onClick={() => {
                           setSelectedItem(item);
                           setShowEditModal(true);
                         }}
                       >
-                        <span className="material-symbols-outlined text-sm">edit</span>
+                        <span className="material-symbols-outlined text-sm">
+                          edit
+                        </span>
                       </button>
                     </div>
                   </td>
@@ -292,9 +416,15 @@ export default function InventoryPage() {
         </div>
         {filteredInventory.length === 0 && (
           <div className="p-12 text-center">
-            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">inventory_2</span>
-            <h3 className="text-lg font-semibold text-base-content mb-2">No items found</h3>
-            <p className="text-sm text-base-content/60">Try adjusting your search or filters</p>
+            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
+              inventory_2
+            </span>
+            <h3 className="text-lg font-semibold text-base-content mb-2">
+              No items found
+            </h3>
+            <p className="text-sm text-base-content/60">
+              Try adjusting your search or filters
+            </p>
           </div>
         )}
       </div>
@@ -333,7 +463,13 @@ export default function InventoryPage() {
 }
 
 // Add Inventory Item Modal
-function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function AddInventoryItemModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
   const [formData, setFormData] = useState({
     sku: "",
     name: "",
@@ -360,7 +496,12 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   };
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title="Add Inventory Item" size="md">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Inventory Item"
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="form-control">
           <label className="label">
@@ -393,7 +534,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
           <select
             className="select select-bordered w-full"
             value={formData.category}
-            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, category: e.target.value })
+            }
             required
           >
             <option value="">Select category</option>
@@ -412,7 +555,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
               type="number"
               className="input input-bordered w-full"
               value={formData.qty}
-              onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, qty: e.target.value })
+              }
               required
             />
           </div>
@@ -424,7 +569,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
               type="text"
               className="input input-bordered w-full"
               value={formData.location}
-              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, location: e.target.value })
+              }
             />
           </div>
         </div>
@@ -435,7 +582,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
           <select
             className="select select-bordered w-full"
             value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, status: e.target.value })
+            }
           >
             <option value="Available">Available</option>
             <option value="Low">Low</option>
@@ -465,14 +614,20 @@ function generateInventoryHistory(currentQty: number, days: number = 30) {
   for (let i = days; i >= 0; i--) {
     const date = new Date(today);
     date.setDate(date.getDate() - i);
-    
+
     // Simulate realistic inventory fluctuations
     // Add some randomness but keep it trending around current quantity
     const variation = Math.floor(Math.random() * 20) - 10; // -10 to +10 variation
-    qty = Math.max(0, currentQty + variation + Math.floor(Math.random() * 15) - 7);
-    
+    qty = Math.max(
+      0,
+      currentQty + variation + Math.floor(Math.random() * 15) - 7
+    );
+
     data.push({
-      date: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      date: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
       quantity: qty,
       fullDate: date.toISOString().split("T")[0],
     });
@@ -489,18 +644,21 @@ function InventoryItemDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: typeof inventory[0];
+  item: (typeof inventory)[0];
 }) {
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
-  
+
   const daysMap = {
     "7d": 7,
     "30d": 30,
     "90d": 90,
   };
 
-  const inventoryHistory = generateInventoryHistory(item.qty, daysMap[timeRange]);
-  
+  const inventoryHistory = generateInventoryHistory(
+    item.qty,
+    daysMap[timeRange]
+  );
+
   // Calculate statistics
   const minQty = Math.min(...inventoryHistory.map((d) => d.quantity));
   const maxQty = Math.max(...inventoryHistory.map((d) => d.quantity));
@@ -516,6 +674,9 @@ function InventoryItemDetailModal({
         inventoryHistory[0].quantity
       ? "down"
       : "stable";
+  const change =
+    inventoryHistory[inventoryHistory.length - 1].quantity -
+    inventoryHistory[0].quantity;
 
   return (
     <DetailModal
@@ -555,7 +716,9 @@ function InventoryItemDetailModal({
               </p>
             </div>
             <div>
-              <label className="text-sm text-base-content/60">Current Quantity</label>
+              <label className="text-sm text-base-content/60">
+                Current Quantity
+              </label>
               <p className="font-semibold text-lg">{item.qty} units</p>
             </div>
             <div>
@@ -591,18 +754,20 @@ function InventoryItemDetailModal({
                   onClick={() => setTimeRange(range)}
                   className={clsx(
                     "btn btn-sm",
-                    timeRange === range
-                      ? "btn-primary"
-                      : "btn-ghost"
+                    timeRange === range ? "btn-primary" : "btn-ghost"
                   )}
                 >
-                  {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
+                  {range === "7d"
+                    ? "7 Days"
+                    : range === "30d"
+                    ? "30 Days"
+                    : "90 Days"}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Statistics Cards */}
+          {/* Statistics Dashboard */}
           <div className="grid grid-cols-4 gap-3 mb-4">
             <div className="bg-base-200 rounded-lg p-3">
               <div className="text-xs text-base-content/60 mb-1">Current</div>
@@ -612,7 +777,9 @@ function InventoryItemDetailModal({
             </div>
             <div className="bg-base-200 rounded-lg p-3">
               <div className="text-xs text-base-content/60 mb-1">Average</div>
-              <div className="text-lg font-bold text-base-content">{avgQty}</div>
+              <div className="text-lg font-bold text-base-content">
+                {avgQty}
+              </div>
             </div>
             <div className="bg-base-200 rounded-lg p-3">
               <div className="text-xs text-base-content/60 mb-1">Minimum</div>
@@ -624,13 +791,19 @@ function InventoryItemDetailModal({
             </div>
           </div>
 
-          {/* Chart */}
+          {/* Time-Based Inventory Chart */}
           <div className="bg-base-200 rounded-lg p-4">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={inventoryHistory}>
                   <defs>
-                    <linearGradient id="colorQuantity" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient
+                      id="colorQuantity"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
                       <stop offset="5%" stopColor="#CF0F47" stopOpacity={0.3} />
                       <stop offset="95%" stopColor="#CF0F47" stopOpacity={0} />
                     </linearGradient>
@@ -660,7 +833,10 @@ function InventoryItemDetailModal({
                       boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                     }}
                     labelFormatter={(label) => `Date: ${label}`}
-                    formatter={(value: number) => [`${value} units`, "Quantity"]}
+                    formatter={(value: number) => [
+                      `${value} units`,
+                      "Quantity",
+                    ]}
                   />
                   <Area
                     type="monotone"
@@ -676,7 +852,7 @@ function InventoryItemDetailModal({
             </div>
           </div>
 
-          {/* Trend Indicator */}
+          {/* Trend Analysis */}
           <div className="mt-4 flex items-center gap-2 text-sm">
             <span className="text-base-content/60">Trend:</span>
             {trend === "up" && (
@@ -704,15 +880,8 @@ function InventoryItemDetailModal({
               </>
             )}
             <span className="text-base-content/60 ml-4">
-              Change:{" "}
-              {inventoryHistory[inventoryHistory.length - 1].quantity -
-                inventoryHistory[0].quantity >
-              0
-                ? "+"
-                : ""}
-              {inventoryHistory[inventoryHistory.length - 1].quantity -
-                inventoryHistory[0].quantity}{" "}
-              units
+              Change: {change > 0 ? "+" : ""}
+              {change} units
             </span>
           </div>
         </div>
@@ -722,9 +891,7 @@ function InventoryItemDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
-            Edit Item
-          </button>
+          <button className="btn btn-primary">Edit Item</button>
         </div>
       </div>
     </DetailModal>
@@ -739,7 +906,7 @@ function EditInventoryItemModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: typeof inventory[0];
+  item: (typeof inventory)[0];
 }) {
   const [formData, setFormData] = useState({
     qty: item.qty.toString(),
@@ -755,7 +922,12 @@ function EditInventoryItemModal({
   };
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Edit Inventory: ${item.sku}`} size="md">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Edit Inventory: ${item.sku}`}
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="form-control">
           <label className="label">
@@ -799,7 +971,9 @@ function EditInventoryItemModal({
             type="text"
             className="input input-bordered w-full"
             value={formData.location}
-            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, location: e.target.value })
+            }
           />
         </div>
         <div className="form-control">
@@ -809,7 +983,9 @@ function EditInventoryItemModal({
           <select
             className="select select-bordered w-full"
             value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, status: e.target.value })
+            }
           >
             <option value="Available">Available</option>
             <option value="Low">Low</option>
