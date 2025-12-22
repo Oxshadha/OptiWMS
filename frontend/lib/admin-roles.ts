@@ -8,7 +8,7 @@
 /**
  * Admin role types
  */
-export type AdminRole = 'admin' | 'warehouse_manager' | 'procurement_manager';
+export type AdminRole = 'admin' | 'warehouse_manager' | 'inbound_coordinator';
 
 /**
  * Permission types for granular access control
@@ -42,6 +42,9 @@ export const ADMIN_ROUTES = {
   DASHBOARD_SETTINGS: '/admin/dashboard-settings',
   HELP: '/admin/help',
   SOPS: '/admin/sops',
+  NOTIFICATIONS: '/admin/notifications',
+  DOCK_MANAGEMENT: '/admin/dock-management',
+  LABOR_PRODUCTIVITY: '/admin/labor-productivity',
 } as const;
 
 export type AdminRoute = typeof ADMIN_ROUTES[keyof typeof ADMIN_ROUTES];
@@ -75,35 +78,42 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.HELP]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SOPS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
   },
   warehouse_manager: {
-    // Warehouse Manager: view-only on system management, full access on operational, approve on returns/suppliers
+    // Warehouse Manager: Operational focus - day-to-day warehouse operations
+    // Cannot: Change system settings, modify user permissions, alter integrations, delete delivery partners
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only
-    [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
-    [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
-    [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
-    [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.CYCLE_COUNTS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.STOCK_TRANSFERS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.PACKING]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.QUALITY_CHECKS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.RETURNS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve returns
-    [ADMIN_ROUTES.ANOMALIES]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.CUSTOMERS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.REPORTS]: new Set(['view', 'create', 'edit']),
-    [ADMIN_ROUTES.SETTINGS]: new Set([]), // No access
-    [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only - cannot modify warehouse configurations
+    [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']), // Review, prioritize, manage workflows
+    [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']), // Manage shipping workflows
+    [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']), // Cannot delete
+    [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']), // View, initiate cycle counts, approve adjustments
+    [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']), // Operational product management
+    [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO, cannot delete (no delete permission)
+    [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only - cannot modify user accounts
+    [ADMIN_ROUTES.ADMINS]: new Set([]), // No access - cannot modify user permissions
+    [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']), // Assign tasks to staff
+    [ADMIN_ROUTES.CYCLE_COUNTS]: new Set(['view', 'create', 'edit']), // Initiate and manage cycle counts
+    [ADMIN_ROUTES.STOCK_TRANSFERS]: new Set(['view', 'create', 'edit']), // Manage stock transfers
+    [ADMIN_ROUTES.PACKING]: new Set(['view', 'create', 'edit']), // Manage packing workflows
+    [ADMIN_ROUTES.QUALITY_CHECKS]: new Set(['view', 'create', 'edit']), // Review quality metrics, approve/reject shipments
+    [ADMIN_ROUTES.RETURNS]: new Set(['view', 'create', 'edit', 'approve']), // Approve returns, handle exceptions
+    [ADMIN_ROUTES.ANOMALIES]: new Set(['view', 'create', 'edit']), // Resolve discrepancies
+    [ADMIN_ROUTES.CUSTOMERS]: new Set(['view', 'create', 'edit']), // Operational customer management
+    [ADMIN_ROUTES.REPORTS]: new Set(['view', 'create', 'edit']), // Generate performance reports, view KPIs
+    [ADMIN_ROUTES.SETTINGS]: new Set([]), // No access - cannot change system settings
+    [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']), // Limited configuration - dashboard only
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // No access for warehouse manager
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
   },
-  procurement_manager: {
-    // Procurement Manager: focused on suppliers, orders, and inventory management
+  inbound_coordinator: {
+    // Inbound Coordinator: focused on inbound receipt coordination, dock scheduling, and ERP integration
     [ADMIN_ROUTES.DASHBOARD]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.WAREHOUSES]: new Set(['view']), // View only
     [ADMIN_ROUTES.ORDERS]: new Set(['view', 'create', 'edit']),
@@ -127,6 +137,9 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DASHBOARD_SETTINGS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
+    [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for inbound coordinator
+    [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
   },
 };
 
@@ -136,7 +149,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
 export const ROLE_DISPLAY_NAMES: Record<AdminRole, string> = {
   admin: 'System Administrator',
   warehouse_manager: 'Warehouse Manager',
-  procurement_manager: 'Procurement Manager',
+  inbound_coordinator: 'Inbound Coordinator',
 };
 
 /**

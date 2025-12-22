@@ -3,14 +3,72 @@
 import { useState } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 const inventory = [
-  { sku: "SKU-1001", name: "Wireless Earbuds", qty: 240, location: "A1", status: "Available", category: "Electronics" },
-  { sku: "SKU-1002", name: "Smart Projector", qty: 56, location: "B3", status: "Available", category: "Electronics" },
-  { sku: "SKU-1003", name: "Smart Mug", qty: 18, location: "C2", status: "Low", category: "Home" },
-  { sku: "SKU-1004", name: "Instant Pot", qty: 90, location: "D4", status: "Available", category: "Appliances" },
-  { sku: "SKU-1005", name: "Yoga Mat", qty: 5, location: "E1", status: "Out of Stock", category: "Sports" },
-  { sku: "SKU-1006", name: "Bluetooth Speaker", qty: 120, location: "A5", status: "Available", category: "Electronics" },
+  {
+    sku: "SKU-1001",
+    name: "Wireless Earbuds",
+    qty: 240,
+    location: "ST-01-001-03-A",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1002",
+    name: "Smart Projector",
+    qty: 56,
+    location: "ST-01-002-04-A",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1003",
+    name: "Smart Mug",
+    qty: 18,
+    location: "ST-02-001-02-A",
+    status: "Low",
+    category: "Home",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1004",
+    name: "Instant Pot",
+    qty: 90,
+    location: "ST-02-003-05-A",
+    status: "Available",
+    category: "Appliances",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    sku: "SKU-1005",
+    name: "Yoga Mat",
+    qty: 5,
+    location: "ST-01-001-02-A",
+    status: "Out of Stock",
+    category: "Sports",
+    warehouseName: "Warehouse 2",
+  },
+  {
+    sku: "SKU-1006",
+    name: "Bluetooth Speaker",
+    qty: 120,
+    location: "ST-01-002-03-A",
+    status: "Available",
+    category: "Electronics",
+    warehouseName: "Warehouse 2",
+  },
 ];
 
 const statusClass = (s: string) => {
@@ -23,21 +81,35 @@ const statusClass = (s: string) => {
 const categories = ["All", "Electronics", "Home", "Appliances", "Sports"];
 
 export default function InventoryPage() {
+  const { admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
+  const [sortBy, setSortBy] = useState<
+    "name" | "sku" | "qty" | "location" | null
+  >(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedItem, setSelectedItem] = useState<typeof inventory[0] | null>(null);
+  const [selectedItem, setSelectedItem] = useState<
+    (typeof inventory)[0] | null
+  >(null);
 
-  let filteredInventory = inventory.filter(item => {
-    const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+  // Filter inventory by warehouse for warehouse managers
+  const inventoryForWarehouse =
+    isWarehouseManager && assignedWarehouseName
+      ? inventory.filter((item) => item.warehouseName === assignedWarehouseName)
+      : inventory;
+
+  let filteredInventory = inventoryForWarehouse.filter((item) => {
+    const matchesCategory =
+      activeCategory === "All" || item.category === activeCategory;
     const query = searchQuery.trim().toLowerCase();
     if (!query) return matchesCategory;
-    const matchesSearch = 
+    const matchesSearch =
       item.name.toLowerCase().includes(query) ||
       item.sku.toLowerCase().includes(query) ||
       item.location.toLowerCase().includes(query) ||
@@ -65,9 +137,16 @@ export default function InventoryPage() {
     });
   }
 
-  const totalItems = inventory.reduce((sum, item) => sum + item.qty, 0);
-  const lowStockItems = inventory.filter(item => item.status === "Low" || item.status === "Out of Stock").length;
-  const availableItems = inventory.filter(item => item.status === "Available").length;
+  const totalItems = inventoryForWarehouse.reduce(
+    (sum, item) => sum + item.qty,
+    0
+  );
+  const lowStockItems = inventoryForWarehouse.filter(
+    (item) => item.status === "Low" || item.status === "Out of Stock"
+  ).length;
+  const availableItems = inventoryForWarehouse.filter(
+    (item) => item.status === "Available"
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -85,35 +164,72 @@ export default function InventoryPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => {
-                  setSortBy("name");
-                  setSortDirection(sortBy === "name" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Name {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("name");
+                    setSortDirection(
+                      sortBy === "name" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Name{" "}
+                  {sortBy === "name" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("sku");
-                  setSortDirection(sortBy === "sku" && sortDirection === "asc" ? "desc" : "asc");
-                }}>SKU {sortBy === "sku" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("sku");
+                    setSortDirection(
+                      sortBy === "sku" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  SKU{" "}
+                  {sortBy === "sku" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("qty");
-                  setSortDirection(sortBy === "qty" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Quantity {sortBy === "qty" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("qty");
+                    setSortDirection(
+                      sortBy === "qty" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Quantity{" "}
+                  {sortBy === "qty" && (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
-                <button onClick={() => {
-                  setSortBy("location");
-                  setSortDirection(sortBy === "location" && sortDirection === "asc" ? "desc" : "asc");
-                }}>Location {sortBy === "location" && (sortDirection === "asc" ? "↑" : "↓")}</button>
+                <button
+                  onClick={() => {
+                    setSortBy("location");
+                    setSortDirection(
+                      sortBy === "location" && sortDirection === "asc"
+                        ? "desc"
+                        : "asc"
+                    );
+                  }}
+                >
+                  Location{" "}
+                  {sortBy === "location" &&
+                    (sortDirection === "asc" ? "↑" : "↓")}
+                </button>
               </li>
               <li>
                 <button onClick={() => setSortBy(null)}>Clear Sort</button>
               </li>
             </ul>
           </div>
-          <button 
+          <button
             className="btn btn-sm btn-primary"
             onClick={() => setShowAddModal(true)}
           >
@@ -129,36 +245,52 @@ export default function InventoryPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Total Items</div>
-              <div className="text-2xl font-bold text-base-content">{totalItems.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {totalItems.toLocaleString()}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-primary">inventory</span>
+            <span className="material-symbols-outlined text-3xl text-primary">
+              inventory
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Available</div>
-              <div className="text-2xl font-bold text-success">{availableItems}</div>
+              <div className="text-2xl font-bold text-success">
+                {availableItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-success">check_circle</span>
+            <span className="material-symbols-outlined text-3xl text-success">
+              check_circle
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Low Stock</div>
-              <div className="text-2xl font-bold text-warning">{lowStockItems}</div>
+              <div className="text-2xl font-bold text-warning">
+                {lowStockItems}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-warning">warning</span>
+            <span className="material-symbols-outlined text-3xl text-warning">
+              warning
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm text-base-content/60">Categories</div>
-              <div className="text-2xl font-bold text-base-content">{categories.length - 1}</div>
+              <div className="text-2xl font-bold text-base-content">
+                {categories.length - 1}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">category</span>
+            <span className="material-symbols-outlined text-3xl text-info">
+              category
+            </span>
           </div>
         </div>
       </div>
@@ -167,7 +299,9 @@ export default function InventoryPage() {
       <div className="flex gap-4 items-center">
         <div className="flex-1">
           <label className="input input-bordered flex items-center gap-2 w-full">
-            <span className="material-symbols-outlined text-base-content/60">search</span>
+            <span className="material-symbols-outlined text-base-content/60">
+              search
+            </span>
             <input
               type="text"
               className="grow"
@@ -227,9 +361,13 @@ export default function InventoryPage() {
                   </td>
                   <td>{item.name}</td>
                   <td>
-                    <span 
-                      className="badge text-xs whitespace-nowrap" 
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+                    <span
+                      className="badge text-xs whitespace-nowrap"
+                      style={{
+                        backgroundColor: "#EEEEEE",
+                        color: "#1F2937",
+                        border: "1px solid #E5E7EB",
+                      }}
                     >
                       {item.category}
                     </span>
@@ -239,29 +377,35 @@ export default function InventoryPage() {
                     <span className="badge badge-ghost">{item.location}</span>
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
+                    <span className={`badge ${statusClass(item.status)}`}>
+                      {item.status}
+                    </span>
                   </td>
                   <td>
                     <div className="flex gap-2">
-                      <button 
-                        className="btn btn-ghost btn-xs" 
+                      <button
+                        className="btn btn-ghost btn-xs"
                         title="View"
                         onClick={() => {
                           setSelectedItem(item);
                           setShowDetailModal(true);
                         }}
                       >
-                        <span className="material-symbols-outlined text-sm">visibility</span>
+                        <span className="material-symbols-outlined text-sm">
+                          visibility
+                        </span>
                       </button>
-                      <button 
-                        className="btn btn-ghost btn-xs" 
+                      <button
+                        className="btn btn-ghost btn-xs"
                         title="Edit"
                         onClick={() => {
                           setSelectedItem(item);
                           setShowEditModal(true);
                         }}
                       >
-                        <span className="material-symbols-outlined text-sm">edit</span>
+                        <span className="material-symbols-outlined text-sm">
+                          edit
+                        </span>
                       </button>
                     </div>
                   </td>
@@ -272,9 +416,15 @@ export default function InventoryPage() {
         </div>
         {filteredInventory.length === 0 && (
           <div className="p-12 text-center">
-            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">inventory_2</span>
-            <h3 className="text-lg font-semibold text-base-content mb-2">No items found</h3>
-            <p className="text-sm text-base-content/60">Try adjusting your search or filters</p>
+            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
+              inventory_2
+            </span>
+            <h3 className="text-lg font-semibold text-base-content mb-2">
+              No items found
+            </h3>
+            <p className="text-sm text-base-content/60">
+              Try adjusting your search or filters
+            </p>
           </div>
         )}
       </div>
@@ -313,7 +463,13 @@ export default function InventoryPage() {
 }
 
 // Add Inventory Item Modal
-function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function AddInventoryItemModal({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
   const [formData, setFormData] = useState({
     sku: "",
     name: "",
@@ -340,7 +496,12 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   };
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title="Add Inventory Item" size="md">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Add Inventory Item"
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="form-control">
           <label className="label">
@@ -373,7 +534,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
           <select
             className="select select-bordered w-full"
             value={formData.category}
-            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, category: e.target.value })
+            }
             required
           >
             <option value="">Select category</option>
@@ -392,7 +555,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
               type="number"
               className="input input-bordered w-full"
               value={formData.qty}
-              onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, qty: e.target.value })
+              }
               required
             />
           </div>
@@ -404,7 +569,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
               type="text"
               className="input input-bordered w-full"
               value={formData.location}
-              onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, location: e.target.value })
+              }
             />
           </div>
         </div>
@@ -415,7 +582,9 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
           <select
             className="select select-bordered w-full"
             value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, status: e.target.value })
+            }
           >
             <option value="Available">Available</option>
             <option value="Low">Low</option>
@@ -435,6 +604,38 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
   );
 }
 
+// Generate mock historical inventory data for an item
+function generateInventoryHistory(currentQty: number, days: number = 30) {
+  const data = [];
+  const today = new Date();
+  let qty = currentQty;
+
+  // Generate data going backwards from today
+  for (let i = days; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+
+    // Simulate realistic inventory fluctuations
+    // Add some randomness but keep it trending around current quantity
+    const variation = Math.floor(Math.random() * 20) - 10; // -10 to +10 variation
+    qty = Math.max(
+      0,
+      currentQty + variation + Math.floor(Math.random() * 15) - 7
+    );
+
+    data.push({
+      date: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      quantity: qty,
+      fullDate: date.toISOString().split("T")[0],
+    });
+  }
+
+  return data;
+}
+
 // Inventory Item Detail Modal
 function InventoryItemDetailModal({
   isOpen,
@@ -443,53 +644,254 @@ function InventoryItemDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: typeof inventory[0];
+  item: (typeof inventory)[0];
 }) {
+  const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
+
+  const daysMap = {
+    "7d": 7,
+    "30d": 30,
+    "90d": 90,
+  };
+
+  const inventoryHistory = generateInventoryHistory(
+    item.qty,
+    daysMap[timeRange]
+  );
+
+  // Calculate statistics
+  const minQty = Math.min(...inventoryHistory.map((d) => d.quantity));
+  const maxQty = Math.max(...inventoryHistory.map((d) => d.quantity));
+  const avgQty = Math.round(
+    inventoryHistory.reduce((sum, d) => sum + d.quantity, 0) /
+      inventoryHistory.length
+  );
+  const trend =
+    inventoryHistory[inventoryHistory.length - 1].quantity >
+    inventoryHistory[0].quantity
+      ? "up"
+      : inventoryHistory[inventoryHistory.length - 1].quantity <
+        inventoryHistory[0].quantity
+      ? "down"
+      : "stable";
+  const change =
+    inventoryHistory[inventoryHistory.length - 1].quantity -
+    inventoryHistory[0].quantity;
+
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Inventory: ${item.sku}`} size="md">
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-base-content/60">SKU</label>
-            <p className="font-semibold">{item.sku}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Item Name</label>
-            <p className="font-semibold">{item.name}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Category</label>
-            <p>
-              <span 
-                className="badge text-xs whitespace-nowrap" 
-                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-              >
-                {item.category}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Quantity</label>
-            <p className="font-semibold">{item.qty}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Location</label>
-            <p className="font-semibold">{item.location}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
-            </p>
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Inventory: ${item.sku}`}
+      size="xl"
+    >
+      <div className="space-y-6">
+        {/* Basic Information */}
+        <div>
+          <h3 className="text-lg font-semibold text-base-content mb-4">
+            Item Information
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-base-content/60">SKU</label>
+              <p className="font-semibold">{item.sku}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Item Name</label>
+              <p className="font-semibold">{item.name}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Category</label>
+              <p>
+                <span
+                  className="badge text-xs whitespace-nowrap"
+                  style={{
+                    backgroundColor: "#EEEEEE",
+                    color: "#1F2937",
+                    border: "1px solid #E5E7EB",
+                  }}
+                >
+                  {item.category}
+                </span>
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">
+                Current Quantity
+              </label>
+              <p className="font-semibold text-lg">{item.qty} units</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Location</label>
+              <p className="font-semibold">{item.location}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Status</label>
+              <p>
+                <span className={`badge ${statusClass(item.status)}`}>
+                  {item.status}
+                </span>
+              </p>
+            </div>
           </div>
         </div>
-        <div className="flex justify-end gap-3 pt-4">
+
+        {/* Inventory History Chart */}
+        <div className="border-t pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-base-content">
+                Inventory Levels Over Time
+              </h3>
+              <p className="text-sm text-base-content/60 mt-1">
+                Track inventory changes and trends
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {(["7d", "30d", "90d"] as const).map((range) => (
+                <button
+                  key={range}
+                  onClick={() => setTimeRange(range)}
+                  className={clsx(
+                    "btn btn-sm",
+                    timeRange === range ? "btn-primary" : "btn-ghost"
+                  )}
+                >
+                  {range === "7d"
+                    ? "7 Days"
+                    : range === "30d"
+                    ? "30 Days"
+                    : "90 Days"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Statistics Dashboard */}
+          <div className="grid grid-cols-4 gap-3 mb-4">
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Current</div>
+              <div className="text-lg font-bold text-base-content">
+                {item.qty}
+              </div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Average</div>
+              <div className="text-lg font-bold text-base-content">
+                {avgQty}
+              </div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Minimum</div>
+              <div className="text-lg font-bold text-warning">{minQty}</div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Maximum</div>
+              <div className="text-lg font-bold text-success">{maxQty}</div>
+            </div>
+          </div>
+
+          {/* Time-Based Inventory Chart */}
+          <div className="bg-base-200 rounded-lg p-4">
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={inventoryHistory}>
+                  <defs>
+                    <linearGradient
+                      id="colorQuantity"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="5%" stopColor="#CF0F47" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#CF0F47" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#E5E7EB"
+                    opacity={0.5}
+                  />
+                  <XAxis
+                    dataKey="date"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 11, fill: "#6B7280" }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                    }}
+                    labelFormatter={(label) => `Date: ${label}`}
+                    formatter={(value: number) => [
+                      `${value} units`,
+                      "Quantity",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="quantity"
+                    stroke="#CF0F47"
+                    strokeWidth={2}
+                    fill="url(#colorQuantity)"
+                    dot={{ r: 3, fill: "#CF0F47" }}
+                    activeDot={{ r: 5 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Trend Analysis */}
+          <div className="mt-4 flex items-center gap-2 text-sm">
+            <span className="text-base-content/60">Trend:</span>
+            {trend === "up" && (
+              <>
+                <span className="material-symbols-outlined text-success text-sm">
+                  trending_up
+                </span>
+                <span className="text-success font-medium">Increasing</span>
+              </>
+            )}
+            {trend === "down" && (
+              <>
+                <span className="material-symbols-outlined text-error text-sm">
+                  trending_down
+                </span>
+                <span className="text-error font-medium">Decreasing</span>
+              </>
+            )}
+            {trend === "stable" && (
+              <>
+                <span className="material-symbols-outlined text-base-content/60 text-sm">
+                  remove
+                </span>
+                <span className="text-base-content/60 font-medium">Stable</span>
+              </>
+            )}
+            <span className="text-base-content/60 ml-4">
+              Change: {change > 0 ? "+" : ""}
+              {change} units
+            </span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-4 border-t">
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
-            Edit Item
-          </button>
+          <button className="btn btn-primary">Edit Item</button>
         </div>
       </div>
     </DetailModal>
@@ -504,7 +906,7 @@ function EditInventoryItemModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: typeof inventory[0];
+  item: (typeof inventory)[0];
 }) {
   const [formData, setFormData] = useState({
     qty: item.qty.toString(),
@@ -520,7 +922,12 @@ function EditInventoryItemModal({
   };
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Edit Inventory: ${item.sku}`} size="md">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Edit Inventory: ${item.sku}`}
+      size="md"
+    >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="form-control">
           <label className="label">
@@ -564,7 +971,9 @@ function EditInventoryItemModal({
             type="text"
             className="input input-bordered w-full"
             value={formData.location}
-            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, location: e.target.value })
+            }
           />
         </div>
         <div className="form-control">
@@ -574,7 +983,9 @@ function EditInventoryItemModal({
           <select
             className="select select-bordered w-full"
             value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, status: e.target.value })
+            }
           >
             <option value="Available">Available</option>
             <option value="Low">Low</option>

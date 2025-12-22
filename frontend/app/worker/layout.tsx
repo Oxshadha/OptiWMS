@@ -148,6 +148,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       "/worker/app-settings",
       "/worker/settings",
       "/worker/tasks",
+      "/worker/leaderboard",
     ];
 
     // Skip protection for public routes (including dynamic task routes)
@@ -330,6 +331,18 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                           person
                         </span>
                         <span className="text-base-content">Profile</span>
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        href="/worker/leaderboard"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="flex items-center gap-2 text-base-content"
+                      >
+                        <span className="material-symbols-outlined text-sm text-base-content">
+                          emoji_events
+                        </span>
+                        <span className="text-base-content">Leaderboard</span>
                       </Link>
                     </li>
                     <li>

@@ -82,19 +82,16 @@ export default function AdminsPage() {
     }
   }, [searchParams]);
 
-  const canCreate =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "create");
-  const canEdit =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "edit");
-  const canDelete =
-    role === "admin" && hasPermission(ADMIN_ROUTES.SETTINGS, "delete");
+  const canCreate = hasPermission(ADMIN_ROUTES.ADMINS, "create");
+  const canEdit = hasPermission(ADMIN_ROUTES.ADMINS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.ADMINS, "delete");
 
   const summary = {
     totalAdmins: admins.length,
     activeAdmins: admins.filter((a) => a.status === "active").length,
     warehouseManagers: admins.filter((a) => a.role === "warehouse_manager")
       .length,
-    procurementManagers: admins.filter((a) => a.role === "procurement_manager")
+    inboundCoordinators: admins.filter((a) => a.role === "inbound_coordinator")
       .length,
     systemAdmins: admins.filter((a) => a.role === "admin").length,
   };
@@ -132,9 +129,9 @@ export default function AdminsPage() {
       color: "info" as const,
     },
     {
-      label: "Procurement Managers",
-      value: summary.procurementManagers,
-      icon: "shopping_cart",
+      label: "Inbound Coordinators",
+      value: summary.inboundCoordinators,
+      icon: "local_shipping",
       color: "warning" as const,
     },
   ];
@@ -252,9 +249,14 @@ export default function AdminsPage() {
         </li>
         {canEdit && (
           <li>
-            <button>
+            <button
+              onClick={() => {
+                // TODO: Implement edit manager functionality
+                console.log("Edit manager:", admin.id);
+              }}
+            >
               <span className="material-symbols-outlined text-sm">edit</span>
-              Edit Admin
+              Edit Manager
             </button>
           </li>
         )}
@@ -327,8 +329,8 @@ export default function AdminsPage() {
                 </button>
               </li>
               <li>
-                <button onClick={() => setRoleFilter("procurement_manager")}>
-                  Procurement Manager
+                <button onClick={() => setRoleFilter("inbound_coordinator")}>
+                  Inbound Coordinator
                 </button>
               </li>
             </ul>
@@ -586,7 +588,7 @@ function CreateAdminModal({
             required
           >
             <option value="warehouse_manager">Warehouse Manager</option>
-            <option value="procurement_manager">Procurement Manager</option>
+            <option value="inbound_coordinator">Inbound Coordinator</option>
           </select>
           <label className="label">
             <span className="label-text-alt text-info">

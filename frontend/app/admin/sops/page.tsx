@@ -7,6 +7,8 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // SOP Categories based on your existing SOPs
 export type SOPCategory =
@@ -596,6 +598,35 @@ export default function SOPsPage() {
     },
   ];
 
+  // Function to download SOP as markdown file
+  const downloadSOP = (sop: SOP) => {
+    const content = `# ${sop.title}
+
+**Category:** ${SOP_CATEGORIES[sop.category]}  
+**Version:** ${sop.version}  
+**Status:** ${sop.status}  
+**Last Updated:** ${sop.updatedAt}  
+**Created:** ${sop.createdAt}  
+**Created By:** ${sop.createdBy}
+
+---
+
+${sop.content}
+`;
+
+    const blob = new Blob([content], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sop.title.replace(/[^a-z0-9]/gi, "_")}_v${
+      sop.version
+    }.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const renderActions = (sop: SOP) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
@@ -617,6 +648,17 @@ export default function SOPsPage() {
               visibility
             </span>
             View Details
+          </button>
+        </li>
+        <li>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              downloadSOP(sop);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm">download</span>
+            Download SOP
           </button>
         </li>
         {canEdit && (
@@ -928,19 +970,37 @@ function CreateSOPModal({
         <div className="form-control">
           <label className="label">
             <span className="label-text font-medium">Content *</span>
+            <span className="label-text-alt">Markdown supported</span>
           </label>
           <textarea
-            className="textarea textarea-bordered w-full h-64 font-mono text-sm"
+            className="textarea textarea-bordered w-full h-80 font-mono text-sm"
             value={formData.content}
             onChange={(e) =>
               setFormData({ ...formData, content: e.target.value })
             }
             required
-            placeholder="Enter SOP content here..."
+            placeholder={`# SOP Title
+
+## Section 1
+
+Use markdown formatting:
+
+- **Bold text** with **
+- *Italic text* with *
+- Bullet points with -
+- Numbered lists with 1. 2. 3.
+
+### Subsection
+
+\`\`\`code blocks\`\`\`
+
+> Blockquotes for important notes`}
           />
           <label className="label">
             <span className="label-text-alt">
-              Use plain text or markdown format. Line breaks will be preserved.
+              Supports markdown: **bold**, *italic*, lists, headings, code
+              blocks, and more. Content will be rendered with proper formatting
+              when viewed.
             </span>
           </label>
         </div>
@@ -986,8 +1046,127 @@ function EditSOPModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Edit SOP" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Similar form fields as CreateSOPModal */}
-        {/* ... */}
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Title *</span>
+          </label>
+          <input
+            type="text"
+            className="input input-bordered w-full"
+            value={formData.title}
+            onChange={(e) =>
+              setFormData({ ...formData, title: e.target.value })
+            }
+            required
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Category *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.category}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  category: e.target.value as SOPCategory,
+                })
+              }
+              required
+            >
+              {Object.entries(SOP_CATEGORIES).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Version *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.version}
+              onChange={(e) =>
+                setFormData({ ...formData, version: e.target.value })
+              }
+              required
+            />
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Content *</span>
+            <span className="label-text-alt">Markdown supported</span>
+          </label>
+          <textarea
+            className="textarea textarea-bordered w-full h-80 font-mono text-sm"
+            value={formData.content}
+            onChange={(e) =>
+              setFormData({ ...formData, content: e.target.value })
+            }
+            placeholder={`# SOP Title
+
+## Section 1
+
+Use markdown formatting:
+
+- **Bold text** with **
+- *Italic text* with *
+- Bullet points with -
+- Numbered lists with 1. 2. 3.
+
+### Subsection
+
+\`\`\`code blocks\`\`\`
+
+> Blockquotes for important notes`}
+            required
+          />
+          <label className="label">
+            <span className="label-text-alt">
+              Supports markdown: **bold**, *italic*, lists, headings, code
+              blocks, and more. Content will be rendered with proper formatting
+              when viewed.
+            </span>
+          </label>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Status *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.status}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                status: e.target.value as SOP["status"],
+              })
+            }
+            required
+          >
+            <option value="active">Active</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary">
+            Save Changes
+          </button>
+        </div>
       </form>
     </Modal>
   );
@@ -1040,13 +1219,126 @@ function SOPDetailModal({
           <label className="text-sm text-base-content/60 mb-2 block">
             Content
           </label>
-          <div className="bg-base-200 rounded-lg p-4 max-h-96 overflow-y-auto">
-            <pre className="whitespace-pre-wrap font-mono text-sm">
+          <div className="bg-base-200 rounded-lg p-6 max-h-[600px] overflow-y-auto text-base-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ node, ...props }) => (
+                  <h1
+                    className="text-2xl font-bold mb-4 mt-6 first:mt-0"
+                    {...props}
+                  />
+                ),
+                h2: ({ node, ...props }) => (
+                  <h2 className="text-xl font-bold mb-3 mt-5" {...props} />
+                ),
+                h3: ({ node, ...props }) => (
+                  <h3 className="text-lg font-semibold mb-2 mt-4" {...props} />
+                ),
+                p: ({ node, ...props }) => (
+                  <p className="mb-3 leading-relaxed" {...props} />
+                ),
+                ul: ({ node, ...props }) => (
+                  <ul className="list-disc mb-3 space-y-2 ml-6" {...props} />
+                ),
+                ol: ({ node, ...props }) => (
+                  <ol className="list-decimal mb-3 space-y-2 ml-6" {...props} />
+                ),
+                li: ({ node, ...props }) => (
+                  <li className="mb-1 leading-relaxed" {...props} />
+                ),
+                strong: ({ node, ...props }) => (
+                  <strong className="font-bold text-base-content" {...props} />
+                ),
+                em: ({ node, ...props }) => (
+                  <em className="italic" {...props} />
+                ),
+                code: ({ node, inline, ...props }: any) =>
+                  inline ? (
+                    <code
+                      className="bg-base-300 px-1.5 py-0.5 rounded text-sm font-mono"
+                      {...props}
+                    />
+                  ) : (
+                    <code
+                      className="block bg-base-300 p-3 rounded text-sm font-mono overflow-x-auto mb-3"
+                      {...props}
+                    />
+                  ),
+                pre: ({ node, ...props }) => (
+                  <pre
+                    className="bg-base-300 p-3 rounded text-sm font-mono overflow-x-auto mb-3"
+                    {...props}
+                  />
+                ),
+                blockquote: ({ node, ...props }) => (
+                  <blockquote
+                    className="border-l-4 border-primary pl-4 italic my-3 text-base-content/70"
+                    {...props}
+                  />
+                ),
+                hr: ({ node, ...props }) => (
+                  <hr className="my-4 border-base-300" {...props} />
+                ),
+                table: ({ node, ...props }) => (
+                  <div className="overflow-x-auto my-4">
+                    <table
+                      className="min-w-full border-collapse border border-base-300"
+                      {...props}
+                    />
+                  </div>
+                ),
+                thead: ({ node, ...props }) => (
+                  <thead className="bg-base-300" {...props} />
+                ),
+                th: ({ node, ...props }) => (
+                  <th
+                    className="border border-base-300 px-4 py-2 text-left font-semibold"
+                    {...props}
+                  />
+                ),
+                td: ({ node, ...props }) => (
+                  <td className="border border-base-300 px-4 py-2" {...props} />
+                ),
+              }}
+            >
               {sop.content}
-            </pre>
+            </ReactMarkdown>
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4">
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              const content = `# ${sop.title}
+
+**Category:** ${SOP_CATEGORIES[sop.category]}  
+**Version:** ${sop.version}  
+**Status:** ${sop.status}  
+**Last Updated:** ${sop.updatedAt}  
+**Created:** ${sop.createdAt}  
+**Created By:** ${sop.createdBy}
+
+---
+
+${sop.content}
+`;
+              const blob = new Blob([content], { type: "text/markdown" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `${sop.title.replace(/[^a-z0-9]/gi, "_")}_v${
+                sop.version
+              }.md`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <span className="material-symbols-outlined">download</span>
+            Download
+          </button>
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>

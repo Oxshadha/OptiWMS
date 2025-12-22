@@ -2,29 +2,37 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
 import { getRoleDisplayName } from "@/lib/admin-roles";
+import { AIServiceStatus } from "@/components/AIServiceStatus";
+import { AI_SERVICES } from "@/lib/ai-services/registry";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
   label: string;
   extra?: string;
+  id?: string; // Optional ID for direct navigation to detail pages
 };
 
 const MOCK_RESULTS: SearchItem[] = [
-  { type: "Warehouse", label: "Warehouse 1", extra: "Colombo" },
-  { type: "Warehouse", label: "Warehouse 2", extra: "Kandy" },
-  { type: "Order", label: "SO-1001", extra: "Acme Corp" },
-  { type: "Order", label: "SO-1002", extra: "Bright Retail" },
-  { type: "Customer", label: "Acme Corp", extra: "42 orders" },
+  { type: "Warehouse", label: "Warehouse 1", extra: "Colombo", id: "wh-1" },
+  { type: "Warehouse", label: "Warehouse 2", extra: "Kandy", id: "wh-2" },
+  { type: "Order", label: "SO-1001", extra: "Acme Corp", id: "SO-1001" },
+  { type: "Order", label: "SO-1002", extra: "Bright Retail", id: "SO-1002" },
+  { type: "Customer", label: "Acme Corp", extra: "42 orders", id: "cust-1" },
 ];
 
 export function Topbar() {
   const { admin, role } = useAdmin();
+  const router = useRouter();
   const [dark, setDark] = useState(false);
   const [query, setQuery] = useState("");
   const [openProfile, setOpenProfile] = useState(false);
   const [openCalendar, setOpenCalendar] = useState(false);
+  const [openSearch, setOpenSearch] = useState(false);
+  const [openNotifications, setOpenNotifications] = useState(false);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return [];
@@ -42,12 +50,12 @@ export function Topbar() {
 
   // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!openCalendar && !openProfile) return;
-
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       const calendarEl = document.querySelector(".calendar-dropdown");
       const profileEl = document.querySelector(".profile-dropdown");
+      const searchEl = document.querySelector(".search-dropdown");
+      const notificationsEl = document.querySelector(".notifications-dropdown");
 
       if (calendarEl && !calendarEl.contains(target)) {
         setOpenCalendar(false);
@@ -55,11 +63,60 @@ export function Topbar() {
       if (profileEl && !profileEl.contains(target)) {
         setOpenProfile(false);
       }
+      if (searchEl && !searchEl.contains(target)) {
+        setOpenSearch(false);
+      }
+      if (notificationsEl && !notificationsEl.contains(target)) {
+        setOpenNotifications(false);
+      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [openCalendar, openProfile]);
+  }, [openCalendar, openProfile, openSearch, openNotifications]);
+
+  // Handle search result click
+  const handleSearchResultClick = (result: SearchItem) => {
+    setQuery("");
+    setOpenSearch(false);
+
+    // Navigate based on result type
+    // If ID is available, we could navigate to detail pages in the future
+    // For now, navigate to list pages with search query
+    switch (result.type) {
+      case "Warehouse":
+        // Navigate to warehouses page with search query
+        // Future: if result.id exists, could navigate to /admin/warehouses/[id]
+        router.push(
+          `/admin/warehouses?search=${encodeURIComponent(result.label)}`
+        );
+        break;
+      case "Order":
+        // Navigate to orders page with search query
+        // Try to determine if it's inbound or outbound based on label (SO = Sales Order = Outbound)
+        // Future: if result.id exists, could navigate to /admin/orders/[id]
+        if (result.label.startsWith("SO-")) {
+          router.push(
+            `/admin/orders/outbound?search=${encodeURIComponent(result.label)}`
+          );
+        } else {
+          router.push(
+            `/admin/orders?search=${encodeURIComponent(result.label)}`
+          );
+        }
+        break;
+      case "Customer":
+        // Navigate to customers page with search query
+        // Future: if result.id exists, could navigate to /admin/customers/[id]
+        router.push(
+          `/admin/customers?search=${encodeURIComponent(result.label)}`
+        );
+        break;
+      default:
+        // Fallback to dashboard if type is unknown
+        router.push("/admin/dashboard");
+    }
+  };
 
   const avatarUrl = admin?.avatar || "/assets/avatars/Henry Kual.jpg";
   const displayName = admin?.name || "Admin";
@@ -80,6 +137,44 @@ export function Topbar() {
   };
 
   const holidays: number[] = [1, 15, 28]; // Mock holidays
+
+  // Mock notifications
+  const notifications = [
+    {
+      id: "notif-1",
+      title: "New Order Received",
+      message: "Order SO-1001 has been received and requires processing",
+      time: "5 minutes ago",
+      type: "order",
+      read: false,
+    },
+    {
+      id: "notif-2",
+      title: "Inventory Alert",
+      message: "SKU-1005 (Yoga Mat) is running low on stock",
+      time: "1 hour ago",
+      type: "inventory",
+      read: false,
+    },
+    {
+      id: "notif-3",
+      title: "Cycle Count Scheduled",
+      message: "Cycle count for Zone A is scheduled for tomorrow",
+      time: "2 hours ago",
+      type: "cycle_count",
+      read: true,
+    },
+    {
+      id: "notif-4",
+      title: "Task Assigned",
+      message: "You have been assigned a new picking task",
+      time: "3 hours ago",
+      type: "task",
+      read: true,
+    },
+  ];
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const getDaysInMonth = (month: number, year: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -112,7 +207,7 @@ export function Topbar() {
   return (
     <header className="relative flex items-center justify-between gap-4 px-6 py-4 bg-base-100 border-b border-base-200">
       {/* Search Bar - Left Aligned */}
-      <div className="relative max-w-xl">
+      <div className="relative max-w-xl search-dropdown">
         <label className="input input-bordered flex items-center gap-2 w-full">
           <span className="material-symbols-outlined text-base-content/60">
             search
@@ -122,21 +217,34 @@ export function Topbar() {
             className="grow"
             placeholder="Find inventory, orders or reports"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setOpenSearch(true);
+            }}
+            onFocus={() => {
+              if (query) setOpenSearch(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setOpenSearch(false);
+                setQuery("");
+              }
+            }}
           />
         </label>
-        {query && (
+        {openSearch && query && (
           <div className="absolute mt-2 w-full rounded-xl bg-base-100 shadow-lg border border-base-200 z-20">
             {filtered.length === 0 ? (
               <div className="px-4 py-3 text-sm text-base-content/70">
-                No results
+                No results found
               </div>
             ) : (
               <ul className="divide-y divide-base-200">
                 {filtered.map((r) => (
                   <li
                     key={r.type + r.label}
-                    className="px-4 py-3 text-sm flex justify-between"
+                    className="px-4 py-3 text-sm flex justify-between hover:bg-base-200 cursor-pointer transition-colors"
+                    onClick={() => handleSearchResultClick(r)}
                   >
                     <span>
                       <span className="font-semibold">{r.label}</span>
@@ -158,9 +266,116 @@ export function Topbar() {
 
       {/* Icons - Right Aligned */}
       <div className="flex items-center gap-3">
-        <button className="btn btn-ghost btn-circle" title="Notifications">
-          <span className="material-symbols-outlined">notifications</span>
-        </button>
+        {/* AI Services Status - Only show if user has access to any AI service */}
+        <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-base-200/50">
+          <span className="text-xs text-base-content/60">AI:</span>
+          <AIServiceStatus
+            serviceId={AI_SERVICES.ANOMALY_DETECTION}
+            size="sm"
+          />
+        </div>
+
+        {/* Notifications */}
+        <div className="relative notifications-dropdown">
+          <button
+            className="btn btn-ghost btn-circle relative"
+            title="Notifications"
+            onClick={() => {
+              setOpenNotifications((v) => !v);
+              setOpenCalendar(false);
+              setOpenProfile(false);
+            }}
+          >
+            <span className="material-symbols-outlined">notifications</span>
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-error rounded-full flex items-center justify-center">
+                <span className="text-[10px] text-white font-bold">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              </span>
+            )}
+          </button>
+          {openNotifications && (
+            <div className="absolute right-0 mt-2 w-80 rounded-xl bg-base-100 shadow-lg border border-base-200 z-30">
+              <div className="p-4 border-b border-base-200 flex items-center justify-between">
+                <div className="text-lg font-bold text-base-content">
+                  Notifications
+                </div>
+                {unreadCount > 0 && (
+                  <span className="badge badge-primary badge-sm">
+                    {unreadCount} new
+                  </span>
+                )}
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-base-content/60">
+                    No notifications
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-base-200">
+                    {notifications.map((notif) => (
+                      <li
+                        key={notif.id}
+                        className={`px-4 py-3 hover:bg-base-200 transition-colors cursor-pointer ${
+                          !notif.read ? "bg-primary/5" : ""
+                        }`}
+                        onClick={() => {
+                          // TODO: Handle notification click (navigate to relevant page)
+                          console.log("Notification clicked:", notif.id);
+                        }}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
+                              !notif.read ? "bg-primary" : "bg-transparent"
+                            }`}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <p
+                                className={`text-sm font-semibold ${
+                                  !notif.read
+                                    ? "text-base-content"
+                                    : "text-base-content/70"
+                                }`}
+                              >
+                                {notif.title}
+                              </p>
+                              <span className="text-xs text-base-content/50 flex-shrink-0 ml-2">
+                                {notif.time}
+                              </span>
+                            </div>
+                            <p className="text-xs text-base-content/60 line-clamp-2">
+                              {notif.message}
+                            </p>
+                            <span className="inline-block mt-1 text-xs badge badge-outline badge-sm">
+                              {notif.type.replace("_", " ")}
+                            </span>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {notifications.length > 0 && (
+                <div className="p-3 border-t border-base-200">
+                  <Link
+                    href="/admin/notifications"
+                    className="btn btn-ghost btn-sm w-full"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenNotifications(false);
+                    }}
+                  >
+                    View All Notifications
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Calendar */}
         <div className="relative calendar-dropdown">

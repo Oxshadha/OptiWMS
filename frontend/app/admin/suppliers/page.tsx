@@ -17,6 +17,7 @@ const suppliers = [
     supplierCode: "SUP-001",
     name: "Tech Supplies Inc",
     country: "United States",
+    type: "local" as const,
     contactPerson: "John Smith",
     email: "john@techsupplies.com",
     phone: "+1-555-0101",
@@ -30,6 +31,7 @@ const suppliers = [
     supplierCode: "SUP-002",
     name: "Global Electronics",
     country: "China",
+    type: "foreign" as const,
     contactPerson: "Li Wei",
     email: "li@globalelec.com",
     phone: "+86-555-0102",
@@ -43,6 +45,7 @@ const suppliers = [
     supplierCode: "SUP-003",
     name: "Quality Goods Co",
     country: "United Kingdom",
+    type: "foreign" as const,
     contactPerson: "Emma Johnson",
     email: "emma@qualitygoods.co.uk",
     phone: "+44-555-0103",
@@ -55,21 +58,27 @@ const suppliers = [
 
 export default function SuppliersPage() {
   const { hasPermission } = useAdmin();
+  const canDelete = hasPermission(ADMIN_ROUTES.SUPPLIERS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<
     (typeof suppliers)[0] | null
   >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">(
+    "all"
+  );
 
   const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
 
   const summary = {
-    totalSuppliers: 24,
-    active: 22,
-    byCountry: 8,
+    totalSuppliers: suppliers.length,
+    active: suppliers.filter((s) => s.status === "active").length,
+    local: suppliers.filter((s) => s.type === "local").length,
+    foreign: suppliers.filter((s) => s.type === "foreign").length,
   };
 
   const filteredSuppliers = suppliers.filter((supplier) => {
@@ -85,10 +94,12 @@ export default function SuppliersPage() {
       supplier.productsSupplied.toString().includes(query) ||
       supplier.leadTimeDays.toString().includes(query) ||
       supplier.rating.toString().includes(query) ||
-      supplier.status.toLowerCase().includes(query);
+      supplier.status.toLowerCase().includes(query) ||
+      supplier.type.toLowerCase().includes(query);
     const matchesStatus =
       statusFilter === "all" || supplier.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesType = typeFilter === "all" || supplier.type === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
   });
 
   const summaryCards = [
@@ -105,8 +116,14 @@ export default function SuppliersPage() {
       color: "success" as const,
     },
     {
-      label: "Countries",
-      value: summary.byCountry,
+      label: "Local Suppliers",
+      value: summary.local,
+      icon: "location_on",
+      color: "success" as const,
+    },
+    {
+      label: "Foreign Suppliers",
+      value: summary.foreign,
       icon: "public",
       color: "info" as const,
     },
@@ -138,6 +155,20 @@ export default function SuppliersPage() {
     {
       key: "country",
       label: "Country",
+      sortable: true,
+    },
+    {
+      key: "type",
+      label: "Type",
+      render: (supplier: (typeof suppliers)[0]) => (
+        <span
+          className={`badge ${
+            supplier.type === "local" ? "badge-success" : "badge-info"
+          }`}
+        >
+          {supplier.type === "local" ? "Local" : "Foreign"}
+        </span>
+      ),
       sortable: true,
     },
     {
@@ -265,22 +296,21 @@ export default function SuppliersPage() {
             </button>
           </li>
         )}
-        <li>
-          <button
-            className="text-error"
-            onClick={() => {
-              if (
-                confirm(`Are you sure you want to delete ${supplier.name}?`)
-              ) {
-                // TODO: API call to delete supplier
-                console.log("Deleting supplier:", supplier.id);
-              }
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">delete</span>
-            Delete Supplier
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button
+              className="text-error"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedSupplier(supplier);
+                setShowDeleteModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Supplier
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -330,6 +360,9 @@ export default function SuppliersPage() {
               tabIndex={0}
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
+              <li className="menu-title">
+                <span>Status</span>
+              </li>
               <li>
                 <button onClick={() => setStatusFilter("all")}>
                   All Status
@@ -343,6 +376,20 @@ export default function SuppliersPage() {
               <li>
                 <button onClick={() => setStatusFilter("inactive")}>
                   Inactive
+                </button>
+              </li>
+              <li className="menu-title">
+                <span>Type</span>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("all")}>All Types</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("local")}>Local</button>
+              </li>
+              <li>
+                <button onClick={() => setTypeFilter("foreign")}>
+                  Foreign
                 </button>
               </li>
             </ul>
@@ -418,6 +465,24 @@ export default function SuppliersPage() {
         />
       )}
 
+      {/* Delete Supplier Modal */}
+      {selectedSupplier && (
+        <DeleteSupplierModal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setSelectedSupplier(null);
+          }}
+          onConfirm={() => {
+            // TODO: API call to delete supplier
+            console.log("Deleting supplier:", selectedSupplier.id);
+            setShowDeleteModal(false);
+            setSelectedSupplier(null);
+          }}
+          supplier={selectedSupplier}
+        />
+      )}
+
       {/* Listen for edit event from detail modal */}
       {typeof window !== "undefined" && (
         <EditSupplierListener
@@ -481,6 +546,18 @@ function SupplierDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Country</label>
             <p className="font-semibold">{supplier.country}</p>
+          </div>
+          <div>
+            <label className="text-sm text-base-content/60">Type</label>
+            <p>
+              <span
+                className={`badge ${
+                  supplier.type === "local" ? "badge-success" : "badge-info"
+                }`}
+              >
+                {supplier.type === "local" ? "Local" : "Foreign"}
+              </span>
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">
@@ -567,6 +644,7 @@ function EditSupplierModal({
     email: supplier.email,
     phone: supplier.phone,
     country: supplier.country,
+    type: supplier.type,
     leadTimeDays: supplier.leadTimeDays.toString(),
     rating: supplier.rating.toString(),
   });
@@ -674,6 +752,27 @@ function EditSupplierModal({
           </select>
         </div>
 
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Supplier Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                type: e.target.value as "local" | "foreign",
+              })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
             <label className="label">
@@ -739,6 +838,7 @@ function CreateSupplierModal({
     city: "",
     state: "",
     country: "",
+    type: "" as "local" | "foreign" | "",
     postalCode: "",
     paymentTerms: "",
     leadTimeDays: "",
@@ -760,6 +860,7 @@ function CreateSupplierModal({
       city: "",
       state: "",
       country: "",
+      type: "" as "local" | "foreign" | "",
       postalCode: "",
       paymentTerms: "",
       leadTimeDays: "",
@@ -908,6 +1009,27 @@ function CreateSupplierModal({
 
         <div className="form-control">
           <label className="label">
+            <span className="label-text font-medium">Supplier Type *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.type}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                type: e.target.value as "local" | "foreign",
+              })
+            }
+            required
+          >
+            <option value="">Select type...</option>
+            <option value="local">Local</option>
+            <option value="foreign">Foreign</option>
+          </select>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
             <span className="label-text font-medium">Postal Code</span>
           </label>
           <input
@@ -978,6 +1100,62 @@ function CreateSupplierModal({
           </button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+// Delete Supplier Modal
+function DeleteSupplierModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  supplier,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  supplier: (typeof suppliers)[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Supplier" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{supplier.name}</strong> (Supplier
+              Code: {supplier.supplierCode}). This will permanently remove the
+              supplier from the system and all associated data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Supplier Name:</strong> {supplier.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Supplier Code:</strong> {supplier.supplierCode}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Country:</strong> {supplier.country}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Products Supplied:</strong> {supplier.productsSupplied}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Supplier
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -24,6 +25,7 @@ interface PackingRecord {
   startedAt?: string;
   completedAt?: string;
   createdAt: string;
+  warehouseName?: string;
 }
 
 const mockPackingRecords: PackingRecord[] = [
@@ -44,6 +46,7 @@ const mockPackingRecords: PackingRecord[] = [
     startedAt: "2025-12-15T10:00:00",
     completedAt: "2025-12-15T10:25:00",
     createdAt: "2025-12-15T09:45:00",
+    warehouseName: "Warehouse 1",
   },
   {
     id: "pk-2",
@@ -60,6 +63,7 @@ const mockPackingRecords: PackingRecord[] = [
     status: "in_progress",
     startedAt: "2025-12-16T08:30:00",
     createdAt: "2025-12-16T08:00:00",
+    warehouseName: "Warehouse 1",
   },
   {
     id: "pk-3",
@@ -73,6 +77,7 @@ const mockPackingRecords: PackingRecord[] = [
     dimensionalWeight: 0,
     chargeableWeight: 0,
     createdAt: "2025-12-16T09:00:00",
+    warehouseName: "Warehouse 2",
   },
 ];
 
@@ -85,13 +90,21 @@ const statusClass = (status: PackingStatus) => {
 };
 
 export default function PackingPage() {
+  const { admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<PackingRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
 
-  const filteredRecords = mockPackingRecords.filter((record) => {
+  // Filter packing records by warehouse for warehouse managers
+  const packingRecordsForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? mockPackingRecords.filter((p) => p.warehouseName === assignedWarehouseName)
+    : mockPackingRecords;
+
+  const filteredRecords = packingRecordsForWarehouse.filter((record) => {
     const matchesSearch = !searchQuery.trim() || (
       record.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       record.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||

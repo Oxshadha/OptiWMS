@@ -87,10 +87,13 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
+  const [showAssignWorkerModal, setShowAssignWorkerModal] = useState(false);
   const [selectedReturn, setSelectedReturn] = useState<
     (typeof returns)[0] | null
   >(null);
@@ -99,7 +102,12 @@ export default function ReturnsPage() {
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
-  const filteredReturns = returns.filter((returnItem) => {
+  // Filter returns by warehouse for warehouse managers
+  const returnsForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? returns.filter((r) => r.warehouse === assignedWarehouseName)
+    : returns;
+
+  const filteredReturns = returnsForWarehouse.filter((returnItem) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||
@@ -131,6 +139,11 @@ export default function ReturnsPage() {
   const handleInspect = (returnItem: (typeof returns)[0]) => {
     setSelectedReturn(returnItem);
     setShowInspectModal(true);
+  };
+
+  const handleAssignWorker = (returnItem: (typeof returns)[0]) => {
+    setSelectedReturn(returnItem);
+    setShowAssignWorkerModal(true);
   };
 
   const summaryCards = [
@@ -270,8 +283,11 @@ export default function ReturnsPage() {
           <li>
             <button
               onClick={() => {
-                // TODO: Handle approval
+                // TODO: API call to approve return
                 console.log("Approving return:", returnItem.id);
+                alert(
+                  `Return ${returnItem.returnNumber} approved successfully`
+                );
               }}
             >
               <span className="material-symbols-outlined text-sm">
@@ -283,7 +299,7 @@ export default function ReturnsPage() {
         )}
         {returnItem.status === "pending" && (
           <li>
-            <button>
+            <button onClick={() => handleAssignWorker(returnItem)}>
               <span className="material-symbols-outlined text-sm">
                 person_add
               </span>
@@ -292,7 +308,13 @@ export default function ReturnsPage() {
           </li>
         )}
         <li>
-          <button>
+          <button
+            onClick={() => {
+              // TODO: Implement print functionality
+              window.print();
+              console.log("Printing return label:", returnItem.returnNumber);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">print</span>
             Print Return Label
           </button>
@@ -407,6 +429,18 @@ export default function ReturnsPage() {
           isOpen={showInspectModal}
           onClose={() => {
             setShowInspectModal(false);
+            setSelectedReturn(null);
+          }}
+          returnItem={selectedReturn}
+        />
+      )}
+
+      {/* Assign Worker Modal */}
+      {selectedReturn && (
+        <AssignWorkerModal
+          isOpen={showAssignWorkerModal}
+          onClose={() => {
+            setShowAssignWorkerModal(false);
             setSelectedReturn(null);
           }}
           returnItem={selectedReturn}
@@ -865,6 +899,162 @@ function InspectReturnModal({
           </button>
           <button className="btn btn-primary" onClick={handleSubmit}>
             Submit Inspection
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Assign Worker Modal
+function AssignWorkerModal({
+  isOpen,
+  onClose,
+  returnItem,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  returnItem: (typeof returns)[0];
+}) {
+  // Mock workers list - in production, this would come from API
+  const availableWorkers = [
+    {
+      id: "worker-1",
+      name: "John Doe",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+    {
+      id: "worker-2",
+      name: "Jane Smith",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+    {
+      id: "worker-3",
+      name: "Mike Johnson",
+      warehouseName: "Warehouse 2",
+      status: "busy",
+    },
+    {
+      id: "worker-4",
+      name: "Sarah Lee",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+  ];
+
+  // Filter workers by warehouse
+  const workersForWarehouse = availableWorkers.filter(
+    (w) => w.warehouseName === returnItem.warehouse
+  );
+
+  const [selectedWorkerId, setSelectedWorkerId] = useState("");
+
+  const handleSubmit = () => {
+    if (!selectedWorkerId) {
+      alert("Please select a worker");
+      return;
+    }
+
+    const selectedWorker = workersForWarehouse.find(
+      (w) => w.id === selectedWorkerId
+    );
+    if (!selectedWorker) {
+      alert("Selected worker not found");
+      return;
+    }
+
+    // TODO: API call to assign worker to return
+    console.log("Assigning worker to return:", {
+      returnId: returnItem.id,
+      returnNumber: returnItem.returnNumber,
+      workerId: selectedWorkerId,
+      workerName: selectedWorker.name,
+    });
+
+    // Show browser notification
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Worker Assigned", {
+        body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
+        icon: "/assets/logos/OptiWMS Logo.JPG",
+      });
+    } else if (
+      "Notification" in window &&
+      Notification.permission !== "denied"
+    ) {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification("Worker Assigned", {
+            body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
+            icon: "/assets/logos/OptiWMS Logo.JPG",
+          });
+        }
+      });
+    }
+
+    alert(
+      `Worker ${selectedWorker.name} assigned to return ${returnItem.returnNumber} successfully`
+    );
+    onClose();
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Assign Worker: ${returnItem.returnNumber}`}
+      size="md"
+    >
+      <div className="p-6 space-y-4">
+        <div className="bg-base-200 rounded-lg p-4">
+          <h4 className="font-semibold text-base-content mb-2">
+            Return Information
+          </h4>
+          <div className="text-sm space-y-1">
+            <div>Order: {returnItem.originalOrder}</div>
+            <div>Customer: {returnItem.customerName}</div>
+            <div>Warehouse: {returnItem.warehouse}</div>
+            <div>Reason: {returnItem.reason}</div>
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Select Worker *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={selectedWorkerId}
+            onChange={(e) => setSelectedWorkerId(e.target.value)}
+            required
+          >
+            <option value="">Choose a worker...</option>
+            {workersForWarehouse.map((worker) => (
+              <option key={worker.id} value={worker.id}>
+                {worker.name} {worker.status === "busy" ? "(Busy)" : ""}
+              </option>
+            ))}
+          </select>
+          {workersForWarehouse.length === 0 && (
+            <label className="label">
+              <span className="label-text-alt text-warning">
+                No workers available for {returnItem.warehouse}
+              </span>
+            </label>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={!selectedWorkerId}
+          >
+            Assign Worker
           </button>
         </div>
       </div>

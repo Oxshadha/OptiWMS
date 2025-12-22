@@ -91,5 +91,88 @@ export const receivingApi = {
       items,
     });
   },
+
+  blindReceive: async (orderNumber: string, items: ReceivedItem[]): Promise<{ success: boolean; message: string; orderId: string }> => {
+    return apiClient.post('/operations/receiving/blind-receive', {
+      orderNumber,
+      items,
+    });
+  },
+};
+
+// Dock Management
+export interface DockDoor {
+  id: string;
+  doorNumber: string;
+  warehouseId: string;
+  status: 'available' | 'occupied' | 'maintenance' | 'reserved';
+  currentAppointmentId?: string;
+  location?: string;
+}
+
+export interface DockAppointment {
+  id: string;
+  appointmentNumber: string;
+  dockDoorId: string;
+  dockDoorNumber: string;
+  warehouseId: string;
+  inboundOrderId?: string;
+  inboundOrderNumber?: string;
+  supplierName?: string;
+  carrierName?: string;
+  trailerNumber?: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  actualStart?: string;
+  actualEnd?: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  notes?: string;
+}
+
+export interface YardTrailer {
+  id: string;
+  trailerNumber: string;
+  carrierName: string;
+  inboundOrderId?: string;
+  inboundOrderNumber?: string;
+  supplierName?: string;
+  arrivedAt: string;
+  waitTimeMinutes: number;
+  status: 'waiting' | 'assigned' | 'unloading' | 'completed';
+  assignedDockDoorId?: string;
+  assignedDockDoorNumber?: string;
+}
+
+export const dockManagementApi = {
+  getDockDoors: async (warehouseId?: string): Promise<DockDoor[]> => {
+    const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
+    return apiClient.get<DockDoor[]>(`/operations/dock-doors${params}`);
+  },
+
+  getDockAppointments: async (warehouseId?: string, startDate?: string, endDate?: string): Promise<DockAppointment[]> => {
+    const params = new URLSearchParams();
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<DockAppointment[]>(`/operations/dock-appointments${query}`);
+  },
+
+  createAppointment: async (appointment: Omit<DockAppointment, 'id' | 'appointmentNumber' | 'status'>): Promise<DockAppointment> => {
+    return apiClient.post<DockAppointment>('/operations/dock-appointments', appointment);
+  },
+
+  updateAppointment: async (id: string, appointment: Partial<DockAppointment>): Promise<DockAppointment> => {
+    return apiClient.put<DockAppointment>(`/operations/dock-appointments/${id}`, appointment);
+  },
+
+  cancelAppointment: async (id: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post(`/operations/dock-appointments/${id}/cancel`, {});
+  },
+
+  getYardTrailers: async (warehouseId?: string): Promise<YardTrailer[]> => {
+    const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
+    return apiClient.get<YardTrailer[]>(`/operations/yard-trailers${params}`);
+  },
 };
 
