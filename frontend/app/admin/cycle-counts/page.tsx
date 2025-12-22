@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { cycleCountsApi, CycleCount } from "@/lib/api/operations";
 
 // Mock data - will be replaced with API calls
-const cycleCounts = [
+const mockCycleCounts = [
   {
     id: "cc-1",
     countNumber: "CC-2025-001",
@@ -76,13 +77,36 @@ const statusConfig = {
 };
 
 export default function CycleCountsPage() {
+  const [cycleCounts, setCycleCounts] = useState<CycleCount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAdHocModal, setShowAdHocModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<typeof cycleCounts[0] | null>(null);
+  const [selectedCount, setSelectedCount] = useState<CycleCount | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  useEffect(() => {
+    loadCycleCounts();
+  }, []);
+
+  const loadCycleCounts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await cycleCountsApi.getAll();
+      setCycleCounts(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load cycle counts");
+      console.error("Error loading cycle counts:", err);
+      // Fallback to empty array on error
+      setCycleCounts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const summary = {
     scheduledThisMonth: 8,
@@ -91,13 +115,28 @@ export default function CycleCountsPage() {
     discrepanciesFound: 15,
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading cycle counts: {error}</span>
+        <button className="btn btn-sm" onClick={loadCycleCounts}>Retry</button>
+      </div>
+    );
+  }
+
   const filteredCounts = cycleCounts.filter((count) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       count.countNumber.toLowerCase().includes(query) ||
-      count.warehouseName.toLowerCase().includes(query) ||
-      count.sectionName.toLowerCase().includes(query) ||
-      count.countType.toLowerCase().includes(query) ||
+      (count.locationCode || "").toLowerCase().includes(query) ||
       count.status.toLowerCase().includes(query) ||
       count.assignedBy.toLowerCase().includes(query) ||
       count.assignedDate.toLowerCase().includes(query) ||
