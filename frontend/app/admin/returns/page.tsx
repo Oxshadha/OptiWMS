@@ -1,37 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import Link from "next/link";
-import { returnsApi, Return as ApiReturn } from "@/lib/api/returns";
-import { customersApi } from "@/lib/api/customers";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { ordersApi } from "@/lib/api/orders";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
-// Frontend return structure
-interface Return {
-  id: string;
-  returnNumber: string;
-  originalOrder: string;
-  customerName: string;
-  customerId?: string;
-  warehouse: string;
-  warehouseId?: string;
-  returnDate: string;
-  reason?: string;
-  totalItems: number;
-  status: string;
-  resolution?: string | null;
-  receivedBy?: string | null;
-  inspectedBy?: string | null;
-}
-
-// Mock data for fallback
-const mockReturns: Return[] = [
+const returns = [
   {
     id: "RET-1001",
     returnNumber: "RET-1001",
@@ -108,120 +87,63 @@ const resolutionConfig = {
 };
 
 export default function ReturnsPage() {
-  const [returns, setReturns] = useState<Return[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
-  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
+  const [showAssignWorkerModal, setShowAssignWorkerModal] = useState(false);
+  const [selectedReturn, setSelectedReturn] = useState<
+    (typeof returns)[0] | null
+  >(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Load returns from API
-  useEffect(() => {
-    loadReturns();
-  }, []);
+  const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
-  const loadReturns = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const [apiReturns, customers, warehouses, orders] = await Promise.all([
-        returnsApi.getAll(),
-        customersApi.getAll(),
-        warehousesApi.getAll(),
-        ordersApi.getAll(),
-      ]);
+  // Filter returns by warehouse for warehouse managers
+  const returnsForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? returns.filter((r) => r.warehouse === assignedWarehouseName)
+    : returns;
 
-      // Create maps for lookups
-      const customerMap = new Map(customers.map(c => [c.id, c]));
-      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
-      const orderMap = new Map(orders.map(o => [o.id, o.orderNumber]));
-
-      // Map API returns to frontend structure
-      const returnsData: Return[] = apiReturns.map((returnRecord) => {
-        const customer = returnRecord.customerId ? customerMap.get(returnRecord.customerId) : null;
-        const warehouse = returnRecord.warehouseId ? warehouseMap.get(returnRecord.warehouseId) : null;
-        const orderNumber = returnRecord.originalOrderId 
-          ? (orderMap.get(returnRecord.originalOrderId) || returnRecord.originalOrderId) 
-          : "N/A";
-        
-        return {
-          id: returnRecord.id,
-          returnNumber: returnRecord.returnNumber,
-          originalOrder: orderNumber || "N/A",
-          customerName: customer?.name || "Unknown Customer",
-          customerId: returnRecord.customerId,
-          warehouse: warehouse?.name || "Unknown Warehouse",
-          warehouseId: returnRecord.warehouseId,
-          returnDate: returnRecord.returnDate || new Date().toISOString().split('T')[0],
-          reason: returnRecord.reason,
-          totalItems: 0, // TODO: Get from return items
-          status: returnRecord.status || "pending",
-          resolution: returnRecord.resolution,
-          receivedBy: returnRecord.receivedBy,
-          inspectedBy: returnRecord.inspectedBy,
-        };
-      });
-
-      setReturns(returnsData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load returns");
-      console.error("Error loading returns:", err);
-      // Fallback to mock data on error
-      setReturns(mockReturns);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
-  }
-
-  if (error && returns.length === 0) {
-    return (
-      <div className="alert alert-error">
-        <span>Error: {error}</span>
-        <button className="btn btn-sm" onClick={loadReturns}>Retry</button>
-      </div>
-    );
-  }
-
-  const filteredReturns = returns.filter(returnItem => {
+  const filteredReturns = returnsForWarehouse.filter((returnItem) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
+    const matchesSearch =
+      !query ||
       returnItem.returnNumber.toLowerCase().includes(query) ||
       returnItem.originalOrder.toLowerCase().includes(query) ||
       returnItem.customerName.toLowerCase().includes(query) ||
       returnItem.warehouse.toLowerCase().includes(query) ||
       returnItem.status.toLowerCase().includes(query) ||
-      (returnItem.reason && returnItem.reason.toLowerCase().includes(query)) ||
+      returnItem.reason.toLowerCase().includes(query) ||
       returnItem.returnDate.toLowerCase().includes(query) ||
       returnItem.totalItems.toString().includes(query) ||
-      (returnItem.resolution && returnItem.resolution.toLowerCase().includes(query)) ||
-      (returnItem.receivedBy && returnItem.receivedBy.toLowerCase().includes(query)) ||
-      (returnItem.inspectedBy && returnItem.inspectedBy.toLowerCase().includes(query)) ||
-      returnItem.id.toLowerCase().includes(query)
-    );
-    const matchesStatus = statusFilter === "all" || returnItem.status === statusFilter;
+      (returnItem.resolution &&
+        returnItem.resolution.toLowerCase().includes(query)) ||
+      (returnItem.receivedBy &&
+        returnItem.receivedBy.toLowerCase().includes(query)) ||
+      (returnItem.inspectedBy &&
+        returnItem.inspectedBy.toLowerCase().includes(query)) ||
+      returnItem.id.toLowerCase().includes(query);
+    const matchesStatus =
+      statusFilter === "all" || returnItem.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const handleRowClick = (returnItem: Return) => {
+  const handleRowClick = (returnItem: (typeof returns)[0]) => {
     setSelectedReturn(returnItem);
     setShowDetailModal(true);
   };
 
-  const handleInspect = (returnItem: Return) => {
+  const handleInspect = (returnItem: (typeof returns)[0]) => {
     setSelectedReturn(returnItem);
     setShowInspectModal(true);
+  };
+
+  const handleAssignWorker = (returnItem: (typeof returns)[0]) => {
+    setSelectedReturn(returnItem);
+    setShowAssignWorkerModal(true);
   };
 
   const summaryCards = [
@@ -233,19 +155,23 @@ export default function ReturnsPage() {
     },
     {
       label: "Pending Inspection",
-      value: returns.filter(r => r.status === "pending" || r.status === "received").length,
+      value: returns.filter(
+        (r) => r.status === "pending" || r.status === "received"
+      ).length,
       icon: "pending_actions",
       color: "warning" as const,
     },
     {
       label: "Approved for Restock",
-      value: returns.filter(r => r.status === "approved" && r.resolution === "refund").length,
+      value: returns.filter(
+        (r) => r.status === "approved" && r.resolution === "refund"
+      ).length,
       icon: "check_circle",
       color: "success" as const,
     },
     {
       label: "Rejected",
-      value: returns.filter(r => r.status === "rejected").length,
+      value: returns.filter((r) => r.status === "rejected").length,
       icon: "cancel",
       color: "error" as const,
     },
@@ -255,7 +181,7 @@ export default function ReturnsPage() {
     {
       key: "returnNumber",
       label: "Return #",
-      render: (returnItem: Return) => (
+      render: (returnItem: (typeof returns)[0]) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -271,8 +197,11 @@ export default function ReturnsPage() {
     {
       key: "originalOrder",
       label: "Original Order",
-      render: (returnItem: Return) => (
-        <Link href={`/admin/orders/outbound/${returnItem.originalOrder}`} className="text-primary hover:underline">
+      render: (returnItem: (typeof returns)[0]) => (
+        <Link
+          href={`/admin/orders/outbound/${returnItem.originalOrder}`}
+          className="text-primary hover:underline"
+        >
           {returnItem.originalOrder}
         </Link>
       ),
@@ -280,14 +209,25 @@ export default function ReturnsPage() {
     },
     { key: "customerName", label: "Customer", sortable: true },
     { key: "warehouse", label: "Warehouse", sortable: true },
-    { key: "returnDate", label: "Return Date", className: "text-base-content/70", sortable: true },
+    {
+      key: "returnDate",
+      label: "Return Date",
+      className: "text-base-content/70",
+      sortable: true,
+    },
     { key: "reason", label: "Reason", sortable: true },
-    { key: "totalItems", label: "Total Items", className: "text-base-content/70", sortable: true },
+    {
+      key: "totalItems",
+      label: "Total Items",
+      className: "text-base-content/70",
+      sortable: true,
+    },
     {
       key: "status",
       label: "Status",
-      render: (returnItem: Return) => {
-        const status = statusConfig[returnItem.status as keyof typeof statusConfig];
+      render: (returnItem: (typeof returns)[0]) => {
+        const status =
+          statusConfig[returnItem.status as keyof typeof statusConfig];
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
       sortable: true,
@@ -295,16 +235,24 @@ export default function ReturnsPage() {
     {
       key: "resolution",
       label: "Resolution",
-      render: (returnItem: Return) => {
-        if (!returnItem.resolution) return <span className="text-base-content/50">-</span>;
-        const resolution = resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig];
-        return <span className={`badge ${resolution.class}`}>{resolution.label}</span>;
+      render: (returnItem: (typeof returns)[0]) => {
+        if (!returnItem.resolution)
+          return <span className="text-base-content/50">-</span>;
+        const resolution =
+          resolutionConfig[
+            returnItem.resolution as keyof typeof resolutionConfig
+          ];
+        return (
+          <span className={`badge ${resolution.class}`}>
+            {resolution.label}
+          </span>
+        );
       },
       sortable: true,
     },
   ];
 
-  const renderActions = (returnItem: Return) => (
+  const renderActions = (returnItem: (typeof returns)[0]) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -315,28 +263,58 @@ export default function ReturnsPage() {
       >
         <li>
           <button onClick={() => handleRowClick(returnItem)}>
-            <span className="material-symbols-outlined text-sm">visibility</span>
+            <span className="material-symbols-outlined text-sm">
+              visibility
+            </span>
             View Details
           </button>
         </li>
         {returnItem.status === "received" && (
           <li>
             <button onClick={() => handleInspect(returnItem)}>
-              <span className="material-symbols-outlined text-sm">verified</span>
+              <span className="material-symbols-outlined text-sm">
+                verified
+              </span>
               Inspect Return
+            </button>
+          </li>
+        )}
+        {canApprove && returnItem.status === "inspecting" && (
+          <li>
+            <button
+              onClick={() => {
+                // TODO: API call to approve return
+                console.log("Approving return:", returnItem.id);
+                alert(
+                  `Return ${returnItem.returnNumber} approved successfully`
+                );
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">
+                check_circle
+              </span>
+              Approve Return
             </button>
           </li>
         )}
         {returnItem.status === "pending" && (
           <li>
-            <button>
-              <span className="material-symbols-outlined text-sm">person_add</span>
+            <button onClick={() => handleAssignWorker(returnItem)}>
+              <span className="material-symbols-outlined text-sm">
+                person_add
+              </span>
               Assign Worker
             </button>
           </li>
         )}
         <li>
-          <button>
+          <button
+            onClick={() => {
+              // TODO: Implement print functionality
+              window.print();
+              console.log("Printing return label:", returnItem.returnNumber);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">print</span>
             Print Return Label
           </button>
@@ -351,7 +329,9 @@ export default function ReturnsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Returns</h1>
-          <p className="text-sm text-base-content/60 mt-1">Manage returned items and inspections</p>
+          <p className="text-sm text-base-content/60 mt-1">
+            Manage returned items and inspections
+          </p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -372,15 +352,42 @@ export default function ReturnsPage() {
               tabIndex={0}
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
-              <li><button onClick={() => setStatusFilter("all")}>All Status</button></li>
-              <li><button onClick={() => setStatusFilter("pending")}>Pending</button></li>
-              <li><button onClick={() => setStatusFilter("received")}>Received</button></li>
-              <li><button onClick={() => setStatusFilter("inspecting")}>Inspecting</button></li>
-              <li><button onClick={() => setStatusFilter("approved")}>Approved</button></li>
-              <li><button onClick={() => setStatusFilter("rejected")}>Rejected</button></li>
+              <li>
+                <button onClick={() => setStatusFilter("all")}>
+                  All Status
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("pending")}>
+                  Pending
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("received")}>
+                  Received
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("inspecting")}>
+                  Inspecting
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("approved")}>
+                  Approved
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("rejected")}>
+                  Rejected
+                </button>
+              </li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-primary" onClick={() => setShowCreateModal(true)}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => setShowCreateModal(true)}
+          >
             <span className="material-symbols-outlined">add</span>
             <span>Register Return</span>
           </button>
@@ -427,6 +434,18 @@ export default function ReturnsPage() {
           returnItem={selectedReturn}
         />
       )}
+
+      {/* Assign Worker Modal */}
+      {selectedReturn && (
+        <AssignWorkerModal
+          isOpen={showAssignWorkerModal}
+          onClose={() => {
+            setShowAssignWorkerModal(false);
+            setSelectedReturn(null);
+          }}
+          returnItem={selectedReturn}
+        />
+      )}
     </div>
   );
 }
@@ -457,14 +476,18 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
       <div className="p-6 space-y-4">
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Original Order Number *</span>
+            <span className="label-text font-medium">
+              Original Order Number *
+            </span>
           </label>
           <input
             type="text"
             className="input input-bordered w-full"
             placeholder="Enter order number"
             value={formData.originalOrder}
-            onChange={(e) => setFormData({ ...formData, originalOrder: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, originalOrder: e.target.value })
+            }
             required
           />
         </div>
@@ -475,7 +498,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
           <select
             className="select select-bordered w-full"
             value={formData.warehouse}
-            onChange={(e) => setFormData({ ...formData, warehouse: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouse: e.target.value })
+            }
             required
           >
             <option value="">Select Warehouse</option>
@@ -491,7 +516,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
             type="text"
             className="input input-bordered w-full"
             value={formData.customerName}
-            onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, customerName: e.target.value })
+            }
           />
         </div>
         <div className="form-control">
@@ -501,7 +528,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
           <select
             className="select select-bordered w-full"
             value={formData.reason}
-            onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, reason: e.target.value })
+            }
             required
           >
             <option value="">Select Reason</option>
@@ -520,7 +549,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
             className="textarea textarea-bordered w-full"
             rows={3}
             value={formData.notes}
-            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, notes: e.target.value })
+            }
           />
         </div>
         <div className="flex justify-end gap-2 pt-4">
@@ -544,7 +575,7 @@ function ReturnDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: Return;
+  returnItem: (typeof returns)[0];
 }) {
   const status = statusConfig[returnItem.status as keyof typeof statusConfig];
   const resolution = returnItem.resolution
@@ -552,11 +583,18 @@ function ReturnDetailModal({
     : null;
 
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Return: ${returnItem.returnNumber}`} size="lg">
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Return: ${returnItem.returnNumber}`}
+      size="lg"
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-sm text-base-content/60">Return Number</label>
+            <label className="text-sm text-base-content/60">
+              Return Number
+            </label>
             <p className="font-semibold">{returnItem.returnNumber}</p>
           </div>
           <div>
@@ -566,15 +604,22 @@ function ReturnDetailModal({
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Original Order</label>
+            <label className="text-sm text-base-content/60">
+              Original Order
+            </label>
             <p>
-              <Link href={`/admin/orders/outbound/${returnItem.originalOrder}`} className="text-primary hover:underline">
+              <Link
+                href={`/admin/orders/outbound/${returnItem.originalOrder}`}
+                className="text-primary hover:underline"
+              >
                 {returnItem.originalOrder}
               </Link>
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Customer Name</label>
+            <label className="text-sm text-base-content/60">
+              Customer Name
+            </label>
             <p className="font-semibold">{returnItem.customerName}</p>
           </div>
           <div>
@@ -595,13 +640,17 @@ function ReturnDetailModal({
           </div>
           {returnItem.receivedBy && (
             <div>
-              <label className="text-sm text-base-content/60">Received By</label>
+              <label className="text-sm text-base-content/60">
+                Received By
+              </label>
               <p className="font-semibold">{returnItem.receivedBy}</p>
             </div>
           )}
           {returnItem.inspectedBy && (
             <div>
-              <label className="text-sm text-base-content/60">Inspected By</label>
+              <label className="text-sm text-base-content/60">
+                Inspected By
+              </label>
               <p className="font-semibold">{returnItem.inspectedBy}</p>
             </div>
           )}
@@ -609,7 +658,9 @@ function ReturnDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Resolution</label>
               <p>
-                <span className={`badge ${resolution.class}`}>{resolution.label}</span>
+                <span className={`badge ${resolution.class}`}>
+                  {resolution.label}
+                </span>
               </p>
             </div>
           )}
@@ -632,11 +683,19 @@ function InspectReturnModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: Return;
+  returnItem: (typeof returns)[0];
 }) {
   const [inspectionData, setInspectionData] = useState({
     items: [
-      { productId: "SKU-1001", productName: "Wireless Earbuds", quantity: returnItem.totalItems, condition: "", defectDescription: "", resolution: "", images: [] as string[] },
+      {
+        productId: "SKU-1001",
+        productName: "Wireless Earbuds",
+        quantity: returnItem.totalItems,
+        condition: "",
+        defectDescription: "",
+        resolution: "",
+        images: [] as string[],
+      },
     ],
     overallResolution: "",
     notes: "",
@@ -653,10 +712,17 @@ function InspectReturnModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Inspect Return: ${returnItem.returnNumber}`} size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Inspect Return: ${returnItem.returnNumber}`}
+      size="lg"
+    >
       <div className="p-6 space-y-4">
         <div className="bg-base-200 rounded-lg p-4">
-          <h4 className="font-semibold text-base-content mb-2">Return Information</h4>
+          <h4 className="font-semibold text-base-content mb-2">
+            Return Information
+          </h4>
           <div className="text-sm space-y-1">
             <div>Order: {returnItem.originalOrder}</div>
             <div>Customer: {returnItem.customerName}</div>
@@ -670,7 +736,9 @@ function InspectReturnModal({
           <div key={idx} className="bg-base-200 rounded-lg p-4 space-y-3">
             <div>
               <div className="font-semibold">{item.productName}</div>
-              <div className="text-sm text-base-content/60">SKU: {item.productId} • Qty: {item.quantity}</div>
+              <div className="text-sm text-base-content/60">
+                SKU: {item.productId} • Qty: {item.quantity}
+              </div>
             </div>
             <div className="form-control">
               <label className="label">
@@ -693,10 +761,13 @@ function InspectReturnModal({
                 <option value="defective">Defective</option>
               </select>
             </div>
-            {(item.condition === "damaged" || item.condition === "defective") && (
+            {(item.condition === "damaged" ||
+              item.condition === "defective") && (
               <div className="form-control">
                 <label className="label">
-                  <span className="label-text font-medium">Defect Description</span>
+                  <span className="label-text font-medium">
+                    Defect Description
+                  </span>
                 </label>
                 <textarea
                   className="textarea textarea-bordered w-full"
@@ -748,7 +819,12 @@ function InspectReturnModal({
                 value="refund"
                 className="radio"
                 checked={inspectionData.overallResolution === "refund"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Refund</span>
             </label>
@@ -759,7 +835,12 @@ function InspectReturnModal({
                 value="replace"
                 className="radio"
                 checked={inspectionData.overallResolution === "replace"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Replace</span>
             </label>
@@ -770,7 +851,12 @@ function InspectReturnModal({
                 value="repair"
                 className="radio"
                 checked={inspectionData.overallResolution === "repair"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Repair</span>
             </label>
@@ -781,7 +867,12 @@ function InspectReturnModal({
                 value="reject"
                 className="radio"
                 checked={inspectionData.overallResolution === "reject"}
-                onChange={(e) => setInspectionData({ ...inspectionData, overallResolution: e.target.value })}
+                onChange={(e) =>
+                  setInspectionData({
+                    ...inspectionData,
+                    overallResolution: e.target.value,
+                  })
+                }
               />
               <span>Reject</span>
             </label>
@@ -796,7 +887,9 @@ function InspectReturnModal({
             className="textarea textarea-bordered w-full"
             rows={3}
             value={inspectionData.notes}
-            onChange={(e) => setInspectionData({ ...inspectionData, notes: e.target.value })}
+            onChange={(e) =>
+              setInspectionData({ ...inspectionData, notes: e.target.value })
+            }
           />
         </div>
 
@@ -813,3 +906,158 @@ function InspectReturnModal({
   );
 }
 
+// Assign Worker Modal
+function AssignWorkerModal({
+  isOpen,
+  onClose,
+  returnItem,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  returnItem: (typeof returns)[0];
+}) {
+  // Mock workers list - in production, this would come from API
+  const availableWorkers = [
+    {
+      id: "worker-1",
+      name: "John Doe",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+    {
+      id: "worker-2",
+      name: "Jane Smith",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+    {
+      id: "worker-3",
+      name: "Mike Johnson",
+      warehouseName: "Warehouse 2",
+      status: "busy",
+    },
+    {
+      id: "worker-4",
+      name: "Sarah Lee",
+      warehouseName: "Warehouse 1",
+      status: "available",
+    },
+  ];
+
+  // Filter workers by warehouse
+  const workersForWarehouse = availableWorkers.filter(
+    (w) => w.warehouseName === returnItem.warehouse
+  );
+
+  const [selectedWorkerId, setSelectedWorkerId] = useState("");
+
+  const handleSubmit = () => {
+    if (!selectedWorkerId) {
+      alert("Please select a worker");
+      return;
+    }
+
+    const selectedWorker = workersForWarehouse.find(
+      (w) => w.id === selectedWorkerId
+    );
+    if (!selectedWorker) {
+      alert("Selected worker not found");
+      return;
+    }
+
+    // TODO: API call to assign worker to return
+    console.log("Assigning worker to return:", {
+      returnId: returnItem.id,
+      returnNumber: returnItem.returnNumber,
+      workerId: selectedWorkerId,
+      workerName: selectedWorker.name,
+    });
+
+    // Show browser notification
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("Worker Assigned", {
+        body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
+        icon: "/assets/logos/OptiWMS Logo.JPG",
+      });
+    } else if (
+      "Notification" in window &&
+      Notification.permission !== "denied"
+    ) {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification("Worker Assigned", {
+            body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
+            icon: "/assets/logos/OptiWMS Logo.JPG",
+          });
+        }
+      });
+    }
+
+    alert(
+      `Worker ${selectedWorker.name} assigned to return ${returnItem.returnNumber} successfully`
+    );
+    onClose();
+  };
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Assign Worker: ${returnItem.returnNumber}`}
+      size="md"
+    >
+      <div className="p-6 space-y-4">
+        <div className="bg-base-200 rounded-lg p-4">
+          <h4 className="font-semibold text-base-content mb-2">
+            Return Information
+          </h4>
+          <div className="text-sm space-y-1">
+            <div>Order: {returnItem.originalOrder}</div>
+            <div>Customer: {returnItem.customerName}</div>
+            <div>Warehouse: {returnItem.warehouse}</div>
+            <div>Reason: {returnItem.reason}</div>
+          </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Select Worker *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={selectedWorkerId}
+            onChange={(e) => setSelectedWorkerId(e.target.value)}
+            required
+          >
+            <option value="">Choose a worker...</option>
+            {workersForWarehouse.map((worker) => (
+              <option key={worker.id} value={worker.id}>
+                {worker.name} {worker.status === "busy" ? "(Busy)" : ""}
+              </option>
+            ))}
+          </select>
+          {workersForWarehouse.length === 0 && (
+            <label className="label">
+              <span className="label-text-alt text-warning">
+                No workers available for {returnItem.warehouse}
+              </span>
+            </label>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleSubmit}
+            disabled={!selectedWorkerId}
+          >
+            Assign Worker
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

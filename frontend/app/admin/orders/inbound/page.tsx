@@ -1,36 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
-import { ordersApi, Order } from "@/lib/api/orders";
-import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 
-// Frontend inbound order structure
-interface InboundOrder {
-  id: string;
-  orderNumber: string;
-  supplierName: string;
-  supplierId?: string;
-  warehouseName: string;
-  warehouseId: string;
-  orderDate: string;
-  expectedDelivery: string | null;
-  status: string;
-  totalItems: number;
-  receivedItems: number;
-}
-
-// Mock data for fallback
-const mockInboundOrders: InboundOrder[] = [
+// Mock data - will be replaced with API calls
+const inboundOrders = [
   {
     id: "IO-1001",
     orderNumber: "PO-452368",
     supplierName: "Tech Supplies Inc",
     warehouseName: "Warehouse 1",
-    warehouseId: "wh-1",
     orderDate: "2025-12-10",
     expectedDelivery: "2025-12-15",
     status: "in_transit",
@@ -42,7 +24,6 @@ const mockInboundOrders: InboundOrder[] = [
     orderNumber: "PO-452369",
     supplierName: "Global Electronics",
     warehouseName: "Warehouse 1",
-    warehouseId: "wh-1",
     orderDate: "2025-12-11",
     expectedDelivery: "2025-12-16",
     status: "arrived",
@@ -54,7 +35,6 @@ const mockInboundOrders: InboundOrder[] = [
     orderNumber: "PO-452370",
     supplierName: "Tech Supplies Inc",
     warehouseName: "Warehouse 2",
-    warehouseId: "wh-2",
     orderDate: "2025-12-12",
     expectedDelivery: "2025-12-17",
     status: "receiving",
@@ -66,7 +46,6 @@ const mockInboundOrders: InboundOrder[] = [
     orderNumber: "PO-452371",
     supplierName: "Quality Goods Co",
     warehouseName: "Warehouse 1",
-    warehouseId: "wh-1",
     orderDate: "2025-12-08",
     expectedDelivery: "2025-12-13",
     status: "completed",
@@ -87,70 +66,18 @@ const statusConfig = {
 };
 
 export default function InboundOrdersPage() {
-  const [inboundOrders, setInboundOrders] = useState<InboundOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<InboundOrder | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<typeof inboundOrders[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  // Load orders from API
-  useEffect(() => {
-    loadOrders();
-  }, []);
-
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Fetch inbound orders and warehouses
-      const [orders, warehouses] = await Promise.all([
-        ordersApi.getAll("inbound"),
-        warehousesApi.getAll(),
-      ]);
-
-      // Create warehouse map
-      const warehouseMap = new Map(warehouses.map(w => [w.id, w]));
-
-      // Map API orders to frontend structure
-      const ordersData: InboundOrder[] = orders.map((order) => {
-        const warehouse = warehouseMap.get(order.warehouseId);
-        
-        return {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          supplierName: order.supplierId || "Unknown Supplier", // TODO: Get supplier name
-          supplierId: order.supplierId,
-          warehouseName: warehouse?.name || "Unknown Warehouse",
-          warehouseId: order.warehouseId,
-          orderDate: order.orderDate || new Date().toISOString().split('T')[0],
-          expectedDelivery: order.expectedDate || null,
-          status: order.status || "pending",
-          totalItems: 0, // TODO: Get from OrderItems
-          receivedItems: 0, // TODO: Get from OrderItems
-        };
-      });
-
-      setInboundOrders(ordersData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load inbound orders");
-      console.error("Error loading inbound orders:", err);
-      // Fallback to mock data on error
-      setInboundOrders(mockInboundOrders);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const summary = {
-    totalOrders: inboundOrders.length,
-    inTransit: inboundOrders.filter(o => o.status === "in_transit").length,
-    receiving: inboundOrders.filter(o => o.status === "receiving").length,
-    completedThisMonth: inboundOrders.filter(o => o.status === "completed").length,
+    totalOrders: 145,
+    inTransit: 23,
+    receiving: 8,
+    completedThisMonth: 98,
   };
 
   const filteredOrders = inboundOrders.filter((order) => {
@@ -161,7 +88,7 @@ export default function InboundOrdersPage() {
       order.warehouseName.toLowerCase().includes(query) ||
       order.status.toLowerCase().includes(query) ||
       order.orderDate.toLowerCase().includes(query) ||
-      (order.expectedDelivery && order.expectedDelivery.toLowerCase().includes(query)) ||
+      order.expectedDelivery.toLowerCase().includes(query) ||
       order.totalItems.toString().includes(query) ||
       order.receivedItems.toString().includes(query) ||
       order.id.toLowerCase().includes(query)
@@ -169,23 +96,6 @@ export default function InboundOrdersPage() {
     const matchesStatus = statusFilter === "all" || order.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
-  }
-
-  if (error && inboundOrders.length === 0) {
-    return (
-      <div className="alert alert-error">
-        <span>Error: {error}</span>
-        <button className="btn btn-sm" onClick={loadOrders}>Retry</button>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -395,7 +305,7 @@ export default function InboundOrdersPage() {
                             </li>
                           ) : null}
                           <li>
-                            <button>
+                            <button onClick={() => window.print()}>
                               <span className="material-symbols-outlined text-sm">print</span>
                               Print/Export
                             </button>
@@ -459,7 +369,7 @@ function InboundOrderDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  order: InboundOrder;
+  order: typeof inboundOrders[0];
 }) {
   const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.ordered;
 
@@ -515,7 +425,7 @@ function InboundOrderDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">
+          <button className="btn btn-primary" onClick={() => window.print()}>
             <span className="material-symbols-outlined">print</span>
             Print Order
           </button>
@@ -533,10 +443,10 @@ function EditInboundOrderModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  order: InboundOrder;
+  order: typeof inboundOrders[0];
 }) {
   const [formData, setFormData] = useState({
-    expectedDelivery: order.expectedDelivery || "",
+    expectedDelivery: order.expectedDelivery,
     supplierName: order.supplierName,
     warehouseName: order.warehouseName,
   });

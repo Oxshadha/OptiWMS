@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
-import { packingApi } from "@/lib/api/packing";
 
 interface OrderItem {
   id: string;
@@ -183,39 +182,19 @@ export default function PackingPage() {
     // Save to IndexedDB
     await saveScanRecord({
       taskId: selectedOrder.id,
-      location: "",
+      taskType: "packing",
+      locationCode: "",
       sku: "",
-      qty: selectedOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      quantity: selectedOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      timestamp: new Date().toISOString(),
     });
 
-    // Sync with API if online
-    if (isOnline) {
-      try {
-        await packingApi.create({
-          orderId: packingRecord.orderId,
-          orderNumber: packingRecord.orderNumber,
-          packagingTypeId: undefined,
-          boxType: packingRecord.packagingType,
-          boxDimensions: packingRecord.boxDimensions ? JSON.stringify(packingRecord.boxDimensions) : undefined,
-          dunnageMaterials: packingRecord.dunnageMaterials ? JSON.stringify(packingRecord.dunnageMaterials) : undefined,
-          hasFragileItems: packingRecord.hasFragileItems,
-          actualWeightKg: (packingRecord.actualWeight || 0).toString(),
-          dimensionalWeightKg: packingRecord.dimensionalWeight.toString(),
-          chargeableWeightKg: packingRecord.chargeableWeight.toString(),
-          trackingNumber: packingRecord.trackingNumber,
-          packingNotes: packingRecord.packingNotes,
-          status: "completed",
-        });
-      } catch (err) {
-        console.error("Error syncing packing to API:", err);
-      }
-    }
-    
-    // Add to sync queue for offline or as backup
+    // Add to sync queue
     await addToSyncQueue({
-      type: "operation",
-      action: "create",
+      type: "packing",
+      action: "complete",
       data: packingRecord,
+      timestamp: new Date().toISOString(),
     });
 
     // Update order status

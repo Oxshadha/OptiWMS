@@ -5,6 +5,8 @@ import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 
 // Mock data - will be replaced with API calls
 const anomalies = [
@@ -92,20 +94,29 @@ const detectedByConfig = {
 };
 
 export default function AnomaliesPage() {
+  const { hasPermission, admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
+  const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<typeof anomalies[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Filter anomalies by warehouse for warehouse managers
+  const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
+    ? anomalies.filter((a) => a.warehouseName === assignedWarehouseName)
+    : anomalies;
+
   const summary = {
-    totalAnomalies: 45,
-    critical: 3,
-    open: 12,
-    resolvedToday: 8,
+    totalAnomalies: anomaliesForWarehouse.length,
+    critical: anomaliesForWarehouse.filter((a) => a.severity === "critical").length,
+    open: anomaliesForWarehouse.filter((a) => a.status === "open").length,
+    resolvedToday: anomaliesForWarehouse.filter((a) => a.status === "resolved").length,
   };
 
-  const filteredAnomalies = anomalies.filter((anomaly) => {
+  const filteredAnomalies = anomaliesForWarehouse.filter((anomaly) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       anomaly.anomalyId.toLowerCase().includes(query) ||
@@ -275,7 +286,7 @@ export default function AnomaliesPage() {
             View Details
           </Link>
         </li>
-        {anomaly.status === "open" && (
+        {anomaly.status === "open" && canEdit && (
           <li>
             <button
               onClick={() => {
@@ -288,7 +299,7 @@ export default function AnomaliesPage() {
             </button>
           </li>
         )}
-        {anomaly.status === "investigating" && (
+        {anomaly.status === "investigating" && canEdit && (
           <li>
             <button
               onClick={() => {

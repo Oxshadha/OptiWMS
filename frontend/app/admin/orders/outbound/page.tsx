@@ -1,31 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import clsx from "clsx";
-import { ordersApi, Order } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
-import { warehousesApi } from "@/lib/api/warehouses";
 
-// Frontend outbound order structure
-interface OutboundOrder {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  warehouseName: string;
-  orderDate: string;
-  requiredDelivery: string;
-  priority: string;
-  status: string;
-  totalItems: number;
-  pickedItems: number;
-}
-
-// Mock data for fallback
-const mockOutboundOrders: OutboundOrder[] = [
+// Mock data - will be replaced with API calls
+const outboundOrders = [
   {
     id: "OO-1001",
     orderNumber: "#56281",
@@ -107,92 +92,16 @@ const priorityConfig = {
 };
 
 export default function OutboundOrdersPage() {
-  const [outboundOrders, setOutboundOrders] = useState<OutboundOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { hasPermission } = useAdmin();
+  const canCreate = hasPermission(ADMIN_ROUTES.ORDERS, "create");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
 
-  // Load outbound orders from API
-  useEffect(() => {
-    loadOutboundOrders();
-  }, []);
-
-  const loadOutboundOrders = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const [orders, customers, warehouses] = await Promise.all([
-        ordersApi.getAll("outbound"), // Get outbound orders
-        customersApi.getAll(),
-        warehousesApi.getAll(),
-      ]);
-
-      // Create maps for lookups
-      const customerMap = new Map(customers.map((c: any) => [c.id, c]));
-      const warehouseMap = new Map(warehouses.map((w: any) => [w.id, w]));
-
-      // Map API orders to frontend structure
-      const ordersData: OutboundOrder[] = orders.map((order: any) => {
-        const customer = order.customerId ? customerMap.get(order.customerId) : null;
-        const warehouse = order.warehouseId ? warehouseMap.get(order.warehouseId) : null;
-        
-        // Map status
-        let statusDisplay = order.status || "pending";
-        if (statusDisplay === "pending") statusDisplay = "pending";
-        else if (statusDisplay === "picking") statusDisplay = "picking";
-        else if (statusDisplay === "picked") statusDisplay = "picked";
-        else if (statusDisplay === "ready_to_ship") statusDisplay = "ready_to_ship";
-        else if (statusDisplay === "shipped") statusDisplay = "shipped";
-        
-        return {
-          id: order.id,
-          orderNumber: order.orderNumber || `#${order.id.slice(0, 5)}`,
-          customerName: (customer as any)?.name || "Unknown Customer",
-          warehouseName: (warehouse as any)?.name || "Unknown Warehouse",
-          orderDate: order.orderDate || new Date().toISOString().split('T')[0],
-          requiredDelivery: order.expectedDate || order.orderDate || new Date().toISOString().split('T')[0],
-          priority: order.priority || "normal",
-          status: statusDisplay,
-          totalItems: 0, // TODO: Get from order items
-          pickedItems: 0, // TODO: Get from order items
-        };
-      });
-
-      setOutboundOrders(ordersData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load outbound orders");
-      console.error("Error loading outbound orders:", err);
-      // Fallback to mock data on error
-      setOutboundOrders(mockOutboundOrders);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
-  }
-
-  if (error && outboundOrders.length === 0) {
-    return (
-      <div className="alert alert-error">
-        <span>Error: {error}</span>
-        <button className="btn btn-sm" onClick={loadOutboundOrders}>Retry</button>
-      </div>
-    );
-  }
-
   const summary = {
-    totalOrders: outboundOrders.length,
-    pendingPicking: outboundOrders.filter(o => o.status === "pending").length,
+    totalOrders: 245,
+    pendingPicking: 18,
     readyToShip: 12,
     shippedToday: 35,
   };
@@ -378,7 +287,7 @@ export default function OutboundOrdersPage() {
           </li>
         )}
         <li>
-          <button>
+          <button onClick={() => window.print()}>
             <span className="material-symbols-outlined text-sm">print</span>
             Print/Export
           </button>
@@ -453,13 +362,16 @@ export default function OutboundOrdersPage() {
               </li>
             </ul>
           </div>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span>Create Outbound Order</span>
-          </button>
+          {canCreate && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowCreateModal(true)}
+              title="Create manual orders (for internal transfers)"
+            >
+              <span className="material-symbols-outlined">add</span>
+              <span>Create Order</span>
+            </button>
+          )}
         </div>
       </div>
 
