@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { stockTransfersApi, StockTransfer } from "@/lib/api/operations";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -84,42 +85,83 @@ const statusClass = (status: TransferStatus) => {
 };
 
 export default function StockTransfersPage() {
+  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TransferStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
 
-  const filteredTransfers = mockTransfers.filter((transfer) => {
+  useEffect(() => {
+    loadTransfers();
+  }, []);
+
+  const loadTransfers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await stockTransfersApi.getAll();
+      setTransfers(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load stock transfers");
+      console.error("Error loading stock transfers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredTransfers = transfers.filter((transfer) => {
     const matchesSearch = !searchQuery.trim() || (
       transfer.transferNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.itemSku.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.sourceLocationCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.destLocationCode.toLowerCase().includes(searchQuery.toLowerCase())
+      (transfer.sourceLocationCode || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (transfer.destLocationCode || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
     const matchesStatus = statusFilter === "all" || transfer.status === statusFilter;
     const matchesType = typeFilter === "all" || transfer.transferType === typeFilter;
     return matchesSearch && matchesStatus && matchesType;
   });
 
-  const totalTransfers = mockTransfers.length;
-  const inTransit = mockTransfers.filter(t => t.status === "in_transit").length;
-  const received = mockTransfers.filter(t => t.status === "received").length;
-  const pending = mockTransfers.filter(t => t.status === "draft").length;
+  const totalTransfers = transfers.length;
+  const inTransit = transfers.filter(t => t.status === "in_transit").length;
+  const received = transfers.filter(t => t.status === "received").length;
+  const pending = transfers.filter(t => t.status === "draft").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
     setShowDetailModal(true);
   };
 
-  const handleCancelTransfer = (transfer: StockTransfer) => {
+  const handleCancelTransfer = async (transfer: StockTransfer) => {
     if (confirm(`Are you sure you want to cancel transfer ${transfer.transferNumber}?`)) {
-      // TODO: API call to cancel transfer
-      console.log("Cancelling transfer:", transfer.id);
-      alert("Transfer cancelled successfully!");
+      try {
+        // Note: Backend may not have cancel endpoint, using update if available
+        alert("Transfer cancellation not yet implemented in API");
+        // await stockTransfersApi.update(transfer.id, { status: "cancelled" });
+        // loadTransfers();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to cancel transfer");
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading stock transfers: {error}</span>
+        <button className="btn btn-sm" onClick={loadTransfers}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

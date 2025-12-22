@@ -4,19 +4,20 @@ import "./globals.css";
 export const metadata = {
   title: "OptiWMS",
   description: "Warehouse Management System",
-  themeColor: "#CF0F47",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
-    viewportFit: "cover",
-  },
   icons: [
     { rel: "icon", url: "/favicon.ico" },
     { rel: "apple-touch-icon", url: "/icons/icon-192.png" },
   ],
   manifest: "/manifest.json",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#CF0F47",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

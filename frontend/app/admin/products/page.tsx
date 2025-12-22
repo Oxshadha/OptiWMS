@@ -288,10 +288,15 @@ export default function ProductsPage() {
         <li>
           <button 
             className="text-error"
-            onClick={() => {
+            onClick={async () => {
               if (confirm(`Are you sure you want to delete ${product.name}?`)) {
-                // TODO: API call to delete product
-                console.log("Deleting product:", product.id);
+                try {
+                  await materialsApi.delete(product.id);
+                  alert("Product deleted successfully!");
+                  window.location.reload();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to delete product");
+                }
               }
             }}
           >
@@ -474,28 +479,22 @@ function CreateProductModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     productImage: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create product
-    console.log("Creating product:", formData);
-    onClose();
-    setFormData({
-      name: "",
-      sku: "",
-      description: "",
-      category: "",
-      subcategory: "",
-      weight: "",
-      dimensionsLength: "",
-      dimensionsWidth: "",
-      dimensionsHeight: "",
-      requiresQualityCheck: true,
-      temperatureSensitive: false,
-      fragile: false,
-      reorderPoint: "",
-      optimalStockLevel: "",
-      productImage: null,
-    });
+    try {
+      await materialsApi.create({
+        materialCode: formData.sku,
+        description: formData.name + (formData.description ? ` - ${formData.description}` : ''),
+        unitType: 'EA', // Default unit type
+        storageType: formData.category || 'Other',
+      });
+      alert("Product created successfully!");
+      onClose();
+      // Reload the page to refresh the list
+      window.location.reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create product");
+    }
   };
 
   return (
@@ -749,12 +748,21 @@ function EditProductModal({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update product
-    console.log("Updating product:", formData);
-    alert("Product updated successfully!");
-    onClose();
+    try {
+      await materialsApi.update(product.id, {
+        materialCode: formData.sku,
+        description: formData.name + (formData.description ? ` - ${formData.description}` : ''),
+        unitType: 'EA', // Default unit type
+        storageType: formData.category || 'Other',
+      });
+      alert("Product updated successfully!");
+      onClose();
+      window.location.reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update product");
+    }
   };
 
   return (
@@ -1020,18 +1028,15 @@ function ImportProductsModal({ onClose }: { onClose: () => void }) {
 
     setImporting(true);
     try {
-      // Read file content
-      const text = await importFile.text();
-      console.log("Importing products from file:", importFile.name);
-      console.log("File content preview:", text.substring(0, 200));
-      
-      // TODO: Parse CSV/Excel and import products via API
-      // For now, simulate import
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      alert("Products imported successfully!");
+      const result = await materialsApi.importCsv(importFile);
+      if (result.errorCount > 0) {
+        alert(`Import completed with errors:\nSuccess: ${result.successCount}\nErrors: ${result.errorCount}\n${result.errors.join('\n')}`);
+      } else {
+        alert(`Products imported successfully! ${result.successCount} products imported.`);
+      }
       setImportFile(null);
       onClose();
+      window.location.reload();
     } catch (error) {
       console.error("Error importing products:", error);
       alert("Error importing products. Please check the file format.");

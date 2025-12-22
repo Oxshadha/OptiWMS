@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { pickingApi } from "@/lib/api/operations";
 
 const picks = [
   {
@@ -95,6 +96,24 @@ export default function PickingPage() {
           timestamp: Date.now(),
         },
       });
+
+      // If online, also call API directly
+      if (isOnline) {
+        try {
+          // TODO: Get taskId from task context
+          const taskId = "temp-task-id";
+          await pickingApi.complete(taskId, {
+            items: [{
+              materialId: "temp-material-id", // TODO: Get from SKU lookup
+              quantity: pickedQty.toString(),
+              locationCode: currentPick.location,
+            }],
+          });
+        } catch (err) {
+          console.error("Error syncing pick to API:", err);
+          // Continue anyway since it's in sync queue
+        }
+      }
 
       setSaveStatus("saved");
       
