@@ -23,6 +23,7 @@ const inventory = [
     status: "Available",
     category: "Electronics",
     warehouseName: "Warehouse 1",
+    itemType: "Product" as const,
   },
   {
     sku: "SKU-1002",
@@ -32,6 +33,7 @@ const inventory = [
     status: "Available",
     category: "Electronics",
     warehouseName: "Warehouse 1",
+    itemType: "Product" as const,
   },
   {
     sku: "SKU-1003",
@@ -41,6 +43,7 @@ const inventory = [
     status: "Low",
     category: "Home",
     warehouseName: "Warehouse 1",
+    itemType: "Product" as const,
   },
   {
     sku: "SKU-1004",
@@ -50,6 +53,7 @@ const inventory = [
     status: "Available",
     category: "Appliances",
     warehouseName: "Warehouse 1",
+    itemType: "Product" as const,
   },
   {
     sku: "SKU-1005",
@@ -59,6 +63,7 @@ const inventory = [
     status: "Out of Stock",
     category: "Sports",
     warehouseName: "Warehouse 2",
+    itemType: "Product" as const,
   },
   {
     sku: "SKU-1006",
@@ -68,6 +73,37 @@ const inventory = [
     status: "Available",
     category: "Electronics",
     warehouseName: "Warehouse 2",
+    itemType: "Product" as const,
+  },
+  {
+    sku: "RM-1001",
+    name: "Steel Sheet 2mm",
+    qty: 1500,
+    location: "RM-01-001-01-A",
+    status: "Available",
+    category: "Raw Materials",
+    warehouseName: "Warehouse 1",
+    itemType: "Raw Material" as const,
+  },
+  {
+    sku: "RM-1002",
+    name: "Aluminum Rod 10mm",
+    qty: 800,
+    location: "RM-01-002-02-A",
+    status: "Available",
+    category: "Raw Materials",
+    warehouseName: "Warehouse 1",
+    itemType: "Raw Material" as const,
+  },
+  {
+    sku: "RM-2001",
+    name: "Plastic Granules",
+    qty: 2500,
+    location: "RM-02-001-01-B",
+    status: "Available",
+    category: "Raw Materials",
+    warehouseName: "Warehouse 2",
+    itemType: "Raw Material" as const,
   },
 ];
 
@@ -79,12 +115,14 @@ const statusClass = (s: string) => {
 };
 
 const categories = ["All", "Electronics", "Home", "Appliances", "Sports"];
+const itemTypes = ["All", "Product", "Raw Material"];
 
 export default function InventoryPage() {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
   const [activeCategory, setActiveCategory] = useState("All");
+  const [activeItemType, setActiveItemType] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -107,8 +145,12 @@ export default function InventoryPage() {
   let filteredInventory = inventoryForWarehouse.filter((item) => {
     const matchesCategory =
       activeCategory === "All" || item.category === activeCategory;
+    const matchesItemType =
+      activeItemType === "All" || 
+      (activeItemType === "Product" && item.itemType === "Product") ||
+      (activeItemType === "Raw Material" && item.itemType === "Raw Material");
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return matchesCategory;
+    if (!query) return matchesCategory && matchesItemType;
     const matchesSearch =
       item.name.toLowerCase().includes(query) ||
       item.sku.toLowerCase().includes(query) ||
@@ -116,7 +158,7 @@ export default function InventoryPage() {
       item.status.toLowerCase().includes(query) ||
       item.category.toLowerCase().includes(query) ||
       item.qty.toString().includes(query);
-    return matchesCategory && matchesSearch;
+    return matchesCategory && matchesItemType && matchesSearch;
   });
 
   // Apply sorting
@@ -296,36 +338,58 @@ export default function InventoryPage() {
       </div>
 
       {/* Search and Filters */}
-      <div className="flex gap-4 items-center">
-        <div className="flex-1">
-          <label className="input input-bordered flex items-center gap-2 w-full">
-            <span className="material-symbols-outlined text-base-content/60">
-              search
-            </span>
-            <input
-              type="text"
-              className="grow"
-              placeholder="Search by SKU or name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </label>
+      <div className="flex flex-col gap-4">
+        <div className="flex gap-4 items-center">
+          <div className="flex-1">
+            <label className="input input-bordered flex items-center gap-2 w-full">
+              <span className="material-symbols-outlined text-base-content/60">
+                search
+              </span>
+              <input
+                type="text"
+                className="grow"
+                placeholder="Search by SKU or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </label>
+          </div>
         </div>
-        <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveCategory(cat)}
-              className={clsx(
-                "px-4 py-2 rounded-lg text-sm transition-all",
-                activeCategory === cat
-                  ? "bg-neutral text-neutral-content font-medium"
-                  : "text-base-content/60 hover:text-base-content"
-              )}
-            >
-              {cat}
-            </button>
-          ))}
+        <div className="flex gap-4 items-center">
+          <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
+            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Type:</span>
+            {itemTypes.map((type) => (
+              <button
+                key={type}
+                onClick={() => setActiveItemType(type)}
+                className={clsx(
+                  "px-4 py-2 rounded-lg text-sm transition-all",
+                  activeItemType === type
+                    ? "bg-neutral text-neutral-content font-medium"
+                    : "text-base-content/60 hover:text-base-content"
+                )}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
+            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Category:</span>
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={clsx(
+                  "px-4 py-2 rounded-lg text-sm transition-all",
+                  activeCategory === cat
+                    ? "bg-neutral text-neutral-content font-medium"
+                    : "text-base-content/60 hover:text-base-content"
+                )}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -337,6 +401,7 @@ export default function InventoryPage() {
               <tr>
                 <th className="font-semibold text-base-content">SKU</th>
                 <th className="font-semibold text-base-content">Item Name</th>
+                <th className="font-semibold text-base-content">Type</th>
                 <th className="font-semibold text-base-content">Category</th>
                 <th className="font-semibold text-base-content">Quantity</th>
                 <th className="font-semibold text-base-content">Location</th>
@@ -360,6 +425,17 @@ export default function InventoryPage() {
                     </button>
                   </td>
                   <td>{item.name}</td>
+                  <td>
+                    <span
+                      className={`badge text-xs whitespace-nowrap ${
+                        item.itemType === "Raw Material"
+                          ? "badge-info"
+                          : "badge-primary"
+                      }`}
+                    >
+                      {item.itemType}
+                    </span>
+                  </td>
                   <td>
                     <span
                       className="badge text-xs whitespace-nowrap"
