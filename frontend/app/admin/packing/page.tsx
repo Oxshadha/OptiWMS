@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { packingApi, PackingRecord } from "@/lib/api/packing";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -85,17 +86,43 @@ const statusClass = (status: PackingStatus) => {
 };
 
 export default function PackingPage() {
+  const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<PackingRecord | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
 
-  const filteredRecords = mockPackingRecords.filter((record) => {
+  useEffect(() => {
+    loadPackingRecords();
+  }, [viewMode]);
+
+  const loadPackingRecords = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      let data: PackingRecord[];
+      if (viewMode === "queue") {
+        data = await packingApi.getQueue();
+      } else {
+        data = await packingApi.getAll();
+      }
+      setPackingRecords(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load packing records");
+      console.error("Error loading packing records:", err);
+      setPackingRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredRecords = packingRecords.filter((record) => {
     const matchesSearch = !searchQuery.trim() || (
-      record.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      record.customer.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      record.trackingNumber?.toLowerCase().includes(searchQuery.toLowerCase())
+      (record.orderNumber || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (record.trackingNumber || "").toLowerCase().includes(searchQuery.toLowerCase())
     );
     const matchesStatus = statusFilter === "all" || record.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -104,16 +131,43 @@ export default function PackingPage() {
   const pendingOrders = filteredRecords.filter(r => r.status === "pending");
   const inProgress = filteredRecords.filter(r => r.status === "in_progress");
   const packed = filteredRecords.filter(r => r.status === "packed");
-  const total = mockPackingRecords.length;
+  const total = packingRecords.length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading packing records: {error}</span>
+        <button className="btn btn-sm" onClick={loadPackingRecords}>Retry</button>
+      </div>
+    );
+  }
 
   const handleViewDetails = (record: PackingRecord) => {
     setSelectedRecord(record);
     setShowDetailModal(true);
   };
 
-  const handleAssignPacker = (record: PackingRecord) => {
-    // TODO: Open assign packer modal
+  const handleAssignPacker = async (record: PackingRecord) => {
+    // TODO: Open assign packer modal with worker selection
     alert(`Assign packer to order ${record.orderNumber}`);
+  };
+
+  const handleCompletePacking = async (record: PackingRecord) => {
+    try {
+      await packingApi.complete(record.id);
+      alert("Packing completed successfully!");
+      loadPackingRecords();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to complete packing");
+    }
   };
 
   const handlePrintLabel = (record: PackingRecord) => {

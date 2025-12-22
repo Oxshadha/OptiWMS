@@ -492,14 +492,31 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
     { id: "SO-1009", customer: "Customer C", items: 2, status: "ready_to_ship" },
   ];
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.warehouse || !formData.deliveryPartner || !formData.driverName) {
       alert("Please fill in all required fields");
       return;
     }
-    console.log("Creating shipment:", formData);
-    // TODO: API call to create shipment
-    onClose();
+    try {
+      await shipmentsApi.create({
+        shipmentNumber: `SH-${Date.now()}`,
+        orderId: formData.selectedOrders[0] || undefined,
+        carrier: formData.deliveryPartner,
+        trackingNumber: formData.trackingNumber || undefined,
+        destination: formData.destination,
+        weightKg: formData.weight ? parseFloat(formData.weight) : undefined,
+        driverName: formData.driverName,
+        driverPhone: formData.driverPhone || undefined,
+        vehicleNumber: formData.vehicleNumber || undefined,
+        status: "label_created",
+        eta: formData.eta || undefined,
+      });
+      alert("Shipment created successfully!");
+      onClose();
+      loadShipments();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to create shipment");
+    }
   };
 
   const toggleOrder = (orderId: string) => {

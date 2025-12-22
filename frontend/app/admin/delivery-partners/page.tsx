@@ -7,9 +7,10 @@ import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import React from "react";
+import { deliveryPartnersApi, DeliveryPartner } from "@/lib/api/delivery-partners";
 
 // Mock data - will be replaced with API calls
-const deliveryPartners = [
+const mockDeliveryPartners = [
   {
     id: "partner-1",
     partnerCode: "DP-001",
@@ -49,31 +50,67 @@ const deliveryPartners = [
 ];
 
 export default function DeliveryPartnersPage() {
+  const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<DeliveryPartner | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  useEffect(() => {
+    loadDeliveryPartners();
+  }, []);
+
+  const loadDeliveryPartners = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await deliveryPartnersApi.getAll();
+      setDeliveryPartners(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load delivery partners");
+      console.error("Error loading delivery partners:", err);
+      setDeliveryPartners([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading delivery partners: {error}</span>
+        <button className="btn btn-sm" onClick={loadDeliveryPartners}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalPartners: 12,
-    active: 11,
-    shipmentsToday: 45,
+    totalPartners: deliveryPartners.length,
+    active: deliveryPartners.filter(p => p.status === "active").length,
+    shipmentsToday: 45, // TODO: Calculate from shipments API
   };
 
   const filteredPartners = deliveryPartners.filter((partner) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
-      partner.companyName.toLowerCase().includes(query) ||
-      partner.partnerCode.toLowerCase().includes(query) ||
-      partner.email.toLowerCase().includes(query) ||
-      partner.contactPerson.toLowerCase().includes(query) ||
-      partner.phone.toLowerCase().includes(query) ||
-      partner.status.toLowerCase().includes(query) ||
-      partner.rating.toString().includes(query) ||
-      partner.costPerDelivery.toString().includes(query) ||
-      partner.serviceAreas.some(area => area.toLowerCase().includes(query))
+      partner.name.toLowerCase().includes(query) ||
+      (partner.code || "").toLowerCase().includes(query) ||
+      (partner.email || "").toLowerCase().includes(query) ||
+      (partner.contactPerson || "").toLowerCase().includes(query) ||
+      (partner.phone || "").toLowerCase().includes(query) ||
+      (partner.status || "").toLowerCase().includes(query)
     );
     const matchesStatus = statusFilter === "all" || partner.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -241,11 +278,15 @@ export default function DeliveryPartnersPage() {
         <li>
           <button 
             className="text-error"
-            onClick={() => {
-              if (confirm(`Are you sure you want to delete ${partner.companyName}? This action cannot be undone.`)) {
-                // TODO: API call to delete partner
-                console.log("Deleting partner:", partner.id);
-                alert("Partner deleted successfully!");
+            onClick={async () => {
+              if (confirm(`Are you sure you want to delete ${partner.name}? This action cannot be undone.`)) {
+                try {
+                  await deliveryPartnersApi.delete(partner.id);
+                  alert("Partner deleted successfully!");
+                  loadDeliveryPartners();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to delete partner");
+                }
               }
             }}
           >
@@ -501,11 +542,25 @@ function EditDeliveryPartnerModal({
     rating: partner.rating.toString(),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update delivery partner
-    console.log("Updating delivery partner:", formData);
-    onClose();
+    try {
+      await deliveryPartnersApi.update(partner.id, {
+        code: formData.partnerCode,
+        name: formData.companyName,
+        contactPerson: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        status: "active",
+      });
+      alert("Delivery partner updated successfully!");
+      onClose();
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update delivery partner");
+    }
   };
 
   return (
@@ -679,13 +734,21 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     rating: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create delivery partner
-    console.log("Creating delivery partner:", formData);
-    onClose();
-    setFormData({
-      partnerCode: "",
+    try {
+      await deliveryPartnersApi.create({
+        code: formData.partnerCode,
+        name: formData.companyName,
+        contactPerson: formData.contactPerson,
+        email: formData.email,
+        phone: formData.phone,
+        status: "active",
+      });
+      alert("Delivery partner created successfully!");
+      onClose();
+      setFormData({
+        partnerCode: "",
       companyName: "",
       contactPerson: "",
       email: "",

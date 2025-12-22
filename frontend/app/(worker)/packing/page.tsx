@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { packingApi } from "@/lib/api/packing";
 
 interface OrderItem {
   id: string;
@@ -197,10 +198,37 @@ export default function PackingPage() {
       timestamp: new Date().toISOString(),
     });
 
+    // If online, also call API directly
+    if (isOnline && selectedOrder) {
+      try {
+        // Find or create packing record
+        const packingRecords = await packingApi.getQueue();
+        const existingRecord = packingRecords.find(p => p.orderNumber === selectedOrder.orderNumber);
+        
+        if (existingRecord) {
+          await packingApi.complete(existingRecord.id);
+        } else {
+          // Create new packing record and complete it
+          const newRecord = await packingApi.create({
+            orderId: selectedOrder.id,
+            orderNumber: selectedOrder.orderNumber,
+            status: "packed",
+            actualWeightKg: packingData.actualWeight,
+            packingNotes: packingData.packingNotes,
+            hasFragileItems: packingData.hasFragileItems,
+          });
+          await packingApi.complete(newRecord.id);
+        }
+      } catch (err) {
+        console.error("Error syncing packing to API:", err);
+        // Continue anyway since it's in sync queue
+      }
+    }
+
     // Update order status
     setOrders(orders.map(o => o.id === selectedOrder.id ? { ...o, status: "packed" } : o));
     
-    alert(`Order ${selectedOrder.orderNumber} packed successfully!\nTracking: ${packingRecord.trackingNumber}`);
+    alert(`Order ${selectedOrder.orderNumber} packed successfully!`);
     
     // Reset
     setSelectedOrder(null);

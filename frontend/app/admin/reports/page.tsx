@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { reportsApi, Report } from "@/lib/api/reports";
 
-const reports = [
+const mockReports = [
   { 
     id: 1,
     name: "Daily Inbound", 
@@ -64,23 +65,42 @@ const reports = [
 const reportTypes = ["All", "Inbound", "Outbound", "Inventory", "Sales", "Analytics", "Customer"];
 
 export default function ReportsPage() {
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeType, setActiveType] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<typeof reports[0] | null>(null);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+
+  useEffect(() => {
+    loadReports();
+  }, []);
+
+  const loadReports = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await reportsApi.getAll();
+      setReports(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load reports");
+      console.error("Error loading reports:", err);
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredReports = reports.filter(r => {
     const query = searchQuery.trim().toLowerCase();
     const matchesType = activeType === "All" || r.type === activeType;
     const matchesSearch = !query || (
-      r.name.toLowerCase().includes(query) ||
-      r.desc.toLowerCase().includes(query) ||
-      r.type.toLowerCase().includes(query) ||
-      r.size.toLowerCase().includes(query) ||
-      r.lastGenerated.toLowerCase().includes(query) ||
-      r.icon.toLowerCase().includes(query)
+      (r.name || "").toLowerCase().includes(query) ||
+      (r.type || "").toLowerCase().includes(query) ||
+      (r.status || "").toLowerCase().includes(query)
     );
     return matchesType && matchesSearch;
   });
@@ -90,7 +110,8 @@ export default function ReportsPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Reports ({reports.length})</h1>
-        <div className="flex gap-3">
+        {!loading && !error && (
+          <div className="flex gap-3">
           <button 
             className="btn btn-sm btn-ghost"
             onClick={() => setShowScheduleModal(true)}
@@ -105,8 +126,24 @@ export default function ReportsPage() {
             <span className="material-symbols-outlined">add</span>
             <span>Create Custom Report</span>
           </button>
-        </div>
+          </div>
+        )}
       </div>
+
+      {loading && (
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      )}
+
+      {error && (
+        <div className="alert alert-error">
+          <span>Error loading reports: {error}</span>
+          <button className="btn btn-sm" onClick={loadReports}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && (
 
       {/* Search and Filters */}
       <div className="flex gap-4 items-center">
@@ -152,37 +189,40 @@ export default function ReportsPage() {
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary text-2xl">{r.icon}</span>
+                <span className="material-symbols-outlined text-primary text-2xl">description</span>
               </div>
               <span 
                 className="badge text-xs whitespace-nowrap" 
                 style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
               >
-                {r.type}
+                {r.type || "Report"}
               </span>
             </div>
-            <h3 className="text-lg font-bold text-base-content mb-2">{r.name}</h3>
-            <p className="text-sm text-base-content/60 mb-4">{r.desc}</p>
+            <h3 className="text-lg font-bold text-base-content mb-2">{r.name || `Report ${r.id}`}</h3>
+            <p className="text-sm text-base-content/60 mb-4">Status: {r.status || "N/A"}</p>
             <div className="flex items-center justify-between pt-4 border-t border-base-200">
               <div className="text-xs text-base-content/50">
-                <div>Size: {r.size}</div>
-                <div>Last: {r.lastGenerated}</div>
+                <div>ID: {r.id}</div>
+                <div>Type: {r.type || "N/A"}</div>
               </div>
               <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                 <button 
                   className="btn btn-primary btn-sm"
-                  onClick={(e) => {
+                  onClick={async (e) => {
                     e.stopPropagation();
-                    // TODO: Download report - replace with actual API call
-                    console.log("Download report:", r.id);
-                    // Simulate download
-                    const link = document.createElement('a');
-                    link.href = '#'; // Replace with actual report URL
-                    link.download = `${r.name.replace(/\s+/g, '_')}.pdf`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    alert(`Downloading ${r.name}...`);
+                    try {
+                      const blob = await reportsApi.download(r.id);
+                      const url = window.URL.createObjectURL(blob);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = `${(r.name || "report").replace(/\s+/g, '_')}.pdf`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                      window.URL.revokeObjectURL(url);
+                    } catch (err) {
+                      alert(err instanceof Error ? err.message : "Failed to download report");
+                    }
                   }}
                 >
                   <span className="material-symbols-outlined">download</span>
@@ -225,6 +265,7 @@ export default function ReportsPage() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
       />
+      )}
     </div>
   );
 }
@@ -237,15 +278,15 @@ function ReportDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  report: typeof reports[0];
+  report: Report;
 }) {
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.name}`} size="lg">
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.name || report.id}`} size="lg">
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm text-base-content/60">Report Name</label>
-            <p className="font-semibold">{report.name}</p>
+            <p className="font-semibold">{report.name || "N/A"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Type</label>
@@ -254,21 +295,17 @@ function ReportDetailModal({
                 className="badge text-xs whitespace-nowrap" 
                 style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
               >
-                {report.type}
+                {report.type || "N/A"}
               </span>
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Description</label>
-            <p className="font-semibold">{report.desc}</p>
+            <label className="text-sm text-base-content/60">Status</label>
+            <p className="font-semibold">{report.status || "N/A"}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Size</label>
-            <p className="font-semibold">{report.size}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Last Generated</label>
-            <p className="font-semibold">{report.lastGenerated}</p>
+            <label className="text-sm text-base-content/60">Report ID</label>
+            <p className="font-semibold">{report.id}</p>
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4">
@@ -277,16 +314,20 @@ function ReportDetailModal({
           </button>
           <button 
             className="btn btn-primary"
-            onClick={() => {
-              // TODO: Download report - replace with actual API call
-              console.log("Download report:", report.id);
-              const link = document.createElement('a');
-              link.href = '#'; // Replace with actual report URL
-              link.download = `${report.name.replace(/\s+/g, '_')}.pdf`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              alert(`Downloading ${report.name}...`);
+            onClick={async () => {
+              try {
+                const blob = await reportsApi.download(report.id);
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `${(report.name || "report").replace(/\s+/g, '_')}.pdf`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+              } catch (err) {
+                alert(err instanceof Error ? err.message : "Failed to download report");
+              }
             }}
           >
             <span className="material-symbols-outlined">download</span>
