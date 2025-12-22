@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { putawayApi } from "@/lib/api/operations";
 
 export default function PutawayPage() {
   const [scannedLPN, setScannedLPN] = useState("");
@@ -41,11 +42,27 @@ export default function PutawayPage() {
     setShowLocationScanner(false);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (scannedLPN && scannedLocation) {
-      // Handle confirmation
-      console.log("Putaway confirmed", { scannedLPN, scannedLocation, note, photos });
-      // TODO: API call to confirm putaway
+      try {
+        // TODO: Get taskId from task context or props
+        const taskId = "temp-task-id"; // This should come from the task assignment
+        const result = await putawayApi.complete(taskId, {
+          locationCode: scannedLocation,
+          lpn: scannedLPN,
+        });
+        if (result.success) {
+          alert("Putaway completed successfully!");
+          setScannedLPN("");
+          setScannedLocation("");
+          setNote("");
+          setPhotos([]);
+        } else {
+          alert(result.message || "Failed to complete putaway");
+        }
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Failed to complete putaway");
+      }
     }
   };
 

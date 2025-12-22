@@ -39,5 +39,9 @@ export const inventoryApi = {
   updateQuantity: async (id: string, quantityChange: number): Promise<InventoryItem> => {
     return apiClient.patch<InventoryItem>(`/inventory/${id}/quantity?quantityChange=${quantityChange}`, {});
   },
+
+  update: async (id: string, item: Partial<InventoryItem>): Promise<InventoryItem> => {
+    return apiClient.put<InventoryItem>(`/inventory/${id}`, item);
+  },
 };
 

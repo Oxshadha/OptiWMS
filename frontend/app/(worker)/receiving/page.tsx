@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
+import { receivingApi } from "@/lib/api/operations";
 
 export default function ReceivingPage() {
   const [scannedValue, setScannedValue] = useState("");
@@ -26,9 +27,25 @@ export default function ReceivingPage() {
     setShowScanner(false);
   };
 
-  const handleConfirm = () => {
-    // Handle confirmation
-    console.log("Confirmed:", receivedQty);
+  const handleConfirm = async () => {
+    if (!scannedValue || receivedQty === 0) {
+      alert("Please scan an order number and enter received quantity");
+      return;
+    }
+    try {
+      const result = await receivingApi.receiveOrder(scannedValue, [{
+        materialId: "temp-id", // TODO: Get from scanned item
+        quantity: receivedQty.toString(),
+        locationCode: "STAGING", // TODO: Get from location picker
+      }]);
+      if (result.success) {
+        alert("Order received successfully!");
+        setScannedValue("");
+        setReceivedQty(0);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to receive order");
+    }
   };
 
   return (

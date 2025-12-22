@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
 import { materialsApi } from "@/lib/api/materials";
+import { warehousesApi } from "@/lib/api/warehouses";
 
 // Extended inventory interface for display
 interface InventoryDisplay extends InventoryItem {
@@ -401,20 +402,10 @@ function AddInventoryItemModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
     status: "Available",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to add inventory item
-    console.log("Adding inventory item:", formData);
-    alert("Inventory item added successfully!");
+    alert("Note: Inventory items are typically created through receiving operations. Please use the receiving process to add new inventory.");
     onClose();
-    setFormData({
-      sku: "",
-      name: "",
-      category: "",
-      qty: "",
-      location: "",
-      status: "Available",
-    });
   };
 
   return (
@@ -590,11 +581,44 @@ function EditInventoryItemModal({
     status: item.status,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update inventory
-    console.log("Updating inventory item:", formData);
-    onClose();
+    try {
+      // Find the material ID from the item
+      const material = await materialsApi.getAll();
+      const materialItem = material.find(m => m.materialCode === item.sku);
+      if (!materialItem) {
+        alert("Material not found for this SKU");
+        return;
+      }
+      
+      // Get warehouses to find warehouse ID
+      const warehouses = await warehousesApi.getAll();
+      const warehouse = warehouses[0]; // Use first warehouse or get from item if available
+      if (!warehouse) {
+        alert("No warehouse found");
+        return;
+      }
+
+      // Find existing inventory item
+      const inventoryItems = await inventoryApi.getByMaterial(materialItem.id);
+      const existingItem = inventoryItems.find(inv => inv.locationCode === item.location);
+      
+      if (existingItem) {
+        await inventoryApi.update(existingItem.id, {
+          locationCode: formData.location,
+          quantity: formData.qty,
+          status: formData.status,
+        } as any);
+        alert("Inventory updated successfully!");
+        onClose();
+        loadInventory();
+      } else {
+        alert("Inventory item not found. Please use receiving operations to create inventory.");
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update inventory");
+    }
   };
 
   return (
