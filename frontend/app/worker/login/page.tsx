@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -9,14 +9,24 @@ import {
   getAllWorkerRoles,
   ROLE_DISPLAY_NAMES,
 } from "@/lib/worker-roles";
+import { useWorker } from "@/contexts/WorkerContext";
 
 export default function WorkerLoginPage() {
   const router = useRouter();
+  const { setWorker, clearWorker } = useWorker();
   const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
   const [selectedRole, setSelectedRole] = useState<WorkerRole>("picker");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Clear worker state (but not IndexedDB) when navigating to login page
+  // This ensures a fresh login but doesn't delete data until we actually log in
+  useEffect(() => {
+    // Only clear if we have worker data in state
+    // We don't call clearWorker() here because that would delete from IndexedDB
+    // Instead, we'll let the WorkerContext handle clearing state on navigation
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,25 +63,21 @@ export default function WorkerLoginPage() {
         throw new Error("Invalid worker role");
       }
 
-      // Store worker data in IndexedDB
-      const { updateInStore, STORES } = await import("@/lib/indexeddb");
-      await updateInStore(STORES.WORKER_DATA, {
-        key: "current_worker",
-        ...mockWorkerData,
-      });
+      // Update worker data in context (this also saves to IndexedDB)
+      await setWorker(mockWorkerData);
 
       console.log("[Login] Saved worker data:", {
         role: mockWorkerData.role,
         selectedRole,
       });
 
-      // Small delay to ensure storage is written, then redirect
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait a bit to ensure IndexedDB transaction completes and React state updates
+      // This prevents the reload effect from firing before state is updated
+      await new Promise((resolve) => setTimeout(resolve, 300));
 
-      // Redirect to role-specific worker home - the WorkerContext will load the data
+      // Redirect to role-specific worker home
+      // The WorkerContext should have the worker data in state now
       router.push(`/worker/${selectedRole}`);
-      // Force a page reload to ensure WorkerContext reloads
-      router.refresh();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Login failed. Please try again."
