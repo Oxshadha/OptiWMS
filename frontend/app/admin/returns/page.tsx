@@ -398,14 +398,28 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
     notes: "",
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.originalOrder || !formData.warehouse || !formData.reason) {
       alert("Please fill in all required fields");
       return;
     }
-    console.log("Creating return:", formData);
-    // TODO: API call to create return
-    onClose();
+    try {
+      await returnsApi.register({
+        returnNumber: `RET-${Date.now()}`,
+        originalOrderId: formData.originalOrder,
+        customerId: formData.customer || undefined,
+        warehouseId: formData.warehouse,
+        returnDate: new Date().toISOString().split('T')[0],
+        reason: formData.reason,
+        status: "pending",
+        receivedBy: formData.receivedBy || undefined,
+      });
+      alert("Return registered successfully!");
+      onClose();
+      loadReturns();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to register return");
+    }
   };
 
   return (
@@ -598,14 +612,25 @@ function InspectReturnModal({
     notes: "",
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!inspectionData.overallResolution) {
       alert("Please select overall resolution");
       return;
     }
-    console.log("Submitting inspection:", inspectionData);
-    // TODO: API call to submit inspection
-    onClose();
+    try {
+      await returnsApi.inspect(
+        returnItem.id,
+        inspectionData.inspectedBy || "admin",
+        inspectionData.overallResolution
+      );
+      alert("Inspection submitted successfully!");
+      onClose();
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to submit inspection");
+    }
   };
 
   return (

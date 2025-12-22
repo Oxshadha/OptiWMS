@@ -63,38 +63,71 @@ const resultConfig = {
 };
 
 export default function QualityChecksPage() {
+  const [qualityChecks, setQualityChecks] = useState<QualityCheck[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedCheck, setSelectedCheck] = useState<typeof qualityChecks[0] | null>(null);
+  const [selectedCheck, setSelectedCheck] = useState<QualityCheck | null>(null);
+
+  useEffect(() => {
+    loadQualityChecks();
+  }, []);
+
+  const loadQualityChecks = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await qualityChecksApi.getAll();
+      setQualityChecks(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load quality checks");
+      console.error("Error loading quality checks:", err);
+      setQualityChecks([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading quality checks: {error}</span>
+        <button className="btn btn-sm" onClick={loadQualityChecks}>Retry</button>
+      </div>
+    );
+  }
 
   const summary = {
-    totalChecksThisMonth: 145,
-    pendingApproval: 8,
-    passRate: 92.5,
-    rejectedItems: 15,
+    totalChecksThisMonth: qualityChecks.length,
+    pendingApproval: qualityChecks.filter(c => c.status === "pending").length,
+    passRate: qualityChecks.filter(c => c.result === "passed").length / qualityChecks.length * 100 || 0,
+    rejectedItems: qualityChecks.filter(c => c.result === "failed").length,
   };
 
   const filteredChecks = qualityChecks.filter((check) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
-      check.checkId.toLowerCase().includes(query) ||
-      check.inboundOrderNumber.toLowerCase().includes(query) ||
-      check.productName.toLowerCase().includes(query) ||
-      check.sku.toLowerCase().includes(query) ||
-      check.quantityChecked.toString().includes(query) ||
-      check.quantityPassed.toString().includes(query) ||
-      check.quantityFailed.toString().includes(query) ||
-      check.result.toLowerCase().includes(query) ||
-      check.checkedByName.toLowerCase().includes(query) ||
-      check.checkDate.toLowerCase().includes(query) ||
-      (check.approvedByName && check.approvedByName.toLowerCase().includes(query)) ||
-      (check.approvalDate && check.approvalDate.toLowerCase().includes(query))
+      check.checkNumber.toLowerCase().includes(query) ||
+      (check.orderId || "").toLowerCase().includes(query) ||
+      (check.materialId || "").toLowerCase().includes(query) ||
+      (check.result || "").toLowerCase().includes(query) ||
+      (check.status || "").toLowerCase().includes(query) ||
+      (check.checkedBy || "").toLowerCase().includes(query)
     );
     const matchesStatus =
       statusFilter === "all" ||
-      (statusFilter === "pending" && !check.approvedByName) ||
-      (statusFilter === "approved" && check.approvedByName);
+      (statusFilter === "pending" && check.status === "pending") ||
+      (statusFilter === "approved" && check.status === "approved");
     return matchesSearch && matchesStatus;
   });
 

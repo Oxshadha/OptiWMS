@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
+import { shipmentsApi, Shipment } from "@/lib/api/shipments";
 
 export default function ShipmentsPage() {
-  const [selectedShipment, setSelectedShipment] = useState<any>(null);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedOrder, setScannedOrder] = useState("");
@@ -17,7 +20,24 @@ export default function ShipmentsPage() {
     notes: "",
   });
 
-  const shipments = [
+  useEffect(() => {
+    loadShipments();
+  }, []);
+
+  const loadShipments = async () => {
+    try {
+      setLoading(true);
+      const data = await shipmentsApi.getAll();
+      setShipments(data);
+    } catch (err) {
+      console.error("Error loading shipments:", err);
+      setShipments([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const mockShipments = [
     {
       id: "SH-9001",
       orderNumber: "SO-1001",
@@ -47,7 +67,7 @@ export default function ShipmentsPage() {
     },
   ];
 
-  const handleProcessShipment = (shipment: typeof shipments[0]) => {
+  const handleProcessShipment = (shipment: Shipment) => {
     setSelectedShipment(shipment);
     setShowProcessModal(true);
   };
@@ -83,11 +103,23 @@ export default function ShipmentsPage() {
         status: "processed",
       };
       
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing shipment:", shipmentData);
-      
-      // Show success message
-      alert("Shipment processed successfully! Delivery details have been saved.");
+      // Update shipment via API
+      if (selectedShipment) {
+        try {
+          await shipmentsApi.update(selectedShipment.id, {
+            driverName: deliveryDetails.driverName,
+            driverPhone: deliveryDetails.driverPhone,
+            vehicleNumber: deliveryDetails.vehicleNumber,
+            trackingNumber: deliveryDetails.trackingNumber || selectedShipment.trackingNumber,
+            status: "in_transit",
+          });
+          alert("Shipment processed successfully!");
+          loadShipments();
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Failed to process shipment");
+          return;
+        }
+      }
       
       setShowProcessModal(false);
       setDeliveryDetails({

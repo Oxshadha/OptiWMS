@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { returnsApi, Return } from "@/lib/api/returns";
 
 export default function ReturnsPage() {
-  const [selectedReturn, setSelectedReturn] = useState<any>(null);
+  const [returns, setReturns] = useState<Return[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReturn, setSelectedReturn] = useState<Return | null>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showReturnScanner, setShowReturnScanner] = useState(false);
   const [showProductScanner, setShowProductScanner] = useState(false);
@@ -13,7 +16,24 @@ export default function ReturnsPage() {
   const [scannedProducts, setScannedProducts] = useState<Array<{ sku: string; qty: number }>>([]);
   const [currentProductQty, setCurrentProductQty] = useState(0);
 
-  const returns = [
+  useEffect(() => {
+    loadReturns();
+  }, []);
+
+  const loadReturns = async () => {
+    try {
+      setLoading(true);
+      const data = await returnsApi.getAll();
+      setReturns(data);
+    } catch (err) {
+      console.error("Error loading returns:", err);
+      setReturns([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const mockReturns = [
     {
       id: "RET-1001",
       returnNumber: "RET-1001",
@@ -36,7 +56,7 @@ export default function ReturnsPage() {
     },
   ];
 
-  const handleProcessReturn = (returnItem: typeof returns[0]) => {
+  const handleProcessReturn = (returnItem: Return) => {
     setSelectedReturn(returnItem);
     setShowProcessModal(true);
   };
@@ -49,7 +69,7 @@ export default function ReturnsPage() {
     setScannedReturnId(result);
     setShowReturnScanner(false);
     // Find return by scanned ID
-    const foundReturn = returns.find(r => r.returnNumber === result || r.id === result);
+    const foundReturn = returns.find(r => (r.returnNumber || r.id) === result || r.id === result);
     if (foundReturn) {
       setSelectedReturn(foundReturn);
       setShowProcessModal(true);
@@ -95,8 +115,17 @@ export default function ReturnsPage() {
         status: "received",
       };
       
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing return:", returnData);
+      // Process return via API
+      if (selectedReturn) {
+        try {
+          await returnsApi.process(selectedReturn.id);
+          alert("Return processed successfully!");
+          loadReturns();
+        } catch (err) {
+          alert(err instanceof Error ? err.message : "Failed to process return");
+          return;
+        }
+      }
       
       // Show success message
       alert("Return processed successfully! Items have been received and will be inspected.");

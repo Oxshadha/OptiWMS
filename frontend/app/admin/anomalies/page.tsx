@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { anomaliesApi, Anomaly } from "@/lib/api/anomalies";
 
 // Mock data - will be replaced with API calls
-const anomalies = [
+const mockAnomalies = [
   {
     id: "anom-1",
     anomalyId: "ANOM-2025-001",
@@ -92,11 +93,33 @@ const detectedByConfig = {
 };
 
 export default function AnomaliesPage() {
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showResolveModal, setShowResolveModal] = useState(false);
-  const [selectedAnomaly, setSelectedAnomaly] = useState<typeof anomalies[0] | null>(null);
+  const [selectedAnomaly, setSelectedAnomaly] = useState<Anomaly | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  useEffect(() => {
+    loadAnomalies();
+  }, []);
+
+  const loadAnomalies = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await anomaliesApi.getAll();
+      setAnomalies(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load anomalies");
+      console.error("Error loading anomalies:", err);
+      setAnomalies([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const summary = {
     totalAnomalies: 45,
@@ -108,23 +131,44 @@ export default function AnomaliesPage() {
   const filteredAnomalies = anomalies.filter((anomaly) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
-      anomaly.anomalyId.toLowerCase().includes(query) ||
-      anomaly.description.toLowerCase().includes(query) ||
-      anomaly.anomalyType.toLowerCase().includes(query) ||
-      anomaly.severity.toLowerCase().includes(query) ||
-      anomaly.warehouseName.toLowerCase().includes(query) ||
-      anomaly.relatedEntityType.toLowerCase().includes(query) ||
-      anomaly.relatedEntityId.toLowerCase().includes(query) ||
-      anomaly.detectedBy.toLowerCase().includes(query) ||
-      anomaly.detectedAt.toLowerCase().includes(query) ||
-      anomaly.status.toLowerCase().includes(query) ||
-      (anomaly.resolvedBy && anomaly.resolvedBy.toLowerCase().includes(query)) ||
-      (anomaly.resolvedAt && anomaly.resolvedAt.toLowerCase().includes(query))
+      anomaly.anomalyNumber.toLowerCase().includes(query) ||
+      (anomaly.description || "").toLowerCase().includes(query) ||
+      (anomaly.anomalyType || "").toLowerCase().includes(query) ||
+      (anomaly.severity || "").toLowerCase().includes(query) ||
+      (anomaly.status || "").toLowerCase().includes(query) ||
+      (anomaly.detectedBy || "").toLowerCase().includes(query) ||
+      (anomaly.detectedAt || "").toLowerCase().includes(query) ||
+      (anomaly.resolvedBy || "").toLowerCase().includes(query) ||
+      (anomaly.resolvedAt || "").toLowerCase().includes(query)
     );
-    const matchesSeverity = severityFilter === "all" || anomaly.severity === severityFilter;
+    const matchesSeverity = severityFilter === "all" || (anomaly.severity || "") === severityFilter;
     const matchesStatus = statusFilter === "all" || anomaly.status === statusFilter;
     return matchesSearch && matchesSeverity && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading anomalies: {error}</span>
+        <button className="btn btn-sm" onClick={loadAnomalies}>Retry</button>
+      </div>
+    );
+  }
+
+  const summary = {
+    totalAnomalies: anomalies.length,
+    open: anomalies.filter(a => a.status === "open").length,
+    resolved: anomalies.filter(a => a.status === "resolved").length,
+    critical: anomalies.filter(a => a.severity === "critical").length,
+  };
 
   const summaryCards = [
     {
@@ -155,14 +199,14 @@ export default function AnomaliesPage() {
 
   const columns = [
     {
-      key: "anomalyId",
+      key: "anomalyNumber",
       label: "Anomaly ID",
-      render: (anomaly: typeof anomalies[0]) => (
+      render: (anomaly: Anomaly) => (
         <Link
           href={`/admin/anomalies/${anomaly.id}`}
           className="font-semibold text-primary hover:underline"
         >
-          {anomaly.anomalyId}
+          {anomaly.anomalyNumber}
         </Link>
       ),
       sortable: true,
@@ -170,9 +214,9 @@ export default function AnomaliesPage() {
     {
       key: "anomalyType",
       label: "Type",
-      render: (anomaly: typeof anomalies[0]) => (
+      render: (anomaly: Anomaly) => (
         <span className="badge badge-outline capitalize text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
-          {anomaly.anomalyType.replace("_", " ")}
+          {(anomaly.anomalyType || "").replace("_", " ")}
         </span>
       ),
       sortable: true,
@@ -180,8 +224,8 @@ export default function AnomaliesPage() {
     {
       key: "severity",
       label: "Severity",
-      render: (anomaly: typeof anomalies[0]) => {
-        const severity = severityConfig[anomaly.severity as keyof typeof severityConfig];
+      render: (anomaly: Anomaly) => {
+        const severity = severityConfig[(anomaly.severity || "low") as keyof typeof severityConfig];
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (severity.class === "badge-outline") {
           return (
@@ -260,7 +304,7 @@ export default function AnomaliesPage() {
     },
   ];
 
-  const renderActions = (anomaly: typeof anomalies[0]) => (
+  const renderActions = (anomaly: Anomaly) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -419,7 +463,7 @@ function ResolveAnomalyModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  anomaly: typeof anomalies[0];
+  anomaly: Anomaly;
 }) {
   const [formData, setFormData] = useState({
     resolutionNotes: "",
@@ -428,12 +472,23 @@ function ResolveAnomalyModal({
 
   const severityConfigLocal = severityConfig;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to resolve anomaly
-    console.log("Resolving anomaly:", { anomalyId: anomaly.id, ...formData });
-    onClose();
-    setFormData({ resolutionNotes: "", actionsTaken: "" });
+    try {
+      await anomaliesApi.resolve(
+        anomaly.id,
+        "admin", // TODO: Get from auth context
+        formData.resolutionNotes || formData.actionsTaken || "Resolved"
+      );
+      alert("Anomaly resolved successfully!");
+      onClose();
+      setFormData({ resolutionNotes: "", actionsTaken: "" });
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to resolve anomaly");
+    }
   };
 
   return (
@@ -442,16 +497,16 @@ function ResolveAnomalyModal({
         <div className="card bg-base-200 p-4 rounded-lg space-y-2">
           <div className="flex justify-between">
             <span className="text-base-content/60">Anomaly ID:</span>
-            <span className="font-semibold">{anomaly.anomalyId}</span>
+            <span className="font-semibold">{anomaly.anomalyNumber}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Type:</span>
-            <span className="capitalize">{anomaly.anomalyType.replace("_", " ")}</span>
+            <span className="capitalize">{(anomaly.anomalyType || "").replace("_", " ")}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Severity:</span>
             {(() => {
-              const severity = severityConfigLocal[anomaly.severity as keyof typeof severityConfigLocal];
+              const severity = severityConfigLocal[(anomaly.severity || "low") as keyof typeof severityConfigLocal];
               if (severity.class === "badge-outline") {
                 return (
                   <span 

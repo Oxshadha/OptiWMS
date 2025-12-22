@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
-import { statusConfig } from "./page";
+import { workersApi, Worker } from "@/lib/api/workers";
 
 // Mock data - will be replaced with API calls
-const workers = [
+const mockWorkers = [
   {
     id: "worker-1",
     workerId: "e8b5d4",
@@ -62,32 +62,66 @@ const statusConfig = {
 };
 
 export default function WorkersPage() {
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState<typeof workers[0] | null>(null);
+  const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  useEffect(() => {
+    loadWorkers();
+  }, []);
+
+  const loadWorkers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await workersApi.getAll();
+      setWorkers(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load workers");
+      console.error("Error loading workers:", err);
+      setWorkers([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span>Error loading workers: {error}</span>
+        <button className="btn btn-sm" onClick={loadWorkers}>Retry</button>
+      </div>
+    );
+  }
+
   const summary = {
-    totalWorkers: 24,
-    activeNow: 18,
-    offline: 6,
-    tasksCompletedToday: 156,
+    totalWorkers: workers.length,
+    activeNow: workers.filter(w => w.status === "active").length,
+    offline: workers.filter(w => w.status === "offline").length,
+    tasksCompletedToday: 156, // TODO: Calculate from tasks API
   };
 
   const filteredWorkers = workers.filter((worker) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
-      worker.name.toLowerCase().includes(query) ||
-      worker.workerId.toLowerCase().includes(query) ||
-      worker.warehouseName.toLowerCase().includes(query) ||
-      worker.availabilityStatus.toLowerCase().includes(query) ||
-      worker.shiftStart.toLowerCase().includes(query) ||
-      worker.shiftEnd.toLowerCase().includes(query) ||
-      worker.tasksToday.toString().includes(query) ||
-      worker.totalTasksCompleted.toString().includes(query) ||
-      worker.avgTaskTime.toString().includes(query) ||
-      worker.lastActive.toLowerCase().includes(query)
+      (worker.firstName + " " + worker.lastName || worker.username).toLowerCase().includes(query) ||
+      (worker.employeeId || "").toLowerCase().includes(query) ||
+      (worker.email || "").toLowerCase().includes(query) ||
+      (worker.role || "").toLowerCase().includes(query) ||
+      (worker.status || "").toLowerCase().includes(query)
     );
     const matchesStatus = statusFilter === "all" || worker.availabilityStatus === statusFilter;
     return matchesSearch && matchesStatus;
