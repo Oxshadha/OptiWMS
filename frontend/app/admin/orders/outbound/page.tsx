@@ -5,6 +5,8 @@ import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import clsx from "clsx";
 
 // Mock data - will be replaced with API calls
@@ -90,6 +92,8 @@ const priorityConfig = {
 };
 
 export default function OutboundOrdersPage() {
+  const { hasPermission } = useAdmin();
+  const canCreate = hasPermission(ADMIN_ROUTES.ORDERS, "create");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -283,7 +287,7 @@ export default function OutboundOrdersPage() {
           </li>
         )}
         <li>
-          <button>
+          <button onClick={() => window.print()}>
             <span className="material-symbols-outlined text-sm">print</span>
             Print/Export
           </button>
@@ -358,13 +362,16 @@ export default function OutboundOrdersPage() {
               </li>
             </ul>
           </div>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
-            <span className="material-symbols-outlined">add</span>
-            <span>Create Outbound Order</span>
-          </button>
+          {canCreate && (
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowCreateModal(true)}
+              title="Create manual orders (for internal transfers)"
+            >
+              <span className="material-symbols-outlined">add</span>
+              <span>Create Order</span>
+            </button>
+          )}
         </div>
       </div>
 

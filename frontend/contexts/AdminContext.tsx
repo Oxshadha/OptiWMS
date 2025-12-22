@@ -23,6 +23,8 @@ export interface AdminData {
   email: string;
   role: AdminRole | null;
   avatar?: string;
+  warehouseId?: string; // For warehouse managers - the warehouse they're assigned to
+  warehouseName?: string; // For warehouse managers - the warehouse name
 }
 
 interface AdminContextType {
@@ -51,11 +53,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Reload admin data when navigating to admin routes (e.g., after login)
+  // Only reload if we don't already have admin data to avoid unnecessary reloads
   useEffect(() => {
-    if (pathname?.startsWith("/admin") && pathname !== "/admin/login") {
+    if (pathname?.startsWith("/admin") && pathname !== "/admin/login" && !admin) {
       loadAdminFromStorage();
     }
-  }, [pathname]);
+  }, [pathname, admin]);
 
   const loadAdminFromStorage = async () => {
     try {
@@ -92,6 +95,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           email: newAdmin.email,
           role: newAdmin.role,
           avatar: newAdmin.avatar,
+          warehouseId: newAdmin.warehouseId,
+          warehouseName: newAdmin.warehouseName,
         });
       } catch (error) {
         console.error("Error saving admin to storage:", error);

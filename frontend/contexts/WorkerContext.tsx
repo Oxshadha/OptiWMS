@@ -53,11 +53,12 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Reload worker data when navigating to worker routes (e.g., after login)
+  // Only reload if we don't already have worker data to avoid unnecessary reloads
   useEffect(() => {
-    if (pathname?.startsWith("/worker") && pathname !== "/worker/login") {
+    if (pathname?.startsWith("/worker") && pathname !== "/worker/login" && !worker) {
       loadWorkerFromStorage();
     }
-  }, [pathname]);
+  }, [pathname, worker]);
 
   const loadWorkerFromStorage = async () => {
     try {

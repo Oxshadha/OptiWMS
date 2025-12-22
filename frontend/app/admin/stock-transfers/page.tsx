@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { useAdmin } from "@/contexts/AdminContext";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -84,29 +85,57 @@ const statusClass = (status: TransferStatus) => {
 };
 
 export default function StockTransfersPage() {
+  const { admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseName = admin?.warehouseName;
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
+  const [selectedTransfer, setSelectedTransfer] =
+    useState<StockTransfer | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<TransferStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<TransferStatus | "all">(
+    "all"
+  );
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
 
-  const filteredTransfers = mockTransfers.filter((transfer) => {
-    const matchesSearch = !searchQuery.trim() || (
-      transfer.transferNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+  // Filter stock transfers by warehouse for warehouse managers
+  // Show transfers where source or destination warehouse matches assigned warehouse
+  const transfersForWarehouse =
+    isWarehouseManager && assignedWarehouseName
+      ? mockTransfers.filter(
+          (t) =>
+            t.sourceWarehouse === assignedWarehouseName ||
+            t.destWarehouse === assignedWarehouseName ||
+            (!t.sourceWarehouse && !t.destWarehouse) // Intra-warehouse transfers
+        )
+      : mockTransfers;
+
+  const filteredTransfers = transfersForWarehouse.filter((transfer) => {
+    const matchesSearch =
+      !searchQuery.trim() ||
+      transfer.transferNumber
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase()) ||
       transfer.itemSku.toLowerCase().includes(searchQuery.toLowerCase()) ||
       transfer.itemName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.sourceLocationCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      transfer.destLocationCode.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-    const matchesStatus = statusFilter === "all" || transfer.status === statusFilter;
-    const matchesType = typeFilter === "all" || transfer.transferType === typeFilter;
+      transfer.sourceLocationCode
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase()) ||
+      transfer.destLocationCode
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+    const matchesStatus =
+      statusFilter === "all" || transfer.status === statusFilter;
+    const matchesType =
+      typeFilter === "all" || transfer.transferType === typeFilter;
     return matchesSearch && matchesStatus && matchesType;
   });
 
   const totalTransfers = mockTransfers.length;
-  const inTransit = mockTransfers.filter(t => t.status === "in_transit").length;
-  const received = mockTransfers.filter(t => t.status === "received").length;
-  const pending = mockTransfers.filter(t => t.status === "draft").length;
+  const inTransit = mockTransfers.filter(
+    (t) => t.status === "in_transit"
+  ).length;
+  const received = mockTransfers.filter((t) => t.status === "received").length;
+  const pending = mockTransfers.filter((t) => t.status === "draft").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
@@ -114,7 +143,11 @@ export default function StockTransfersPage() {
   };
 
   const handleCancelTransfer = (transfer: StockTransfer) => {
-    if (confirm(`Are you sure you want to cancel transfer ${transfer.transferNumber}?`)) {
+    if (
+      confirm(
+        `Are you sure you want to cancel transfer ${transfer.transferNumber}?`
+      )
+    ) {
       // TODO: API call to cancel transfer
       console.log("Cancelling transfer:", transfer.id);
       alert("Transfer cancelled successfully!");
@@ -125,7 +158,9 @@ export default function StockTransfersPage() {
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-base-content">Stock Transfers ({totalTransfers})</h1>
+        <h1 className="text-3xl font-bold text-base-content">
+          Stock Transfers ({totalTransfers})
+        </h1>
         <div className="flex gap-3">
           <div className="form-control">
             <div className="relative">
@@ -145,7 +180,9 @@ export default function StockTransfersPage() {
                   className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-xs">close</span>
+                  <span className="material-symbols-outlined text-xs">
+                    close
+                  </span>
                 </button>
               )}
             </div>
@@ -160,19 +197,27 @@ export default function StockTransfersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => setStatusFilter("all")}>
+                  All Status
+                </button>
               </li>
               <li>
                 <button onClick={() => setStatusFilter("draft")}>Draft</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("in_transit")}>In Transit</button>
+                <button onClick={() => setStatusFilter("in_transit")}>
+                  In Transit
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("received")}>Received</button>
+                <button onClick={() => setStatusFilter("received")}>
+                  Received
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+                <button onClick={() => setStatusFilter("cancelled")}>
+                  Cancelled
+                </button>
               </li>
             </ul>
           </div>
@@ -189,10 +234,14 @@ export default function StockTransfersPage() {
                 <button onClick={() => setTypeFilter("all")}>All Types</button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("intra_warehouse")}>Intra-Warehouse</button>
+                <button onClick={() => setTypeFilter("intra_warehouse")}>
+                  Intra-Warehouse
+                </button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("inter_warehouse")}>Inter-Warehouse</button>
+                <button onClick={() => setTypeFilter("inter_warehouse")}>
+                  Inter-Warehouse
+                </button>
               </li>
             </ul>
           </div>
@@ -204,10 +253,16 @@ export default function StockTransfersPage() {
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-base-content/60">Total Transfers</div>
-              <div className="text-2xl font-bold text-base-content">{totalTransfers}</div>
+              <div className="text-sm text-base-content/60">
+                Total Transfers
+              </div>
+              <div className="text-2xl font-bold text-base-content">
+                {totalTransfers}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-primary">swap_horiz</span>
+            <span className="material-symbols-outlined text-3xl text-primary">
+              swap_horiz
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -216,7 +271,9 @@ export default function StockTransfersPage() {
               <div className="text-sm text-base-content/60">In Transit</div>
               <div className="text-2xl font-bold text-info">{inTransit}</div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">sync</span>
+            <span className="material-symbols-outlined text-3xl text-info">
+              sync
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -225,7 +282,9 @@ export default function StockTransfersPage() {
               <div className="text-sm text-base-content/60">Received</div>
               <div className="text-2xl font-bold text-success">{received}</div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-success">check_circle</span>
+            <span className="material-symbols-outlined text-3xl text-success">
+              check_circle
+            </span>
           </div>
         </div>
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -234,7 +293,9 @@ export default function StockTransfersPage() {
               <div className="text-sm text-base-content/60">Pending</div>
               <div className="text-2xl font-bold text-warning">{pending}</div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-warning">schedule</span>
+            <span className="material-symbols-outlined text-3xl text-warning">
+              schedule
+            </span>
           </div>
         </div>
       </div>
@@ -259,31 +320,49 @@ export default function StockTransfersPage() {
               {filteredTransfers.map((transfer) => (
                 <tr key={transfer.id}>
                   <td>
-                    <span className="font-semibold text-base-content">{transfer.transferNumber}</span>
+                    <span className="font-semibold text-base-content">
+                      {transfer.transferNumber}
+                    </span>
                   </td>
                   <td>
                     <span className="badge badge-outline badge-sm">
-                      {transfer.transferType === "intra_warehouse" ? "Intra" : "Inter"}
+                      {transfer.transferType === "intra_warehouse"
+                        ? "Intra"
+                        : "Inter"}
                     </span>
                   </td>
                   <td>
                     <div>
-                      <div className="font-medium text-base-content">{transfer.itemName}</div>
-                      <div className="text-sm text-base-content/60">{transfer.itemSku}</div>
+                      <div className="font-medium text-base-content">
+                        {transfer.itemName}
+                      </div>
+                      <div className="text-sm text-base-content/60">
+                        {transfer.itemSku}
+                      </div>
                     </div>
                   </td>
                   <td>
-                    <span className="font-semibold text-base-content">{transfer.quantity}</span>
+                    <span className="font-semibold text-base-content">
+                      {transfer.quantity}
+                    </span>
                   </td>
                   <td>
                     <div className="text-sm">
-                      <div className="font-mono text-primary">{transfer.sourceLocationCode}</div>
+                      <div className="font-mono text-primary">
+                        {transfer.sourceLocationCode}
+                      </div>
                       <div className="text-base-content/60">→</div>
-                      <div className="font-mono text-primary">{transfer.destLocationCode}</div>
+                      <div className="font-mono text-primary">
+                        {transfer.destLocationCode}
+                      </div>
                     </div>
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(transfer.status)} whitespace-nowrap`}>
+                    <span
+                      className={`badge ${statusClass(
+                        transfer.status
+                      )} whitespace-nowrap`}
+                    >
                       {transfer.status.replace("_", " ").toUpperCase()}
                     </span>
                   </td>
@@ -293,7 +372,9 @@ export default function StockTransfersPage() {
                   <td>
                     <div className="dropdown dropdown-end">
                       <label tabIndex={0} className="btn btn-ghost btn-xs">
-                        <span className="material-symbols-outlined">more_vert</span>
+                        <span className="material-symbols-outlined">
+                          more_vert
+                        </span>
                       </label>
                       <ul
                         tabIndex={0}
@@ -301,21 +382,39 @@ export default function StockTransfersPage() {
                       >
                         <li>
                           <button onClick={() => handleViewDetails(transfer)}>
-                            <span className="material-symbols-outlined text-sm">visibility</span>
+                            <span className="material-symbols-outlined text-sm">
+                              visibility
+                            </span>
                             View Details
                           </button>
                         </li>
                         {transfer.status === "draft" && (
                           <li>
-                            <button onClick={() => handleCancelTransfer(transfer)} className="text-error">
-                              <span className="material-symbols-outlined text-sm">cancel</span>
+                            <button
+                              onClick={() => handleCancelTransfer(transfer)}
+                              className="text-error"
+                            >
+                              <span className="material-symbols-outlined text-sm">
+                                cancel
+                              </span>
                               Cancel Transfer
                             </button>
                           </li>
                         )}
                         <li>
-                          <button>
-                            <span className="material-symbols-outlined text-sm">print</span>
+                          <button
+                            onClick={() => {
+                              // TODO: Implement print functionality
+                              window.print();
+                              console.log(
+                                "Printing transfer slip:",
+                                transfer.transferNumber
+                              );
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-sm">
+                              print
+                            </span>
                             Print Transfer Slip
                           </button>
                         </li>
@@ -329,9 +428,15 @@ export default function StockTransfersPage() {
         </div>
         {filteredTransfers.length === 0 && (
           <div className="p-12 text-center">
-            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">swap_horiz</span>
-            <h3 className="text-lg font-semibold text-base-content mb-2">No transfers found</h3>
-            <p className="text-sm text-base-content/60">Try adjusting your search or filters</p>
+            <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
+              swap_horiz
+            </span>
+            <h3 className="text-lg font-semibold text-base-content mb-2">
+              No transfers found
+            </h3>
+            <p className="text-sm text-base-content/60">
+              Try adjusting your search or filters
+            </p>
           </div>
         )}
       </div>
@@ -346,46 +451,74 @@ export default function StockTransfersPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm text-base-content/60">Transfer Number</label>
-                <p className="font-semibold text-base-content">{selectedTransfer.transferNumber}</p>
+                <label className="text-sm text-base-content/60">
+                  Transfer Number
+                </label>
+                <p className="font-semibold text-base-content">
+                  {selectedTransfer.transferNumber}
+                </p>
               </div>
               <div>
                 <label className="text-sm text-base-content/60">Status</label>
                 <p>
-                  <span className={`badge ${statusClass(selectedTransfer.status)}`}>
+                  <span
+                    className={`badge ${statusClass(selectedTransfer.status)}`}
+                  >
                     {selectedTransfer.status.replace("_", " ").toUpperCase()}
                   </span>
                 </p>
               </div>
               <div>
-                <label className="text-sm text-base-content/60">Transfer Type</label>
+                <label className="text-sm text-base-content/60">
+                  Transfer Type
+                </label>
                 <p className="font-semibold text-base-content">
-                  {selectedTransfer.transferType === "intra_warehouse" ? "Intra-Warehouse" : "Inter-Warehouse"}
+                  {selectedTransfer.transferType === "intra_warehouse"
+                    ? "Intra-Warehouse"
+                    : "Inter-Warehouse"}
                 </p>
               </div>
               <div>
                 <label className="text-sm text-base-content/60">Quantity</label>
-                <p className="font-semibold text-base-content">{selectedTransfer.quantity} units</p>
+                <p className="font-semibold text-base-content">
+                  {selectedTransfer.quantity} units
+                </p>
               </div>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Item</label>
-              <p className="font-semibold text-base-content">{selectedTransfer.itemName}</p>
-              <p className="text-sm text-base-content/60">SKU: {selectedTransfer.itemSku}</p>
+              <p className="font-semibold text-base-content">
+                {selectedTransfer.itemName}
+              </p>
+              <p className="text-sm text-base-content/60">
+                SKU: {selectedTransfer.itemSku}
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-sm text-base-content/60">Source Location</label>
-                <p className="font-mono font-bold text-primary text-lg">{selectedTransfer.sourceLocationCode}</p>
+                <label className="text-sm text-base-content/60">
+                  Source Location
+                </label>
+                <p className="font-mono font-bold text-primary text-lg">
+                  {selectedTransfer.sourceLocationCode}
+                </p>
                 {selectedTransfer.sourceWarehouse && (
-                  <p className="text-sm text-base-content/60">Warehouse: {selectedTransfer.sourceWarehouse}</p>
+                  <p className="text-sm text-base-content/60">
+                    Warehouse: {selectedTransfer.sourceWarehouse}
+                  </p>
                 )}
               </div>
               <div>
-                <label className="text-sm text-base-content/60">Destination Location</label>
-                <p className="font-mono font-bold text-primary text-lg">{selectedTransfer.destLocationCode}</p>
+                <label className="text-sm text-base-content/60">
+                  Destination Location
+                </label>
+                <p className="font-mono font-bold text-primary text-lg">
+                  {selectedTransfer.destLocationCode}
+                </p>
                 {selectedTransfer.destWarehouse && (
-                  <p className="text-sm text-base-content/60">Warehouse: {selectedTransfer.destWarehouse}</p>
+                  <p className="text-sm text-base-content/60">
+                    Warehouse: {selectedTransfer.destWarehouse}
+                  </p>
                 )}
               </div>
             </div>
@@ -410,7 +543,8 @@ export default function StockTransfersPage() {
                     <span className="text-base-content/60">Dispatched:</span>
                     <span className="text-base-content">
                       {new Date(selectedTransfer.dispatchedAt).toLocaleString()}
-                      {selectedTransfer.dispatchedBy && ` by ${selectedTransfer.dispatchedBy}`}
+                      {selectedTransfer.dispatchedBy &&
+                        ` by ${selectedTransfer.dispatchedBy}`}
                     </span>
                   </div>
                 )}
@@ -419,14 +553,25 @@ export default function StockTransfersPage() {
                     <span className="text-base-content/60">Received:</span>
                     <span className="text-base-content">
                       {new Date(selectedTransfer.receivedAt).toLocaleString()}
-                      {selectedTransfer.receivedBy && ` by ${selectedTransfer.receivedBy}`}
+                      {selectedTransfer.receivedBy &&
+                        ` by ${selectedTransfer.receivedBy}`}
                     </span>
                   </div>
                 )}
               </div>
             </div>
             <div className="flex gap-3 pt-4">
-              <button className="btn btn-primary flex-1">
+              <button
+                className="btn btn-primary flex-1"
+                onClick={() => {
+                  // TODO: Implement print functionality
+                  window.print();
+                  console.log(
+                    "Printing transfer slip:",
+                    selectedTransfer.transferNumber
+                  );
+                }}
+              >
                 <span className="material-symbols-outlined">print</span>
                 Print Transfer Slip
               </button>
@@ -449,4 +594,3 @@ export default function StockTransfersPage() {
     </div>
   );
 }
-
