@@ -6,103 +6,81 @@ import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
-import { materialsApi, Material } from "@/lib/api/materials";
-import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
+import { useAdmin } from "@/contexts/AdminContext";
+import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import React from "react";
 
-// Product interface matching frontend expectations
-interface Product {
-  id: string;
-  name: string;
-  sku: string;
-  category: string;
-  weight: number;
-  dimensions: string;
-  totalStock: number;
-  reorderPoint: number;
-  status: string;
-  imageUrl?: string;
-  materialId: string; // Keep reference to material
-}
+// Mock data - will be replaced with API calls
+const products = [
+  {
+    id: "prod-1",
+    name: "Wireless Earbuds",
+    sku: "SKU-1001",
+    category: "Electronics",
+    weight: 0.05,
+    dimensions: "5x3x2",
+    totalStock: 240,
+    reorderPoint: 50,
+    status: "active",
+    imageUrl: "/assets/products/earbuds.jpg",
+  },
+  {
+    id: "prod-2",
+    name: "Smart Projector",
+    sku: "SKU-1002",
+    category: "Electronics",
+    weight: 2.5,
+    dimensions: "30x25x15",
+    totalStock: 45,
+    reorderPoint: 10,
+    status: "active",
+    imageUrl: "/assets/products/projector.jpg",
+  },
+  {
+    id: "prod-3",
+    name: "Remote Control",
+    sku: "SKU-2001",
+    category: "Accessories",
+    weight: 0.1,
+    dimensions: "15x5x2",
+    totalStock: 180,
+    reorderPoint: 30,
+    status: "active",
+    imageUrl: "/assets/products/remote.jpg",
+  },
+  {
+    id: "prod-4",
+    name: "Smart Mug",
+    sku: "SKU-1003",
+    category: "Home & Kitchen",
+    weight: 0.4,
+    dimensions: "10x10x12",
+    totalStock: 95,
+    reorderPoint: 20,
+    status: "active",
+    imageUrl: "/assets/products/mug.jpg",
+  },
+];
 
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [editingProduct, setEditingProduct] = useState<typeof products[0] | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
-  // Load products from API
-  useEffect(() => {
-    loadProducts();
-  }, []);
+  const canEdit = hasPermission(ADMIN_ROUTES.PRODUCTS, "edit");
+  const canDelete = hasPermission(ADMIN_ROUTES.PRODUCTS, "delete");
 
-  const loadProducts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Fetch materials and inventory
-      const [materials, inventoryItems] = await Promise.all([
-        materialsApi.getAll(),
-        inventoryApi.getAll(),
-      ]);
-
-      // Map materials to products and enrich with inventory data
-      const productsData: Product[] = materials.map((material) => {
-        // Find inventory for this material
-        const materialInventory = inventoryItems.filter(
-          (inv) => inv.materialId === material.id
-        );
-        
-        // Calculate total stock from all inventory items
-        const totalStock = materialInventory.reduce((sum, inv) => {
-          return sum + parseFloat(inv.quantity || "0");
-        }, 0);
-
-        // Get reorder point from first inventory item (or default)
-        const reorderPoint = materialInventory.length > 0
-          ? parseFloat(materialInventory[0].reorderPoint || "0")
-          : 0;
-
-        // Extract category from description or use storage type
-        const category = material.storageType || "General";
-
-        return {
-          id: material.id,
-          materialId: material.id,
-          name: material.description || material.materialCode,
-          sku: material.materialCode,
-          category: category,
-          weight: 0, // Not available in Material API
-          dimensions: "", // Not available in Material API
-          totalStock: totalStock,
-          reorderPoint: reorderPoint,
-          status: "active", // Default status
-          imageUrl: undefined,
-        };
-      });
-
-      setProducts(productsData);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load products");
-      console.error("Error loading products:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Calculate summary from actual data
   const summary = {
-    totalProducts: products.length,
-    categories: new Set(products.map(p => p.category)).size,
-    lowStock: products.filter(p => p.totalStock <= p.reorderPoint).length,
+    totalProducts: 156,
+    categories: 12,
+    lowStock: 8,
   };
 
   const filteredProducts = products.filter((product) => {
@@ -114,9 +92,6 @@ export default function ProductsPage() {
     const matchesCategory = categoryFilter === "all" || product.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
-
-  // Get unique categories for filter
-  const categories = Array.from(new Set(products.map(p => p.category))).sort();
 
   const summaryCards = [
     {
@@ -237,17 +212,19 @@ export default function ProductsPage() {
             View Details
           </button>
         </li>
-        <li>
-          <button
-            onClick={() => {
-              setEditingProduct(product);
-              setShowEditModal(true);
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">edit</span>
-            Edit Product
-          </button>
-        </li>
+        {canEdit && (
+          <li>
+            <button
+              onClick={() => {
+                setEditingProduct(product);
+                setShowEditModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">edit</span>
+              Edit Product
+            </button>
+          </li>
+        )}
         <li>
           <button
             onClick={() => {
@@ -259,24 +236,21 @@ export default function ProductsPage() {
             View Inventory
           </button>
         </li>
-        <li>
-          <button 
-            className="text-error"
-            onClick={async () => {
-              if (confirm(`Are you sure you want to delete ${product.name}?`)) {
-                try {
-                  await materialsApi.delete(product.materialId);
-                  await loadProducts();
-                } catch (err) {
-                  alert(err instanceof Error ? err.message : "Failed to delete product");
-                }
-              }
-            }}
-          >
-            <span className="material-symbols-outlined text-sm">delete</span>
-            Delete Product
-          </button>
-        </li>
+        {canDelete && (
+          <li>
+            <button 
+              className="text-error"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedProduct(product);
+                setShowDeleteModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">delete</span>
+              Delete Product
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
@@ -380,11 +354,7 @@ export default function ProductsPage() {
       {/* Create Product Modal */}
       <CreateProductModal
         isOpen={showCreateModal}
-        onClose={() => {
-          setShowCreateModal(false);
-          loadProducts(); // Refresh after create
-        }}
-        onCreate={loadProducts}
+        onClose={() => setShowCreateModal(false)}
       />
 
       {/* Edit Product Modal */}
@@ -396,7 +366,6 @@ export default function ProductsPage() {
             setEditingProduct(null);
           }}
           product={editingProduct}
-          onUpdate={loadProducts}
         />
       )}
 
@@ -420,11 +389,24 @@ export default function ProductsPage() {
 
       {/* Import Products Modal */}
       {showImportModal && (
-        <ImportProductsModal 
+        <ImportProductsModal onClose={() => setShowImportModal(false)} />
+      )}
+
+      {/* Delete Product Modal */}
+      {selectedProduct && (
+        <DeleteProductModal
+          isOpen={showDeleteModal}
           onClose={() => {
-            setShowImportModal(false);
-            loadProducts(); // Refresh after import
+            setShowDeleteModal(false);
+            setSelectedProduct(null);
           }}
+          onConfirm={() => {
+            // TODO: API call to delete product
+            console.log("Deleting product:", selectedProduct.id);
+            setShowDeleteModal(false);
+            setSelectedProduct(null);
+          }}
+          product={selectedProduct}
         />
       )}
 
@@ -443,15 +425,7 @@ export default function ProductsPage() {
 }
 
 // Create Product Modal
-function CreateProductModal({ 
-  isOpen, 
-  onClose,
-  onCreate 
-}: { 
-  isOpen: boolean; 
-  onClose: () => void;
-  onCreate: () => void;
-}) {
+function CreateProductModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [formData, setFormData] = useState({
     name: "",
     sku: "",
@@ -469,46 +443,29 @@ function CreateProductModal({
     optimalStockLevel: "",
     productImage: null as File | null,
   });
-  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    try {
-      // Map frontend fields to Material API fields
-      await materialsApi.create({
-        materialCode: formData.sku,
-        description: formData.name || formData.description,
-        unitType: formData.category || undefined,
-        storageType: formData.category || undefined,
-      });
-      
-      // Reset form
-      setFormData({
-        name: "",
-        sku: "",
-        description: "",
-        category: "",
-        subcategory: "",
-        weight: "",
-        dimensionsLength: "",
-        dimensionsWidth: "",
-        dimensionsHeight: "",
-        requiresQualityCheck: true,
-        temperatureSensitive: false,
-        fragile: false,
-        reorderPoint: "",
-        optimalStockLevel: "",
-        productImage: null,
-      });
-      
-      onClose();
-      onCreate();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to create product");
-    } finally {
-      setSubmitting(false);
-    }
+    // TODO: API call to create product
+    console.log("Creating product:", formData);
+    onClose();
+    setFormData({
+      name: "",
+      sku: "",
+      description: "",
+      category: "",
+      subcategory: "",
+      weight: "",
+      dimensionsLength: "",
+      dimensionsWidth: "",
+      dimensionsHeight: "",
+      requiresQualityCheck: true,
+      temperatureSensitive: false,
+      fragile: false,
+      reorderPoint: "",
+      optimalStockLevel: "",
+      productImage: null,
+    });
   };
 
   return (
@@ -709,18 +666,11 @@ function CreateProductModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? (
-              <>
-                <span className="loading loading-spinner loading-sm"></span>
-                Creating...
-              </>
-            ) : (
-              "Create Product"
-            )}
+          <button type="submit" className="btn btn-primary">
+            Create Product
           </button>
         </div>
       </form>
@@ -733,12 +683,10 @@ function EditProductModal({
   isOpen,
   onClose,
   product,
-  onUpdate,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  product: Product;
-  onUpdate: () => void;
+  product: typeof products[0];
 }) {
   const [formData, setFormData] = useState({
     name: product.name,
@@ -771,27 +719,12 @@ function EditProductModal({
     }
   };
 
-  const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
-    try {
-      // Map frontend fields to Material API fields
-      await materialsApi.update(product.materialId, {
-        materialCode: formData.sku,
-        description: formData.name || formData.description,
-        unitType: formData.category || undefined,
-        storageType: formData.category || undefined,
-      });
-      
-      onClose();
-      onUpdate();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to update product");
-    } finally {
-      setSubmitting(false);
-    }
+    // TODO: API call to update product
+    console.log("Updating product:", formData);
+    alert("Product updated successfully!");
+    onClose();
   };
 
   return (
@@ -999,18 +932,11 @@ function EditProductModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
+          <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? (
-              <>
-                <span className="loading loading-spinner loading-sm"></span>
-                Updating...
-              </>
-            ) : (
-              "Update Product"
-            )}
+          <button type="submit" className="btn btn-primary">
+            Update Product
           </button>
         </div>
       </form>
@@ -1019,7 +945,7 @@ function EditProductModal({
 }
 
 // Edit Product Event Listener Component
-function EditProductListener({ onEdit }: { onEdit: (product: Product) => void }) {
+function EditProductListener({ onEdit }: { onEdit: (product: typeof products[0]) => void }) {
   useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
       onEdit(event.detail);
@@ -1033,11 +959,7 @@ function EditProductListener({ onEdit }: { onEdit: (product: Product) => void })
 }
 
 // Import Products Modal
-function ImportProductsModal({ 
-  onClose 
-}: { 
-  onClose: () => void;
-}) {
+function ImportProductsModal({ onClose }: { onClose: () => void }) {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importType, setImportType] = useState<"csv" | "excel">("csv");
   const [importing, setImporting] = useState(false);
@@ -1068,19 +990,21 @@ function ImportProductsModal({
 
     setImporting(true);
     try {
-      const result = await materialsApi.importCsv(importFile);
+      // Read file content
+      const text = await importFile.text();
+      console.log("Importing products from file:", importFile.name);
+      console.log("File content preview:", text.substring(0, 200));
       
-      if (result.errorCount > 0) {
-        alert(`Import completed with ${result.successCount} successes and ${result.errorCount} errors.\n\nErrors:\n${result.errors.slice(0, 5).join('\n')}`);
-      } else {
-        alert(`Successfully imported ${result.successCount} products!`);
-      }
+      // TODO: Parse CSV/Excel and import products via API
+      // For now, simulate import
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
+      alert("Products imported successfully!");
       setImportFile(null);
       onClose();
     } catch (error) {
       console.error("Error importing products:", error);
-      alert(error instanceof Error ? error.message : "Error importing products. Please check the file format.");
+      alert("Error importing products. Please check the file format.");
     } finally {
       setImporting(false);
     }
@@ -1210,8 +1134,8 @@ function ProductDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  product: Product;
-  onEdit?: (product: Product) => void;
+  product: typeof products[0];
+  onEdit?: (product: typeof products[0]) => void;
 }) {
   const handleEdit = () => {
     onClose();
@@ -1270,6 +1194,62 @@ function ProductDetailModal({
         </div>
       </div>
     </DetailModal>
+  );
+}
+
+// Delete Product Modal
+function DeleteProductModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  product,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  product: typeof products[0];
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Delete Product" size="md">
+      <div className="space-y-4">
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <div>
+            <h3 className="font-bold">
+              Warning: This action cannot be undone!
+            </h3>
+            <div className="text-sm">
+              You are about to delete <strong>{product.name}</strong> (SKU:{" "}
+              {product.sku}). This will permanently remove the product from the
+              system and all associated inventory data.
+            </div>
+          </div>
+        </div>
+        <div className="bg-base-200 rounded-lg p-4">
+          <p className="text-sm text-base-content/70">
+            <strong>Product Name:</strong> {product.name}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>SKU:</strong> {product.sku}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Category:</strong> {product.category}
+          </p>
+          <p className="text-sm text-base-content/70">
+            <strong>Total Stock:</strong> {product.totalStock}
+          </p>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-error" onClick={onConfirm}>
+            <span className="material-symbols-outlined">delete</span>
+            Delete Product
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

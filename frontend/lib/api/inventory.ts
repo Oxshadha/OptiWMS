@@ -36,44 +36,34 @@ export const inventoryApi = {
     return apiClient.get<InventoryItem[]>(`/inventory/warehouse/${warehouseId}`);
   },
 
-  create: async (data: {
-    materialId: string;
-    warehouseId: string;
-    locationCode?: string;
-    quantity?: number;
-    availableQuantity?: number;
-    reservedQuantity?: number;
-    bufferStock?: number;
-    maxStock?: number;
-    minStock?: number;
-    reorderPoint?: number;
-    stackingQuantity?: number;
-    moq?: number;
-    leadTimeDays?: number;
-    status?: string;
-  }): Promise<InventoryItem> => {
-    return apiClient.post<InventoryItem>('/inventory', data);
-  },
-
   updateQuantity: async (id: string, quantityChange: number): Promise<InventoryItem> => {
     return apiClient.patch<InventoryItem>(`/inventory/${id}/quantity?quantityChange=${quantityChange}`, {});
   },
 
-  update: async (id: string, data: {
-    locationCode?: string;
-    quantity?: number;
-    availableQuantity?: number;
-    reservedQuantity?: number;
-    bufferStock?: number;
-    maxStock?: number;
-    minStock?: number;
-    reorderPoint?: number;
-    stackingQuantity?: number;
-    moq?: number;
-    leadTimeDays?: number;
-    status?: string;
-  }): Promise<InventoryItem> => {
-    return apiClient.put<InventoryItem>(`/inventory/${id}`, data);
+  // Quarantine Management
+  quarantineBin: async (sku: string, locationCode: string, qualityCheckId: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post('/inventory/quarantined', {
+      sku,
+      locationCode,
+      qualityCheckId,
+    });
+  },
+
+  getQuarantinedItems: async (warehouseId?: string): Promise<Array<{
+    id: string;
+    sku: string;
+    locationCode: string;
+    quantity: string;
+    quarantinedAt: string;
+    qualityCheckId?: string;
+    reason?: string;
+  }>> => {
+    const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
+    return apiClient.get(`/inventory/quarantined${params}`);
+  },
+
+  releaseQuarantine: async (id: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post(`/inventory/quarantined/${id}/release`, {});
   },
 };
 
