@@ -63,6 +63,19 @@ public class InventoryItemEntity {
     @Column(name = "status", length = 20)
     private String status;
 
+    // New fields from V4 migration
+    @Column(name = "batch_number", length = 100)
+    private String batchNumber;
+
+    @Column(name = "expiry_date")
+    private java.time.LocalDate expiryDate;
+
+    @Column(name = "last_movement_date")
+    private java.time.LocalDate lastMovementDate;
+
+    @Column(name = "days_since_last_movement")
+    private Integer daysSinceLastMovement;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -210,6 +223,38 @@ public class InventoryItemEntity {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getBatchNumber() {
+        return batchNumber;
+    }
+
+    public void setBatchNumber(String batchNumber) {
+        this.batchNumber = batchNumber;
+    }
+
+    public java.time.LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(java.time.LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
+    }
+
+    public java.time.LocalDate getLastMovementDate() {
+        return lastMovementDate;
+    }
+
+    public void setLastMovementDate(java.time.LocalDate lastMovementDate) {
+        this.lastMovementDate = lastMovementDate;
+    }
+
+    public Integer getDaysSinceLastMovement() {
+        return daysSinceLastMovement;
+    }
+
+    public void setDaysSinceLastMovement(Integer daysSinceLastMovement) {
+        this.daysSinceLastMovement = daysSinceLastMovement;
     }
 
     public LocalDateTime getCreatedAt() {

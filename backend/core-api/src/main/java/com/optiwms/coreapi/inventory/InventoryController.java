@@ -82,6 +82,48 @@ public class InventoryController {
         }
     }
 
+    @PostMapping
+    public ResponseEntity<InventoryItemDto> create(@RequestBody CreateInventoryRequest request) {
+        try {
+            var item = new com.optiwms.domain.inventory.InventoryItem();
+            item.setMaterialId(request.materialId());
+            item.setWarehouseId(request.warehouseId());
+            item.setLocationCode(request.locationCode());
+            item.setQuantity(request.quantity() != null ? request.quantity() : java.math.BigDecimal.ZERO);
+            item.setAvailableQuantity(request.availableQuantity() != null ? request.availableQuantity() : request.quantity());
+            item.setReservedQuantity(request.reservedQuantity() != null ? request.reservedQuantity() : java.math.BigDecimal.ZERO);
+            item.setBufferStock(request.bufferStock());
+            item.setMaxStock(request.maxStock());
+            item.setMinStock(request.minStock());
+            item.setReorderPoint(request.reorderPoint());
+            item.setStackingQuantity(request.stackQuantity());
+            item.setMoq(request.moq());
+            item.setLeadTimeDays(request.leadTimeDays());
+            item.setStatus(request.status() != null ? request.status() : "active");
+
+            var created = inventoryService.createOrUpdate(item);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(new InventoryItemDto(
+                    created.getId(),
+                    created.getMaterialId(),
+                    created.getWarehouseId(),
+                    created.getLocationCode(),
+                    created.getQuantity(),
+                    created.getAvailableQuantity(),
+                    created.getReservedQuantity(),
+                    created.getBufferStock(),
+                    created.getMaxStock(),
+                    created.getMinStock(),
+                    created.getReorderPoint(),
+                    created.getStackingQuantity(),
+                    created.getMoq(),
+                    created.getLeadTimeDays(),
+                    created.getStatus()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<InventoryItemDto> update(@PathVariable UUID id, @RequestBody UpdateInventoryRequest request) {
         try {
@@ -135,6 +177,23 @@ public class InventoryController {
             java.math.BigDecimal minStock,
             java.math.BigDecimal reorderPoint,
             Integer stackingQuantity,
+            java.math.BigDecimal moq,
+            Integer leadTimeDays,
+            String status
+    ) {}
+
+    public record CreateInventoryRequest(
+            UUID materialId,
+            UUID warehouseId,
+            String locationCode,
+            java.math.BigDecimal quantity,
+            java.math.BigDecimal availableQuantity,
+            java.math.BigDecimal reservedQuantity,
+            java.math.BigDecimal bufferStock,
+            java.math.BigDecimal maxStock,
+            java.math.BigDecimal minStock,
+            java.math.BigDecimal reorderPoint,
+            Integer stackQuantity,
             java.math.BigDecimal moq,
             Integer leadTimeDays,
             String status
