@@ -38,6 +38,18 @@ public class CustomerEntity {
     @Column(name = "country")
     private String country;
 
+    @Column(name = "country_code")
+    private String countryCode;
+
+    @Column(name = "currency_code")
+    private String currencyCode;
+
+    @Column(name = "priority_tier")
+    private String priorityTier;
+
+    @Column(name = "lifetime_value", precision = 15, scale = 2)
+    private java.math.BigDecimal lifetimeValue;
+
     @Column(name = "status")
     private String status;
 
@@ -61,6 +73,14 @@ public class CustomerEntity {
     public void setCity(String city) { this.city = city; }
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+    public String getCountryCode() { return countryCode; }
+    public void setCountryCode(String countryCode) { this.countryCode = countryCode; }
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
+    public String getPriorityTier() { return priorityTier; }
+    public void setPriorityTier(String priorityTier) { this.priorityTier = priorityTier; }
+    public java.math.BigDecimal getLifetimeValue() { return lifetimeValue; }
+    public void setLifetimeValue(java.math.BigDecimal lifetimeValue) { this.lifetimeValue = lifetimeValue; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public OffsetDateTime getCreatedAt() { return createdAt; }

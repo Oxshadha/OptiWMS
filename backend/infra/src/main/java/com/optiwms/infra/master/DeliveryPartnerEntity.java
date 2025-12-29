@@ -42,7 +42,20 @@ public class DeliveryPartnerEntity {
     @Column(name = "country")
     private String country;
 
+    @Column(name = "country_code")
+    private String countryCode;
+
+    @Column(name = "currency_code")
+    private String currencyCode;
+
+    @Column(name = "carrier_type")
+    private String carrierType;
+
+    @Column(name = "international_coverage", columnDefinition = "TEXT[]")
+    private String[] internationalCoverage;
+
     @Column(name = "service_areas", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String serviceAreas; // JSON string
 
     @Column(name = "rating", precision = 3, scale = 2)
@@ -85,6 +98,14 @@ public class DeliveryPartnerEntity {
     public void setCity(String city) { this.city = city; }
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+    public String getCountryCode() { return countryCode; }
+    public void setCountryCode(String countryCode) { this.countryCode = countryCode; }
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
+    public String getCarrierType() { return carrierType; }
+    public void setCarrierType(String carrierType) { this.carrierType = carrierType; }
+    public String[] getInternationalCoverage() { return internationalCoverage; }
+    public void setInternationalCoverage(String[] internationalCoverage) { this.internationalCoverage = internationalCoverage; }
     public String getServiceAreas() { return serviceAreas; }
     public void setServiceAreas(String serviceAreas) { this.serviceAreas = serviceAreas; }
     public BigDecimal getRating() { return rating; }

@@ -1,131 +1,95 @@
-# Pre-Push Checklist
+# Pre-Push Checklist - OptiWMS
 
-Verify everything works before pushing to GitHub.
+## ✅ Ready to Push to Main?
 
-## ✅ Files to Verify
+### Database & Schema
+- [x] All migrations created and tested (V1-V4)
+- [x] Database schema finalized with international support
+- [x] AI service fields added (optional)
+- [x] Raw/finished goods support added
+- [x] Docker Compose updated with pgAdmin
 
-### 1. Gradle Wrapper
-- [x] `backend/gradlew` exists and is executable
-- [x] `backend/gradlew.bat` exists (for Windows)
-- [x] `backend/gradle/wrapper/` directory exists
+### Data Import & Generation
+- [x] CSV import service created
+- [x] Synthetic data generator created
+- [x] Actual CSV data imported (300+ materials)
+- [x] Synthetic data generated (15 suppliers, 30 customers, 10 couriers)
 
-### 2. Dockerfiles
-- [x] `backend/Dockerfile` - Multi-stage build, uses Gradle 8.9, JDK 21
-- [x] `frontend/Dockerfile` - Multi-stage build, uses Node 20
-- [x] `.dockerignore` files exist
+### Backend
+- [x] Component scanning fixed (coreapi, coreapp, integration)
+- [x] All entities updated with new fields
+- [x] JSONB handling fixed for delivery_partners
+- [x] API endpoints working
 
-### 3. Docker Compose
-- [x] `infra/docker-compose.yml` - All services configured
-- [x] Database service with health checks
-- [x] Backend service depends on database
-- [x] Frontend service depends on backend
+### Documentation
+- [x] Team database access guide created
+- [x] Docker setup guide created
+- [x] Database viewing guide created
+- [x] All guides added to git (not in .gitignore)
 
-### 4. Configuration Files
-- [x] `backend/core-api/src/main/resources/application.yml` - Local dev config
-- [x] `backend/core-api/src/main/resources/application-docker.yml` - Docker config
-- [x] Database connection strings correct
+### Docker
+- [x] docker-compose.yml updated with pgAdmin
+- [x] All services configured correctly
+- [x] Volumes and networks set up
 
-### 5. Documentation
-- [x] `SETUP_GUIDE.md` - Comprehensive setup guide
-- [x] `QUICK_START.md` - Quick 5-minute setup
-- [x] `README.md` - Updated with links
-- [x] `.gitignore` - Allows setup guides
+---
 
-## 🧪 Test Commands
+## 📝 Files to Commit
 
-### Test Database Setup
-```bash
-cd infra
-docker-compose up -d db
-sleep 10
-docker ps | grep optiwms-db
-docker logs optiwms-db | grep "database system is ready"
-```
+### New Files:
+- `TEAM_DATABASE_ACCESS.md` - Team guide for database access
+- `DATABASE_VIEWING_GUIDE.md` - Complete database viewing guide
+- `DOCKER_SETUP_COMPLETE.md` - Docker setup documentation
+- `QUICK_DATABASE_ACCESS.md` - Quick reference
+- `SUPPLIER_DISTRIBUTION.md` - Supplier distribution documentation
+- `FIX_SYNTHETIC_DATA_ENDPOINT.md` - Component scan fix documentation
 
-### Test Backend Build
-```bash
-cd backend
-./gradlew clean build -x test
-# Should complete without errors
-```
+### Modified Files:
+- `infra/docker-compose.yml` - Added pgAdmin service
+- `backend/core-api/src/main/java/com/optiwms/coreapi/OptiWmsApplication.java` - Fixed component scanning
+- `backend/infra/src/main/java/com/optiwms/infra/master/DeliveryPartnerEntity.java` - Added JSONB handling
+- `backend/infra/src/main/java/com/optiwms/infra/master/SupplierEntity.java` - Added new fields
+- `backend/infra/src/main/java/com/optiwms/infra/master/CustomerEntity.java` - Added new fields
+- `backend/integration/src/main/java/com/optiwms/integration/SyntheticDataGenerator.java` - Created synthetic data generator
+- `backend/core-api/src/main/java/com/optiwms/coreapi/integration/SyntheticDataController.java` - Created API endpoints
 
-### Test Backend Startup
-```bash
-cd backend
-./gradlew :core-api:bootRun
-# Wait for: "Found 8 JPA repository interfaces"
-# Wait for: "Started OptiWmsApplication"
-# Then Ctrl+C
-```
+---
 
-### Test Frontend Build
-```bash
-cd frontend
-npm install
-npm run build
-# Should complete without errors
-```
-
-### Test Docker Compose
-```bash
-cd infra
-docker-compose build
-# Should build all services
-docker-compose up -d
-# Should start all services
-docker-compose ps
-# All services should be "Up"
-```
-
-## 🔍 Cross-Platform Verification
-
-### Mac
-- [x] Gradle wrapper works: `./gradlew --version`
-- [x] Docker works: `docker ps`
-- [x] Node works: `node -v`
-
-### Windows
-- [x] Gradle wrapper works: `gradlew.bat --version`
-- [x] Docker Desktop works
-- [x] Node works: `node -v`
-
-### Linux
-- [x] Gradle wrapper executable: `chmod +x gradlew`
-- [x] Docker works: `docker ps`
-- [x] Node works: `node -v`
-
-## 📋 Git Status Check
-
-Before pushing, verify:
+## 🚀 Push Commands
 
 ```bash
-# Check what will be committed
+# Check status
 git status
 
-# Verify important files are tracked
-git ls-files | grep -E "(gradlew|Dockerfile|docker-compose|SETUP_GUIDE|QUICK_START)"
-
-# Check for large files
-find . -type f -size +10M -not -path "./.git/*" -not -path "./node_modules/*"
-```
-
-## 🚀 Ready to Push
-
-Once all checks pass:
-
-```bash
+# Add all changes
 git add .
-git commit -m "Add comprehensive setup guides and verify cross-platform compatibility"
+
+# Commit
+git commit -m "feat: Add database viewing with pgAdmin, synthetic data generation, and team access guides
+
+- Add pgAdmin to docker-compose for web-based database access
+- Create synthetic data generator (suppliers, customers, delivery partners)
+- Fix component scanning to include coreapp and integration modules
+- Fix JSONB handling for delivery_partners service_areas
+- Add team database access guide for Windows/Linux/Mac
+- Update entities with new fields (country codes, currencies, etc.)
+- Add comprehensive database viewing documentation"
+
+# Push to main
 git push origin main
 ```
 
-## 📝 Post-Push Verification
+---
 
-After pushing, test on a fresh machine:
+## ✅ Verification After Push
 
+Team members should be able to:
 1. Clone repository
-2. Follow QUICK_START.md
-3. Verify all services start
-4. Test API endpoints
-5. Test frontend integration
+2. Run `docker-compose up -d db pgadmin` in `infra/` directory
+3. Access pgAdmin at http://localhost:5050
+4. Connect to database using credentials in `TEAM_DATABASE_ACCESS.md`
+5. View all tables and data
 
+---
+
+**Status:** ✅ Ready to Push

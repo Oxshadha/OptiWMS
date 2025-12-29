@@ -29,6 +29,16 @@ public class MaterialEntity {
     @Column(name = "storage_type", length = 20)
     private String storageType;
 
+    // New fields from V4 migration
+    @Column(name = "material_type", length = 20)
+    private String materialType;
+
+    @Column(name = "storage_location_type", length = 20)
+    private String storageLocationType;
+
+    @Column(name = "requires_pallet")
+    private Boolean requiresPallet;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -85,6 +95,30 @@ public class MaterialEntity {
 
     public void setStorageType(String storageType) {
         this.storageType = storageType;
+    }
+
+    public String getMaterialType() {
+        return materialType;
+    }
+
+    public void setMaterialType(String materialType) {
+        this.materialType = materialType;
+    }
+
+    public String getStorageLocationType() {
+        return storageLocationType;
+    }
+
+    public void setStorageLocationType(String storageLocationType) {
+        this.storageLocationType = storageLocationType;
+    }
+
+    public Boolean getRequiresPallet() {
+        return requiresPallet;
+    }
+
+    public void setRequiresPallet(Boolean requiresPallet) {
+        this.requiresPallet = requiresPallet;
     }
 
     public LocalDateTime getCreatedAt() {
