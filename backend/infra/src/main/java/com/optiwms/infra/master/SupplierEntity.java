@@ -39,6 +39,15 @@ public class SupplierEntity {
     @Column(name = "country")
     private String country;
 
+    @Column(name = "city")
+    private String city;
+
+    @Column(name = "country_code")
+    private String countryCode;
+
+    @Column(name = "currency_code")
+    private String currencyCode;
+
     @Column(name = "lead_time_days")
     private Integer leadTimeDays;
 
@@ -68,6 +77,12 @@ public class SupplierEntity {
     public void setAddress(String address) { this.address = address; }
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+    public String getCity() { return city; }
+    public void setCity(String city) { this.city = city; }
+    public String getCountryCode() { return countryCode; }
+    public void setCountryCode(String countryCode) { this.countryCode = countryCode; }
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
     public Integer getLeadTimeDays() { return leadTimeDays; }
     public void setLeadTimeDays(Integer leadTimeDays) { this.leadTimeDays = leadTimeDays; }
     public BigDecimal getRating() { return rating; }

@@ -57,6 +57,7 @@ project(":core-api") {
         implementation(project(":core-app"))
         implementation(project(":core-domain"))
         implementation(project(":infra"))
+        implementation(project(":integration"))
         implementation("org.springframework.boot:spring-boot-starter-web")
         implementation("org.springframework.boot:spring-boot-starter-data-jpa")
         implementation("org.springframework.boot:spring-boot-starter-security")
@@ -90,6 +91,9 @@ project(":infra") {
 project(":integration") {
     dependencies {
         implementation(project(":core-app"))
+        implementation(project(":infra"))
+        implementation("org.springframework.boot:spring-boot-starter")
+        implementation("org.springframework.boot:spring-boot-starter-data-jpa")
         implementation("org.springframework.boot:spring-boot-starter-webflux")
     }
 }

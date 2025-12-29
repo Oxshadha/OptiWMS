@@ -3,9 +3,11 @@ package com.optiwms.coreapi;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.context.annotation.ComponentScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
-@SpringBootApplication(scanBasePackages = "com.optiwms")
+@SpringBootApplication
+@ComponentScan(basePackages = {"com.optiwms.coreapi", "com.optiwms.coreapp", "com.optiwms.integration"})
 @EntityScan(basePackages = "com.optiwms.infra")
 @EnableJpaRepositories(basePackages = "com.optiwms.infra")
 public class OptiWmsApplication {
