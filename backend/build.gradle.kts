@@ -1,8 +1,7 @@
 plugins {
     id("java")
-    id("application")
-    id("org.springframework.boot") version "3.3.0"
     id("io.spring.dependency-management") version "1.1.5"
+    id("org.springframework.boot") version "3.3.0" apply false
 }
 
 java {
@@ -50,15 +49,15 @@ subprojects {
 
 project(":core-api") {
     apply(plugin = "org.springframework.boot")
-
-    springBoot {
-        mainClass.set("com.optiwms.coreapi.OptiWmsApplication")
-    }
+    
+    // Spring Boot will auto-detect the main class from @SpringBootApplication annotation
+    // No explicit configuration needed - Spring Boot plugin handles this automatically
 
     dependencies {
         implementation(project(":core-app"))
         implementation(project(":core-domain"))
         implementation(project(":infra"))
+        implementation(project(":integration"))
         implementation("org.springframework.boot:spring-boot-starter-web")
         implementation("org.springframework.boot:spring-boot-starter-data-jpa")
         implementation("org.springframework.boot:spring-boot-starter-security")
@@ -92,8 +91,18 @@ project(":infra") {
 project(":integration") {
     dependencies {
         implementation(project(":core-app"))
+        implementation(project(":infra"))
+        implementation("org.springframework.boot:spring-boot-starter")
+        implementation("org.springframework.boot:spring-boot-starter-data-jpa")
         implementation("org.springframework.boot:spring-boot-starter-webflux")
     }
+}
+
+// Root-level task to run the application (delegates to core-api)
+tasks.register("bootRun") {
+    dependsOn(":core-api:bootRun")
+    group = "application"
+    description = "Runs the Spring Boot application"
 }
 
 
