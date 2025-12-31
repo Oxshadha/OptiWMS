@@ -13,20 +13,20 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
   const displayEntries = entries.slice(0, maxEntries);
 
   const getRankIcon = (rank: number) => {
-    if (rank === 1) return "🥇";
-    if (rank === 2) return "🥈";
-    if (rank === 3) return "🥉";
-    return `#${rank}`;
+    if (rank === 1) return "looks_one";
+    if (rank === 2) return "looks_two";
+    if (rank === 3) return "looks_3";
+    return null;
   };
 
   const getTrendIcon = (trend: LeaderboardEntry["trend"]) => {
     switch (trend) {
       case "up":
-        return "📈";
+        return "trending_up";
       case "down":
-        return "📉";
+        return "trending_down";
       default:
-        return "➡️";
+        return "trending_flat";
     }
   };
 
@@ -61,10 +61,14 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
                 <tr key={entry.workerId} className={entry.rank <= 3 ? "bg-base-200" : ""}>
                   <td>
                     <div className="flex items-center gap-2">
-                      <span className="text-lg font-bold">{getRankIcon(entry.rank)}</span>
-                      {entry.rank > 3 && (
-                        <span className="text-sm text-base-content/60">{entry.rank}</span>
-                      )}
+                      {getRankIcon(entry.rank) ? (
+                        <span className="material-symbols-outlined text-primary text-xl font-bold">
+                          {getRankIcon(entry.rank)}
+                        </span>
+                      ) : null}
+                      <span className={`text-base font-bold ${entry.rank <= 3 ? "text-primary" : "text-base-content/60"}`}>
+                        #{entry.rank}
+                      </span>
                     </div>
                   </td>
                   <td className="font-semibold">{entry.workerName}</td>
@@ -72,17 +76,17 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
                     <span className="badge badge-outline badge-sm">{entry.role}</span>
                   </td>
                   <td>
-                    <span className="font-bold text-primary">{entry.picksPerHour.toFixed(1)}</span>
+                    <span className="font-bold text-primary">{(entry.picksPerHour ?? 0).toFixed(1)}</span>
                   </td>
                   <td>{entry.tasksCompleted}</td>
                   <td>
                     <span
                       className={clsx(
                         "badge badge-sm",
-                        entry.errorRate < 1 ? "badge-success" : entry.errorRate < 3 ? "badge-warning" : "badge-error"
+                        (entry.errorRate ?? 0) < 1 ? "badge-success" : (entry.errorRate ?? 0) < 3 ? "badge-warning" : "badge-error"
                       )}
                     >
-                      {entry.errorRate.toFixed(1)}%
+                      {(entry.errorRate ?? 0).toFixed(1)}%
                     </span>
                   </td>
                   {showBadges && (
@@ -95,7 +99,14 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
                     </td>
                   )}
                   <td>
-                    <span className="text-lg" title={entry.trend}>
+                    <span 
+                      className={`material-symbols-outlined text-lg ${
+                        entry.trend === "up" ? "text-success" : 
+                        entry.trend === "down" ? "text-error" : 
+                        "text-base-content/60"
+                      }`}
+                      title={entry.trend}
+                    >
                       {getTrendIcon(entry.trend)}
                     </span>
                   </td>

@@ -101,16 +101,39 @@ export default function LaborProductivityPage() {
   const { hasPermission, role } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
-  const [productivityMetrics, setProductivityMetrics] = useState<WorkerProductivityMetrics[]>(mockProductivityMetrics);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(mockLeaderboard);
+  const [productivityMetrics, setProductivityMetrics] = useState<WorkerProductivityMetrics[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("weekly");
   const [selectedMetric, setSelectedMetric] = useState<"picksPerHour" | "errorRate" | "dwellTime">("picksPerHour");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load data (will use API when backend is ready)
+  // Load data from API
   useEffect(() => {
-    // TODO: Replace with actual API calls
-    // analyticsApi.getWorkerProductivity().then(setProductivityMetrics);
-    // analyticsApi.getWorkerLeaderboard(selectedPeriod).then(setLeaderboard);
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const [productivityData, leaderboardData] = await Promise.all([
+          analyticsApi.getWorkerProductivity(),
+          analyticsApi.getWorkerLeaderboard(selectedPeriod),
+        ]);
+
+        setProductivityMetrics(productivityData);
+        setLeaderboard(leaderboardData);
+      } catch (err) {
+        console.error("Failed to load labor productivity data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load labor productivity data");
+        // Fallback to mock data on error
+        setProductivityMetrics(mockProductivityMetrics);
+        setLeaderboard(mockLeaderboard);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
   }, [selectedPeriod]);
 
   if (!canView) {
@@ -123,17 +146,34 @@ export default function LaborProductivityPage() {
     );
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && productivityMetrics.length === 0 && leaderboard.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading labor productivity data: {error}</span>
+      </div>
+    );
+  }
+
   const summary = {
     averagePPH: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + m.picksPerHour, 0) / productivityMetrics.length
+      ? productivityMetrics.reduce((sum, m) => sum + (m.picksPerHour ?? 0), 0) / productivityMetrics.length
       : 0,
     averageDwellTime: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + m.averageDwellTime, 0) / productivityMetrics.length
+      ? productivityMetrics.reduce((sum, m) => sum + (m.averageDwellTime ?? 0), 0) / productivityMetrics.length
       : 0,
     averageErrorRate: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + m.errorRate, 0) / productivityMetrics.length
+      ? productivityMetrics.reduce((sum, m) => sum + (m.errorRate ?? 0), 0) / productivityMetrics.length
       : 0,
-    totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + m.tasksCompleted, 0),
+    totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
     topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
   };
 
@@ -239,27 +279,27 @@ export default function LaborProductivityPage() {
                   <tr key={metric.workerId}>
                     <td className="font-semibold">{metric.workerName}</td>
                     <td>
-                      <span className="font-bold text-primary">{metric.picksPerHour.toFixed(1)}</span>
+                      <span className="font-bold text-primary">{(metric.picksPerHour ?? 0).toFixed(1)}</span>
                     </td>
-                    <td>{metric.tasksCompleted}</td>
-                    <td>{metric.totalPicks.toLocaleString()}</td>
-                    <td>{metric.averageDwellTime.toFixed(1)} min</td>
+                    <td>{metric.tasksCompleted ?? 0}</td>
+                    <td>{(metric.totalPicks ?? 0).toLocaleString()}</td>
+                    <td>{(metric.averageDwellTime ?? 0).toFixed(1)} min</td>
                     <td>
                       <span
                         className={`badge ${
-                          metric.errorRate < 1
+                          (metric.errorRate ?? 0) < 1
                             ? "badge-success"
-                            : metric.errorRate < 3
+                            : (metric.errorRate ?? 0) < 3
                             ? "badge-warning"
                             : "badge-error"
                         }`}
                       >
-                        {metric.errorRate.toFixed(2)}%
+                        {(metric.errorRate ?? 0).toFixed(2)}%
                       </span>
                     </td>
                     <td>
                       <span className="badge badge-success badge-sm">
-                        {metric.onTimeCompletionRate.toFixed(1)}%
+                        {(metric.onTimeCompletionRate ?? 0).toFixed(1)}%
                       </span>
                     </td>
                   </tr>

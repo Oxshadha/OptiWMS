@@ -1,15 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { anomaliesApi, Anomaly as ApiAnomaly } from "@/lib/api/anomalies";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { materialsApi } from "@/lib/api/materials";
+import { usersApi } from "@/lib/api/users";
+import { showToast } from "@/lib/utils/toast";
+import { useAdmin } from "@/contexts/AdminContext";
+
+interface AnomalyDisplay {
+  id: string;
+  anomalyId: string;
+  anomalyType: string;
+  severity: "low" | "medium" | "high" | "critical";
+  description: string;
+  warehouseName: string;
+  relatedEntityType: string;
+  relatedEntityId: string;
+  detectedBy: string;
+  detectedAt: string;
+  status: string;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+}
 
 // Mock data - will be replaced with API calls
-const anomalies = [
+const mockAnomalies: AnomalyDisplay[] = [
   {
     id: "anom-1",
     anomalyId: "ANOM-2025-001",
@@ -99,10 +121,103 @@ export default function AnomaliesPage() {
   const assignedWarehouseName = admin?.warehouseName;
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
   const [showResolveModal, setShowResolveModal] = useState(false);
-  const [selectedAnomaly, setSelectedAnomaly] = useState<typeof anomalies[0] | null>(null);
+  const [selectedAnomaly, setSelectedAnomaly] = useState<AnomalyDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // API state
+  const [anomalies, setAnomalies] = useState<AnomalyDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
+          anomaliesApi.getAll(),
+          warehousesApi.getAll(),
+          materialsApi.getAll(),
+          usersApi.getAll(),
+        ]);
+
+        // Build maps
+        const warehousesMap = new Map<string, string>();
+        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+        
+        const materialsMap = new Map<string, string>();
+        materialsData.forEach(m => materialsMap.set(m.id, m.sku || m.code));
+        
+        const usersMap = new Map<string, string>();
+        usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
+
+        // Transform API data to display format
+        const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
+          const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
+          const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
+          
+          // Map severity from API to display format
+          let severity: "low" | "medium" | "high" | "critical" = "low";
+          const apiSeverity = (a.severity || "").toUpperCase();
+          if (apiSeverity === "CRITICAL") severity = "critical";
+          else if (apiSeverity === "HIGH") severity = "high";
+          else if (apiSeverity === "MEDIUM") severity = "medium";
+          else severity = "low";
+
+          // Map status from API to display format
+          let displayStatus = a.status || "open";
+          if (displayStatus === "DETECTED") displayStatus = "open";
+          else if (displayStatus === "RESOLVED") displayStatus = "resolved";
+          else if (displayStatus === "REVIEWED") displayStatus = "investigating";
+
+          return {
+            id: a.id,
+            anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
+            anomalyType: a.anomalyType || "unknown",
+            severity,
+            description: a.description || "No description",
+            warehouseName,
+            relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
+            relatedEntityId,
+            detectedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "System" : "AI Service",
+            detectedAt: a.reviewedAt || new Date().toISOString(),
+            status: displayStatus,
+            resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) : null,
+            resolvedAt: a.reviewedAt || null,
+          };
+        });
+
+        setAnomalies(displayAnomalies);
+      } catch (err) {
+        console.error("Failed to load anomalies:", err);
+        setError(err instanceof Error ? err.message : "Failed to load anomalies");
+        setAnomalies([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load anomalies. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadAnomalies', handleReload);
+    return () => {
+      window.removeEventListener('reloadAnomalies', handleReload);
+    };
+  }, []);
 
   // Filter anomalies by warehouse for warehouse managers
   const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
@@ -137,6 +252,23 @@ export default function AnomaliesPage() {
     return matchesSearch && matchesSeverity && matchesStatus;
   });
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && anomalies.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading anomalies: {error}</span>
+      </div>
+    );
+  }
+
   const summaryCards = [
     {
       label: "Total Anomalies",
@@ -168,7 +300,7 @@ export default function AnomaliesPage() {
     {
       key: "anomalyId",
       label: "Anomaly ID",
-      render: (anomaly: typeof anomalies[0]) => (
+      render: (anomaly: AnomalyDisplay) => (
         <Link
           href={`/admin/anomalies/${anomaly.id}`}
           className="font-semibold text-primary hover:underline"
@@ -181,7 +313,7 @@ export default function AnomaliesPage() {
     {
       key: "anomalyType",
       label: "Type",
-      render: (anomaly: typeof anomalies[0]) => (
+      render: (anomaly: AnomalyDisplay) => (
         <span className="badge badge-outline capitalize text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
           {anomaly.anomalyType.replace("_", " ")}
         </span>
@@ -221,7 +353,7 @@ export default function AnomaliesPage() {
     {
       key: "relatedEntity",
       label: "Related Entity",
-      render: (anomaly: typeof anomalies[0]) => (
+      render: (anomaly: AnomalyDisplay) => (
         <div className="text-sm">
           <div className="capitalize">{anomaly.relatedEntityType}</div>
           <div className="text-base-content/60">{anomaly.relatedEntityId}</div>
@@ -430,7 +562,7 @@ function ResolveAnomalyModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  anomaly: typeof anomalies[0];
+  anomaly: AnomalyDisplay;
 }) {
   const [formData, setFormData] = useState({
     resolutionNotes: "",
@@ -439,12 +571,30 @@ function ResolveAnomalyModal({
 
   const severityConfigLocal = severityConfig;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const { admin } = useAdmin();
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to resolve anomaly
-    console.log("Resolving anomaly:", { anomalyId: anomaly.id, ...formData });
-    onClose();
-    setFormData({ resolutionNotes: "", actionsTaken: "" });
+    
+    try {
+      const resolutionText = `${formData.actionsTaken}\n\nResolution Notes: ${formData.resolutionNotes}`.trim();
+      await anomaliesApi.resolve(
+        anomaly.id,
+        "resolved",
+        admin?.id,
+        resolutionText
+      );
+      showToast.success("Anomaly resolved successfully");
+      onClose();
+      setFormData({ resolutionNotes: "", actionsTaken: "" });
+      // Reload data - trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadAnomalies'));
+      }
+    } catch (err) {
+      console.error("Failed to resolve anomaly:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to resolve anomaly");
+    }
   };
 
   return (

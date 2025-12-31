@@ -198,8 +198,10 @@ public class CsvDataImporter {
                     }
 
                     if (quantity != null && quantity.compareTo(BigDecimal.ZERO) > 0) {
-                        inventory.setQuantity(quantity);
-                        inventory.setAvailableQuantity(quantity);
+                        // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
+                        Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
+                        inventory.setQuantity(qtyInteger);
+                        inventory.setAvailableQuantity(qtyInteger);
                     }
                     if (bufferStock != null) {
                         inventory.setBufferStock(bufferStock);

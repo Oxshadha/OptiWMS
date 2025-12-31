@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { ordersApi } from "@/lib/api/orders";
+import { customersApi } from "@/lib/api/customers";
+import { orderItemsApi } from "@/lib/api/orderItems";
+import { materialsApi } from "@/lib/api/materials";
 
 interface OrderItem {
   id: string;
@@ -43,6 +47,8 @@ export default function PackingPage() {
   const [showOrderScanner, setShowOrderScanner] = useState(false);
   const [showItemScanner, setShowItemScanner] = useState(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   
   const [packingData, setPackingData] = useState<Partial<PackingData>>({
     packagingType: "",
@@ -53,30 +59,96 @@ export default function PackingPage() {
     photos: [],
   });
 
-  // Mock orders ready to pack
-  const [orders, setOrders] = useState<Order[]>([
-    {
-      id: "ord-1",
-      orderNumber: "ORD-2025-001",
-      customer: "John Smith",
-      priority: "express",
-      status: "ready_to_pack",
-      items: [
-        { id: "item-1", sku: "SKU-001", name: "Product A", quantity: 2, pickedQuantity: 2, verified: false },
-        { id: "item-2", sku: "SKU-002", name: "Product B", quantity: 1, pickedQuantity: 1, verified: false },
-      ],
-    },
-    {
-      id: "ord-2",
-      orderNumber: "ORD-2025-002",
-      customer: "Jane Doe",
-      priority: "normal",
-      status: "ready_to_pack",
-      items: [
-        { id: "item-3", sku: "SKU-003", name: "Product C", quantity: 3, pickedQuantity: 3, verified: false },
-      ],
-    },
-  ]);
+  // Load orders ready to pack
+  useEffect(() => {
+    const loadOrders = async () => {
+      if (!isOnline) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        // Fetch outbound orders that are picked (ready to pack)
+        const outboundOrders = await ordersApi.getAll("outbound", "picked");
+        
+        // Fetch order items and customer names for each order
+        const ordersWithDetails = await Promise.all(
+          outboundOrders.map(async (apiOrder) => {
+            try {
+              // Fetch customer name
+              let customerName = "Unknown";
+              if (apiOrder.customerId) {
+                try {
+                  const customer = await customersApi.getById(apiOrder.customerId);
+                  customerName = customer.name || customer.code || "Unknown";
+                } catch (error) {
+                  console.error(`Error fetching customer ${apiOrder.customerId}:`, error);
+                }
+              }
+
+              // Fetch order items from API
+              let items: OrderItem[] = [];
+              try {
+                const orderItems = await orderItemsApi.getByOrderId(apiOrder.id);
+                // Fetch material details for each item
+                items = await Promise.all(
+                  orderItems.map(async (item) => {
+                    try {
+                      const material = await materialsApi.getById(item.materialId);
+                      return {
+                        id: item.id,
+                        sku: material.materialCode || item.materialId,
+                        name: material.description || "Unknown",
+                        quantity: item.quantity,
+                        pickedQuantity: item.pickedQuantity || 0,
+                        verified: false,
+                      };
+                    } catch (error) {
+                      console.error(`Error fetching material ${item.materialId}:`, error);
+                      return {
+                        id: item.id,
+                        sku: item.materialId,
+                        name: "Unknown",
+                        quantity: item.quantity,
+                        pickedQuantity: item.pickedQuantity || 0,
+                        verified: false,
+                      };
+                    }
+                  })
+                );
+              } catch (error) {
+                console.error(`Error fetching order items for ${apiOrder.id}:`, error);
+                // Fallback to empty items
+                items = [];
+              }
+
+              return {
+                id: apiOrder.id,
+                orderNumber: apiOrder.orderNumber,
+                customer: customerName,
+                priority: (apiOrder.priority === "high" || apiOrder.priority === "urgent") ? "express" : "normal",
+                status: "ready_to_pack" as const,
+                items,
+              };
+            } catch (error) {
+              console.error(`Error processing order ${apiOrder.id}:`, error);
+              return null;
+            }
+          })
+        );
+
+        // Filter out null values
+        const validOrders = ordersWithDetails.filter((o): o is Order => o !== null);
+        setOrders(validOrders);
+      } catch (error) {
+        console.error("Error loading orders:", error);
+        setOrders([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadOrders();
+  }, [isOnline]);
 
   const packagingTypes = [
     { id: "small", name: "Small Box", dimensions: { length: 20, width: 15, height: 10 }, maxWeight: 5 },
@@ -279,13 +351,17 @@ export default function PackingPage() {
             ))}
           </div>
 
-          {readyToPackOrders.length === 0 && (
+          {loading ? (
+            <div className="card bg-base-100 border border-base-300 p-12 text-center">
+              <span className="loading loading-spinner loading-lg"></span>
+            </div>
+          ) : readyToPackOrders.length === 0 ? (
             <div className="card bg-base-100 border border-base-300 p-12 text-center">
               <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">inventory</span>
               <h3 className="text-lg font-semibold text-base-content mb-2">No orders ready to pack</h3>
               <p className="text-sm text-base-content/60">All orders have been packed or are in progress</p>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

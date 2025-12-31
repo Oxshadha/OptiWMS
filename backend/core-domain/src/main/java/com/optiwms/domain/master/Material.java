@@ -7,6 +7,7 @@ public class Material extends BaseEntity {
     private String description;
     private String unitType;
     private String storageType;
+    private String materialType;
 
     public String getMaterialCode() {
         return materialCode;
@@ -38,6 +39,14 @@ public class Material extends BaseEntity {
 
     public void setStorageType(String storageType) {
         this.storageType = storageType;
+    }
+
+    public String getMaterialType() {
+        return materialType;
+    }
+
+    public void setMaterialType(String materialType) {
+        this.materialType = materialType;
     }
 }
 

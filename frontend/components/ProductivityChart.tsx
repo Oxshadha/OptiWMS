@@ -13,11 +13,11 @@ export function ProductivityChart({ metrics, metricType, title }: ProductivityCh
     ...metrics.map((m) => {
       switch (metricType) {
         case "picksPerHour":
-          return m.picksPerHour;
+          return m.picksPerHour ?? 0;
         case "errorRate":
-          return m.errorRate;
+          return m.errorRate ?? 0;
         case "dwellTime":
-          return m.averageDwellTime;
+          return m.averageDwellTime ?? 0;
         default:
           return 0;
       }
@@ -28,11 +28,11 @@ export function ProductivityChart({ metrics, metricType, title }: ProductivityCh
   const getValue = (metric: WorkerProductivityMetrics) => {
     switch (metricType) {
       case "picksPerHour":
-        return metric.picksPerHour;
+        return metric.picksPerHour ?? 0;
       case "errorRate":
-        return metric.errorRate;
+        return metric.errorRate ?? 0;
       case "dwellTime":
-        return metric.averageDwellTime;
+        return metric.averageDwellTime ?? 0;
       default:
         return 0;
     }
@@ -64,7 +64,7 @@ export function ProductivityChart({ metrics, metricType, title }: ProductivityCh
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-semibold">{metric.workerName}</span>
                   <span className="text-base-content/60">
-                    {value.toFixed(metricType === "picksPerHour" ? 1 : 2)} {getUnit()}
+                    {(value ?? 0).toFixed(metricType === "picksPerHour" ? 1 : 2)} {getUnit()}
                   </span>
                 </div>
                 <div className="w-full bg-base-200 rounded-full h-2.5">

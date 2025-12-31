@@ -8,9 +8,9 @@ public class InventoryItem extends BaseEntity {
     private java.util.UUID materialId;
     private java.util.UUID warehouseId;
     private String locationCode;
-    private BigDecimal quantity;
-    private BigDecimal availableQuantity;
-    private BigDecimal reservedQuantity;
+    private Integer quantity;
+    private Integer availableQuantity;
+    private Integer reservedQuantity;
     private BigDecimal bufferStock;
     private BigDecimal maxStock;
     private BigDecimal minStock;
@@ -45,27 +45,27 @@ public class InventoryItem extends BaseEntity {
         this.locationCode = locationCode;
     }
 
-    public BigDecimal getQuantity() {
+    public Integer getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(BigDecimal quantity) {
+    public void setQuantity(Integer quantity) {
         this.quantity = quantity;
     }
 
-    public BigDecimal getAvailableQuantity() {
+    public Integer getAvailableQuantity() {
         return availableQuantity;
     }
 
-    public void setAvailableQuantity(BigDecimal availableQuantity) {
+    public void setAvailableQuantity(Integer availableQuantity) {
         this.availableQuantity = availableQuantity;
     }
 
-    public BigDecimal getReservedQuantity() {
+    public Integer getReservedQuantity() {
         return reservedQuantity;
     }
 
-    public void setReservedQuantity(BigDecimal reservedQuantity) {
+    public void setReservedQuantity(Integer reservedQuantity) {
         this.reservedQuantity = reservedQuantity;
     }
 

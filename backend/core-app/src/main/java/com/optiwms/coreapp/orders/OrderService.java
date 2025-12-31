@@ -80,6 +80,15 @@ public class OrderService {
         return toDomain(saved);
     }
 
+    @Transactional
+    public Order updateNotes(java.util.UUID id, String notes) {
+        OrderEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + id));
+        entity.setNotes(notes);
+        OrderEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
     private Order toDomain(OrderEntity entity) {
         Order order = new Order();
         order.setId(entity.getId());

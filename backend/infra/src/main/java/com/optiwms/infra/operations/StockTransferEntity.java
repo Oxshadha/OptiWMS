@@ -39,8 +39,8 @@ public class StockTransferEntity {
     @Column(name = "dest_location_code", length = 50)
     private String destLocationCode;
 
-    @Column(name = "quantity", precision = 15, scale = 2, nullable = false)
-    private BigDecimal quantity;
+    @Column(name = "quantity", nullable = false)
+    private Integer quantity;
 
     @Column(name = "status", length = 20)
     private String status;
@@ -97,8 +97,8 @@ public class StockTransferEntity {
     public void setDestWarehouseId(UUID destWarehouseId) { this.destWarehouseId = destWarehouseId; }
     public String getDestLocationCode() { return destLocationCode; }
     public void setDestLocationCode(String destLocationCode) { this.destLocationCode = destLocationCode; }
-    public BigDecimal getQuantity() { return quantity; }
-    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getNotes() { return notes; }

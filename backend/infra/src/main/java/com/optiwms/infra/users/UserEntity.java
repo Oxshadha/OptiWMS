@@ -54,6 +54,9 @@ public class UserEntity {
     @Column(name = "device_id")
     private String deviceId;
 
+    @Column(name = "blind_receiving_mode")
+    private Boolean blindReceivingMode;
+
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
@@ -90,6 +93,8 @@ public class UserEntity {
     public void setStatus(String status) { this.status = status; }
     public String getDeviceId() { return deviceId; }
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
+    public Boolean getBlindReceivingMode() { return blindReceivingMode; }
+    public void setBlindReceivingMode(Boolean blindReceivingMode) { this.blindReceivingMode = blindReceivingMode; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
     public OffsetDateTime getCreatedAt() { return createdAt; }

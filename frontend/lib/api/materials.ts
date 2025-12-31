@@ -6,6 +6,7 @@ export interface Material {
   description: string;
   unitType?: string;
   storageType?: string;
+  materialType?: string;
 }
 
 export interface ImportResponse {
@@ -15,8 +16,11 @@ export interface ImportResponse {
 }
 
 export const materialsApi = {
-  getAll: async (): Promise<Material[]> => {
-    return apiClient.get<Material[]>('/master/materials');
+  getAll: async (materialType?: string): Promise<Material[]> => {
+    const params = new URLSearchParams();
+    if (materialType) params.append('materialType', materialType);
+    const query = params.toString();
+    return apiClient.get<Material[]>(`/master/materials${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string): Promise<Material> => {

@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
+import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
+import { ordersApi } from "@/lib/api/orders";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { usersApi } from "@/lib/api/users";
+import { showToast } from "@/lib/utils/toast";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -99,10 +104,104 @@ export default function PackingPage() {
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
 
+  // API state
+  const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const recordsData = await packingApi.getAll();
+        
+        // Fetch orders to get customer names
+        const ordersData = await ordersApi.getAllOutbound();
+        const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
+        ordersData.forEach(o => {
+          ordersMap.set(o.id, {
+            customerName: o.customerName || "Unknown",
+            warehouseName: o.warehouseName || "Unknown",
+          });
+        });
+
+        // Transform API data to display format
+        const displayRecords: PackingRecord[] = recordsData.map((r) => {
+          const orderInfo = r.orderId ? ordersMap.get(r.orderId) : null;
+          
+          // Parse box dimensions if available
+          let boxDimensions: { length: number; width: number; height: number } | undefined;
+          if (r.boxDimensions) {
+            try {
+              const dims = JSON.parse(r.boxDimensions);
+              if (dims.length && dims.width && dims.height) {
+                boxDimensions = { length: dims.length, width: dims.width, height: dims.height };
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+
+          // Map status from API to display format
+          let displayStatus: PackingStatus = "pending";
+          if (r.status === "in_progress") displayStatus = "in_progress";
+          else if (r.status === "packed") displayStatus = "packed";
+          else if (r.status === "shipped") displayStatus = "shipped";
+          else displayStatus = "pending";
+
+          return {
+            id: r.id,
+            orderId: r.orderId || "",
+            orderNumber: r.orderNumber || "N/A",
+            customer: orderInfo?.customerName || "Unknown",
+            priority: "normal" as const, // TODO: Get from order when available
+            packagingType: r.boxType || "",
+            boxDimensions,
+            actualWeight: r.actualWeightKg ? parseFloat(r.actualWeightKg) : 0,
+            dimensionalWeight: r.dimensionalWeightKg ? parseFloat(r.dimensionalWeightKg) : 0,
+            chargeableWeight: r.chargeableWeightKg ? parseFloat(r.chargeableWeightKg) : 0,
+            trackingNumber: r.trackingNumber,
+            packerId: r.packerId,
+            packerName: undefined, // TODO: Get from user API
+            status: displayStatus,
+            startedAt: r.startedAt,
+            completedAt: r.completedAt,
+            createdAt: r.startedAt || new Date().toISOString(),
+            warehouseName: orderInfo?.warehouseName,
+          };
+        });
+
+        setPackingRecords(displayRecords);
+      } catch (err) {
+        console.error("Failed to load packing records:", err);
+        setError(err instanceof Error ? err.message : "Failed to load packing records");
+        setPackingRecords([]);
+        showToast.error("Failed to load packing records. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadPacking', handleReload);
+    return () => {
+      window.removeEventListener('reloadPacking', handleReload);
+    };
+  }, []);
+
   // Filter packing records by warehouse for warehouse managers
   const packingRecordsForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? mockPackingRecords.filter((p) => p.warehouseName === assignedWarehouseName)
-    : mockPackingRecords;
+    ? packingRecords.filter((p) => p.warehouseName === assignedWarehouseName)
+    : packingRecords;
 
   const filteredRecords = packingRecordsForWarehouse.filter((record) => {
     const matchesSearch = !searchQuery.trim() || (
@@ -117,16 +216,66 @@ export default function PackingPage() {
   const pendingOrders = filteredRecords.filter(r => r.status === "pending");
   const inProgress = filteredRecords.filter(r => r.status === "in_progress");
   const packed = filteredRecords.filter(r => r.status === "packed");
-  const total = mockPackingRecords.length;
+  const total = packingRecords.length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && packingRecords.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading packing records: {error}</span>
+      </div>
+    );
+  }
 
   const handleViewDetails = (record: PackingRecord) => {
     setSelectedRecord(record);
     setShowDetailModal(true);
   };
 
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedRecordForAssign, setSelectedRecordForAssign] = useState<PackingRecord | null>(null);
+  const [availableWorkers, setAvailableWorkers] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadWorkers = async () => {
+      try {
+        const workers = await usersApi.getAll("worker");
+        setAvailableWorkers(workers);
+      } catch (err) {
+        console.error("Failed to load workers:", err);
+      }
+    };
+    loadWorkers();
+  }, []);
+
   const handleAssignPacker = (record: PackingRecord) => {
-    // TODO: Open assign packer modal
-    alert(`Assign packer to order ${record.orderNumber}`);
+    setSelectedRecordForAssign(record);
+    setShowAssignModal(true);
+  };
+
+  const handleConfirmAssign = async (packerId: string) => {
+    if (!selectedRecordForAssign) return;
+    try {
+      await packingApi.update(selectedRecordForAssign.id, { packerId });
+      showToast.success("Packer assigned successfully");
+      setShowAssignModal(false);
+      setSelectedRecordForAssign(null);
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadPacking'));
+      }
+    } catch (err) {
+      console.error("Failed to assign packer:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to assign packer");
+    }
   };
 
   const handlePrintLabel = (record: PackingRecord) => {
@@ -570,6 +719,55 @@ export default function PackingPage() {
             </div>
           </div>
         </DetailModal>
+      )}
+
+      {/* Assign Packer Modal */}
+      {showAssignModal && selectedRecordForAssign && (
+        <Modal
+          isOpen={showAssignModal}
+          onClose={() => {
+            setShowAssignModal(false);
+            setSelectedRecordForAssign(null);
+          }}
+          title="Assign Packer"
+        >
+          <div className="p-6 space-y-4">
+            <p className="text-base-content/70">
+              Select a worker to assign to order <strong>{selectedRecordForAssign.orderNumber}</strong>
+            </p>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Select Packer</span>
+              </label>
+              <select
+                className="select select-bordered w-full"
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleConfirmAssign(e.target.value);
+                  }
+                }}
+              >
+                <option value="">Select a worker...</option>
+                {availableWorkers.map(worker => (
+                  <option key={worker.id} value={worker.id}>
+                    {worker.firstName} {worker.lastName} ({worker.username})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowAssignModal(false);
+                  setSelectedRecordForAssign(null);
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

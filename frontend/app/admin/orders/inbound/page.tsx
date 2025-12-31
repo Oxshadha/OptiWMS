@@ -1,58 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { ordersApi, Order } from "@/lib/api/orders";
+import { suppliersApi, Supplier } from "@/lib/api/suppliers";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { materialsApi } from "@/lib/api/materials";
+import { showToast } from "@/lib/utils/toast";
 
-// Mock data - will be replaced with API calls
-const inboundOrders = [
-  {
-    id: "IO-1001",
-    orderNumber: "PO-452368",
-    supplierName: "Tech Supplies Inc",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-10",
-    expectedDelivery: "2025-12-15",
-    status: "in_transit",
-    totalItems: 25,
-    receivedItems: 0,
-  },
-  {
-    id: "IO-1002",
-    orderNumber: "PO-452369",
-    supplierName: "Global Electronics",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-11",
-    expectedDelivery: "2025-12-16",
-    status: "arrived",
-    totalItems: 18,
-    receivedItems: 0,
-  },
-  {
-    id: "IO-1003",
-    orderNumber: "PO-452370",
-    supplierName: "Tech Supplies Inc",
-    warehouseName: "Warehouse 2",
-    orderDate: "2025-12-12",
-    expectedDelivery: "2025-12-17",
-    status: "receiving",
-    totalItems: 32,
-    receivedItems: 15,
-  },
-  {
-    id: "IO-1004",
-    orderNumber: "PO-452371",
-    supplierName: "Quality Goods Co",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-08",
-    expectedDelivery: "2025-12-13",
-    status: "completed",
-    totalItems: 12,
-    receivedItems: 12,
-  },
-];
+// Display format for inbound orders
+interface InboundOrderDisplay {
+  id: string;
+  orderNumber: string;
+  supplierName: string;
+  warehouseName: string;
+  orderDate: string;
+  expectedDelivery: string;
+  status: string;
+  totalItems: number;
+  receivedItems: number;
+}
 
 const statusConfig = {
   ordered: { label: "Ordered", class: "badge-outline" },
@@ -69,18 +39,92 @@ export default function InboundOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<typeof inboundOrders[0] | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<InboundOrderDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  
+  // API state
+  const [orders, setOrders] = useState<InboundOrderDisplay[]>([]);
+  const [suppliers, setSuppliers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load orders, suppliers, and warehouses in parallel
+        const [ordersData, suppliersData, warehousesData] = await Promise.all([
+          ordersApi.getAllInbound(),
+          suppliersApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Create lookup maps
+        const suppliersMap = new Map();
+        suppliersData.forEach((s) => {
+          suppliersMap.set(s.id, s.name);
+        });
+
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+
+        setSuppliers(suppliersMap);
+        setWarehouses(warehousesMap);
+
+        // Transform orders to display format
+        const displayOrders: InboundOrderDisplay[] = ordersData.map((order) => {
+          const supplierName = order.supplierId ? suppliersMap.get(order.supplierId) || "Unknown Supplier" : "N/A";
+          const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
+          
+          // Map backend status to frontend status
+          let status = order.status;
+          if (status === "pending") status = "ordered";
+          if (status === "shipped") status = "in_transit";
+          if (status === "delivered") status = "arrived";
+          if (status === "processing") status = "receiving";
+          if (status === "fulfilled") status = "completed";
+
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            supplierName,
+            warehouseName,
+            orderDate: order.orderDate || new Date().toISOString().split("T")[0],
+            expectedDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
+            status,
+            totalItems: 0, // TODO: Get from order items when available
+            receivedItems: 0, // TODO: Get from receiving records
+          };
+        });
+
+        setOrders(displayOrders);
+      } catch (err) {
+        console.error("Failed to load inbound orders:", err);
+        setError("Failed to load inbound orders. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Calculate summary from orders
   const summary = {
-    totalOrders: 145,
-    inTransit: 23,
-    receiving: 8,
-    completedThisMonth: 98,
+    totalOrders: orders.length,
+    inTransit: orders.filter((o) => o.status === "in_transit").length,
+    receiving: orders.filter((o) => o.status === "receiving").length,
+    completedThisMonth: orders.filter((o) => o.status === "completed").length,
   };
 
-  const filteredOrders = inboundOrders.filter((order) => {
+  const filteredOrders = orders.filter((order) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       order.orderNumber.toLowerCase().includes(query) ||
@@ -97,6 +141,29 @@ export default function InboundOrdersPage() {
     return matchesSearch && matchesStatus;
   });
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && orders.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -106,6 +173,13 @@ export default function InboundOrdersPage() {
           <p className="text-sm text-base-content/60 mt-1">Manage purchase orders from suppliers</p>
         </div>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <input
               type="text"
@@ -369,7 +443,7 @@ function InboundOrderDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  order: typeof inboundOrders[0];
+  order: InboundOrderDisplay;
 }) {
   const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.ordered;
 
@@ -443,19 +517,28 @@ function EditInboundOrderModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  order: typeof inboundOrders[0];
+  order: InboundOrderDisplay;
 }) {
   const [formData, setFormData] = useState({
     expectedDelivery: order.expectedDelivery,
     supplierName: order.supplierName,
     warehouseName: order.warehouseName,
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update order
-    console.log("Updating inbound order:", formData);
-    onClose();
+    try {
+      setIsSubmitting(true);
+      // TODO: Update order expected date via API when endpoint is available
+      // For now, just reload to refresh data
+      window.location.reload();
+    } catch (error) {
+      console.error("Failed to update order:", error);
+      alert("Failed to update order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -511,6 +594,11 @@ function EditInboundOrderModal({
 // Multi-step Create Inbound Order Modal
 function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -525,10 +613,58 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
     }>,
   });
 
-  const handleSubmit = () => {
-    // TODO: API call to create inbound order
-    console.log("Creating inbound order:", formData);
-    onClose();
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [suppliersData, warehousesData, materialsData] = await Promise.all([
+          suppliersApi.getAll(),
+          warehousesApi.getAll(),
+          materialsApi.getAll(),
+        ]);
+        setSuppliers(suppliersData);
+        setWarehouses(warehousesData);
+        setMaterials(materialsData);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      if (!formData.supplierId || !formData.warehouseId || !formData.expectedDeliveryDate) {
+        setError("Please fill in all required fields.");
+        return;
+      }
+
+      // Generate order number
+      const orderNumber = `PO-${Date.now()}`;
+
+      await ordersApi.create({
+        orderNumber,
+        orderType: "inbound",
+        supplierId: formData.supplierId,
+        warehouseId: formData.warehouseId,
+        expectedDate: formData.expectedDeliveryDate,
+        notes: formData.notes || undefined,
+        status: "pending",
+        priority: "normal", // Default priority for inbound orders
+      });
+
+      showToast.success("Inbound order created successfully!");
+      onClose();
+      // Reload page to refresh order list
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to create inbound order:", err);
+      setError("Failed to create order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -586,9 +722,11 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                 required
               >
                 <option value="">Select supplier</option>
-                <option value="supplier-1">Tech Supplies Inc</option>
-                <option value="supplier-2">Global Electronics</option>
-                <option value="supplier-3">Quality Goods Co</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="form-control">
@@ -602,8 +740,11 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                 required
               >
                 <option value="">Select warehouse</option>
-                <option value="wh-1">Warehouse 1</option>
-                <option value="wh-2">Warehouse 2</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="form-control">
@@ -675,10 +816,12 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                         }}
                         required
                       >
-                        <option value="">Select product</option>
-                        <option value="prod-1">Wireless Earbuds</option>
-                        <option value="prod-2">Smart Projector</option>
-                        <option value="prod-3">Remote Control</option>
+                        <option value="">Select material</option>
+                        {materials.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.description}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="form-control">
@@ -811,12 +954,24 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                 </div>
               ))}
             </div>
+            {error && (
+              <div className="alert alert-error">
+                <span>{error}</span>
+              </div>
+            )}
             <div className="flex justify-end gap-3 pt-4">
-              <button className="btn btn-ghost" onClick={() => setStep(2)}>
+              <button className="btn btn-ghost" onClick={() => setStep(2)} disabled={isSubmitting}>
                 Back
               </button>
-              <button className="btn btn-primary" onClick={handleSubmit}>
-                Create Order
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <span className="loading loading-spinner loading-sm"></span>
+                    Creating...
+                  </>
+                ) : (
+                  "Create Order"
+                )}
               </button>
             </div>
           </div>

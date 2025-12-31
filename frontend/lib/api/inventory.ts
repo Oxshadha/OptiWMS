@@ -65,5 +65,41 @@ export const inventoryApi = {
   releaseQuarantine: async (id: string): Promise<{ success: boolean; message: string }> => {
     return apiClient.post(`/inventory/quarantined/${id}/release`, {});
   },
+
+  create: async (inventory: {
+    materialId: string;
+    warehouseId: string;
+    locationCode?: string;
+    quantity?: string;
+    availableQuantity?: string;
+    reservedQuantity?: string;
+    bufferStock?: string;
+    maxStock?: string;
+    minStock?: string;
+    reorderPoint?: string;
+    stackQuantity?: number;
+    moq?: string;
+    leadTimeDays?: number;
+    status?: string;
+  }): Promise<InventoryItem> => {
+    return apiClient.post<InventoryItem>('/inventory', inventory);
+  },
+
+  update: async (id: string, inventory: {
+    locationCode?: string;
+    quantity?: string;
+    availableQuantity?: string;
+    reservedQuantity?: string;
+    bufferStock?: string;
+    maxStock?: string;
+    minStock?: string;
+    reorderPoint?: string;
+    stackingQuantity?: number;
+    moq?: string;
+    leadTimeDays?: number;
+    status?: string;
+  }): Promise<InventoryItem> => {
+    return apiClient.put<InventoryItem>(`/inventory/${id}`, inventory);
+  },
 };
 

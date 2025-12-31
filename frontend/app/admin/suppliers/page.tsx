@@ -9,9 +9,26 @@ import { DetailModal } from "@/components/DetailModal";
 import React from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { suppliersApi, Supplier } from "@/lib/api/suppliers";
+import { showToast } from "@/lib/utils/toast";
 
-// Mock data - will be replaced with API calls
-const suppliers = [
+// Display format for suppliers
+interface SupplierDisplay {
+  id: string;
+  supplierCode: string;
+  name: string;
+  country: string;
+  type: "local" | "foreign";
+  contactPerson: string;
+  email: string;
+  phone: string;
+  productsSupplied: number;
+  leadTimeDays: number;
+  rating: number;
+  status: string;
+}
+
+const mockSuppliers: SupplierDisplay[] = [
   {
     id: "supplier-1",
     supplierCode: "SUP-001",
@@ -63,14 +80,75 @@ export default function SuppliersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<
-    (typeof suppliers)[0] | null
-  >(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">(
-    "all"
-  );
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">("all");
+  
+  // API state
+  const [suppliers, setSuppliers] = useState<SupplierDisplay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Function to transform API data to display format
+  const transformSupplierData = (s: Supplier): SupplierDisplay => {
+    // Determine type from country
+    const isLocal = s.country?.toLowerCase().includes("sri lanka") || 
+                   s.country?.toLowerCase().includes("lka") ||
+                   !s.country;
+    const type: "local" | "foreign" = isLocal ? "local" : "foreign";
+    
+    return {
+      id: s.id,
+      supplierCode: s.code || `SUP-${s.id.slice(0, 8).toUpperCase()}`,
+      name: s.name,
+      country: s.country || "Sri Lanka",
+      type,
+      contactPerson: s.contactPerson || "N/A",
+      email: s.email || "",
+      phone: s.phone || "",
+      productsSupplied: 0, // TODO: Get from material-supplier relationship
+      leadTimeDays: s.leadTimeDays || 7,
+      rating: parseFloat(s.rating || "4.0"),
+      status: s.status,
+    };
+  };
+
+  // Load data from API
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const suppliersData = await suppliersApi.getAll();
+      
+      // Transform to display format
+      const displaySuppliers: SupplierDisplay[] = suppliersData.map(transformSupplierData);
+      
+      setSuppliers(displaySuppliers);
+    } catch (err) {
+      console.error("Failed to load suppliers:", err);
+      setError(err instanceof Error ? err.message : "Failed to load suppliers");
+      setSuppliers([]);
+      showToast.error("Failed to load suppliers. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events from modals
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadSuppliers', handleReload);
+    return () => {
+      window.removeEventListener('reloadSuppliers', handleReload);
+    };
+  }, []);
 
   const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
 
@@ -326,6 +404,13 @@ export default function SuppliersPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <div className="relative">
               <input
@@ -473,11 +558,19 @@ export default function SuppliersPage() {
             setShowDeleteModal(false);
             setSelectedSupplier(null);
           }}
-          onConfirm={() => {
-            // TODO: API call to delete supplier
-            console.log("Deleting supplier:", selectedSupplier.id);
-            setShowDeleteModal(false);
-            setSelectedSupplier(null);
+          onConfirm={async () => {
+            if (!selectedSupplier) return;
+            
+            try {
+              await suppliersApi.delete(selectedSupplier.id);
+              showToast.success("Supplier deleted successfully");
+              setShowDeleteModal(false);
+              setSelectedSupplier(null);
+              await loadData();
+            } catch (err) {
+              console.error("Failed to delete supplier:", err);
+              showToast.error(err instanceof Error ? err.message : "Failed to delete supplier");
+            }
           }}
           supplier={selectedSupplier}
         />
@@ -501,7 +594,7 @@ export default function SuppliersPage() {
 function EditSupplierListener({
   onEdit,
 }: {
-  onEdit: (supplier: (typeof suppliers)[0]) => void;
+  onEdit: (supplier: SupplierDisplay) => void;
 }) {
   React.useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
@@ -526,7 +619,7 @@ function SupplierDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: (typeof suppliers)[0];
+  supplier: SupplierDisplay;
 }) {
   return (
     <DetailModal
@@ -635,7 +728,7 @@ function EditSupplierModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  supplier: (typeof suppliers)[0];
+  supplier: SupplierDisplay;
 }) {
   const [formData, setFormData] = useState({
     supplierCode: supplier.supplierCode,
@@ -649,11 +742,32 @@ function EditSupplierModal({
     rating: supplier.rating.toString(),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update supplier
-    console.log("Updating supplier:", formData);
-    onClose();
+    
+    try {
+      const updateData: Partial<Supplier> = {
+        code: formData.supplierCode,
+        name: formData.name,
+        contactPerson: formData.contactPerson || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        country: formData.country,
+        leadTimeDays: formData.leadTimeDays ? parseInt(formData.leadTimeDays) : undefined,
+        rating: formData.rating || undefined,
+      };
+
+      await suppliersApi.update(supplier.id, updateData);
+      showToast.success("Supplier updated successfully");
+      onClose();
+      // Trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
+      }
+    } catch (err) {
+      console.error("Failed to update supplier:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update supplier");
+    }
   };
 
   return (
@@ -845,27 +959,51 @@ function CreateSupplierModal({
     rating: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create supplier
-    console.log("Creating supplier:", formData);
-    onClose();
-    setFormData({
-      supplierCode: "",
-      name: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      city: "",
-      state: "",
-      country: "",
-      type: "" as "local" | "foreign" | "",
-      postalCode: "",
-      paymentTerms: "",
-      leadTimeDays: "",
-      rating: "",
-    });
+    
+    try {
+      const createData: Omit<Supplier, 'id'> = {
+        code: formData.supplierCode,
+        name: formData.name,
+        contactPerson: formData.contactPerson || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        address: formData.address || undefined,
+        country: formData.country,
+        leadTimeDays: formData.leadTimeDays ? parseInt(formData.leadTimeDays) : undefined,
+        rating: formData.rating || undefined,
+        status: "active",
+      };
+
+      await suppliersApi.create(createData);
+      showToast.success("Supplier created successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        supplierCode: "",
+        name: "",
+        contactPerson: "",
+        email: "",
+        phone: "",
+        address: "",
+        city: "",
+        state: "",
+        country: "",
+        type: "" as "local" | "foreign" | "",
+        postalCode: "",
+        paymentTerms: "",
+        leadTimeDays: "",
+        rating: "",
+      });
+      // Trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
+      }
+    } catch (err) {
+      console.error("Failed to create supplier:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create supplier");
+    }
   };
 
   return (
@@ -1114,7 +1252,7 @@ function DeleteSupplierModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  supplier: (typeof suppliers)[0];
+  supplier: SupplierDisplay;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Supplier" size="md">

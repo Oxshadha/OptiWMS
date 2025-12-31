@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
@@ -16,9 +16,24 @@ import {
 } from "@/lib/admin-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { usersApi, User } from "@/lib/api/users";
+import { showToast } from "@/lib/utils/toast";
+import { warehousesApi } from "@/lib/api/warehouses";
+
+interface AdminDisplay {
+  id: string;
+  name: string;
+  email: string;
+  role: AdminRole;
+  warehouseName: string;
+  lastLogin: string;
+  avatar?: string;
+  createdAt: string;
+  status: string;
+}
 
 // Mock data - will be replaced with API calls
-const admins = [
+const mockAdmins = [
   {
     id: "admin-1",
     name: "Henry Kaul",
@@ -66,14 +81,91 @@ export default function AdminsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedAdmin, setSelectedAdmin] = useState<(typeof admins)[0] | null>(
-    null
-  );
+  const [admins, setAdmins] = useState<AdminDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedAdmin, setSelectedAdmin] = useState<AdminDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState(() => {
     const roleParam = searchParams.get("role");
     return roleParam || "all";
   });
+
+  // Load admins function - extracted so it can be called after creating a new admin
+  const loadAdmins = useCallback(async () => {
+    try {
+      setLoading(true);
+      // Fetch all users with admin roles
+      const adminRoles = ["admin", "warehouse_manager", "inbound_coordinator"];
+      const allUsers: User[] = [];
+      
+      for (const adminRole of adminRoles) {
+        try {
+          const users = await usersApi.getAll(adminRole);
+          allUsers.push(...users);
+        } catch (error) {
+          console.error(`Error fetching users with role ${adminRole}:`, error);
+        }
+      }
+      
+      // Map users to admin display format
+      const adminsWithWarehouses = await Promise.all(
+        allUsers.map(async (user) => {
+          let warehouseName = "All Warehouses";
+          if (user.warehouseId) {
+            try {
+              const warehouse = await warehousesApi.getById(user.warehouseId);
+              warehouseName = warehouse.name || "Unknown Warehouse";
+            } catch (error) {
+              console.error(`Error fetching warehouse ${user.warehouseId}:`, error);
+            }
+          }
+          
+          // Format last login
+          const lastLogin = user.lastLoginAt 
+            ? new Date(user.lastLoginAt).toLocaleString()
+            : "Never";
+          
+          // Format created date
+          const createdAt = user.id ? "2024-01-01" : "Unknown"; // User entity might not have createdAt
+          
+          return {
+            id: user.id,
+            name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "Unknown",
+            email: user.email || "",
+            role: (user.role as AdminRole) || "warehouse_manager",
+            warehouseName: warehouseName,
+            lastLogin: lastLogin,
+            avatar: user.avatarUrl,
+            createdAt: createdAt,
+            status: user.status || "active",
+          };
+        })
+      );
+      
+      setAdmins(adminsWithWarehouses);
+    } catch (error) {
+      console.error("Error loading admins:", error);
+      setAdmins([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load admins from API on mount
+  useEffect(() => {
+    loadAdmins();
+  }, [loadAdmins]);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadAdmins();
+    };
+    window.addEventListener('reloadAdmins', handleReload);
+    return () => {
+      window.removeEventListener('reloadAdmins', handleReload);
+    };
+  }, [loadAdmins]);
 
   useEffect(() => {
     const roleParam = searchParams.get("role");
@@ -140,16 +232,20 @@ export default function AdminsPage() {
     {
       key: "name",
       label: "Name",
-      render: (admin: (typeof admins)[0]) => (
+      render: (admin: AdminDisplay) => (
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-            <Image
-              src={admin.avatar}
-              alt={admin.name}
-              width={40}
-              height={40}
-              className="rounded-full object-cover"
-            />
+            {admin.avatar ? (
+              <Image
+                src={admin.avatar}
+                alt={admin.name}
+                width={40}
+                height={40}
+                className="rounded-full object-cover"
+              />
+            ) : (
+              <span className="material-symbols-outlined text-primary">person</span>
+            )}
           </div>
           <button
             onClick={(e) => {
@@ -173,7 +269,7 @@ export default function AdminsPage() {
     {
       key: "role",
       label: "Role",
-      render: (admin: (typeof admins)[0]) => (
+      render: (admin: AdminDisplay) => (
         <div className="inline-block max-w-full">
           <span className=" whitespace-normal break-words block w-fit">
             {getRoleDisplayName(admin.role)}
@@ -209,22 +305,30 @@ export default function AdminsPage() {
     },
   ];
 
-  const handleDelete = (admin: (typeof admins)[0]) => {
+  const handleDelete = (admin: AdminDisplay) => {
     setSelectedAdmin(admin);
     setShowDeleteModal(true);
   };
 
   const confirmDelete = () => {
     if (selectedAdmin) {
-      // TODO: API call to delete admin
-      console.log("Deleting admin:", selectedAdmin.id);
-      // Remove from list (in production, this would be handled by API response)
-      setShowDeleteModal(false);
-      setSelectedAdmin(null);
+      try {
+        await usersApi.delete(selectedAdmin.id);
+        showToast.success("Admin deleted successfully");
+        setShowDeleteModal(false);
+        setSelectedAdmin(null);
+        // Reload data
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reloadAdmins'));
+        }
+      } catch (err) {
+        console.error("Failed to delete admin:", err);
+        showToast.error(err instanceof Error ? err.message : "Failed to delete admin");
+      }
     }
   };
 
-  const renderActions = (admin: (typeof admins)[0]) => (
+  const renderActions = (admin: AdminDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -251,8 +355,9 @@ export default function AdminsPage() {
           <li>
             <button
               onClick={() => {
-                // TODO: Implement edit manager functionality
-                console.log("Edit manager:", admin.id);
+                // Edit functionality - could open an edit modal similar to workers
+                // For now, show a message that this feature needs implementation
+                showToast.error("Edit manager functionality coming soon");
               }}
             >
               <span className="material-symbols-outlined text-sm">edit</span>
@@ -351,7 +456,12 @@ export default function AdminsPage() {
       <SummaryCards cards={summaryCards} />
 
       {/* Admins Table */}
-      <DataTable
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <DataTable
         data={filteredAdmins}
         columns={columns}
         keyExtractor={(admin) => admin.id}
@@ -362,11 +472,13 @@ export default function AdminsPage() {
         actions={renderActions}
         emptyMessage="No managers found"
       />
+      )}
 
       {/* Create Admin Modal */}
       <CreateAdminModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSuccess={loadAdmins}
       />
 
       {/* Admin Detail Modal */}
@@ -405,7 +517,7 @@ function AdminDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  admin: (typeof admins)[0];
+  admin: AdminDisplay;
 }) {
   return (
     <DetailModal
@@ -417,13 +529,17 @@ function AdminDetailModal({
       <div className="space-y-4">
         <div className="flex items-center gap-4 mb-4">
           <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-            <Image
-              src={admin.avatar}
-              alt={admin.name}
-              width={80}
-              height={80}
-              className="rounded-full object-cover"
-            />
+            {admin.avatar ? (
+              <Image
+                src={admin.avatar}
+                alt={admin.name}
+                width={80}
+                height={80}
+                className="rounded-full object-cover"
+              />
+            ) : (
+              <span className="material-symbols-outlined text-primary text-4xl">person</span>
+            )}
           </div>
           <div>
             <h3 className="text-xl font-bold">{admin.name}</h3>
@@ -479,9 +595,11 @@ function AdminDetailModal({
 function CreateAdminModal({
   isOpen,
   onClose,
+  onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }) {
   const [formData, setFormData] = useState({
     firstName: "",
@@ -494,25 +612,79 @@ function CreateAdminModal({
     avatar: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        const { warehousesApi } = await import("@/lib/api/warehouses");
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData.map(w => ({ id: w.id, name: w.name })));
+      } catch (error) {
+        console.error("Failed to load warehouses:", error);
+      }
+    };
+    if (isOpen) {
+      loadWarehouses();
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create admin/warehouse manager
-    console.log("Creating admin:", formData);
-    onClose();
-    setFormData({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      password: "",
-      role: "warehouse_manager" as AdminRole,
-      warehouseId: "",
-      avatar: null,
-    });
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      // Generate username from email or use email as username
+      const username = formData.email.split("@")[0] || formData.email;
+      
+      await usersApi.create({
+        username: username,
+        email: formData.email,
+        password: formData.password,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        role: formData.role,
+        warehouseId: formData.warehouseId || undefined,
+        phone: formData.phone || undefined,
+        status: "active",
+      });
+
+      // Reset form
+      setFormData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        password: "",
+        role: "warehouse_manager" as AdminRole,
+        warehouseId: "",
+        avatar: null,
+      });
+      
+      // Close modal
+      onClose();
+      
+      // Reload admins list (instead of full page reload)
+      if (onSuccess) {
+        onSuccess();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create admin");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Manager" size="lg">
+      {error && (
+        <div className="alert alert-error mb-4">
+          <span>{error}</span>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
@@ -611,8 +783,11 @@ function CreateAdminModal({
               required={formData.role === "warehouse_manager"}
             >
               <option value="">Select warehouse</option>
-              <option value="wh-1">Warehouse 1</option>
-              <option value="wh-2">Warehouse 2</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
             </select>
           </div>
         )}
@@ -648,11 +823,18 @@ function CreateAdminModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Create Manager
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Creating...
+              </>
+            ) : (
+              "Create Manager"
+            )}
           </button>
         </div>
       </form>
@@ -670,7 +852,7 @@ function DeleteAdminModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  admin: (typeof admins)[0];
+  admin: AdminDisplay;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Manager" size="md">

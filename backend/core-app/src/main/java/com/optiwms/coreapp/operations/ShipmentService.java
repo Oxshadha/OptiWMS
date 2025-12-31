@@ -21,9 +21,15 @@ public class ShipmentService {
     }
 
     public List<Shipment> listAll() {
-        return repository.findAll().stream()
-                .map(this::toDomain)
-                .collect(Collectors.toList());
+        try {
+            return repository.findAll().stream()
+                    .map(this::toDomain)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            System.err.println("Error in ShipmentService.listAll: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Failed to list shipments: " + e.getMessage(), e);
+        }
     }
 
     public List<Shipment> findByOrderId(UUID orderId) {
@@ -110,23 +116,34 @@ public class ShipmentService {
     }
 
     private Shipment toDomain(ShipmentEntity entity) {
-        Shipment s = new Shipment();
-        s.setId(entity.getId());
-        s.setShipmentNumber(entity.getShipmentNumber());
-        s.setOrderId(entity.getOrderId());
-        s.setCarrier(entity.getCarrier());
-        s.setTrackingNumber(entity.getTrackingNumber());
-        s.setDestination(entity.getDestination());
-        s.setWeightKg(entity.getWeightKg());
-        s.setDriverName(entity.getDriverName());
-        s.setDriverPhone(entity.getDriverPhone());
-        s.setVehicleNumber(entity.getVehicleNumber());
-        s.setStatus(entity.getStatus());
-        s.setEta(entity.getEta());
-        s.setShippedAt(entity.getShippedAt());
-        s.setDeliveredAt(entity.getDeliveredAt());
-        s.setCreatedAt(entity.getCreatedAt());
-        return s;
+        try {
+            if (entity == null) {
+                throw new IllegalArgumentException("ShipmentEntity cannot be null");
+            }
+            
+            Shipment s = new Shipment();
+            s.setId(entity.getId());
+            s.setShipmentNumber(entity.getShipmentNumber() != null ? entity.getShipmentNumber() : "");
+            s.setOrderId(entity.getOrderId());
+            s.setCarrier(entity.getCarrier());
+            s.setTrackingNumber(entity.getTrackingNumber());
+            s.setDestination(entity.getDestination());
+            s.setWeightKg(entity.getWeightKg());
+            s.setDriverName(entity.getDriverName());
+            s.setDriverPhone(entity.getDriverPhone());
+            s.setVehicleNumber(entity.getVehicleNumber());
+            s.setStatus(entity.getStatus() != null ? entity.getStatus() : "label_created");
+            s.setEta(entity.getEta());
+            s.setShippedAt(entity.getShippedAt());
+            s.setDeliveredAt(entity.getDeliveredAt());
+            s.setCreatedAt(entity.getCreatedAt());
+            return s;
+        } catch (Exception e) {
+            System.err.println("Error converting ShipmentEntity to domain: " + e.getMessage());
+            System.err.println("Entity ID: " + (entity != null ? entity.getId() : "null"));
+            e.printStackTrace();
+            throw new RuntimeException("Failed to convert shipment entity to domain: " + e.getMessage(), e);
+        }
     }
 }
 

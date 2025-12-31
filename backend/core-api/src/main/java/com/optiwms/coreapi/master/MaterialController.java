@@ -21,9 +21,14 @@ public class MaterialController {
     }
 
     @GetMapping
-    public ResponseEntity<List<MaterialDto>> list() {
-        var data = materialService.listAll().stream()
-                .map(m -> new MaterialDto(m.getId(), m.getMaterialCode(), m.getDescription(), m.getUnitType(), m.getStorageType()))
+    public ResponseEntity<List<MaterialDto>> list(
+            @RequestParam(required = false) String materialType
+    ) {
+        var materials = materialType != null 
+                ? materialService.findByMaterialType(materialType)
+                : materialService.listAll();
+        var data = materials.stream()
+                .map(m -> new MaterialDto(m.getId(), m.getMaterialCode(), m.getDescription(), m.getUnitType(), m.getStorageType(), m.getMaterialType()))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -37,7 +42,8 @@ public class MaterialController {
                     material.getMaterialCode(),
                     material.getDescription(),
                     material.getUnitType(),
-                    material.getStorageType()
+                    material.getStorageType(),
+                    material.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -52,6 +58,7 @@ public class MaterialController {
             material.setDescription(request.description());
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
+            material.setMaterialType(request.materialType());
 
             var created = materialService.create(material);
             return ResponseEntity.ok(new MaterialDto(
@@ -59,7 +66,8 @@ public class MaterialController {
                     created.getMaterialCode(),
                     created.getDescription(),
                     created.getUnitType(),
-                    created.getStorageType()
+                    created.getStorageType(),
+                    created.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -74,6 +82,7 @@ public class MaterialController {
             material.setDescription(request.description());
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
+            material.setMaterialType(request.materialType());
 
             var updated = materialService.update(id, material);
             return ResponseEntity.ok(new MaterialDto(
@@ -81,7 +90,8 @@ public class MaterialController {
                     updated.getMaterialCode(),
                     updated.getDescription(),
                     updated.getUnitType(),
-                    updated.getStorageType()
+                    updated.getStorageType(),
+                    updated.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -143,7 +153,8 @@ public class MaterialController {
             String materialCode,
             String description,
             String unitType,
-            String storageType
+            String storageType,
+            String materialType
     ) {}
 
     public record ImportResponse(
@@ -156,14 +167,16 @@ public class MaterialController {
             String materialCode,
             String description,
             String unitType,
-            String storageType
+            String storageType,
+            String materialType
     ) {}
 
     public record UpdateMaterialRequest(
             String materialCode,
             String description,
             String unitType,
-            String storageType
+            String storageType,
+            String materialType
     ) {}
 }
 

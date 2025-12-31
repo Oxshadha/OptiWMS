@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
@@ -9,8 +9,28 @@ import { SummaryCards } from "@/components/SummaryCards";
 import Link from "next/link";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { returnsApi, Return as ApiReturn } from "@/lib/api/returns";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { customersApi } from "@/lib/api/customers";
+import { ordersApi } from "@/lib/api/orders";
+import { showToast } from "@/lib/utils/toast";
 
-const returns = [
+interface ReturnDisplay {
+  id: string;
+  returnNumber: string;
+  originalOrder: string;
+  customerName: string;
+  warehouse: string;
+  returnDate: string;
+  reason: string;
+  totalItems: number;
+  status: string;
+  resolution: string | null;
+  receivedBy: string | null;
+  inspectedBy: string | null;
+}
+
+const mockReturns: ReturnDisplay[] = [
   {
     id: "RET-1001",
     returnNumber: "RET-1001",
@@ -94,13 +114,90 @@ export default function ReturnsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showAssignWorkerModal, setShowAssignWorkerModal] = useState(false);
-  const [selectedReturn, setSelectedReturn] = useState<
-    (typeof returns)[0] | null
-  >(null);
+  const [selectedReturn, setSelectedReturn] = useState<ReturnDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
+
+  // API state
+  const [returns, setReturns] = useState<ReturnDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        const [returnsData, warehousesData, customersData, ordersData] = await Promise.all([
+          returnsApi.getAll(),
+          warehousesApi.getAll(),
+          customersApi.getAll(),
+          ordersApi.getAllOutbound(),
+        ]);
+
+        // Build maps
+        const warehousesMap = new Map<string, string>();
+        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+        
+        const customersMap = new Map<string, string>();
+        customersData.forEach(c => customersMap.set(c.id, c.name));
+        
+        const ordersMap = new Map<string, string>();
+        ordersData.forEach(o => ordersMap.set(o.id, o.orderNumber));
+
+        // Transform API data to display format
+        const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
+          const warehouseName = r.warehouseId ? warehousesMap.get(r.warehouseId) || "Unknown" : "Unknown";
+          const customerName = r.customerId ? customersMap.get(r.customerId) || "Unknown" : "Unknown";
+          const orderNumber = r.originalOrderId ? ordersMap.get(r.originalOrderId) || r.originalOrderId : "N/A";
+
+          return {
+            id: r.id,
+            returnNumber: r.returnNumber,
+            originalOrder: orderNumber,
+            customerName,
+            warehouse: warehouseName,
+            returnDate: r.returnDate || new Date().toISOString().split("T")[0],
+            reason: r.reason || "N/A",
+            totalItems: 0, // TODO: Get from return items when available
+            status: r.status || "pending",
+            resolution: r.resolution || null,
+            receivedBy: r.receivedBy || null,
+            inspectedBy: r.inspectedBy || null,
+          };
+        });
+
+        setReturns(displayReturns);
+      } catch (err) {
+        console.error("Failed to load returns:", err);
+        setError(err instanceof Error ? err.message : "Failed to load returns");
+        setReturns([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load returns. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadReturns', handleReload);
+    return () => {
+      window.removeEventListener('reloadReturns', handleReload);
+    };
+  }, []);
 
   // Filter returns by warehouse for warehouse managers
   const returnsForWarehouse = isWarehouseManager && assignedWarehouseName
@@ -131,20 +228,37 @@ export default function ReturnsPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleRowClick = (returnItem: (typeof returns)[0]) => {
+  const handleRowClick = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
     setShowDetailModal(true);
   };
 
-  const handleInspect = (returnItem: (typeof returns)[0]) => {
+  const handleInspect = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
     setShowInspectModal(true);
   };
 
-  const handleAssignWorker = (returnItem: (typeof returns)[0]) => {
+  const handleAssignWorker = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
     setShowAssignWorkerModal(true);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && returns.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading returns: {error}</span>
+      </div>
+    );
+  }
 
   const summaryCards = [
     {
@@ -181,7 +295,7 @@ export default function ReturnsPage() {
     {
       key: "returnNumber",
       label: "Return #",
-      render: (returnItem: (typeof returns)[0]) => (
+      render: (returnItem: ReturnDisplay) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -197,7 +311,7 @@ export default function ReturnsPage() {
     {
       key: "originalOrder",
       label: "Original Order",
-      render: (returnItem: (typeof returns)[0]) => (
+      render: (returnItem: ReturnDisplay) => (
         <Link
           href={`/admin/orders/outbound/${returnItem.originalOrder}`}
           className="text-primary hover:underline"
@@ -225,9 +339,12 @@ export default function ReturnsPage() {
     {
       key: "status",
       label: "Status",
-      render: (returnItem: (typeof returns)[0]) => {
+      render: (returnItem: ReturnDisplay) => {
         const status =
           statusConfig[returnItem.status as keyof typeof statusConfig];
+        if (!status) {
+          return <span className="badge badge-outline">{returnItem.status}</span>;
+        }
         return <span className={`badge ${status.class}`}>{status.label}</span>;
       },
       sortable: true,
@@ -235,7 +352,7 @@ export default function ReturnsPage() {
     {
       key: "resolution",
       label: "Resolution",
-      render: (returnItem: (typeof returns)[0]) => {
+      render: (returnItem: ReturnDisplay) => {
         if (!returnItem.resolution)
           return <span className="text-base-content/50">-</span>;
         const resolution =
@@ -252,7 +369,7 @@ export default function ReturnsPage() {
     },
   ];
 
-  const renderActions = (returnItem: (typeof returns)[0]) => (
+  const renderActions = (returnItem: ReturnDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -282,12 +399,20 @@ export default function ReturnsPage() {
         {canApprove && returnItem.status === "inspecting" && (
           <li>
             <button
-              onClick={() => {
-                // TODO: API call to approve return
-                console.log("Approving return:", returnItem.id);
-                alert(
-                  `Return ${returnItem.returnNumber} approved successfully`
-                );
+              onClick={async () => {
+                if (confirm(`Approve return ${returnItem.returnNumber}?`)) {
+                  try {
+                    await returnsApi.approve(returnItem.id, admin?.id);
+                    showToast.success(`Return ${returnItem.returnNumber} approved successfully`);
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadReturns'));
+                    }
+                  } catch (err) {
+                    console.error("Failed to approve return:", err);
+                    showToast.error(err instanceof Error ? err.message : "Failed to approve return");
+                  }
+                }
               }}
             >
               <span className="material-symbols-outlined text-sm">
@@ -461,14 +586,87 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
     notes: "",
   });
 
-  const handleSubmit = () => {
+  const [loading, setLoading] = useState(false);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [warehousesData, ordersData, customersData] = await Promise.all([
+          warehousesApi.getAll(),
+          ordersApi.getAllOutbound(),
+          customersApi.getAll(),
+        ]);
+        setWarehouses(warehousesData);
+        setOrders(ordersData);
+        setCustomers(customersData);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSubmit = async () => {
     if (!formData.originalOrder || !formData.warehouse || !formData.reason) {
-      alert("Please fill in all required fields");
+      showToast.error("Please fill in all required fields");
       return;
     }
-    console.log("Creating return:", formData);
-    // TODO: API call to create return
-    onClose();
+    
+    try {
+      setLoading(true);
+      // Resolve order and warehouse IDs
+      const [warehousesData, ordersData] = await Promise.all([
+        warehousesApi.getAll(),
+        ordersApi.getAllOutbound(),
+      ]);
+      
+      const warehouse = warehousesData.find(w => w.name === formData.warehouse);
+      const order = ordersData.find(o => o.orderNumber === formData.originalOrder);
+      
+      if (!warehouse) {
+        showToast.error("Warehouse not found");
+        return;
+      }
+      if (!order) {
+        showToast.error("Order not found");
+        return;
+      }
+
+      const createData: Omit<ApiReturn, 'id'> = {
+        returnNumber: `RET-${Date.now()}`,
+        originalOrderId: order.id,
+        warehouseId: warehouse.id,
+        customerId: order.customerId,
+        reason: formData.reason,
+        status: "pending",
+        returnDate: new Date().toISOString().split("T")[0],
+      };
+
+      await returnsApi.create(createData);
+      showToast.success("Return created successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        originalOrder: "",
+        warehouse: "",
+        customerName: "",
+        reason: "",
+        items: [{ productId: "", quantity: 1 }],
+        notes: "",
+      });
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
+    } catch (err) {
+      console.error("Failed to create return:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create return");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -504,8 +702,9 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
             required
           >
             <option value="">Select Warehouse</option>
-            <option value="warehouse-1">Warehouse 1</option>
-            <option value="warehouse-2">Warehouse 2</option>
+            {warehouses.map(wh => (
+              <option key={wh.id} value={wh.name}>{wh.name}</option>
+            ))}
           </select>
         </div>
         <div className="form-control">
@@ -575,7 +774,7 @@ function ReturnDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: (typeof returns)[0];
+  returnItem: ReturnDisplay;
 }) {
   const status = statusConfig[returnItem.status as keyof typeof statusConfig];
   const resolution = returnItem.resolution
@@ -683,7 +882,7 @@ function InspectReturnModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: (typeof returns)[0];
+  returnItem: ReturnDisplay;
 }) {
   const [inspectionData, setInspectionData] = useState({
     items: [
@@ -701,14 +900,30 @@ function InspectReturnModal({
     notes: "",
   });
 
-  const handleSubmit = () => {
+  const { admin } = useAdmin();
+
+  const handleSubmit = async () => {
     if (!inspectionData.overallResolution) {
-      alert("Please select overall resolution");
+      showToast.error("Please select overall resolution");
       return;
     }
-    console.log("Submitting inspection:", inspectionData);
-    // TODO: API call to submit inspection
-    onClose();
+    
+    try {
+      await returnsApi.submitInspection(returnItem.id, {
+        overallResolution: inspectionData.overallResolution,
+        notes: inspectionData.notes,
+        inspectedBy: admin?.id,
+      });
+      showToast.success("Inspection submitted successfully");
+      onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
+    } catch (err) {
+      console.error("Failed to submit inspection:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to submit inspection");
+    }
   };
 
   return (
@@ -914,7 +1129,7 @@ function AssignWorkerModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  returnItem: (typeof returns)[0];
+  returnItem: ReturnDisplay;
 }) {
   // Mock workers list - in production, this would come from API
   const availableWorkers = [
@@ -951,9 +1166,9 @@ function AssignWorkerModal({
 
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedWorkerId) {
-      alert("Please select a worker");
+      showToast.error("Please select a worker");
       return;
     }
 
@@ -961,42 +1176,22 @@ function AssignWorkerModal({
       (w) => w.id === selectedWorkerId
     );
     if (!selectedWorker) {
-      alert("Selected worker not found");
+      showToast.error("Selected worker not found");
       return;
     }
 
-    // TODO: API call to assign worker to return
-    console.log("Assigning worker to return:", {
-      returnId: returnItem.id,
-      returnNumber: returnItem.returnNumber,
-      workerId: selectedWorkerId,
-      workerName: selectedWorker.name,
-    });
-
-    // Show browser notification
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("Worker Assigned", {
-        body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
-        icon: "/assets/logos/OptiWMS Logo.JPG",
-      });
-    } else if (
-      "Notification" in window &&
-      Notification.permission !== "denied"
-    ) {
-      Notification.requestPermission().then((permission) => {
-        if (permission === "granted") {
-          new Notification("Worker Assigned", {
-            body: `${selectedWorker.name} has been assigned to return ${returnItem.returnNumber}`,
-            icon: "/assets/logos/OptiWMS Logo.JPG",
-          });
-        }
-      });
+    try {
+      await returnsApi.assignWorker(returnItem.id, selectedWorkerId);
+      showToast.success(`${selectedWorker.name} assigned to return ${returnItem.returnNumber}`);
+      onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
+    } catch (err) {
+      console.error("Failed to assign worker:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to assign worker");
     }
-
-    alert(
-      `Worker ${selectedWorker.name} assigned to return ${returnItem.returnNumber} successfully`
-    );
-    onClose();
   };
 
   return (

@@ -1,51 +1,286 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { operationsApi } from "@/lib/api/operations";
+import { tasksApi } from "@/lib/api/tasks-api";
+import { locationsApi } from "@/lib/api/locations";
+import { LocationPicker } from "@/components/LocationPicker";
+import { useWorker } from "@/contexts/WorkerContext";
+import { validateLocationCode, validateLPN, formatLocationCodeForDisplay } from "@/lib/utils/validation";
+import { showToast } from "@/lib/utils/toast";
 
 export default function PutawayPage() {
+  const { worker } = useWorker();
   const [scannedLPN, setScannedLPN] = useState("");
   const [scannedLocation, setScannedLocation] = useState("");
   const [showLPNScanner, setShowLPNScanner] = useState(false);
-  const [showLocationScanner, setShowLocationScanner] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [note, setNote] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [task, setTask] = useState<{
+    id: string;
+    lpn: string;
+    fromLocation: string;
+    toLocation: string;
+    toLocationCode: string;
+    item: string;
+    itemId?: string;
+    qty: number;
+    materialId?: string;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [locationError, setLocationError] = useState<string>("");
+  const [lpnError, setLpnError] = useState<string>("");
+  const [validatingLocation, setValidatingLocation] = useState(false);
 
-  const task = {
-    lpn: "LPN-123",
-    fromLocation: "Stage Area",
-    toLocation: "Aisle A / Bin A5",
-    item: "Wireless Earbuds",
-    qty: 50,
-  };
+  // Load putaway tasks from API
+  useEffect(() => {
+    const loadPutawayTasks = async () => {
+      try {
+        setIsLoading(true);
+        const tasks = await tasksApi.getAll("putaway", "pending");
+        
+        if (tasks.length > 0) {
+          const firstTask = tasks[0];
+          
+          // Fetch full task details to get item information
+          try {
+            const taskDetails = await tasksApi.getById(firstTask.id);
+            
+            // Try to get item details from reference (order/GRN)
+            let itemName = "Item";
+            let itemId: string | undefined;
+            let quantity = 0;
+            let materialId: string | undefined;
+            
+            // If task has reference, try to fetch order items
+            if (taskDetails.referenceType === "order" && taskDetails.referenceId) {
+              try {
+                const { orderItemsApi } = await import("@/lib/api/orderItems");
+                const orderItems = await orderItemsApi.getByOrderId(taskDetails.referenceId);
+                if (orderItems.length > 0) {
+                  const firstItem = orderItems[0];
+                  itemId = firstItem.materialId;
+                  materialId = firstItem.materialId;
+                  quantity = firstItem.quantity || 0;
+                  // Try to get material name
+                  try {
+                    const { materialsApi } = await import("@/lib/api/materials");
+                    const material = await materialsApi.getById(firstItem.materialId);
+                    itemName = material.description || material.materialCode || "Item";
+                  } catch (err) {
+                    console.warn("Could not fetch material details:", err);
+                  }
+                }
+              } catch (err) {
+                console.warn("Could not fetch order items:", err);
+              }
+            }
+            
+            // Format location code for display
+            const locationCode = taskDetails.locationCode || "";
+            const toLocationDisplay = locationCode 
+              ? formatLocationCodeForDisplay(locationCode)
+              : "Not specified";
+            
+            setTask({
+              id: firstTask.id,
+              lpn: firstTask.referenceId || taskDetails.referenceId || "",
+              fromLocation: "Stage Area", // Default staging area
+              toLocation: toLocationDisplay,
+              toLocationCode: locationCode,
+              item: itemName,
+              itemId,
+              qty: quantity || 0,
+              materialId,
+            });
+          } catch (err) {
+            console.error("Failed to load task details:", err);
+            // Use basic task info
+            setTask({
+              id: firstTask.id,
+              lpn: firstTask.referenceId || "",
+              fromLocation: "Stage Area",
+              toLocation: firstTask.locationCode ? formatLocationCodeForDisplay(firstTask.locationCode) : "Not specified",
+              toLocationCode: firstTask.locationCode || "",
+              item: firstTask.notes || "Item",
+              qty: 0,
+            });
+          }
+        } else {
+          setTask(null);
+        }
+      } catch (error) {
+        console.error("Failed to load putaway tasks:", error);
+        showToast.error("Failed to load putaway tasks");
+        setTask(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadPutawayTasks();
+  }, []);
 
   const handleScanLPN = () => {
     setShowLPNScanner(true);
   };
 
-  const handleScanLocation = () => {
-    setShowLocationScanner(true);
-  };
-
   const handleLPNScan = (result: string) => {
-    setScannedLPN(result);
+    const validation = validateLPN(result);
+    if (!validation.valid) {
+      setLpnError(validation.error || "Invalid LPN format");
+      showToast.error(validation.error || "Invalid LPN format");
+      return;
+    }
+    setScannedLPN(result.trim().toUpperCase());
+    setLpnError("");
     setShowLPNScanner(false);
   };
 
-  const handleLocationScan = (result: string) => {
-    setScannedLocation(result);
-    setShowLocationScanner(false);
+  const handleLPNChange = (value: string) => {
+    setScannedLPN(value);
+    if (value.trim() !== "") {
+      const validation = validateLPN(value);
+      if (!validation.valid) {
+        setLpnError(validation.error || "Invalid LPN format");
+      } else {
+        setLpnError("");
+      }
+    } else {
+      setLpnError("");
+    }
   };
 
-  const handleConfirm = () => {
-    if (scannedLPN && scannedLocation) {
-      // Handle confirmation
-      console.log("Putaway confirmed", { scannedLPN, scannedLocation, note, photos });
-      // TODO: API call to confirm putaway
+  const handleLocationSelect = async (locationCode: string) => {
+    setValidatingLocation(true);
+    setLocationError("");
+    
+    // Validate format
+    const validation = validateLocationCode(locationCode);
+    if (!validation.valid) {
+      setLocationError(validation.error || "Invalid location format");
+      setValidatingLocation(false);
+      showToast.error(validation.error || "Invalid location format");
+      return;
+    }
+    
+    // Check if location exists in database
+    try {
+      const location = await locationsApi.getByCode(locationCode);
+      if (!location.isActive) {
+        setLocationError("Location is not active");
+        setValidatingLocation(false);
+        showToast.error("Location is not active");
+        return;
+      }
+      setScannedLocation(locationCode);
+      setLocationError("");
+      setShowLocationPicker(false);
+    } catch (error) {
+      setLocationError("Location not found in database");
+      setValidatingLocation(false);
+      showToast.error("Location not found. Please verify the location code.");
+      return;
+    } finally {
+      setValidatingLocation(false);
+    }
+  };
+
+  const handleLocationChange = async (value: string) => {
+    setScannedLocation(value);
+    if (value.trim() !== "") {
+      setValidatingLocation(true);
+      setLocationError("");
+      
+      // Validate format
+      const validation = validateLocationCode(value);
+      if (!validation.valid) {
+        setLocationError(validation.error || "Invalid location format");
+        setValidatingLocation(false);
+        return;
+      }
+      
+      // Check if location exists in database
+      try {
+        const location = await locationsApi.getByCode(value.trim().toUpperCase());
+        if (!location.isActive) {
+          setLocationError("Location is not active");
+        } else {
+          setLocationError("");
+        }
+      } catch (error) {
+        setLocationError("Location not found in database");
+      } finally {
+        setValidatingLocation(false);
+      }
+    } else {
+      setLocationError("");
+      setValidatingLocation(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    // Validate LPN
+    if (!scannedLPN || scannedLPN.trim() === "") {
+      showToast.error("Please enter or scan LPN");
+      return;
+    }
+    
+    const lpnValidation = validateLPN(scannedLPN);
+    if (!lpnValidation.valid) {
+      showToast.error(lpnValidation.error || "Invalid LPN format");
+      return;
+    }
+    
+    // Validate location
+    if (!scannedLocation || scannedLocation.trim() === "") {
+      showToast.error("Please enter or select location");
+      return;
+    }
+    
+    const locationValidation = validateLocationCode(scannedLocation);
+    if (!locationValidation.valid) {
+      showToast.error(locationValidation.error || "Invalid location format");
+      return;
+    }
+    
+    if (locationError) {
+      showToast.error(locationError);
+      return;
+    }
+
+    if (!task) {
+      showToast.error("No task available");
+      return;
+    }
+
+    try {
+      await operationsApi.completePutaway(task.id, {
+        locationCode: scannedLocation.trim().toUpperCase(),
+        lpn: scannedLPN.trim().toUpperCase(),
+      });
+      
+      showToast.success("Putaway completed successfully!");
+      
+      // Reset form
+      setScannedLPN("");
+      setScannedLocation("");
+      setNote("");
+      setPhotos([]);
+      setLocationError("");
+      setLpnError("");
+      
+      // Reload tasks to get next one
+      window.location.reload();
+    } catch (error) {
+      console.error("Error confirming putaway:", error);
+      showToast.error("Failed to complete putaway. Please try again.");
     }
   };
 
@@ -68,6 +303,24 @@ export default function PutawayPage() {
     console.log("Note saved:", note);
     setShowNoteModal(false);
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-4 flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div className="p-4">
+        <div className="alert alert-info">
+          <span>No putaway tasks available</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -115,10 +368,18 @@ export default function PutawayPage() {
         <div className="text-sm font-medium text-base-content mb-2">Scan LPN</div>
         <div className="flex gap-2">
           <input
-            className="input input-bordered flex-1"
-            placeholder="Scan or enter LPN"
+            className={`input input-bordered flex-1 ${lpnError ? "input-error" : ""}`}
+            placeholder="Scan or enter LPN (e.g., LPN-1234)"
             value={scannedLPN}
-            onChange={(e) => setScannedLPN(e.target.value)}
+            onChange={(e) => handleLPNChange(e.target.value)}
+            onBlur={() => {
+              if (scannedLPN.trim() !== "") {
+                const validation = validateLPN(scannedLPN);
+                if (!validation.valid) {
+                  setLpnError(validation.error || "Invalid LPN format");
+                }
+              }
+            }}
           />
           <button
             onClick={handleScanLPN}
@@ -128,38 +389,68 @@ export default function PutawayPage() {
             <span className="material-symbols-outlined">qr_code_scanner</span>
           </button>
         </div>
-        {scannedLPN && (
-          <div className="mt-2 text-xs text-success flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm">check_circle</span>
-            LPN scanned: {scannedLPN}
+        {lpnError && (
+          <div className="mt-2 text-xs text-error flex items-center gap-1">
+            <span className="material-symbols-outlined text-sm">error</span>
+            {lpnError}
           </div>
         )}
+        {scannedLPN && !lpnError && (
+          <div className="mt-2 text-xs text-success flex items-center gap-1">
+            <span className="material-symbols-outlined text-sm">check_circle</span>
+            LPN: {scannedLPN}
+          </div>
+        )}
+        <div className="mt-1 text-xs text-base-content/60">
+          Format: LPN-XXXX (e.g., LPN-1234 or LPN-ABC123)
+        </div>
       </div>
 
       {/* Scan Location */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="text-sm font-medium text-base-content mb-2">Scan Target Location</div>
+        <div className="text-sm font-medium text-base-content mb-2">Select Target Location</div>
         <div className="flex gap-2">
           <input
-            className="input input-bordered flex-1"
-            placeholder="Scan or enter location"
+            className={`input input-bordered flex-1 ${locationError ? "input-error" : ""}`}
+            placeholder="Scan or enter location (e.g., C-02-05-3-B)"
             value={scannedLocation}
-            onChange={(e) => setScannedLocation(e.target.value)}
+            onChange={(e) => handleLocationChange(e.target.value)}
+            onBlur={() => {
+              if (scannedLocation.trim() !== "") {
+                handleLocationChange(scannedLocation);
+              }
+            }}
+            disabled={validatingLocation}
           />
           <button
-            onClick={handleScanLocation}
+            onClick={() => setShowLocationPicker(true)}
             className="btn btn-primary btn-square"
-            title="Scan Location"
+            title="Select Location"
           >
-            <span className="material-symbols-outlined">qr_code_scanner</span>
+            <span className="material-symbols-outlined">location_on</span>
           </button>
         </div>
-        {scannedLocation && (
-          <div className="mt-2 text-xs text-success flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm">check_circle</span>
-            Location scanned: {scannedLocation}
+        {validatingLocation && (
+          <div className="mt-2 text-xs text-info flex items-center gap-1">
+            <span className="loading loading-spinner loading-xs"></span>
+            Validating location...
           </div>
         )}
+        {locationError && !validatingLocation && (
+          <div className="mt-2 text-xs text-error flex items-center gap-1">
+            <span className="material-symbols-outlined text-sm">error</span>
+            {locationError}
+          </div>
+        )}
+        {scannedLocation && !locationError && !validatingLocation && (
+          <div className="mt-2 text-xs text-success flex items-center gap-1">
+            <span className="material-symbols-outlined text-sm">check_circle</span>
+            Location: {formatLocationCodeForDisplay(scannedLocation)}
+          </div>
+        )}
+        <div className="mt-1 text-xs text-base-content/60">
+          Format: AREA-ROW-BAY-LEVEL-POS (e.g., C-02-05-3-B)
+        </div>
       </div>
 
       {/* Confirm Button */}
@@ -225,13 +516,15 @@ export default function PutawayPage() {
         description="Point camera at LPN (License Plate Number) QR code"
       />
 
-      <QRScanner
-        isOpen={showLocationScanner}
-        onClose={() => setShowLocationScanner(false)}
-        onScan={handleLocationScan}
-        title="Scan Location QR Code"
-        description="Point camera at target location QR code"
-      />
+      {/* Location Picker Modal */}
+      {showLocationPicker && (
+        <LocationPicker
+          onLocationSelect={handleLocationSelect}
+          onClose={() => setShowLocationPicker(false)}
+          title="Confirm Location"
+          warehouseId={worker?.warehouse ? undefined : undefined}
+        />
+      )}
 
       {/* Note Modal */}
       <Modal isOpen={showNoteModal} onClose={() => setShowNoteModal(false)} title="Add Note">

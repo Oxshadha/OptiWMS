@@ -12,146 +12,16 @@ import {
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 
-// Mock data - will be replaced with API calls
-const mockDockDoors: DockDoor[] = [
-  {
-    id: "dd-1",
-    doorNumber: "Dock 1",
-    warehouseId: "wh-1",
-    status: "available",
-    location: "North Side",
-  },
-  {
-    id: "dd-2",
-    doorNumber: "Dock 2",
-    warehouseId: "wh-1",
-    status: "occupied",
-    currentAppointmentId: "apt-1",
-    location: "North Side",
-  },
-  {
-    id: "dd-3",
-    doorNumber: "Dock 3",
-    warehouseId: "wh-1",
-    status: "available",
-    location: "North Side",
-  },
-  {
-    id: "dd-4",
-    doorNumber: "Dock 4",
-    warehouseId: "wh-1",
-    status: "reserved",
-    currentAppointmentId: "apt-2",
-    location: "South Side",
-  },
-  {
-    id: "dd-5",
-    doorNumber: "Dock 5",
-    warehouseId: "wh-1",
-    status: "maintenance",
-    location: "South Side",
-  },
-];
-
-const mockAppointments: DockAppointment[] = [
-  {
-    id: "apt-1",
-    appointmentNumber: "APT-2025-001",
-    dockDoorId: "dd-2",
-    dockDoorNumber: "Dock 2",
-    warehouseId: "wh-1",
-    inboundOrderId: "IO-1001",
-    inboundOrderNumber: "PO-452368",
-    supplierName: "Tech Supplies Inc",
-    carrierName: "Fast Freight Co",
-    trailerNumber: "TRL-12345",
-    scheduledStart: "2025-12-18T08:00:00Z",
-    scheduledEnd: "2025-12-18T10:00:00Z",
-    actualStart: "2025-12-18T08:15:00Z",
-    status: "in_progress",
-  },
-  {
-    id: "apt-2",
-    appointmentNumber: "APT-2025-002",
-    dockDoorId: "dd-4",
-    dockDoorNumber: "Dock 4",
-    warehouseId: "wh-1",
-    inboundOrderId: "IO-1002",
-    inboundOrderNumber: "PO-452369",
-    supplierName: "Global Electronics",
-    carrierName: "Reliable Transport",
-    trailerNumber: "TRL-67890",
-    scheduledStart: "2025-12-18T14:00:00Z",
-    scheduledEnd: "2025-12-18T16:00:00Z",
-    status: "scheduled",
-  },
-];
-
-const mockYardTrailers: YardTrailer[] = [
-  {
-    id: "yt-1",
-    trailerNumber: "TRL-11111",
-    carrierName: "Express Logistics",
-    inboundOrderId: "IO-1003",
-    inboundOrderNumber: "PO-452370",
-    supplierName: "Tech Supplies Inc",
-    arrivedAt: "2025-12-18T07:30:00Z",
-    waitTimeMinutes: 45,
-    status: "waiting",
-  },
-  {
-    id: "yt-2",
-    trailerNumber: "TRL-22222",
-    carrierName: "Quick Ship",
-    inboundOrderId: "IO-1004",
-    inboundOrderNumber: "PO-452371",
-    supplierName: "Quality Goods Co",
-    arrivedAt: "2025-12-18T09:00:00Z",
-    waitTimeMinutes: 15,
-    status: "assigned",
-    assignedDockDoorId: "dd-3",
-    assignedDockDoorNumber: "Dock 3",
-  },
-];
-
-// Mock inbound orders for appointment linking
-const mockInboundOrders = [
-  {
-    id: "IO-1001",
-    orderNumber: "PO-452368",
-    supplierName: "Tech Supplies Inc",
-    status: "in_transit",
-  },
-  {
-    id: "IO-1002",
-    orderNumber: "PO-452369",
-    supplierName: "Global Electronics",
-    status: "in_transit",
-  },
-  {
-    id: "IO-1003",
-    orderNumber: "PO-452370",
-    supplierName: "Tech Supplies Inc",
-    status: "in_transit",
-  },
-  {
-    id: "IO-1004",
-    orderNumber: "PO-452371",
-    supplierName: "Quality Goods Co",
-    status: "in_transit",
-  },
-];
-
 export default function DockManagementPage() {
   const { hasPermission, role } = useAdmin();
   const canCreate = hasPermission(ADMIN_ROUTES.DOCK_MANAGEMENT, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.DOCK_MANAGEMENT, "edit");
 
-  const [dockDoors, setDockDoors] = useState<DockDoor[]>(mockDockDoors);
-  const [appointments, setAppointments] =
-    useState<DockAppointment[]>(mockAppointments);
-  const [yardTrailers, setYardTrailers] =
-    useState<YardTrailer[]>(mockYardTrailers);
+  const [dockDoors, setDockDoors] = useState<DockDoor[]>([]);
+  const [appointments, setAppointments] = useState<DockAppointment[]>([]);
+  const [yardTrailers, setYardTrailers] = useState<YardTrailer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -176,12 +46,39 @@ export default function DockManagementPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load data (will use API when backend is ready)
+  // Load data from API
   useEffect(() => {
-    // TODO: Replace with actual API calls
-    // dockManagementApi.getDockDoors().then(setDockDoors);
-    // dockManagementApi.getDockAppointments().then(setAppointments);
-    // dockManagementApi.getYardTrailers().then(setYardTrailers);
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const [doorsData, appointmentsData, trailersData] = await Promise.all([
+          dockManagementApi.getDockDoors(),
+          dockManagementApi.getDockAppointments(),
+          dockManagementApi.getYardTrailers(),
+        ]);
+        setDockDoors(doorsData);
+        // Enrich appointments with door numbers
+        const enrichedAppointments = appointmentsData.map(apt => ({
+          ...apt,
+          dockDoorNumber: apt.dockDoorId ? doorsData.find(d => d.id === apt.dockDoorId)?.doorNumber : undefined,
+        }));
+        setAppointments(enrichedAppointments);
+        // Enrich trailers with door numbers
+        const enrichedTrailers = trailersData.map(trailer => ({
+          ...trailer,
+          assignedDockDoorNumber: trailer.assignedDockDoorId ? doorsData.find(d => d.id === trailer.assignedDockDoorId)?.doorNumber : undefined,
+        }));
+        setYardTrailers(enrichedTrailers);
+      } catch (err) {
+        console.error("Failed to fetch dock management data:", err);
+        setError(err instanceof Error ? err.message : "Failed to load dock management data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
   }, []);
 
   const summary = {
@@ -204,11 +101,28 @@ export default function DockManagementPage() {
       apt.supplierName?.toLowerCase().includes(query) ||
       apt.carrierName?.toLowerCase().includes(query) ||
       apt.trailerNumber?.toLowerCase().includes(query) ||
-      apt.dockDoorNumber.toLowerCase().includes(query);
+      apt.dockDoorNumber?.toLowerCase().includes(query);
     const date = new Date(apt.scheduledStart).toISOString().split("T")[0];
     const matchesDate = date === selectedDate;
     return matchesSearch && matchesDate;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading dock management data: {error}</span>
+      </div>
+    );
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -350,15 +264,12 @@ export default function DockManagementPage() {
 
   // Handle inbound order selection
   const handleInboundOrderSelect = (orderId: string) => {
-    const order = mockInboundOrders.find((o) => o.id === orderId);
-    if (order) {
-      setAppointmentForm((prev) => ({
-        ...prev,
-        inboundOrderId: order.id,
-        inboundOrderNumber: order.orderNumber,
-        supplierName: order.supplierName,
-      }));
-    }
+    // TODO: Fetch order details from API
+    // For now, just set the order ID
+    setAppointmentForm((prev) => ({
+      ...prev,
+      inboundOrderId: orderId,
+    }));
   };
 
   // Validate form
@@ -437,30 +348,34 @@ export default function DockManagementPage() {
         throw new Error("Selected dock door not found");
       }
 
-      // Create appointment object
-      const newAppointment: Omit<
-        DockAppointment,
-        "id" | "appointmentNumber" | "status"
-      > = {
-        dockDoorId: appointmentForm.dockDoorId,
-        dockDoorNumber: selectedDoor.doorNumber,
+      // Create appointment request
+      const appointmentRequest = {
+        dockDoorId: appointmentForm.dockDoorId || undefined,
         warehouseId: selectedDoor.warehouseId,
-        inboundOrderId: appointmentForm.inboundOrderId || undefined,
-        inboundOrderNumber: appointmentForm.inboundOrderNumber || undefined,
-        supplierName: appointmentForm.supplierName || undefined,
-        carrierName: appointmentForm.carrierName,
-        trailerNumber: appointmentForm.trailerNumber,
+        appointmentType: appointmentForm.inboundOrderId ? "inbound" : "outbound",
         scheduledStart: new Date(appointmentForm.scheduledStart).toISOString(),
         scheduledEnd: new Date(appointmentForm.scheduledEnd).toISOString(),
+        inboundOrderId: appointmentForm.inboundOrderId || undefined,
+        outboundOrderId: undefined,
+        supplierId: undefined, // TODO: Get from order if available
+        carrierName: appointmentForm.carrierName,
+        trailerNumber: appointmentForm.trailerNumber,
         notes: appointmentForm.notes || undefined,
       };
 
-      // Call API (or use mock for now)
+      // Call API
       try {
-        const created = await dockManagementApi.createAppointment(
-          newAppointment
+        const created = await dockManagementApi.createDockAppointment(
+          appointmentRequest
         );
-        setAppointments((prev) => [...prev, created]);
+        // Enrich with door number
+        const enrichedAppointment = {
+          ...created,
+          dockDoorNumber: selectedDoor.doorNumber,
+          inboundOrderNumber: appointmentForm.inboundOrderNumber,
+          supplierName: appointmentForm.supplierName,
+        };
+        setAppointments((prev) => [...prev, enrichedAppointment]);
 
         // Update dock door status
         setDockDoors((prev) =>
@@ -475,27 +390,9 @@ export default function DockManagementPage() {
           )
         );
       } catch (error) {
-        // Fallback to mock if API fails
-        const mockAppointment: DockAppointment = {
-          id: `apt-${Date.now()}`,
-          appointmentNumber: `APT-2025-${String(
-            appointments.length + 1
-          ).padStart(3, "0")}`,
-          ...newAppointment,
-          status: "scheduled",
-        };
-        setAppointments((prev) => [...prev, mockAppointment]);
-        setDockDoors((prev) =>
-          prev.map((door) =>
-            door.id === appointmentForm.dockDoorId
-              ? {
-                  ...door,
-                  status: "reserved" as const,
-                  currentAppointmentId: mockAppointment.id,
-                }
-              : door
-          )
-        );
+        console.error("Failed to create appointment:", error);
+        alert("Failed to create appointment. Please try again.");
+        return;
       }
 
       handleCloseModal();

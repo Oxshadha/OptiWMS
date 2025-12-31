@@ -326,7 +326,7 @@ export function RackElevationView({
                                 : "#1F2937",
                           }}
                         >
-                          {displayBin.inventory.quantity}
+                          {Math.ceil(displayBin.inventory.quantity || 0)}
                         </div>
                       </div>
                       <div className="flex-1 text-center">

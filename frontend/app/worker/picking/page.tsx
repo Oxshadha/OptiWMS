@@ -4,58 +4,73 @@ import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { operationsApi } from "@/lib/api/operations";
+import { tasksApi } from "@/lib/api/tasks-api";
+import { showToast } from "@/lib/utils/toast";
 
-const picks = [
-  {
-    id: 1,
-    order: "#56281",
-    location: "B3",
-    item: "Smart Projector",
-    sku: "SKU-1002",
-    qty: 2,
-    status: "current",
-  },
-  {
-    id: 2,
-    location: "B4",
-    item: "Remote Control",
-    sku: "SKU-2001",
-    qty: 4,
-    status: "upcoming",
-  },
-  {
-    id: 3,
-    location: "C2",
-    item: "Smart Mug",
-    sku: "SKU-1003",
-    qty: 6,
-    status: "upcoming",
-  },
-  {
-    id: 4,
-    location: "D1",
-    item: "Wireless Earbuds",
-    sku: "SKU-1001",
-    qty: 3,
-    status: "upcoming",
-  },
-];
+interface Pick {
+  id: string;
+  taskId: string;
+  order: string;
+  location: string;
+  item: string;
+  sku: string;
+  materialId: string;
+  qty: number;
+  status: "current" | "upcoming" | "completed";
+}
 
 export default function PickingPage() {
   const { isOnline, dbReady } = useOffline();
+  const [picks, setPicks] = useState<Pick[]>([]);
   const [pickedQty, setPickedQty] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedPicks, setSavedPicks] = useState<any[]>([]);
   const [showLocationScanner, setShowLocationScanner] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  
   const currentPick = picks.find((p) => p.status === "current");
   const upcomingPicks = picks.filter((p) => p.status === "upcoming");
 
-  // Load saved picks on mount
+  // Load picking tasks from API
   useEffect(() => {
+    const loadPickingTasks = async () => {
+      try {
+        setIsLoading(true);
+        const tasks = await tasksApi.getAll("picking", "pending");
+        
+        // Transform tasks to picks
+        const transformedPicks: Pick[] = tasks.map((task, index) => ({
+          id: task.id,
+          taskId: task.id,
+          order: task.referenceId || `TASK-${task.taskNumber}`,
+          location: task.locationCode || "",
+          item: task.notes || "Item",
+          sku: task.referenceId || "",
+          materialId: task.referenceId || "",
+          qty: 1, // Default, should come from task details
+          status: index === 0 ? "current" : "upcoming",
+        }));
+        
+        setPicks(transformedPicks);
+      } catch (error) {
+        console.error("Failed to load picking tasks:", error);
+        showToast.error("Failed to load picking tasks");
+        // Fallback to empty array
+        setPicks([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    if (isOnline) {
+      loadPickingTasks();
+    }
+    
     if (dbReady) {
       loadSavedPicks();
     }
-  }, [dbReady]);
+  }, [dbReady, isOnline]);
 
   const loadSavedPicks = async () => {
     try {
@@ -67,34 +82,61 @@ export default function PickingPage() {
   };
 
   const handleConfirmPick = async () => {
-    if (!currentPick || pickedQty === 0 || pickedQty > currentPick.qty) return;
+    if (!currentPick || pickedQty === 0 || pickedQty > currentPick.qty) {
+      showToast.error("Please enter a valid quantity");
+      return;
+    }
 
     setSaveStatus("saving");
 
     try {
-      // Save pick record to IndexedDB (works offline)
-      const recordId = await saveScanRecord({
-        taskId: "picking",
-        location: currentPick.location,
-        sku: currentPick.sku,
-        item: currentPick.item,
-        qty: pickedQty,
-      });
-
-      // Add to sync queue (will sync when online)
-      await addToSyncQueue({
-        type: "scan",
-        action: "create",
-        data: {
+      if (isOnline) {
+        // Complete picking via API
+        await operationsApi.completePicking(currentPick.taskId, {
+          items: [{
+            materialId: currentPick.materialId,
+            quantity: pickedQty.toString(),
+            locationCode: currentPick.location,
+          }],
+        });
+        
+        showToast.success("Pick confirmed successfully!");
+        
+        // Mark as completed and move to next
+        setPicks(prev => prev.map(p => 
+          p.id === currentPick.id 
+            ? { ...p, status: "completed" }
+            : p.status === "upcoming" && prev.findIndex(prevP => prevP.id === currentPick.id) === prev.findIndex(prevP => prevP.id === p.id) - 1
+            ? { ...p, status: "current" }
+            : p
+        ));
+      } else {
+        // Save pick record to IndexedDB (works offline)
+        const recordId = await saveScanRecord({
           taskId: "picking",
-          order: currentPick.order,
           location: currentPick.location,
           sku: currentPick.sku,
           item: currentPick.item,
           qty: pickedQty,
-          timestamp: Date.now(),
-        },
-      });
+        });
+
+        // Add to sync queue (will sync when online)
+        await addToSyncQueue({
+          type: "scan",
+          action: "create",
+          data: {
+            taskId: currentPick.taskId,
+            order: currentPick.order,
+            location: currentPick.location,
+            sku: currentPick.sku,
+            item: currentPick.item,
+            qty: pickedQty,
+            timestamp: Date.now(),
+          },
+        });
+        
+        showToast.success("Pick saved offline, will sync when online");
+      }
 
       setSaveStatus("saved");
       
@@ -109,6 +151,7 @@ export default function PickingPage() {
     } catch (error) {
       console.error("Error saving pick:", error);
       setSaveStatus("error");
+      showToast.error("Failed to save pick. Please try again.");
       setTimeout(() => setSaveStatus("idle"), 2000);
     }
   };

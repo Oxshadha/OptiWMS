@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { LocationPicker } from "@/components/LocationPicker";
 import { QRScanner } from "@/components/QRScanner";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { operationsApi } from "@/lib/api/operations";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -44,12 +46,25 @@ export default function StockTransferPage() {
 
   const [transfers, setTransfers] = useState<TransferData[]>([]);
   const [selectedTransfer, setSelectedTransfer] = useState<TransferData | null>(null);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
 
-  const warehouses = [
-    { id: "wh-1", name: "Warehouse 1" },
-    { id: "wh-2", name: "Warehouse 2" },
-    { id: "wh-3", name: "Warehouse 3" },
-  ];
+  // Load warehouses from API
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setLoading(true);
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData.map(wh => ({ id: wh.id, name: wh.name })));
+      } catch (error) {
+        console.error("Error loading warehouses:", error);
+        setWarehouses([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadWarehouses();
+  }, []);
 
   const handleLocationSelect = (locationCode: string) => {
     if (locationPickerFor === "source") {
@@ -88,19 +103,20 @@ export default function StockTransferPage() {
     // Save to IndexedDB
     await saveScanRecord({
       taskId: transfer.id,
-      taskType: "stock_transfer",
-      locationCode: transfer.sourceLocationCode,
+      location: transfer.sourceLocationCode,
       sku: transfer.sku,
-      quantity: transfer.quantity,
-      timestamp: new Date().toISOString(),
+      qty: transfer.quantity,
     });
 
     // Add to sync queue
     await addToSyncQueue({
-      type: "stock_transfer",
-      action: "dispatch",
-      data: transfer,
-      timestamp: new Date().toISOString(),
+      type: "operation",
+      action: "create",
+      data: {
+        operationType: "stock_transfer",
+        action: "dispatch",
+        ...transfer,
+      },
     });
 
     setTransfers([...transfers, transfer]);
@@ -129,10 +145,13 @@ export default function StockTransferPage() {
 
     // Update in IndexedDB and sync queue
     await addToSyncQueue({
-      type: "stock_transfer",
-      action: "receive",
-      data: updatedTransfer,
-      timestamp: new Date().toISOString(),
+      type: "operation",
+      action: "update",
+      data: {
+        operationType: "stock_transfer",
+        action: "receive",
+        ...updatedTransfer,
+      },
     });
 
     setTransfers(transfers.map(t => t.id === transfer.id ? updatedTransfer : t));
@@ -143,14 +162,6 @@ export default function StockTransferPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Network Status */}
-      <div className={`alert ${isOnline ? "alert-success" : "alert-warning"}`}>
-        <span className="material-symbols-outlined">
-          {isOnline ? "wifi" : "wifi_off"}
-        </span>
-        <span>{isOnline ? "Online" : "Offline Mode"}</span>
-      </div>
-
       {/* Step 1: Transfer Type Selection */}
       {step === "type" && (
         <div className="space-y-4">

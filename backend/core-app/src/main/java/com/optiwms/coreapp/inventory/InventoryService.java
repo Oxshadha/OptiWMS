@@ -48,6 +48,24 @@ public class InventoryService {
                 .collect(Collectors.toList());
     }
 
+    public List<InventoryItem> findByLocationCode(String locationCode) {
+        return repository.findByLocationCode(locationCode).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<InventoryItem> findQuarantined() {
+        return repository.findByStatus("quarantine").stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<InventoryItem> findQuarantinedByWarehouse(java.util.UUID warehouseId) {
+        return repository.findByWarehouseIdAndStatus(warehouseId, "quarantine").stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public InventoryItem update(java.util.UUID id, InventoryItem item) {
         InventoryItemEntity entity = repository.findById(id)
@@ -89,9 +107,9 @@ public class InventoryService {
         entity.setMaterialId(item.getMaterialId());
         entity.setWarehouseId(item.getWarehouseId());
         entity.setLocationCode(item.getLocationCode());
-        entity.setQuantity(item.getQuantity() != null ? item.getQuantity() : java.math.BigDecimal.ZERO);
-        entity.setAvailableQuantity(item.getAvailableQuantity() != null ? item.getAvailableQuantity() : item.getQuantity());
-        entity.setReservedQuantity(item.getReservedQuantity() != null ? item.getReservedQuantity() : java.math.BigDecimal.ZERO);
+        entity.setQuantity(item.getQuantity() != null ? item.getQuantity() : 0);
+        entity.setAvailableQuantity(item.getAvailableQuantity() != null ? item.getAvailableQuantity() : (item.getQuantity() != null ? item.getQuantity() : 0));
+        entity.setReservedQuantity(item.getReservedQuantity() != null ? item.getReservedQuantity() : 0);
         entity.setBufferStock(item.getBufferStock());
         entity.setMaxStock(item.getMaxStock());
         entity.setMinStock(item.getMinStock());

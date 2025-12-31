@@ -11,5 +11,8 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
     List<InventoryItemEntity> findByMaterialId(UUID materialId);
     List<InventoryItemEntity> findByWarehouseId(UUID warehouseId);
     List<InventoryItemEntity> findByMaterialIdAndWarehouseId(UUID materialId, UUID warehouseId);
+    List<InventoryItemEntity> findByLocationCode(String locationCode);
+    List<InventoryItemEntity> findByStatus(String status);
+    List<InventoryItemEntity> findByWarehouseIdAndStatus(UUID warehouseId, String status);
 }
 

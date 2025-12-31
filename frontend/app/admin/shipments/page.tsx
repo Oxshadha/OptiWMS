@@ -1,12 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import Link from "next/link";
+import { shipmentsApi, Shipment as ApiShipment } from "@/lib/api/shipments";
+import { ordersApi } from "@/lib/api/orders";
+import { showToast } from "@/lib/utils/toast";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { deliveryPartnersApi } from "@/lib/api/deliveryPartners";
 
-const shipments = [
+interface ShipmentDisplay {
+  id: string;
+  carrier: string;
+  status: string;
+  eta: string;
+  tracking: string;
+  destination: string;
+  weight: string;
+  driverName: string;
+  driverPhone: string;
+  vehicleNumber: string;
+  orders: string[];
+  shipmentDate: string;
+}
+
+const mockShipments: ShipmentDisplay[] = [
   { 
     id: "SH-9001", 
     carrier: "DHL", 
@@ -93,11 +113,65 @@ export default function ShipmentsPage() {
   const [activeTab, setActiveTab] = useState("All");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedShipment, setSelectedShipment] = useState<typeof shipments[0] | null>(null);
+  const [selectedShipment, setSelectedShipment] = useState<ShipmentDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"id" | "carrier" | "destination" | "eta" | "status" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  // API state
+  const [shipments, setShipments] = useState<ShipmentDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const shipmentsData = await shipmentsApi.getAll();
+        
+        // Transform API data to display format
+        const displayShipments: ShipmentDisplay[] = shipmentsData.map((s) => {
+          // Map status from API format to display format
+          let displayStatus = s.status || "Label Created";
+          if (displayStatus === "in_transit") displayStatus = "In Transit";
+          else if (displayStatus === "label_created") displayStatus = "Label Created";
+          else if (displayStatus === "ready_to_ship") displayStatus = "Ready to Ship";
+          else if (displayStatus === "delivered") displayStatus = "Delivered";
+          
+          return {
+            id: s.shipmentNumber || s.id,
+            carrier: s.carrier || "N/A",
+            status: displayStatus,
+            eta: s.eta || "",
+            tracking: s.trackingNumber || "",
+            destination: s.destination || "",
+            weight: s.weightKg ? `${s.weightKg} kg` : "N/A",
+            driverName: s.driverName || "",
+            driverPhone: s.driverPhone || "",
+            vehicleNumber: s.vehicleNumber || "",
+            orders: s.orderId ? [s.orderId] : [],
+            shipmentDate: s.shippedAt ? new Date(s.shippedAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+          };
+        });
+        
+        setShipments(displayShipments);
+      } catch (err) {
+        console.error("Failed to load shipments:", err);
+        setError(err instanceof Error ? err.message : "Failed to load shipments");
+        setShipments([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load shipments. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   let filteredShipments = shipments.filter(s => {
     const matchesTab = activeTab === "All" || s.status === activeTab;
@@ -137,6 +211,23 @@ export default function ShipmentsPage() {
   }
 
   const totalShipments = shipments.length;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && shipments.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading shipments: {error}</span>
+      </div>
+    );
+  }
   const inTransit = shipments.filter(s => s.status === "In Transit").length;
   const delivered = shipments.filter(s => s.status === "Delivered").length;
   const labelCreated = shipments.filter(s => s.status === "Label Created").length;
@@ -434,20 +525,113 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
     notes: "",
   });
 
-  const availableOrders = [
-    { id: "SO-1007", customer: "Customer A", items: 3, status: "ready_to_ship" },
-    { id: "SO-1008", customer: "Customer B", items: 5, status: "ready_to_ship" },
-    { id: "SO-1009", customer: "Customer C", items: 2, status: "ready_to_ship" },
-  ];
+  const [availableOrders, setAvailableOrders] = useState<any[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [deliveryPartners, setDeliveryPartners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        // Load data separately to handle individual failures gracefully
+        const results = await Promise.allSettled([
+          ordersApi.getAllOutbound(),
+          warehousesApi.getAll(),
+          deliveryPartnersApi.getAll(),
+        ]);
+        
+        const [ordersResult, warehousesResult, partnersResult] = results;
+        
+        // Handle orders
+        if (ordersResult.status === 'fulfilled') {
+          setAvailableOrders(ordersResult.value.filter(o => o.status === "ready_to_ship"));
+        } else {
+          setAvailableOrders([]);
+          const error = ordersResult.reason;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error("Failed to load orders:", error);
+          if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
+            console.warn("No permission to access orders API");
+          }
+        }
+        
+        // Handle warehouses
+        if (warehousesResult.status === 'fulfilled') {
+          setWarehouses(warehousesResult.value);
+        } else {
+          setWarehouses([]);
+          const error = warehousesResult.reason;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error("Failed to load warehouses:", error);
+          if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
+            console.warn("No permission to access warehouses API");
+            showToast.error("Access denied: You may not have permission to view warehouses. Please contact your administrator.");
+          }
+        }
+        
+        // Handle delivery partners
+        if (partnersResult.status === 'fulfilled') {
+          setDeliveryPartners(partnersResult.value);
+        } else {
+          setDeliveryPartners([]);
+          const error = partnersResult.reason;
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.error("Failed to load delivery partners:", error);
+          if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
+            console.warn("No permission to access delivery partners API - this may be a role/permission issue");
+            showToast.error("Access denied: You may not have permission to view delivery partners. Please contact your administrator.");
+          } else {
+            showToast.error("Failed to load delivery partners. Please check your connection and try again.");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load data:", err);
+        showToast.error(err instanceof Error ? err.message : "Failed to load data");
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSubmit = async () => {
     if (!formData.warehouse || !formData.deliveryPartner || !formData.driverName) {
-      alert("Please fill in all required fields");
+      showToast.error("Please fill in all required fields");
       return;
     }
-    console.log("Creating shipment:", formData);
-    // TODO: API call to create shipment
-    onClose();
+    if (formData.selectedOrders.length === 0) {
+      showToast.error("Please select at least one order");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const partner = deliveryPartners.find(p => p.id === formData.deliveryPartner);
+      
+      // Create a shipment for each selected order
+      const shipmentPromises = formData.selectedOrders.map(orderId =>
+        shipmentsApi.create({
+          orderId,
+          carrier: partner?.name || formData.deliveryPartner,
+          driverName: formData.driverName,
+          driverPhone: formData.driverPhone,
+          vehicleNumber: formData.vehicleNumber,
+          eta: formData.estimatedDeliveryDate,
+          status: "pending",
+        })
+      );
+
+      await Promise.all(shipmentPromises);
+      showToast.success(`Successfully created ${formData.selectedOrders.length} shipment(s)`);
+      onClose();
+      // Trigger reload
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadShipments'));
+      }
+    } catch (err) {
+      console.error("Failed to create shipment:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create shipment");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleOrder = (orderId: string) => {
@@ -474,8 +658,9 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
               required
             >
               <option value="">Select Warehouse</option>
-              <option value="warehouse-1">Warehouse 1</option>
-              <option value="warehouse-2">Warehouse 2</option>
+              {warehouses.map(wh => (
+                <option key={wh.id} value={wh.id}>{wh.name}</option>
+              ))}
             </select>
           </div>
           <div className="form-control">
@@ -489,10 +674,9 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
               required
             >
               <option value="">Select Partner</option>
-              <option value="dhl">DHL</option>
-              <option value="fedex">FedEx</option>
-              <option value="ups">UPS</option>
-              <option value="usps">USPS</option>
+              {deliveryPartners.map(partner => (
+                <option key={partner.id} value={partner.id}>{partner.name}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -589,8 +773,19 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
           <button className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleSubmit}>
-            Create Shipment
+          <button 
+            className="btn btn-primary" 
+            onClick={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Creating...
+              </>
+            ) : (
+              "Create Shipment"
+            )}
           </button>
         </div>
       </div>

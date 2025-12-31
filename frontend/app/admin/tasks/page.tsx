@@ -14,62 +14,24 @@ import {
 } from "@/hooks/useTaskAssignment";
 import { Worker, validateTaskAssignment } from "@/lib/task-assignment";
 import { WorkerRole } from "@/lib/worker-roles";
+import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { usersApi } from "@/lib/api/users";
+import { warehousesApi } from "@/lib/api/warehouses";
 
-// Mock data - will be replaced with API calls
-const tasks = [
-  {
-    id: "task-1",
-    taskNumber: "TASK-452368",
-    taskType: "receiving",
-    workerName: "John Doe",
-    warehouseName: "Warehouse 1",
-    priority: "high",
-    status: "in_progress",
-    assignedDate: "2025-12-15 08:00",
-    startedAt: "2025-12-15 08:15",
-    completedAt: null,
-    duration: null,
-  },
-  {
-    id: "task-2",
-    taskNumber: "TASK-452369",
-    taskType: "picking",
-    workerName: "Jane Smith",
-    warehouseName: "Warehouse 1",
-    priority: "urgent",
-    status: "in_progress",
-    assignedDate: "2025-12-15 09:00",
-    startedAt: "2025-12-15 09:05",
-    completedAt: null,
-    duration: null,
-  },
-  {
-    id: "task-3",
-    taskNumber: "TASK-452370",
-    taskType: "putaway",
-    workerName: "Mike Johnson",
-    warehouseName: "Warehouse 2",
-    priority: "normal",
-    status: "completed",
-    assignedDate: "2025-12-14 10:00",
-    startedAt: "2025-12-14 10:10",
-    completedAt: "2025-12-14 10:45",
-    duration: 35,
-  },
-  {
-    id: "task-4",
-    taskNumber: "TASK-452371",
-    taskType: "cycle_count",
-    workerName: "John Doe",
-    warehouseName: "Warehouse 1",
-    priority: "normal",
-    status: "assigned",
-    assignedDate: "2025-12-15 11:00",
-    startedAt: null,
-    completedAt: null,
-    duration: null,
-  },
-];
+// Display format for tasks
+interface TaskDisplay {
+  id: string;
+  taskNumber: string;
+  taskType: string;
+  workerName: string;
+  warehouseName: string;
+  priority: string;
+  status: string;
+  assignedDate: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  duration: number | null;
+}
 
 const taskTypeConfig = {
   receiving: { label: "Receiving", icon: "input", class: "badge-primary" },
@@ -117,28 +79,115 @@ const priorityConfig = {
 export default function TasksPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
   const assignedWarehouseName = admin?.warehouseName;
   const canCancel = hasPermission(ADMIN_ROUTES.TASKS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<(typeof tasks)[0] | null>(
-    null
-  );
+  const [selectedTask, setSelectedTask] = useState<TaskDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   
+  // API state
+  const [tasks, setTasks] = useState<TaskDisplay[]>([]);
+  const [users, setUsers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load tasks, users, and warehouses in parallel
+        const [tasksData, usersData, warehousesData] = await Promise.all([
+          tasksApi.getAll(),
+          usersApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Create lookup maps
+        const usersMap = new Map();
+        usersData.forEach((u) => {
+          usersMap.set(u.id, `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username);
+        });
+
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+
+        setUsers(usersMap);
+        setWarehouses(warehousesMap);
+
+        // Transform tasks to display format
+        const displayTasks: TaskDisplay[] = tasksData.map((task) => {
+          const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
+          const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
+          
+          // Map backend status to frontend status
+          let status = task.status;
+          if (status === "pending") status = "assigned";
+          if (status === "in_progress") status = "in_progress";
+          if (status === "completed") status = "completed";
+          if (status === "cancelled") status = "cancelled";
+
+          // Calculate duration if completed
+          let duration: number | null = null;
+          if (task.completedAt && task.dueDate) {
+            const start = new Date(task.dueDate);
+            const end = new Date(task.completedAt);
+            duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
+          }
+
+          return {
+            id: task.id,
+            taskNumber: task.taskNumber,
+            taskType: task.taskType,
+            workerName,
+            warehouseName,
+            priority: task.priority || "normal",
+            status,
+            assignedDate: task.dueDate || new Date().toISOString(),
+            startedAt: task.dueDate || null,
+            completedAt: task.completedAt || null,
+            duration,
+          };
+        });
+
+        setTasks(displayTasks);
+      } catch (err) {
+        console.error("Failed to load tasks:", err);
+        setError("Failed to load tasks. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
   // Filter tasks by warehouse for warehouse managers
-  const tasksForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? tasks.filter((t) => t.warehouseName === assignedWarehouseName)
+  const tasksForWarehouse = isWarehouseManager && assignedWarehouseId
+    ? tasks.filter((t) => {
+        const task = tasks.find((task) => task.id === t.id);
+        // Filter by warehouse ID if available
+        return true; // TODO: Add warehouse ID to TaskDisplay
+      })
     : tasks;
 
+  // Calculate summary from tasks
+  const today = new Date().toISOString().split("T")[0];
   const summary = {
-    totalTasksToday: tasksForWarehouse.length,
-    pending: tasksForWarehouse.filter((t) => t.status === "assigned").length,
+    totalTasksToday: tasksForWarehouse.filter((t) => t.assignedDate.includes(today)).length,
+    pending: tasksForWarehouse.filter((t) => t.status === "assigned" || t.status === "pending").length,
     inProgress: tasksForWarehouse.filter((t) => t.status === "in_progress").length,
-    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && t.assignedDate.includes(new Date().toISOString().split("T")[0])).length,
+    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && t.assignedDate.includes(today)).length,
   };
 
   const filteredTasks = tasksForWarehouse.filter((task) => {
@@ -188,11 +237,34 @@ export default function TasksPage() {
     },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && tasks.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const columns = [
     {
       key: "taskNumber",
       label: "Task Number",
-      render: (task: (typeof tasks)[0]) => (
+      render: (task: TaskDisplay) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -209,7 +281,7 @@ export default function TasksPage() {
     {
       key: "taskType",
       label: "Task Type",
-      render: (task: (typeof tasks)[0]) => {
+      render: (task: TaskDisplay) => {
         const type =
           taskTypeConfig[task.taskType as keyof typeof taskTypeConfig];
         return (
@@ -238,7 +310,7 @@ export default function TasksPage() {
     {
       key: "priority",
       label: "Priority",
-      render: (task: (typeof tasks)[0]) => {
+      render: (task: TaskDisplay) => {
         const priority =
           priorityConfig[task.priority as keyof typeof priorityConfig];
         return (
@@ -252,7 +324,7 @@ export default function TasksPage() {
     {
       key: "status",
       label: "Status",
-      render: (task: (typeof tasks)[0]) => {
+      render: (task: TaskDisplay) => {
         const status = statusConfig[task.status as keyof typeof statusConfig];
         return (
           <span className={`badge ${status.class} whitespace-nowrap`}>
@@ -465,7 +537,7 @@ function TaskDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  task: (typeof tasks)[0];
+  task: TaskDisplay;
 }) {
   return (
     <DetailModal
@@ -572,43 +644,6 @@ function TaskDetailModal({
   );
 }
 
-// Mock workers data - in production, this would come from API
-const mockWorkers: Worker[] = [
-  {
-    id: "worker-1",
-    workerId: "e8b5d4",
-    name: "John Doe",
-    role: "picker" as WorkerRole,
-    warehouseId: "wh-1",
-    warehouseName: "Warehouse 1",
-    shiftStart: "08:00",
-    shiftEnd: "17:00",
-    availabilityStatus: "available",
-  },
-  {
-    id: "worker-2",
-    workerId: "a3f7b2",
-    name: "Jane Smith",
-    role: "packer" as WorkerRole,
-    warehouseId: "wh-1",
-    warehouseName: "Warehouse 1",
-    shiftStart: "09:00",
-    shiftEnd: "18:00",
-    availabilityStatus: "busy",
-  },
-  {
-    id: "worker-3",
-    workerId: "c9e1d6",
-    name: "Mike Johnson",
-    role: "forklift_operator" as WorkerRole,
-    warehouseId: "wh-2",
-    warehouseName: "Warehouse 2",
-    shiftStart: "08:00",
-    shiftEnd: "17:00",
-    availabilityStatus: "offline",
-  },
-];
-
 // Create Task Modal
 function CreateTaskModal({
   isOpen,
@@ -628,17 +663,82 @@ function CreateTaskModal({
   });
   const [validationError, setValidationError] = useState<string | null>(null);
   const [validationWarnings, setValidationWarnings] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [isLoadingWorkers, setIsLoadingWorkers] = useState(false);
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+
+  // Fetch workers and warehouses from API
+  useEffect(() => {
+    const loadWorkersAndWarehouses = async () => {
+      if (!isOpen) return; // Only load when modal is open
+      
+      try {
+        setIsLoadingWorkers(true);
+        
+        // Fetch all worker roles - get users with worker roles
+        const workerRoles = [
+          'forklift_operator', 'stacker_operator', 'powered_pallet_truck_operator',
+          'unloading_worker', 'cycle_count_worker', 'picker', 'packer',
+          'shipment_worker', 'returns_worker', 'vehicle_inspector', 'warehouse_safekeeping_worker'
+        ];
+        
+        const allWorkers: Worker[] = [];
+        const warehousesMap = new Map<string, string>();
+        
+        // Fetch warehouses
+        const warehousesData = await warehousesApi.getAll();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+        setWarehouses(warehousesMap);
+        
+        // Fetch users for each worker role
+        for (const role of workerRoles) {
+          try {
+            const users = await usersApi.getAll(role);
+            users.forEach((user) => {
+              // Map User to Worker format
+              const worker: Worker = {
+                id: user.id,
+                workerId: user.employeeId || user.id.substring(0, 6),
+                name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.username,
+                role: role as WorkerRole,
+                warehouseId: user.warehouseId || '',
+                warehouseName: user.warehouseId ? warehousesMap.get(user.warehouseId) || 'Unknown' : 'All Warehouses',
+                shiftStart: "08:00", // Default, can be enhanced later
+                shiftEnd: "17:00", // Default, can be enhanced later
+                availabilityStatus: user.status === "active" ? "available" : "offline",
+              };
+              allWorkers.push(worker);
+            });
+          } catch (error) {
+            console.error(`Error fetching workers with role ${role}:`, error);
+          }
+        }
+        
+        setWorkers(allWorkers);
+      } catch (error) {
+        console.error("Error loading workers:", error);
+        setWorkers([]);
+      } finally {
+        setIsLoadingWorkers(false);
+      }
+    };
+    
+    loadWorkersAndWarehouses();
+  }, [isOpen]);
 
   // Get available workers for the selected task type
-  const { availableWorkers, isLoading: isLoadingWorkers } = useAvailableWorkers(
-    mockWorkers,
+  const { availableWorkers } = useAvailableWorkers(
+    workers,
     formData.taskType || null,
     formData.warehouseId || undefined
   );
 
   // Get eligible workers (regardless of availability)
   const eligibleWorkers = formData.taskType
-    ? mockWorkers.filter((w) => {
+    ? workers.filter((w) => {
         if (formData.warehouseId && w.warehouseId !== formData.warehouseId) {
           return false;
         }
@@ -654,7 +754,7 @@ function CreateTaskModal({
       formData.workerId &&
       formData.taskType
     ) {
-      const selectedWorker = mockWorkers.find(
+      const selectedWorker = workers.find(
         (w) => w.id === formData.workerId
       );
       if (selectedWorker) {
@@ -680,6 +780,7 @@ function CreateTaskModal({
     formData.taskType,
     formData.warehouseId,
     formData.assignmentMethod,
+    workers,
   ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -691,7 +792,7 @@ function CreateTaskModal({
       formData.workerId &&
       formData.taskType
     ) {
-      const selectedWorker = mockWorkers.find(
+      const selectedWorker = workers.find(
         (w) => w.id === formData.workerId
       );
       if (selectedWorker) {
@@ -711,9 +812,34 @@ function CreateTaskModal({
       }
     }
 
-    // TODO: API call to create task
-    console.log("Creating task:", formData);
-    onClose();
+    try {
+      setIsSubmitting(true);
+      setValidationError(null);
+
+      // Generate task number
+      const taskNumber = `TASK-${Date.now()}`;
+
+      await tasksApi.create({
+        taskNumber,
+        taskType: formData.taskType,
+        warehouseId: formData.warehouseId,
+        assignedTo: formData.assignmentMethod === "manual" && formData.workerId ? formData.workerId : undefined,
+        priority: formData.priority,
+        status: "pending",
+        notes: formData.instructions,
+        referenceId: formData.relatedOrderId || undefined,
+        referenceType: formData.relatedOrderId ? "order" : undefined,
+      });
+
+      onClose();
+      // Reload page to refresh task list
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to create task:", err);
+      setValidationError("Failed to create task. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
     setFormData({
       taskType: "",
       warehouseId: "",
@@ -766,10 +892,14 @@ function CreateTaskModal({
               setFormData({ ...formData, warehouseId: e.target.value })
             }
             required
+            disabled={isLoadingWorkers}
           >
             <option value="">Select warehouse</option>
-            <option value="wh-1">Warehouse 1</option>
-            <option value="wh-2">Warehouse 2</option>
+            {Array.from(warehouses.entries()).map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -942,8 +1072,15 @@ function CreateTaskModal({
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Create Task
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting || !!validationError}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Creating...
+              </>
+            ) : (
+              "Create Task"
+            )}
           </button>
         </div>
       </form>

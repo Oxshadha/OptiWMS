@@ -12,6 +12,7 @@ import {
   ROLE_DISPLAY_NAMES,
   getRoleDisplayName,
 } from "@/lib/worker-roles";
+import { warehousesApi } from "@/lib/api/warehouses";
 
 // Mock data - will be replaced with API calls
 const workers = [
@@ -69,6 +70,24 @@ export default function WorkerDetailPage() {
   const worker = workers.find((w) => w.id === workerId);
 
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
+
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load warehouses:", err);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+    loadWarehouses();
+  }, []);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -221,9 +240,12 @@ export default function WorkerDetailPage() {
                   onChange={(e) => setFormData({ ...formData, warehouseName: e.target.value })}
                   required
                 >
-                  <option value="">Select warehouse</option>
-                  <option value="Warehouse 1">Warehouse 1</option>
-                  <option value="Warehouse 2">Warehouse 2</option>
+                  <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.name}>
+                      {warehouse.name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="form-control">
