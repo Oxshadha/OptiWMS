@@ -9,9 +9,25 @@ import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import React from "react";
+import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
+import { showToast } from "@/lib/utils/toast";
+
+interface DeliveryPartnerDisplay {
+  id: string;
+  partnerCode: string;
+  companyName: string;
+  contactPerson: string;
+  email: string;
+  phone: string;
+  serviceAreas: string[];
+  type: "local" | "foreign";
+  rating: number;
+  costPerDelivery: number;
+  status: string;
+}
 
 // Mock data - will be replaced with API calls
-const deliveryPartners = [
+const mockDeliveryPartners: DeliveryPartnerDisplay[] = [
   {
     id: "partner-1",
     partnerCode: "DP-001",
@@ -59,7 +75,7 @@ export default function DeliveryPartnersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedPartner, setSelectedPartner] = useState<typeof deliveryPartners[0] | null>(null);
+  const [selectedPartner, setSelectedPartner] = useState<DeliveryPartnerDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">("all");
@@ -67,6 +83,105 @@ export default function DeliveryPartnersPage() {
   const canCreate = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "delete");
+
+  // API state
+  const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Function to transform API data to display format
+  const transformPartnerData = (p: ApiDeliveryPartner): DeliveryPartnerDisplay => {
+    // Parse service areas from JSON string
+    let serviceAreas: string[] = [];
+    if (p.serviceAreas) {
+      try {
+        const parsed = typeof p.serviceAreas === 'string' ? JSON.parse(p.serviceAreas) : p.serviceAreas;
+        
+        // Handle different JSON structures
+        if (Array.isArray(parsed)) {
+          // Direct array: ["Colombo", "Kandy"]
+          serviceAreas = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          // Object with keys: {"districts": [...]} or {"countries": [...]} or {"serviceAreas": [...]}
+          if (parsed.districts && Array.isArray(parsed.districts)) {
+            serviceAreas = parsed.districts;
+          } else if (parsed.countries && Array.isArray(parsed.countries)) {
+            serviceAreas = parsed.countries;
+          } else if (parsed.serviceAreas && Array.isArray(parsed.serviceAreas)) {
+            serviceAreas = parsed.serviceAreas;
+          } else {
+            // Try to extract any array value from the object
+            const values = Object.values(parsed);
+            const firstArray = values.find(v => Array.isArray(v)) as string[] | undefined;
+            serviceAreas = firstArray || [];
+          }
+        } else {
+          serviceAreas = [String(p.serviceAreas)];
+        }
+      } catch (e) {
+        // If parsing fails, treat as string
+        serviceAreas = typeof p.serviceAreas === 'string' ? [p.serviceAreas] : [];
+      }
+    }
+
+    // Infer type from country or service areas
+    const isForeign = p.country && p.country.toLowerCase() !== "usa" && p.country.toLowerCase() !== "united states";
+    const type: "local" | "foreign" = isForeign || serviceAreas.some(area => 
+      area.toLowerCase().includes("international") || 
+      area.toLowerCase().includes("cross-border")
+    ) ? "foreign" : "local";
+
+    return {
+      id: p.id,
+      partnerCode: p.partnerCode,
+      companyName: p.companyName,
+      contactPerson: p.contactPerson || "N/A",
+      email: p.email || "N/A",
+      phone: p.phone || "N/A",
+      serviceAreas,
+      type,
+      rating: p.rating ? parseFloat(p.rating) : 0,
+      costPerDelivery: p.costPerDelivery ? parseFloat(p.costPerDelivery) : 0,
+      status: p.status || "active",
+    };
+  };
+
+  // Load data from API
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const partnersData = await deliveryPartnersApi.getAll();
+
+      // Transform API data to display format
+      const displayPartners: DeliveryPartnerDisplay[] = partnersData.map(transformPartnerData);
+
+      setDeliveryPartners(displayPartners);
+    } catch (err) {
+      console.error("Failed to load delivery partners:", err);
+      setError(err instanceof Error ? err.message : "Failed to load delivery partners");
+      // Don't fallback to mock data - show error instead
+      setDeliveryPartners([]);
+      showToast.error("Failed to load delivery partners. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events from modals
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadDeliveryPartners', handleReload);
+    return () => {
+      window.removeEventListener('reloadDeliveryPartners', handleReload);
+    };
+  }, []);
 
   const summary = {
     totalPartners: deliveryPartners.length,
@@ -93,6 +208,23 @@ export default function DeliveryPartnersPage() {
     const matchesType = typeFilter === "all" || partner.type === typeFilter;
     return matchesSearch && matchesStatus && matchesType;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && deliveryPartners.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading delivery partners: {error}</span>
+      </div>
+    );
+  }
 
   const summaryCards = [
     {
@@ -130,7 +262,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "companyName",
       label: "Company Name",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DeliveryPartnerDisplay) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -162,7 +294,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "type",
       label: "Type",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DeliveryPartnerDisplay) => (
         <span
           className={`badge ${
             partner.type === "local" ? "badge-success" : "badge-info"
@@ -176,7 +308,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "serviceAreas",
       label: "Service Areas",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DeliveryPartnerDisplay) => (
         <div className="flex flex-wrap gap-1">
           {partner.serviceAreas.slice(0, 2).map((area, idx) => (
             <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">
@@ -194,7 +326,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "rating",
       label: "Rating",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DeliveryPartnerDisplay) => (
         <div className="flex items-center gap-1">
           <span className="text-warning">★</span>
           <span>{partner.rating.toFixed(1)}</span>
@@ -211,7 +343,7 @@ export default function DeliveryPartnersPage() {
     {
       key: "status",
       label: "Status",
-      render: (partner: typeof deliveryPartners[0]) => (
+      render: (partner: DeliveryPartnerDisplay) => (
         <span className={`badge ${partner.status === "active" ? "badge-success" : "badge-error"}`}>
           {partner.status === "active" ? "Active" : "Inactive"}
         </span>
@@ -219,7 +351,7 @@ export default function DeliveryPartnersPage() {
     },
   ];
 
-  const renderActions = (partner: typeof deliveryPartners[0]) => (
+  const renderActions = (partner: DeliveryPartnerDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -435,11 +567,20 @@ export default function DeliveryPartnersPage() {
             setShowDeleteModal(false);
             setSelectedPartner(null);
           }}
-          onConfirm={() => {
-            // TODO: API call to delete delivery partner
-            console.log("Deleting delivery partner:", selectedPartner.id);
-            setShowDeleteModal(false);
-            setSelectedPartner(null);
+          onConfirm={async () => {
+            if (!selectedPartner) return;
+            
+            try {
+              await deliveryPartnersApi.delete(selectedPartner.id);
+              showToast.success("Delivery partner deleted successfully");
+              setShowDeleteModal(false);
+              setSelectedPartner(null);
+              // Reload data
+              await loadData();
+            } catch (err) {
+              console.error("Failed to delete delivery partner:", err);
+              showToast.error(err instanceof Error ? err.message : "Failed to delete delivery partner");
+            }
           }}
           partner={selectedPartner}
         />
@@ -460,7 +601,7 @@ export default function DeliveryPartnersPage() {
 }
 
 // Edit Delivery Partner Event Listener Component
-function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: typeof deliveryPartners[0]) => void }) {
+function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: DeliveryPartnerDisplay) => void }) {
   React.useEffect(() => {
     const handleEdit = (event: CustomEvent) => {
       onEdit(event.detail);
@@ -481,7 +622,7 @@ function DeliveryPartnerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  partner: typeof deliveryPartners[0];
+  partner: DeliveryPartnerDisplay;
 }) {
   const { hasPermission } = useAdmin();
   const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
@@ -577,7 +718,7 @@ function EditDeliveryPartnerModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  partner: typeof deliveryPartners[0];
+  partner: DeliveryPartnerDisplay;
 }) {
   const [formData, setFormData] = useState({
     partnerCode: partner.partnerCode,
@@ -592,11 +733,34 @@ function EditDeliveryPartnerModal({
     rating: partner.rating.toString(),
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update delivery partner
-    console.log("Updating delivery partner:", formData);
-    onClose();
+    
+    try {
+      // Prepare data for API
+      const updateData: Partial<ApiDeliveryPartner> = {
+        partnerCode: formData.partnerCode,
+        companyName: formData.companyName,
+        contactPerson: formData.contactPerson || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        country: formData.country || undefined,
+        serviceAreas: JSON.stringify(formData.serviceAreas),
+        costPerDelivery: formData.costPerDelivery ? formData.costPerDelivery : undefined,
+        rating: formData.rating ? formData.rating : undefined,
+      };
+
+      await deliveryPartnersApi.update(partner.id, updateData);
+      showToast.success("Delivery partner updated successfully");
+      onClose();
+      // Reload data - trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
+      }
+    } catch (err) {
+      console.error("Failed to update delivery partner:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update delivery partner");
+    }
   };
 
   return (
@@ -817,24 +981,50 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     rating: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create delivery partner
-    console.log("Creating delivery partner:", formData);
-    onClose();
-    setFormData({
-      partnerCode: "",
-      companyName: "",
-      contactPerson: "",
-      email: "",
-      phone: "",
-      address: "",
-      country: "",
-      type: "" as "local" | "foreign" | "",
-      serviceAreas: [],
-      costPerDelivery: "",
-      rating: "",
-    });
+    
+    try {
+      // Prepare data for API
+      const createData: Omit<ApiDeliveryPartner, 'id'> = {
+        partnerCode: formData.partnerCode,
+        companyName: formData.companyName,
+        contactPerson: formData.contactPerson || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        address: formData.address || undefined,
+        country: formData.country || undefined,
+        serviceAreas: JSON.stringify(formData.serviceAreas),
+        costPerDelivery: formData.costPerDelivery || undefined,
+        rating: formData.rating || undefined,
+        status: "active",
+      };
+
+      await deliveryPartnersApi.create(createData);
+      showToast.success("Delivery partner created successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        partnerCode: "",
+        companyName: "",
+        contactPerson: "",
+        email: "",
+        phone: "",
+        address: "",
+        country: "",
+        type: "" as "local" | "foreign" | "",
+        serviceAreas: [],
+        costPerDelivery: "",
+        rating: "",
+      });
+      // Reload data - trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
+      }
+    } catch (err) {
+      console.error("Failed to create delivery partner:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create delivery partner");
+    }
   };
 
   return (
@@ -1061,7 +1251,7 @@ function DeleteDeliveryPartnerModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  partner: typeof deliveryPartners[0];
+  partner: DeliveryPartnerDisplay;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Delivery Partner" size="md">

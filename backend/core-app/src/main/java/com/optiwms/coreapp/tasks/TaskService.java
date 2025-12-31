@@ -73,6 +73,16 @@ public class TaskService {
         return toDomain(saved);
     }
 
+    @Transactional
+    public Task assignTask(UUID id, UUID workerId, String assignedBy) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setAssignedTo(workerId);
+        entity.setStatus("assigned");
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
     private Task toDomain(TaskEntity entity) {
         Task task = new Task();
         task.setId(entity.getId());

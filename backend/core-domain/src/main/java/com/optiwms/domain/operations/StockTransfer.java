@@ -14,7 +14,7 @@ public class StockTransfer extends BaseEntity {
     private String sourceLocationCode;
     private UUID destWarehouseId;
     private String destLocationCode;
-    private BigDecimal quantity;
+    private Integer quantity;
     private String status;
     private String notes;
     private UUID dispatchedBy;
@@ -37,8 +37,8 @@ public class StockTransfer extends BaseEntity {
     public void setDestWarehouseId(UUID destWarehouseId) { this.destWarehouseId = destWarehouseId; }
     public String getDestLocationCode() { return destLocationCode; }
     public void setDestLocationCode(String destLocationCode) { this.destLocationCode = destLocationCode; }
-    public BigDecimal getQuantity() { return quantity; }
-    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public Integer getQuantity() { return quantity; }
+    public void setQuantity(Integer quantity) { this.quantity = quantity; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getNotes() { return notes; }

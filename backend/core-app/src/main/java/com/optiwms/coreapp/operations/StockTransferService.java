@@ -8,7 +8,6 @@ import com.optiwms.infra.operations.StockTransferRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -75,8 +74,8 @@ public class StockTransferService {
         }
 
         InventoryItem sourceItem = sourceInventory.get(0);
-        BigDecimal newQuantity = sourceItem.getAvailableQuantity().subtract(entity.getQuantity());
-        if (newQuantity.compareTo(BigDecimal.ZERO) < 0) {
+        Integer newQuantity = (sourceItem.getAvailableQuantity() != null ? sourceItem.getAvailableQuantity() : 0) - entity.getQuantity();
+        if (newQuantity < 0) {
             throw new RuntimeException("Insufficient inventory at source");
         }
         sourceItem.setAvailableQuantity(newQuantity);
@@ -107,16 +106,16 @@ public class StockTransferService {
             destItem = new InventoryItem();
             destItem.setMaterialId(entity.getMaterialId());
             destItem.setWarehouseId(entity.getDestWarehouseId());
-            destItem.setQuantity(BigDecimal.ZERO);
-            destItem.setAvailableQuantity(BigDecimal.ZERO);
-            destItem.setReservedQuantity(BigDecimal.ZERO);
+            destItem.setQuantity(0);
+            destItem.setAvailableQuantity(0);
+            destItem.setReservedQuantity(0);
         } else {
             destItem = destInventory.get(0);
         }
 
         destItem.setLocationCode(entity.getDestLocationCode());
-        destItem.setQuantity(destItem.getQuantity().add(entity.getQuantity()));
-        destItem.setAvailableQuantity(destItem.getAvailableQuantity().add(entity.getQuantity()));
+        destItem.setQuantity((destItem.getQuantity() != null ? destItem.getQuantity() : 0) + entity.getQuantity());
+        destItem.setAvailableQuantity((destItem.getAvailableQuantity() != null ? destItem.getAvailableQuantity() : 0) + entity.getQuantity());
         destItem.setStatus("active");
         inventoryService.createOrUpdate(destItem);
 

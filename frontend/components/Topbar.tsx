@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
+import { authApi } from "@/lib/api/auth";
 import { getRoleDisplayName } from "@/lib/admin-roles";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
+import { notificationsApi, Notification } from "@/lib/api/notifications";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
@@ -25,7 +27,7 @@ const MOCK_RESULTS: SearchItem[] = [
 ];
 
 export function Topbar() {
-  const { admin, role } = useAdmin();
+  const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
   const [dark, setDark] = useState(false);
   const [query, setQuery] = useState("");
@@ -138,43 +140,66 @@ export function Topbar() {
 
   const holidays: number[] = [1, 15, 28]; // Mock holidays
 
-  // Mock notifications
-  const notifications = [
-    {
-      id: "notif-1",
-      title: "New Order Received",
-      message: "Order SO-1001 has been received and requires processing",
-      time: "5 minutes ago",
-      type: "order",
-      read: false,
-    },
-    {
-      id: "notif-2",
-      title: "Inventory Alert",
-      message: "SKU-1005 (Yoga Mat) is running low on stock",
-      time: "1 hour ago",
-      type: "inventory",
-      read: false,
-    },
-    {
-      id: "notif-3",
-      title: "Cycle Count Scheduled",
-      message: "Cycle count for Zone A is scheduled for tomorrow",
-      time: "2 hours ago",
-      type: "cycle_count",
-      read: true,
-    },
-    {
-      id: "notif-4",
-      title: "Task Assigned",
-      message: "You have been assigned a new picking task",
-      time: "3 hours ago",
-      type: "task",
-      read: true,
-    },
-  ];
+  // Notifications from API
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!admin?.id) return;
+      try {
+        setLoadingNotifications(true);
+        const [notifs, count] = await Promise.all([
+          notificationsApi.getAll(admin.id),
+          notificationsApi.getUnreadCount(admin.id),
+        ]);
+        setNotifications(notifs.slice(0, 10)); // Show latest 10
+        setUnreadCount(count);
+      } catch (error) {
+        console.error("Error loading notifications:", error);
+        setNotifications([]);
+        setUnreadCount(0);
+      } finally {
+        setLoadingNotifications(false);
+      }
+    };
+    loadNotifications();
+    // Refresh every 30 seconds
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [admin?.id]);
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+    return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
+  };
+
+  const handleNotificationClick = async (notification: Notification) => {
+    if (!notification.read) {
+      try {
+        await notificationsApi.markAsRead(notification.id);
+        setNotifications(notifications.map(n => 
+          n.id === notification.id ? { ...n, read: true } : n
+        ));
+        setUnreadCount(Math.max(0, unreadCount - 1));
+      } catch (error) {
+        console.error("Error marking notification as read:", error);
+      }
+    }
+    if (notification.actionUrl) {
+      router.push(notification.actionUrl);
+    }
+  };
 
   const getDaysInMonth = (month: number, year: number) => {
     return new Date(year, month + 1, 0).getDate();
@@ -308,7 +333,11 @@ export function Topbar() {
                 )}
               </div>
               <div className="max-h-96 overflow-y-auto">
-                {notifications.length === 0 ? (
+                {loadingNotifications ? (
+                  <div className="px-4 py-8 text-center">
+                    <span className="loading loading-spinner loading-md"></span>
+                  </div>
+                ) : notifications.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-base-content/60">
                     No notifications
                   </div>
@@ -320,10 +349,7 @@ export function Topbar() {
                         className={`px-4 py-3 hover:bg-base-200 transition-colors cursor-pointer ${
                           !notif.read ? "bg-primary/5" : ""
                         }`}
-                        onClick={() => {
-                          // TODO: Handle notification click (navigate to relevant page)
-                          console.log("Notification clicked:", notif.id);
-                        }}
+                        onClick={() => handleNotificationClick(notif)}
                       >
                         <div className="flex items-start gap-3">
                           <div
@@ -343,14 +369,14 @@ export function Topbar() {
                                 {notif.title}
                               </p>
                               <span className="text-xs text-base-content/50 flex-shrink-0 ml-2">
-                                {notif.time}
+                                {formatTimeAgo(notif.createdAt)}
                               </span>
                             </div>
                             <p className="text-xs text-base-content/60 line-clamp-2">
                               {notif.message}
                             </p>
                             <span className="inline-block mt-1 text-xs badge badge-outline badge-sm">
-                              {notif.type.replace("_", " ")}
+                              {notif.notificationType.replace("_", " ")}
                             </span>
                           </div>
                         </div>
@@ -527,7 +553,26 @@ export function Topbar() {
                   <a href="/admin/account-settings">Account settings</a>
                 </li>
                 <li>
-                  <a href="/admin/login" className="text-error">
+                  <a
+                    href="#"
+                    className="text-error"
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      setOpenProfile(false);
+                      try {
+                        // Clear admin context
+                        clearAdmin();
+                        // Clear tokens and IndexedDB
+                        await authApi.logout();
+                        // Redirect to login
+                        router.push("/admin/login");
+                      } catch (error) {
+                        console.error("Error during logout:", error);
+                        // Still redirect even if logout fails
+                        router.push("/admin/login");
+                      }
+                    }}
+                  >
                     Logout
                   </a>
                 </li>

@@ -10,5 +10,6 @@ import java.util.UUID;
 public interface MaterialRepository extends JpaRepository<MaterialEntity, UUID> {
     Optional<MaterialEntity> findByMaterialCode(String materialCode);
     boolean existsByMaterialCode(String materialCode);
+    java.util.List<MaterialEntity> findByMaterialType(String materialType);
 }
 

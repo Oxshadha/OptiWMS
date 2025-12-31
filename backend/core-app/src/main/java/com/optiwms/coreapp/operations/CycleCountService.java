@@ -66,23 +66,25 @@ public class CycleCountService {
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Inventory not found for material at location"));
 
-        BigDecimal systemQuantity = item.getQuantity();
-        BigDecimal variance = countedQuantity.subtract(systemQuantity);
+        // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
+        Integer countedQtyInteger = (int) Math.ceil(countedQuantity.doubleValue());
+        Integer systemQuantity = item.getQuantity() != null ? item.getQuantity() : 0;
+        Integer variance = countedQtyInteger - systemQuantity;
 
         // Update inventory if variance exists
-        if (variance.compareTo(BigDecimal.ZERO) != 0) {
-            item.setQuantity(countedQuantity);
-            item.setAvailableQuantity(countedQuantity.subtract(item.getReservedQuantity()));
+        if (variance != 0) {
+            item.setQuantity(countedQtyInteger);
+            item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
             inventoryService.createOrUpdate(item);
         }
 
-        entity.setVariance(variance);
+        entity.setVariance(new BigDecimal(variance));
         entity.setCountedBy(countedBy);
         entity.setCountedAt(LocalDateTime.now());
         entity.setStatus("completed");
         CycleCountEntity saved = repository.save(entity);
 
-        return new CycleCountResult(true, "Count recorded successfully", variance);
+        return new CycleCountResult(true, "Count recorded successfully", new BigDecimal(variance));
     }
 
     private CycleCount toDomain(CycleCountEntity entity) {

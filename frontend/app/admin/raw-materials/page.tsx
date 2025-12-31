@@ -33,41 +33,16 @@ export default function RawMaterialsPage() {
   const loadMaterials = async () => {
     try {
       setIsLoading(true);
-      const data = await materialsApi.getAll();
-      setMaterials(data);
+      // Fetch raw materials (materials with materialType='raw_material' or null)
+      const allMaterials = await materialsApi.getAll();
+      // Filter for raw materials (materialType is null, empty, or 'raw_material')
+      const rawMaterials = allMaterials.filter(
+        (m) => !m.materialType || m.materialType === "raw_material" || m.materialType === ""
+      );
+      setMaterials(rawMaterials);
     } catch (error) {
       console.error("Error loading materials:", error);
-      // For now, use mock data if API fails
-      setMaterials([
-        {
-          id: "mat-1",
-          materialCode: "RM-1001",
-          description: "Steel Sheet 2mm",
-          unitType: "kg",
-          storageType: "Pallet",
-        },
-        {
-          id: "mat-2",
-          materialCode: "RM-1002",
-          description: "Aluminum Rod 10mm",
-          unitType: "kg",
-          storageType: "Pallet",
-        },
-        {
-          id: "mat-3",
-          materialCode: "RM-2001",
-          description: "Plastic Granules",
-          unitType: "kg",
-          storageType: "Bulk",
-        },
-        {
-          id: "mat-4",
-          materialCode: "RM-3001",
-          description: "Packaging Tape",
-          unitType: "roll",
-          storageType: "Carton",
-        },
-      ]);
+      setMaterials([]);
     } finally {
       setIsLoading(false);
     }

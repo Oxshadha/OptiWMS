@@ -13,6 +13,8 @@ interface WarehouseLayoutProps {
   layout: WarehouseLayout;
   onRackClick?: (rack: RackUnit) => void;
   selectedRackId?: string | null;
+  showVelocity?: boolean;
+  onVelocityToggle?: (show: boolean) => void;
 }
 
 /**
@@ -23,9 +25,13 @@ export function WarehouseLayoutVisualization({
   layout,
   onRackClick,
   selectedRackId,
+  showVelocity: externalShowVelocity,
+  onVelocityToggle,
 }: WarehouseLayoutProps) {
   const [hoveredRackId, setHoveredRackId] = useState<string | null>(null);
-  const [showVelocity, setShowVelocity] = useState(false);
+  const [internalShowVelocity, setInternalShowVelocity] = useState(false);
+  const showVelocity = externalShowVelocity !== undefined ? externalShowVelocity : internalShowVelocity;
+  const setShowVelocity = onVelocityToggle || setInternalShowVelocity;
   const [velocityData, setVelocityData] = useState<Map<string, number>>(
     new Map()
   );
@@ -205,56 +211,11 @@ export function WarehouseLayoutVisualization({
 
   return (
     <div className="w-full h-full relative">
-      {/* Velocity Toggle Button */}
-      <div className="absolute top-4 right-4 z-10">
-        <div className="bg-base-100 rounded-lg shadow-lg border border-base-300 p-2">
-          <label className="label cursor-pointer gap-2">
-            <span className="label-text text-sm font-semibold">
-              Velocity Heat Map
-            </span>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary toggle-sm"
-              checked={showVelocity}
-              onChange={(e) => setShowVelocity(e.target.checked)}
-            />
-          </label>
-          {showVelocity && (
-            <div className="mt-2 text-xs text-base-content/60 space-y-1">
-              {isLoadingVelocity ? (
-                <div className="flex items-center gap-2">
-                  <span className="loading loading-spinner loading-xs"></span>
-                  <span>Loading velocity data...</span>
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-[#22C55E]"></div>
-                    <span>Low (0-20%)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-[#F59E0B]"></div>
-                    <span>Medium (20-50%)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 rounded bg-[#DC2626]"></div>
-                    <span>High (50-100%)</span>
-                  </div>
-                  {velocityData.size === 0 && (
-                    <div className="text-xs text-warning mt-1">
-                      No velocity data available
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
       <svg
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         className="w-full h-full border border-base-300 rounded-lg bg-base-200"
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="none"
+        style={{ minWidth: `${layout.width}px`, minHeight: `${layout.height}px` }}
       >
         {/* Define patterns for maintenance status */}
         <defs>
@@ -278,6 +239,8 @@ export function WarehouseLayoutVisualization({
             />
           </pattern>
         </defs>
+        {/* Area section backgrounds and labels removed - showing only racks */}
+
         {/* Render aisles */}
         {layout.aisles.map((aisle) => (
           <rect
@@ -311,12 +274,14 @@ export function WarehouseLayoutVisualization({
               onMouseLeave={() => setHoveredRackId(null)}
               style={{ cursor: "pointer" }}
             >
-              {/* Rack base rectangle - only visible for empty racks or as background */}
+              {/* Rack base rectangle with rounded corners - only visible for empty racks or as background */}
               <rect
                 x={rack.x}
                 y={rack.y}
                 width={rack.width}
                 height={rack.height}
+                rx="6"
+                ry="6"
                 fill={color}
                 stroke={
                   isSelected
@@ -355,6 +320,8 @@ export function WarehouseLayoutVisualization({
                   y={rack.y}
                   width={rack.width}
                   height={rack.height}
+                  rx="6"
+                  ry="6"
                   fill="url(#maintenance-pattern)"
                   pointerEvents="none"
                   opacity="0.6"
@@ -441,6 +408,8 @@ export function WarehouseLayoutVisualization({
                       y={segment.y}
                       width={rack.width}
                       height={segment.height}
+                      rx="4"
+                      ry="4"
                       fill={segmentColor}
                       opacity={
                         segment.isEmpty && !isRackInSpecialStatus ? 1.0 : 0.9
@@ -472,89 +441,230 @@ export function WarehouseLayoutVisualization({
 
               {/* Rack label - positioned above the rack with occupancy */}
               <g>
-                {/* Background for better visibility */}
-                <rect
-                  x={rack.x - 2}
-                  y={rack.y - 18}
-                  width={rack.width + 4}
-                  height={14}
-                  fill="#FFFFFF"
-                  opacity="0.9"
-                  rx="2"
-                  stroke="#D1D5DB"
-                  strokeWidth="0.5"
-                />
-                {/* Rack name with status icon and occupancy */}
-                <text
-                  x={rack.x + rack.width / 2}
-                  y={rack.y - 6}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="text-xs font-semibold fill-base-content pointer-events-none"
-                  fontSize="10"
-                >
-                  {rack.id}
-                  {/* Maintenance/Out of Service status icon next to rack name */}
-                  {rack.status === "maintenance" && " 🔧"}
-                  {rack.status === "out_of_service" && " ⚠"}
-                  {rack.status === "reserved" && " 🔒"}
-                  {rack.bins.some((b) => b.status === "quarantined") && " 🚫"}
-                  {/* Occupancy percentage or velocity next to rack name */}
-                  {rack.status === "active" &&
-                    (showVelocity && rack.velocity !== undefined
-                      ? ` (V: ${Math.round(rack.velocity)}%)`
-                      : ` (${Math.round(occupancy)}%)`)}
-                </text>
+                {(() => {
+                  const rackIdText = rack.id;
+                  const percentageText = rack.status === "active"
+                    ? (showVelocity && rack.velocity !== undefined
+                      ? `V: ${Math.round(rack.velocity)}%`
+                      : `${Math.round(occupancy)}%`)
+                    : "";
+                  
+                  // Calculate widths separately
+                  const rackIdWidth = rackIdText.length * 6;
+                  const percentageWidth = percentageText.length * 5.5;
+                  const totalWidth = Math.max(rack.width + 4, rackIdWidth + percentageWidth + 12);
+                  
+                  return (
+                    <>
+                      {/* Background for better visibility - dynamically sized */}
+                      <rect
+                        x={rack.x + rack.width / 2 - totalWidth / 2}
+                        y={rack.y - 28}
+                        width={totalWidth}
+                        height={24}
+                        fill="#FFFFFF"
+                        opacity="0.95"
+                        rx="4"
+                        stroke="#D1D5DB"
+                        strokeWidth="0.5"
+                      />
+                      {/* Rack ID on first line */}
+                      <text
+                        x={rack.x + rack.width / 2}
+                        y={rack.y - 18}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        className="text-xs font-semibold fill-base-content pointer-events-none"
+                        fontSize="10"
+                      >
+                        {rackIdText}
+                      </text>
+                      {/* Percentage on second line */}
+                      {percentageText && (
+                        <text
+                          x={rack.x + rack.width / 2}
+                          y={rack.y - 6}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          className="text-xs font-medium fill-base-content/70 pointer-events-none"
+                          fontSize="9"
+                        >
+                          ({percentageText})
+                        </text>
+                      )}
+                    </>
+                  );
+                })()}
               </g>
             </g>
           );
         })}
 
-        {/* Zone labels - positioned outside the map area */}
+        {/* Zone labels - small labels with colored backgrounds, positioned to avoid overlap */}
         <g>
-          {Array.from(new Set(layout.racks.map((r) => r.zone))).map((zone) => {
-            const zoneRacks = layout.racks.filter((r) => r.zone === zone);
-            const minX = Math.min(...zoneRacks.map((r) => r.x));
-            const minY = Math.min(...zoneRacks.map((r) => r.y));
-            const maxX = Math.max(...zoneRacks.map((r) => r.x + r.width));
-            const centerX = (minX + maxX) / 2;
-
-            return (
-              <g key={zone}>
-                {/* Background for zone label */}
-                <rect
-                  x={centerX - 35}
-                  y={minY - 40}
-                  width={70}
-                  height={18}
-                  fill="#FFFFFF"
-                  opacity="0.95"
-                  rx="3"
-                  stroke="#CF0F47"
-                  strokeWidth="1.5"
-                />
-                {/* Zone label text */}
-                <text
-                  x={centerX}
-                  y={minY - 27}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  className="text-sm font-bold fill-primary pointer-events-none"
-                  fontSize="12"
-                >
-                  {zone === "ST"
-                    ? "Storage"
-                    : zone === "RC"
-                    ? "Reception"
-                    : zone === "PK"
-                    ? "Picking"
-                    : zone === "SH"
-                    ? "Shipping"
-                    : zone}
-                </text>
-              </g>
-            );
-          })}
+          {(() => {
+            // Collect zones
+            const zoneData: Array<{zone: string; minX: number; minY: number; maxX: number; maxY: number}> = [];
+            
+            Array.from(new Set(layout.racks.map((r) => r.zone))).forEach((zone) => {
+              const zoneRacks = layout.racks.filter((r) => r.zone === zone);
+              if (zoneRacks.length === 0) return;
+              
+              const minX = Math.min(...zoneRacks.map((r) => r.x));
+              const minY = Math.min(...zoneRacks.map((r) => r.y));
+              const maxX = Math.max(...zoneRacks.map((r) => r.x + r.width));
+              const maxY = Math.max(...zoneRacks.map((r) => r.y + r.height));
+              
+              zoneData.push({ zone, minX, minY, maxX, maxY });
+            });
+            
+            // Zone label text mapping
+            const getZoneLabel = (zone: string) => {
+              if (zone === "RC") return "Reception";
+              if (zone === "PA") return "Putaway";
+              if (zone === "ST") return "Storage";
+              if (zone === "RM") return "Raw Materials";
+              if (zone === "FG") return "Finished Goods";
+              if (zone === "PK") return "Picking";
+              if (zone === "SH") return "Shipping";
+              return zone;
+            };
+            
+            // Group zones by row (similar Y positions - within 150px to account for grid layout)
+            const zonesByRow = new Map<number, typeof zoneData>();
+            zoneData.forEach((zoneInfo) => {
+              // Use larger grouping to account for grid layout spacing
+              const rowKey = Math.round(zoneInfo.minY / 150) * 150;
+              if (!zonesByRow.has(rowKey)) {
+                zonesByRow.set(rowKey, []);
+              }
+              zonesByRow.get(rowKey)!.push(zoneInfo);
+            });
+            
+            const allLabels: Array<{zone: string; x: number; y: number; width: number; endX: number; label: string; centerX: number}> = [];
+            const labelHeight = 24;
+            const verticalSpacing = 35;
+            const horizontalSpacing = 15; // Minimum spacing between labels horizontally
+            
+            // Process each row separately
+            zonesByRow.forEach((zonesInRow) => {
+              zonesInRow.sort((a, b) => a.minX - b.minX);
+              
+              const rowLabels: Array<{x: number; y: number; width: number; endX: number}> = [];
+              
+              zonesInRow.forEach((zoneInfo) => {
+                const { zone, minX, minY } = zoneInfo;
+                const zoneLabel = getZoneLabel(zone);
+                
+                // Calculate label dimensions
+                const estimatedLabelWidth = zoneLabel.length * 7.5 + 24;
+                const labelCenterX = minX + (zoneInfo.maxX - minX) / 2;
+                let labelX = labelCenterX - estimatedLabelWidth / 2;
+                const labelEndX = labelX + estimatedLabelWidth;
+                
+                // Adjust horizontal position to avoid overlap
+                for (const existingLabel of rowLabels) {
+                  if ((labelX < existingLabel.endX + horizontalSpacing) && (labelEndX > existingLabel.x - horizontalSpacing)) {
+                    // Overlap detected - shift this label to the right
+                    labelX = existingLabel.endX + horizontalSpacing;
+                  }
+                }
+                
+                // Calculate final dimensions after horizontal adjustment
+                const finalLabelX = labelX;
+                const finalLabelEndX = finalLabelX + estimatedLabelWidth;
+                const finalLabelCenterX = finalLabelX + estimatedLabelWidth / 2;
+                
+                // Start with base Y position (above racks with spacing)
+                let baseY = minY - 45;
+                let finalY = baseY;
+                
+                // Check for vertical overlap with existing labels
+                for (const existingLabel of rowLabels) {
+                  // Check if labels overlap horizontally
+                  const horizontalOverlap = (finalLabelX < existingLabel.endX + horizontalSpacing) && 
+                                           (finalLabelEndX > existingLabel.x - horizontalSpacing);
+                  
+                  if (horizontalOverlap) {
+                    // Stack this label above the existing one
+                    const overlappingLabels = rowLabels.filter(l => 
+                      (finalLabelX < l.endX + horizontalSpacing) && (finalLabelEndX > l.x - horizontalSpacing)
+                    );
+                    if (overlappingLabels.length > 0) {
+                      const highestY = Math.min(...overlappingLabels.map(l => l.y));
+                      finalY = highestY - (labelHeight + verticalSpacing);
+                    }
+                  }
+                }
+                
+                // Store this label's position
+                const labelPos = {
+                  x: finalLabelX,
+                  y: finalY,
+                  width: estimatedLabelWidth,
+                  endX: finalLabelEndX
+                };
+                rowLabels.push(labelPos);
+                
+                allLabels.push({
+                  zone,
+                  x: finalLabelX,
+                  y: finalY,
+                  width: estimatedLabelWidth,
+                  endX: finalLabelEndX,
+                  label: zoneLabel,
+                  centerX: finalLabelCenterX
+                });
+              });
+            });
+            
+            // Area colors for labels
+            const getAreaColor = (zone: string) => {
+              const colors: Record<string, {bg: string; border: string; text: string}> = {
+                'RC': { bg: '#FEF3C7', border: '#F59E0B', text: '#92400E' }, // Reception - yellow
+                'PA': { bg: '#DBEAFE', border: '#3B82F6', text: '#1E40AF' }, // Putaway - blue
+                'ST': { bg: '#F3F4F6', border: '#6B7280', text: '#374151' }, // Storage - gray
+                'RM': { bg: '#FCE7F3', border: '#EC4899', text: '#BE185D' }, // Raw Materials - pink
+                'FG': { bg: '#D1FAE5', border: '#10B981', text: '#047857' }, // Finished Goods - green
+                'PK': { bg: '#FED7AA', border: '#F97316', text: '#C2410C' }, // Picking - orange
+                'SH': { bg: '#E0E7FF', border: '#6366F1', text: '#4338CA' }, // Shipping - indigo
+              };
+              return colors[zone] || { bg: '#FFFFFF', border: '#CF0F47', text: '#CF0F47' };
+            };
+            
+            // Render labels with colored backgrounds
+            return allLabels.map((labelInfo) => {
+              const areaColor = getAreaColor(labelInfo.zone);
+              return (
+                <g key={`label-${labelInfo.zone}-${labelInfo.x}`}>
+                  {/* Background for zone label */}
+                  <rect
+                    x={labelInfo.x}
+                    y={labelInfo.y}
+                    width={labelInfo.width}
+                    height={labelHeight}
+                    fill={areaColor.bg}
+                    opacity="0.95"
+                    rx="6"
+                    stroke={areaColor.border}
+                    strokeWidth="2"
+                  />
+                  {/* Zone label text */}
+                  <text
+                    x={labelInfo.centerX}
+                    y={labelInfo.y + labelHeight / 2}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize="12"
+                    fill={areaColor.text}
+                    fontWeight="600"
+                  >
+                    {labelInfo.label}
+                  </text>
+                </g>
+              );
+            });
+          })()}
         </g>
       </svg>
     </div>

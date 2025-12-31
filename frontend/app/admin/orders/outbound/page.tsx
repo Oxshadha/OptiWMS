@@ -1,77 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { ordersApi, Order } from "@/lib/api/orders";
+import { customersApi, Customer } from "@/lib/api/customers";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { materialsApi } from "@/lib/api/materials";
+import { showToast } from "@/lib/utils/toast";
 import clsx from "clsx";
 
-// Mock data - will be replaced with API calls
-const outboundOrders = [
-  {
-    id: "OO-1001",
-    orderNumber: "#56281",
-    customerName: "Acme Corp",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-15",
-    requiredDelivery: "2025-12-20",
-    priority: "high",
-    status: "picking",
-    totalItems: 12,
-    pickedItems: 5,
-  },
-  {
-    id: "OO-1002",
-    orderNumber: "#56282",
-    customerName: "Bright Retail",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-14",
-    requiredDelivery: "2025-12-19",
-    priority: "normal",
-    status: "picked",
-    totalItems: 8,
-    pickedItems: 8,
-  },
-  {
-    id: "OO-1003",
-    orderNumber: "#56283",
-    customerName: "Delta Mart",
-    warehouseName: "Warehouse 2",
-    orderDate: "2025-12-14",
-    requiredDelivery: "2025-12-18",
-    priority: "urgent",
-    status: "pending",
-    totalItems: 15,
-    pickedItems: 0,
-  },
-  {
-    id: "OO-1004",
-    orderNumber: "#56284",
-    customerName: "Echo Stores",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-13",
-    requiredDelivery: "2025-12-17",
-    priority: "normal",
-    status: "ready_to_ship",
-    totalItems: 5,
-    pickedItems: 5,
-  },
-  {
-    id: "OO-1005",
-    orderNumber: "#56285",
-    customerName: "Falcon Inc",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-15",
-    requiredDelivery: "2025-12-21",
-    priority: "low",
-    status: "shipped",
-    totalItems: 9,
-    pickedItems: 9,
-  },
-];
+// Display format for outbound orders
+interface OutboundOrderDisplay {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  warehouseName: string;
+  orderDate: string;
+  requiredDelivery: string;
+  priority: string;
+  status: string;
+  totalItems: number;
+  pickedItems: number;
+}
 
 const statusConfig = {
   pending: { label: "Pending", class: "badge-outline" },
@@ -98,15 +53,92 @@ export default function OutboundOrdersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  
+  // API state
+  const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
+  const [customers, setCustomers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load orders, customers, and warehouses in parallel
+        const [ordersData, customersData, warehousesData] = await Promise.all([
+          ordersApi.getAllOutbound(),
+          customersApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Create lookup maps
+        const customersMap = new Map();
+        customersData.forEach((c) => {
+          customersMap.set(c.id, c.name);
+        });
+
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+
+        setCustomers(customersMap);
+        setWarehouses(warehousesMap);
+
+        // Transform orders to display format
+        const displayOrders: OutboundOrderDisplay[] = ordersData.map((order) => {
+          const customerName = order.customerId ? customersMap.get(order.customerId) || "Unknown Customer" : "N/A";
+          const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
+          
+          // Map backend status to frontend status
+          let status = order.status;
+          if (status === "pending") status = "pending";
+          if (status === "processing") status = "picking";
+          if (status === "picked") status = "picked";
+          if (status === "packing") status = "packing";
+          if (status === "ready") status = "ready_to_ship";
+          if (status === "shipped") status = "shipped";
+          if (status === "delivered") status = "delivered";
+
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            customerName,
+            warehouseName,
+            orderDate: order.orderDate || new Date().toISOString().split("T")[0],
+            requiredDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
+            priority: order.priority || "normal",
+            status,
+            totalItems: 0, // TODO: Get from order items when available
+            pickedItems: 0, // TODO: Get from picking records
+          };
+        });
+
+        setOrders(displayOrders);
+      } catch (err) {
+        console.error("Failed to load outbound orders:", err);
+        setError("Failed to load outbound orders. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Calculate summary from orders
   const summary = {
-    totalOrders: 245,
-    pendingPicking: 18,
-    readyToShip: 12,
-    shippedToday: 35,
+    totalOrders: orders.length,
+    pendingPicking: orders.filter((o) => o.status === "pending" || o.status === "picking").length,
+    readyToShip: orders.filter((o) => o.status === "ready_to_ship").length,
+    shippedToday: orders.filter((o) => o.status === "shipped" || o.status === "delivered").length,
   };
 
-  const filteredOrders = outboundOrders.filter((order) => {
+  const filteredOrders = orders.filter((order) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       order.orderNumber.toLowerCase().includes(query) ||
@@ -152,11 +184,34 @@ export default function OutboundOrdersPage() {
     },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && orders.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const columns = [
     {
       key: "orderNumber",
       label: "Order Number",
-      render: (order: typeof outboundOrders[0]) => (
+      render: (order: OutboundOrderDisplay) => (
         <Link
           href={`/admin/orders/outbound/${order.id}`}
           className="font-semibold text-primary hover:underline"
@@ -191,8 +246,12 @@ export default function OutboundOrdersPage() {
     {
       key: "priority",
       label: "Priority",
-      render: (order: typeof outboundOrders[0]) => {
+      render: (order: OutboundOrderDisplay) => {
         const priority = priorityConfig[order.priority as keyof typeof priorityConfig];
+        if (!priority) {
+          // Fallback for unknown priority
+          return <span className="badge badge-outline">{order.priority || "normal"}</span>;
+        }
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (priority.class === "badge-outline") {
           return (
@@ -211,8 +270,12 @@ export default function OutboundOrdersPage() {
     {
       key: "status",
       label: "Status",
-      render: (order: typeof outboundOrders[0]) => {
+      render: (order: OutboundOrderDisplay) => {
         const status = statusConfig[order.status as keyof typeof statusConfig];
+        if (!status) {
+          // Fallback for unknown status
+          return <span className="badge badge-outline">{order.status}</span>;
+        }
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (status.class === "badge-outline") {
           return (
@@ -231,7 +294,7 @@ export default function OutboundOrdersPage() {
     {
       key: "items",
       label: "Items",
-      render: (order: typeof outboundOrders[0]) => (
+      render: (order: OutboundOrderDisplay) => (
         <div className="flex items-center gap-2">
           <span>{order.pickedItems}/{order.totalItems}</span>
           <div className="w-16 bg-base-300 rounded-full h-2">
@@ -247,7 +310,7 @@ export default function OutboundOrdersPage() {
     },
   ];
 
-  const renderActions = (order: typeof outboundOrders[0]) => (
+  const renderActions = (order: OutboundOrderDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -313,6 +376,13 @@ export default function OutboundOrdersPage() {
           <p className="text-sm text-base-content/60 mt-1">Manage customer orders and fulfillment</p>
         </div>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <input
               type="text"
@@ -424,12 +494,74 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
 
   const steps = ["Customer Details", "Order Details", "Add Items", "Review & Confirm"];
 
-  const handleSubmit = () => {
-    // TODO: API call to create outbound order
-    console.log("Creating outbound order:", formData);
-    onClose();
-    setStep(1);
-    setFormData({
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [customersData, warehousesData, materialsData] = await Promise.all([
+          customersApi.getAll(),
+          warehousesApi.getAll(),
+          materialsApi.getAll(),
+        ]);
+        setCustomers(customersData);
+        setWarehouses(warehousesData);
+        setMaterials(materialsData);
+      } catch (err) {
+        console.error("Failed to load data:", err);
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      if (!formData.customerName || !formData.warehouseId || !formData.requiredDeliveryDate) {
+        setError("Please fill in all required fields.");
+        return;
+      }
+
+      // Find or create customer
+      let customerId = customers.find((c) => c.name === formData.customerName)?.id;
+      if (!customerId) {
+        // Create new customer
+        const newCustomer = await customersApi.create({
+          name: formData.customerName,
+          email: formData.customerEmail || undefined,
+          phone: formData.customerPhone || undefined,
+          address: formData.deliveryAddress,
+          city: formData.deliveryCity,
+          country: formData.deliveryCountry,
+          status: "active",
+        });
+        customerId = newCustomer.id;
+      }
+
+      // Generate order number
+      const orderNumber = `#${Date.now()}`;
+
+      await ordersApi.create({
+        orderNumber,
+        orderType: "outbound",
+        customerId,
+        warehouseId: formData.warehouseId,
+        expectedDate: formData.requiredDeliveryDate,
+        priority: formData.priority,
+        notes: formData.notes || undefined,
+        status: "pending",
+      });
+
+      showToast.success("Outbound order created successfully!");
+      onClose();
+      setStep(1);
+      setFormData({
       customerName: "",
       customerEmail: "",
       customerPhone: "",
@@ -444,6 +576,12 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
       notes: "",
       items: [],
     });
+    } catch (err) {
+      console.error("Failed to create outbound order:", err);
+      setError("Failed to create order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -578,16 +716,19 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
             <label className="label">
               <span className="label-text font-medium">Warehouse *</span>
             </label>
-            <select
-              className="select select-bordered w-full"
-              value={formData.warehouseId}
-              onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-              required
-            >
-              <option value="">Select warehouse</option>
-              <option value="wh-1">Warehouse 1</option>
-              <option value="wh-2">Warehouse 2</option>
-            </select>
+              <select
+                className="select select-bordered w-full"
+                value={formData.warehouseId}
+                onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+                required
+              >
+                <option value="">Select warehouse</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
           </div>
           <div className="form-control">
             <label className="label">
@@ -676,10 +817,12 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
                       }}
                       required
                     >
-                      <option value="">Select product</option>
-                      <option value="prod-1">Wireless Earbuds (Available: 50)</option>
-                      <option value="prod-2">Smart Projector (Available: 30)</option>
-                      <option value="prod-3">Remote Control (Available: 100)</option>
+                      <option value="">Select material</option>
+                      {materials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.description}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="form-control">
@@ -782,12 +925,24 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
               </div>
             ))}
           </div>
+          {error && (
+            <div className="alert alert-error">
+              <span>{error}</span>
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
-            <button className="btn btn-ghost" onClick={() => setStep(3)}>
+            <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting}>
               Back
             </button>
-            <button className="btn btn-primary" onClick={handleSubmit}>
-              Create Order
+            <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <span className="loading loading-spinner loading-sm"></span>
+                  Creating...
+                </>
+              ) : (
+                "Create Order"
+              )}
             </button>
           </div>
         </div>

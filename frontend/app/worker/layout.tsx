@@ -10,6 +10,7 @@ import { startAutoSync } from "@/lib/sync";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
+import { authApi } from "@/lib/api/auth";
 import {
   canAccessOperation,
   OPERATIONS,
@@ -41,7 +42,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { isOnline } = useOffline();
-  const { worker, role, isLoading } = useWorker();
+  const { worker, role, isLoading, clearWorker } = useWorker();
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -93,7 +94,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   }, [showProfileMenu]);
 
   // Use worker from context, fallback to default for display
-  const displayWorker = worker || {
+  // Use workerId (employeeId) instead of UUID for display
+  const displayWorker = worker ? {
+    ...worker,
+    id: worker.workerId || "N/A", // Use workerId (employeeId), not the UUID
+  } : {
     name: "Worker",
     id: "N/A",
     warehouse: "N/A",
@@ -101,29 +106,91 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     avatar: "/assets/avatars/placeholder.svg",
   };
 
-  const notifications = [
-    {
-      id: 1,
-      title: "New task assigned",
-      message: "Receiving task #452368",
-      time: "2m ago",
-      read: false,
-    },
-    {
-      id: 2,
-      title: "Task completed",
-      message: "Putaway task completed",
-      time: "15m ago",
-      read: false,
-    },
-    {
-      id: 3,
-      title: "Reminder",
-      message: "Cycle count due in Zone B",
-      time: "1h ago",
-      read: true,
-    },
-  ];
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    title: string;
+    message: string;
+    time: string;
+    read: boolean;
+  }>>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Load notifications from database
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!worker?.id || !isOnline) return;
+
+      try {
+        const { notificationsApi } = await import("@/lib/api/notifications");
+        const allNotifications = await notificationsApi.getAll(worker.id);
+        
+        // Transform to display format
+        const formatted = allNotifications.map(notif => ({
+          id: notif.id,
+          title: notif.title,
+          message: notif.message,
+          time: formatTimeAgo(notif.createdAt),
+          read: notif.read,
+        }));
+
+        setNotifications(formatted);
+        
+        // Get unread count
+        try {
+          const count = await notificationsApi.getUnreadCount(worker.id);
+          setUnreadCount(count);
+        } catch (countError) {
+          // If unread count fails, calculate from notifications
+          const unread = formatted.filter(n => !n.read).length;
+          setUnreadCount(unread);
+        }
+      } catch (error: any) {
+        // Only log if it's not a 404 or 500 (endpoint might not exist)
+        if (error?.message && !error.message.includes('404') && !error.message.includes('500')) {
+          console.error("Failed to load notifications:", error);
+        }
+        // Set empty notifications on error
+        setNotifications([]);
+        setUnreadCount(0);
+      }
+    };
+
+    loadNotifications();
+    
+    // Refresh notifications every 30 seconds
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [worker?.id, isOnline]);
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  };
+
+  const handleNotificationClick = async (notif: { id: string; read: boolean }) => {
+    if (!notif.read && isOnline) {
+      try {
+        const { notificationsApi } = await import("@/lib/api/notifications");
+        await notificationsApi.markAsRead(notif.id);
+        setNotifications(prev => 
+          prev.map(n => n.id === notif.id ? { ...n, read: true } : n)
+        );
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch (error) {
+        console.error("Failed to mark notification as read:", error);
+      }
+    }
+  };
 
   // Check if we're on home page (either /worker or /worker/[role])
   const isHome =
@@ -136,66 +203,110 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
   // Route protection - check if worker has access to current operation
   useEffect(() => {
-    // Don't check routes during loading, on login page, or home page
-    if (isLoading || pathname === "/worker/login" || isHome) {
+    // Don't check routes on login page or home page
+    if (pathname === "/worker/login" || isHome) {
       return;
     }
 
-    // List of routes that don't require operation-based permissions
-    const publicRoutes = [
-      "/worker/profile",
-      "/worker/account-settings",
-      "/worker/app-settings",
-      "/worker/settings",
-      "/worker/tasks",
-      "/worker/leaderboard",
-    ];
+    // Check if we have a token (client-side only)
+    if (typeof window === 'undefined') return;
+    const currentHasToken = !!localStorage.getItem('accessToken');
+    
+    // Update hasToken state
+    setHasToken(currentHasToken);
 
-    // Skip protection for public routes (including dynamic task routes)
-    if (publicRoutes.some((route) => pathname.startsWith(route))) {
+    // If no token and not loading, redirect immediately (for manual URL entry)
+    if (!currentHasToken && !isLoading && !worker && !role) {
+      console.log("[WorkerLayout] No token on manual URL entry - redirecting to login immediately");
+      router.replace("/worker/login");
       return;
     }
 
-    // Extract operation from path (e.g., /worker/receiving -> receiving)
-    // Handle paths like /worker/receiving or /worker/receiving/...
-    const pathWithoutPrefix = pathname.replace(/^\/worker\/?/, "");
-    const operation = pathWithoutPrefix.split("/")[0]; // Get first segment only
+    // Wait for loading to complete, but with a timeout
+    const checkAuth = setTimeout(() => {
+      // List of routes that don't require operation-based permissions
+      const publicRoutes = [
+        "/worker/profile",
+        "/worker/account-settings",
+        "/worker/app-settings",
+        "/worker/settings",
+        "/worker/tasks",
+        "/worker/leaderboard",
+      ];
 
-    // Check if this is an operation route that requires permission
-    const protectedOperations = Object.values(OPERATIONS);
-    const isOperationRoute = protectedOperations.includes(operation as any);
-
-    // Debug logging (remove in production)
-    if (process.env.NODE_ENV === "development") {
-      console.log("[Route Protection]", {
-        pathname,
-        operation,
-        isOperationRoute,
-        role,
-        worker: !!worker,
-      });
-    }
-
-    // Only protect operation routes, let Next.js handle 404 for other routes
-    if (isOperationRoute) {
-      // If no worker or no role, redirect to login
-      if (!worker || !role) {
-        router.push("/worker/login");
+      // Skip protection for public routes (including dynamic task routes)
+      if (publicRoutes.some((route) => pathname.startsWith(route))) {
+        // Still check if authenticated
+        const currentHasToken = typeof window !== 'undefined' && !!localStorage.getItem('accessToken');
+        if (!worker && !role && !currentHasToken) {
+          console.log("[WorkerLayout] Public route but not authenticated - redirecting to login");
+          router.replace("/worker/login");
+        }
         return;
       }
 
-      // Check if worker has permission for this operation
-      if (!canAccessOperation(role, operation)) {
-        // Redirect to role-specific home with error message
-        const homeUrl = role
-          ? `/worker/${role}?error=unauthorized`
-          : "/worker?error=unauthorized";
-        router.push(homeUrl);
-        return;
+      // Extract operation from path (e.g., /worker/receiving -> receiving)
+      // Handle paths like /worker/receiving or /worker/receiving/...
+      const pathWithoutPrefix = pathname.replace(/^\/worker\/?/, "");
+      const operation = pathWithoutPrefix.split("/")[0]; // Get first segment only
+
+      // Check if this is an operation route that requires permission
+      const protectedOperations = Object.values(OPERATIONS);
+      const isOperationRoute = protectedOperations.includes(operation as any);
+
+      // Debug logging (remove in production)
+      if (process.env.NODE_ENV === "development") {
+        console.log("[Route Protection]", {
+          pathname,
+          operation,
+          isOperationRoute,
+          role,
+          worker: !!worker,
+          hasToken,
+        });
       }
-    }
-    // If it's not an operation route, let Next.js handle it (404 if doesn't exist)
-  }, [pathname, worker, role, isLoading, router, isHome]);
+
+      // Only protect operation routes, let Next.js handle 404 for other routes
+      if (isOperationRoute) {
+        const currentHasToken = typeof window !== 'undefined' && !!localStorage.getItem('accessToken');
+        
+        // If no worker AND no token, redirect to login immediately
+        if (!worker && !role && !currentHasToken) {
+          console.log("[WorkerLayout] No worker and no token - redirecting to login");
+          router.replace("/worker/login");
+          return;
+        }
+
+        // If we have a token but no worker state, wait a bit more (API call might be in progress)
+        if (!worker && !role && currentHasToken) {
+          console.log("[WorkerLayout] Has token but no worker - waiting for API call...");
+          const retryTimeout = setTimeout(() => {
+            if (!worker && !role) {
+              console.log("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
+              // Token might be invalid, clear it
+              localStorage.removeItem('accessToken');
+              localStorage.removeItem('refreshToken');
+              router.replace("/worker/login");
+            }
+          }, 3000); // Increased timeout to allow API call
+          return () => clearTimeout(retryTimeout);
+        }
+
+        // Check if worker has permission for this operation
+        if (worker && role && !canAccessOperation(role, operation)) {
+          // Redirect to role-specific home with error message
+          const homeUrl = role
+            ? `/worker/${role}?error=unauthorized`
+            : "/worker?error=unauthorized";
+          router.push(homeUrl);
+          return;
+        }
+      }
+      // If it's not an operation route, let Next.js handle it (404 if doesn't exist)
+    }, isLoading ? 1000 : 0); // Wait longer if still loading to allow API call
+
+    return () => clearTimeout(checkAuth);
+  }, [pathname, worker, role, isLoading, router, isHome, canAccessOperation]);
 
   // Initialize offline-first infrastructure
   useEffect(() => {
@@ -212,6 +323,92 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       stopAutoSync();
     };
   }, []);
+
+  // Check if we have a token (for route protection) - client-side only
+  const [hasToken, setHasToken] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+  
+  React.useEffect(() => {
+    setMounted(true);
+    setHasToken(!!localStorage.getItem('accessToken'));
+  }, []);
+  
+  // Add timeout to prevent infinite loading
+  const [loadingTimeout, setLoadingTimeout] = React.useState(false);
+  
+  React.useEffect(() => {
+    if (isLoading && hasToken && !worker) {
+      // Set a timeout - if still loading after 5 seconds, force stop
+      const timeout = setTimeout(() => {
+        console.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
+        setLoadingTimeout(true);
+      }, 5000);
+      
+      return () => clearTimeout(timeout);
+    } else {
+      setLoadingTimeout(false);
+    }
+  }, [isLoading, hasToken, worker]);
+  
+  // If timeout occurred, redirect to login
+  React.useEffect(() => {
+    if (loadingTimeout && !worker && !role) {
+      console.log("[WorkerLayout] Loading timeout - redirecting to login");
+      router.replace("/worker/login");
+    }
+  }, [loadingTimeout, worker, role, router]);
+  
+  // Show loading while checking auth, but with timeout
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+  
+  if (isLoading && !worker && !role) {
+    // If we have a token, show loading (API call might be in progress)
+    if (hasToken && !loadingTimeout) {
+      console.log("[WorkerLayout] Has token but no worker - showing loading (API call in progress)");
+      return (
+        <div className="min-h-screen bg-base-200 flex items-center justify-center">
+          <div className="text-center">
+            <span className="loading loading-spinner loading-lg"></span>
+            <p className="mt-4 text-sm">Restoring session...</p>
+          </div>
+        </div>
+      );
+    }
+    // Timeout occurred - show error
+    if (loadingTimeout) {
+      return (
+        <div className="min-h-screen bg-base-200 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-error mb-2">Session expired</p>
+            <p className="text-sm">Redirecting to login...</p>
+          </div>
+        </div>
+      );
+    }
+    // Still loading
+    return (
+      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+  
+  // If no worker, no role, and no token after loading - redirect will happen in useEffect
+  if (!isLoading && !worker && !role && !hasToken && pathname !== "/worker/login") {
+    console.log("[WorkerLayout] No worker, no role, no token - redirecting to login");
+    // Redirect happens in useEffect, just show loading
+    return (
+      <div className="min-h-screen bg-base-200 flex items-center justify-center">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -372,16 +569,31 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                       </Link>
                     </li>
                     <li>
-                      <Link
-                        href="/worker/login"
-                        onClick={() => setShowProfileMenu(false)}
+                      <a
+                        href="#"
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          setShowProfileMenu(false);
+                          try {
+                            // Clear worker context
+                            clearWorker();
+                            // Clear tokens and IndexedDB
+                            await authApi.logout();
+                            // Redirect to login
+                            router.push("/worker/login");
+                          } catch (error) {
+                            console.error("Error during logout:", error);
+                            // Still redirect even if logout fails
+                            router.push("/worker/login");
+                          }
+                        }}
                         className="flex items-center gap-2 text-error"
                       >
                         <span className="material-symbols-outlined text-sm text-error">
                           logout
                         </span>
                         <span className="text-error">Logout</span>
-                      </Link>
+                      </a>
                     </li>
                   </ul>
                 </div>
@@ -479,7 +691,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
             <span className="material-symbols-outlined text-xl">
               notifications
             </span>
-            {notifications.filter((n) => !n.read).length > 0 && (
+            {unreadCount > 0 && (
               <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border-2 border-neutral"></span>
             )}
             <span className="text-xs font-medium">Updates</span>
@@ -557,7 +769,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                   {notifications.map((notif) => (
                     <div
                       key={notif.id}
-                      className={`p-4 hover:bg-base-200 ${
+                      onClick={() => handleNotificationClick(notif)}
+                      className={`p-4 hover:bg-base-200 cursor-pointer ${
                         !notif.read ? "bg-primary/5" : ""
                       }`}
                     >

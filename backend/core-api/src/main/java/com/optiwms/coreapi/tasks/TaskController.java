@@ -7,7 +7,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -93,6 +92,19 @@ public class TaskController {
         }
     }
 
+    @PostMapping("/{id}/assign")
+    public ResponseEntity<TaskDto> assignTask(
+            @PathVariable UUID id,
+            @RequestBody AssignTaskRequest request
+    ) {
+        try {
+            Task updated = taskService.assignTask(id, UUID.fromString(request.workerId()), request.assignedBy());
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     private TaskDto toDto(Task task) {
         return new TaskDto(
                 task.getId().toString(),
@@ -126,6 +138,12 @@ public class TaskController {
     ) {}
 
     public record UpdateStatusRequest(String status) {}
+
+    public record AssignTaskRequest(
+            String workerId,
+            String assignedBy,
+            java.util.List<String> warnings
+    ) {}
 
     public record TaskDto(
             String id,

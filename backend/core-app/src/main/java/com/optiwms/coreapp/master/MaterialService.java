@@ -24,6 +24,12 @@ public class MaterialService {
                 .collect(Collectors.toList());
     }
 
+    public List<Material> findByMaterialType(String materialType) {
+        return repository.findByMaterialType(materialType).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Material findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -60,6 +66,7 @@ public class MaterialService {
         entity.setDescription(material.getDescription());
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
+        entity.setMaterialType(material.getMaterialType());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -82,6 +89,7 @@ public class MaterialService {
         entity.setDescription(material.getDescription());
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
+        entity.setMaterialType(material.getMaterialType());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -101,6 +109,7 @@ public class MaterialService {
         m.setDescription(entity.getDescription());
         m.setUnitType(entity.getUnitType());
         m.setStorageType(entity.getStorageType());
+        m.setMaterialType(entity.getMaterialType());
         return m;
     }
 }

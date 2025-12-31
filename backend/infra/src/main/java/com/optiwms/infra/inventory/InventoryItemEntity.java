@@ -27,14 +27,14 @@ public class InventoryItemEntity {
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
-    @Column(name = "quantity", precision = 15, scale = 2, nullable = false)
-    private BigDecimal quantity = BigDecimal.ZERO;
+    @Column(name = "quantity", nullable = false)
+    private Integer quantity = 0;
 
-    @Column(name = "available_quantity", precision = 15, scale = 2, nullable = false)
-    private BigDecimal availableQuantity = BigDecimal.ZERO;
+    @Column(name = "available_quantity", nullable = false)
+    private Integer availableQuantity = 0;
 
-    @Column(name = "reserved_quantity", precision = 15, scale = 2, nullable = false)
-    private BigDecimal reservedQuantity = BigDecimal.ZERO;
+    @Column(name = "reserved_quantity", nullable = false)
+    private Integer reservedQuantity = 0;
 
     @Column(name = "buffer_stock", precision = 15, scale = 2)
     private BigDecimal bufferStock;
@@ -129,27 +129,27 @@ public class InventoryItemEntity {
         this.locationCode = locationCode;
     }
 
-    public BigDecimal getQuantity() {
+    public Integer getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(BigDecimal quantity) {
+    public void setQuantity(Integer quantity) {
         this.quantity = quantity;
     }
 
-    public BigDecimal getAvailableQuantity() {
+    public Integer getAvailableQuantity() {
         return availableQuantity;
     }
 
-    public void setAvailableQuantity(BigDecimal availableQuantity) {
+    public void setAvailableQuantity(Integer availableQuantity) {
         this.availableQuantity = availableQuantity;
     }
 
-    public BigDecimal getReservedQuantity() {
+    public Integer getReservedQuantity() {
         return reservedQuantity;
     }
 
-    public void setReservedQuantity(BigDecimal reservedQuantity) {
+    public void setReservedQuantity(Integer reservedQuantity) {
         this.reservedQuantity = reservedQuantity;
     }
 

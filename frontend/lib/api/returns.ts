@@ -43,5 +43,21 @@ export const returnsApi = {
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/returns/${id}`);
   },
+
+  approve: async (id: string, approvedBy?: string): Promise<Return> => {
+    return apiClient.put<Return>(`/returns/${id}/approve`, { approvedBy });
+  },
+
+  submitInspection: async (id: string, inspectionData: {
+    overallResolution: string;
+    notes?: string;
+    inspectedBy?: string;
+  }): Promise<Return> => {
+    return apiClient.put<Return>(`/returns/${id}/inspection`, inspectionData);
+  },
+
+  assignWorker: async (id: string, workerId: string): Promise<Return> => {
+    return apiClient.put<Return>(`/returns/${id}/assign`, { workerId });
+  },
 };
 

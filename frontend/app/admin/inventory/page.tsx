@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
+import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
+import { materialsApi, Material } from "@/lib/api/materials";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { showToast } from "@/lib/utils/toast";
 import {
   AreaChart,
   Area,
@@ -14,98 +18,20 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-const inventory = [
-  {
-    sku: "SKU-1001",
-    name: "Wireless Earbuds",
-    qty: 240,
-    location: "ST-01-001-03-A",
-    status: "Available",
-    category: "Electronics",
-    warehouseName: "Warehouse 1",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "SKU-1002",
-    name: "Smart Projector",
-    qty: 56,
-    location: "ST-01-002-04-A",
-    status: "Available",
-    category: "Electronics",
-    warehouseName: "Warehouse 1",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "SKU-1003",
-    name: "Smart Mug",
-    qty: 18,
-    location: "ST-02-001-02-A",
-    status: "Low",
-    category: "Home",
-    warehouseName: "Warehouse 1",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "SKU-1004",
-    name: "Instant Pot",
-    qty: 90,
-    location: "ST-02-003-05-A",
-    status: "Available",
-    category: "Appliances",
-    warehouseName: "Warehouse 1",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "SKU-1005",
-    name: "Yoga Mat",
-    qty: 5,
-    location: "ST-01-001-02-A",
-    status: "Out of Stock",
-    category: "Sports",
-    warehouseName: "Warehouse 2",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "SKU-1006",
-    name: "Bluetooth Speaker",
-    qty: 120,
-    location: "ST-01-002-03-A",
-    status: "Available",
-    category: "Electronics",
-    warehouseName: "Warehouse 2",
-    itemType: "Product" as const,
-  },
-  {
-    sku: "RM-1001",
-    name: "Steel Sheet 2mm",
-    qty: 1500,
-    location: "RM-01-001-01-A",
-    status: "Available",
-    category: "Raw Materials",
-    warehouseName: "Warehouse 1",
-    itemType: "Raw Material" as const,
-  },
-  {
-    sku: "RM-1002",
-    name: "Aluminum Rod 10mm",
-    qty: 800,
-    location: "RM-01-002-02-A",
-    status: "Available",
-    category: "Raw Materials",
-    warehouseName: "Warehouse 1",
-    itemType: "Raw Material" as const,
-  },
-  {
-    sku: "RM-2001",
-    name: "Plastic Granules",
-    qty: 2500,
-    location: "RM-02-001-01-B",
-    status: "Available",
-    category: "Raw Materials",
-    warehouseName: "Warehouse 2",
-    itemType: "Raw Material" as const,
-  },
-];
+// Display format for inventory items
+interface InventoryDisplayItem {
+  id: string;
+  sku: string;
+  name: string;
+  qty: number;
+  location: string;
+  status: "Available" | "Low" | "Out of Stock";
+  category: string;
+  warehouseName: string;
+  itemType: "Product" | "Raw Material";
+  materialId: string;
+  warehouseId: string;
+}
 
 const statusClass = (s: string) => {
   if (s === "Available") return "badge-success";
@@ -120,6 +46,7 @@ const itemTypes = ["All", "Product", "Raw Material"];
 export default function InventoryPage() {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
   const assignedWarehouseName = admin?.warehouseName;
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeItemType, setActiveItemType] = useState("All");
@@ -132,15 +59,99 @@ export default function InventoryPage() {
     "name" | "sku" | "qty" | "location" | null
   >(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedItem, setSelectedItem] = useState<
-    (typeof inventory)[0] | null
-  >(null);
+  const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
+  
+  // API state
+  const [inventoryItems, setInventoryItems] = useState<InventoryDisplayItem[]>([]);
+  const [materials, setMaterials] = useState<Map<string, { name: string; category: string; materialType?: string }>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load inventory, materials, and warehouses in parallel
+        const [inventoryData, materialsData, warehousesData] = await Promise.all([
+          inventoryApi.getAll(),
+          materialsApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Create lookup maps
+        const materialsMap = new Map();
+        materialsData.forEach((m) => {
+          materialsMap.set(m.id, {
+            name: m.description,
+            category: m.storageType || "General",
+            materialType: m.storageType,
+          });
+        });
+
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+
+        setMaterials(materialsMap);
+        setWarehouses(warehousesMap);
+
+        // Transform inventory items to display format
+        const displayItems: InventoryDisplayItem[] = inventoryData.map((item) => {
+          const material = materialsMap.get(item.materialId);
+          const warehouseName = warehousesMap.get(item.warehouseId) || "Unknown";
+          // Convert to integer (quantities are integers in the backend)
+          const qty = Math.ceil(parseFloat(item.quantity) || 0);
+          const availableQty = Math.ceil(parseFloat(item.availableQuantity) || 0);
+          
+          // Determine status based on quantity
+          let status: "Available" | "Low" | "Out of Stock" = "Available";
+          if (qty === 0) {
+            status = "Out of Stock";
+          } else if (qty < 10 || availableQty < 10) {
+            status = "Low";
+          }
+
+          // Determine item type from material
+          const itemType: "Product" | "Raw Material" = 
+            material?.materialType?.toLowerCase().includes("raw") ? "Raw Material" : "Product";
+
+          return {
+            id: item.id,
+            sku: material?.name || item.materialId,
+            name: material?.name || "Unknown Material",
+            qty,
+            location: item.locationCode || "N/A",
+            status,
+            category: material?.category || "General",
+            warehouseName,
+            itemType,
+            materialId: item.materialId,
+            warehouseId: item.warehouseId,
+          };
+        });
+
+        setInventoryItems(displayItems);
+      } catch (err) {
+        console.error("Failed to load inventory:", err);
+        setError("Failed to load inventory data. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   // Filter inventory by warehouse for warehouse managers
   const inventoryForWarehouse =
-    isWarehouseManager && assignedWarehouseName
-      ? inventory.filter((item) => item.warehouseName === assignedWarehouseName)
-      : inventory;
+    isWarehouseManager && assignedWarehouseId
+      ? inventoryItems.filter((item) => item.warehouseId === assignedWarehouseId)
+      : inventoryItems;
 
   let filteredInventory = inventoryForWarehouse.filter((item) => {
     const matchesCategory =
@@ -179,10 +190,10 @@ export default function InventoryPage() {
     });
   }
 
-  const totalItems = inventoryForWarehouse.reduce(
+  const totalItems = Math.ceil(inventoryForWarehouse.reduce(
     (sum, item) => sum + item.qty,
     0
-  );
+  ));
   const lowStockItems = inventoryForWarehouse.filter(
     (item) => item.status === "Low" || item.status === "Out of Stock"
   ).length;
@@ -190,12 +201,45 @@ export default function InventoryPage() {
     (item) => item.status === "Available"
   ).length;
 
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Inventory</h1>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="dropdown dropdown-end">
             <label tabIndex={0} className="btn btn-sm btn-ghost">
               <span className="material-symbols-outlined">swap_vert</span>
@@ -448,12 +492,12 @@ export default function InventoryPage() {
                       {item.category}
                     </span>
                   </td>
-                  <td className="font-semibold">{item.qty}</td>
+                  <td className="font-semibold">{Math.ceil(item.qty)}</td>
                   <td>
                     <span className="badge badge-ghost">{item.location}</span>
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(item.status)}`}>
+                    <span className={`badge ${statusClass(item.status)} whitespace-nowrap text-xs`}>
                       {item.status}
                     </span>
                   </td>
@@ -552,23 +596,77 @@ function AddInventoryItemModal({
     category: "",
     qty: "",
     location: "",
-    status: "Available",
+    status: "Available" as "Available" | "Low" | "Out of Stock",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [materialsData, warehousesData] = await Promise.all([
+          materialsApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+        setMaterials(materialsData);
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load materials/warehouses:", err);
+      }
+    };
+    loadData();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to add inventory item
-    console.log("Adding inventory item:", formData);
-    alert("Inventory item added successfully!");
-    onClose();
-    setFormData({
-      sku: "",
-      name: "",
-      category: "",
-      qty: "",
-      location: "",
-      status: "Available",
-    });
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      // Find material by description (name)
+      const material = materials.find((m) => m.description === formData.name);
+      if (!material) {
+        setError("Material not found. Please select a valid material.");
+        return;
+      }
+
+      // Get warehouse ID (use first warehouse for now, or get from context)
+      const warehouse = warehouses[0];
+      if (!warehouse) {
+        setError("No warehouse available.");
+        return;
+      }
+
+      await inventoryApi.create({
+        materialId: material.id,
+        warehouseId: warehouse.id,
+        locationCode: formData.location || undefined,
+        quantity: formData.qty || "0",
+        availableQuantity: formData.qty || "0",
+        status: "active",
+      });
+
+      showToast.success("Inventory item added successfully!");
+      onClose();
+      setFormData({
+        sku: "",
+        name: "",
+        category: "",
+        qty: "",
+        location: "",
+        status: "Available",
+      });
+      // Reload page to refresh inventory list
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to add inventory item:", err);
+      setError("Failed to add inventory item. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -591,18 +689,24 @@ function AddInventoryItemModal({
             required
           />
         </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Item Name *</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered w-full"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-        </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Material *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+            >
+              <option value="">Select material</option>
+              {materials.map((m) => (
+                <option key={m.id} value={m.description}>
+                  {m.description}
+                </option>
+              ))}
+            </select>
+          </div>
         <div className="form-control">
           <label className="label">
             <span className="label-text font-medium">Category *</span>
@@ -659,7 +763,7 @@ function AddInventoryItemModal({
             className="select select-bordered w-full"
             value={formData.status}
             onChange={(e) =>
-              setFormData({ ...formData, status: e.target.value })
+              setFormData({ ...formData, status: e.target.value as "Available" | "Low" | "Out of Stock" })
             }
           >
             <option value="Available">Available</option>
@@ -667,12 +771,24 @@ function AddInventoryItemModal({
             <option value="Out of Stock">Out of Stock</option>
           </select>
         </div>
+        {error && (
+          <div className="alert alert-error">
+            <span>{error}</span>
+          </div>
+        )}
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Add Item
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Adding...
+              </>
+            ) : (
+              "Add Item"
+            )}
           </button>
         </div>
       </form>
@@ -720,7 +836,7 @@ function InventoryItemDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: (typeof inventory)[0];
+  item: InventoryDisplayItem;
 }) {
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
 
@@ -795,7 +911,7 @@ function InventoryItemDetailModal({
               <label className="text-sm text-base-content/60">
                 Current Quantity
               </label>
-              <p className="font-semibold text-lg">{item.qty} units</p>
+              <p className="font-semibold text-lg">{Math.ceil(item.qty)} units</p>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Location</label>
@@ -982,19 +1098,37 @@ function EditInventoryItemModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  item: (typeof inventory)[0];
+  item: InventoryDisplayItem;
 }) {
   const [formData, setFormData] = useState({
     qty: item.qty.toString(),
     location: item.location,
     status: item.status,
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update inventory
-    console.log("Updating inventory item:", formData);
-    onClose();
+    try {
+      setIsSubmitting(true);
+      // Calculate quantity change
+      const currentQty = item.qty;
+      const newQty = parseFloat(formData.qty) || 0;
+      const quantityChange = newQty - currentQty;
+
+      if (quantityChange !== 0) {
+        await inventoryApi.updateQuantity(item.id, quantityChange);
+      }
+
+      showToast.success("Inventory updated successfully!");
+      // Reload page to refresh data
+      window.location.reload();
+    } catch (error) {
+      console.error("Failed to update inventory:", error);
+      showToast.error("Failed to update inventory. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1060,7 +1194,7 @@ function EditInventoryItemModal({
             className="select select-bordered w-full"
             value={formData.status}
             onChange={(e) =>
-              setFormData({ ...formData, status: e.target.value })
+              setFormData({ ...formData, status: e.target.value as "Available" | "Low" | "Out of Stock" })
             }
           >
             <option value="Available">Available</option>
@@ -1072,8 +1206,15 @@ function EditInventoryItemModal({
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Update Inventory
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Updating...
+              </>
+            ) : (
+              "Update Inventory"
+            )}
           </button>
         </div>
       </form>

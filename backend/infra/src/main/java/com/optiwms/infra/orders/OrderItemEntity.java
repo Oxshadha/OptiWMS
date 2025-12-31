@@ -24,17 +24,17 @@ public class OrderItemEntity {
     @Column(name = "material_id", columnDefinition = "UUID", nullable = false)
     private UUID materialId;
 
-    @Column(name = "quantity", precision = 15, scale = 2, nullable = false)
-    private BigDecimal quantity;
+    @Column(name = "quantity", nullable = false)
+    private Integer quantity;
 
     @Column(name = "unit_price", precision = 15, scale = 2)
     private BigDecimal unitPrice;
 
-    @Column(name = "picked_quantity", precision = 15, scale = 2)
-    private BigDecimal pickedQuantity = BigDecimal.ZERO;
+    @Column(name = "picked_quantity")
+    private Integer pickedQuantity = 0;
 
-    @Column(name = "packed_quantity", precision = 15, scale = 2)
-    private BigDecimal packedQuantity = BigDecimal.ZERO;
+    @Column(name = "packed_quantity")
+    private Integer packedQuantity = 0;
 
     @Column(name = "location_code", length = 50)
     private String locationCode;
@@ -78,11 +78,11 @@ public class OrderItemEntity {
         this.materialId = materialId;
     }
 
-    public BigDecimal getQuantity() {
+    public Integer getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(BigDecimal quantity) {
+    public void setQuantity(Integer quantity) {
         this.quantity = quantity;
     }
 
@@ -94,19 +94,19 @@ public class OrderItemEntity {
         this.unitPrice = unitPrice;
     }
 
-    public BigDecimal getPickedQuantity() {
+    public Integer getPickedQuantity() {
         return pickedQuantity;
     }
 
-    public void setPickedQuantity(BigDecimal pickedQuantity) {
+    public void setPickedQuantity(Integer pickedQuantity) {
         this.pickedQuantity = pickedQuantity;
     }
 
-    public BigDecimal getPackedQuantity() {
+    public Integer getPackedQuantity() {
         return packedQuantity;
     }
 
-    public void setPackedQuantity(BigDecimal packedQuantity) {
+    public void setPackedQuantity(Integer packedQuantity) {
         this.packedQuantity = packedQuantity;
     }
 

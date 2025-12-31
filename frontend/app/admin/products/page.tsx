@@ -8,59 +8,23 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { materialsApi, Material } from "@/lib/api/materials";
+import { inventoryApi } from "@/lib/api/inventory";
+import { showToast } from "@/lib/utils/toast";
 import React from "react";
 
-// Mock data - will be replaced with API calls
-const products = [
-  {
-    id: "prod-1",
-    name: "Wireless Earbuds",
-    sku: "SKU-1001",
-    category: "Electronics",
-    weight: 0.05,
-    dimensions: "5x3x2",
-    totalStock: 240,
-    reorderPoint: 50,
-    status: "active",
-    imageUrl: "/assets/products/earbuds.jpg",
-  },
-  {
-    id: "prod-2",
-    name: "Smart Projector",
-    sku: "SKU-1002",
-    category: "Electronics",
-    weight: 2.5,
-    dimensions: "30x25x15",
-    totalStock: 45,
-    reorderPoint: 10,
-    status: "active",
-    imageUrl: "/assets/products/projector.jpg",
-  },
-  {
-    id: "prod-3",
-    name: "Remote Control",
-    sku: "SKU-2001",
-    category: "Accessories",
-    weight: 0.1,
-    dimensions: "15x5x2",
-    totalStock: 180,
-    reorderPoint: 30,
-    status: "active",
-    imageUrl: "/assets/products/remote.jpg",
-  },
-  {
-    id: "prod-4",
-    name: "Smart Mug",
-    sku: "SKU-1003",
-    category: "Home & Kitchen",
-    weight: 0.4,
-    dimensions: "10x10x12",
-    totalStock: 95,
-    reorderPoint: 20,
-    status: "active",
-    imageUrl: "/assets/products/mug.jpg",
-  },
-];
+interface Product {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  weight: number;
+  dimensions: string;
+  totalStock: number;
+  reorderPoint: number;
+  status: string;
+  imageUrl?: string;
+}
 
 export default function ProductsPage() {
   const { hasPermission } = useAdmin();
@@ -69,18 +33,79 @@ export default function ProductsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<typeof products[0] | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<typeof products[0] | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const canEdit = hasPermission(ADMIN_ROUTES.PRODUCTS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.PRODUCTS, "delete");
 
+  // Load products from API
+  useEffect(() => {
+    const loadProducts = async () => {
+      try {
+        setLoading(true);
+        // Fetch materials with materialType='product'
+        const materials = await materialsApi.getAll("product");
+        
+        // Fetch inventory for each material to get stock levels
+        const productsWithInventory = await Promise.all(
+          materials.map(async (material) => {
+            try {
+              const inventory = await inventoryApi.getByMaterial(material.id);
+              const totalStock = inventory.reduce((sum, inv) => sum + (inv.quantity || 0), 0);
+              
+              // Extract category from description or use default
+              const category = material.description?.split(" ")[0] || "General";
+              
+              return {
+                id: material.id,
+                name: material.description || "Unknown",
+                sku: material.materialCode,
+                category: category,
+                weight: 0, // Not available in materials API
+                dimensions: "", // Not available in materials API
+                totalStock: totalStock,
+                reorderPoint: 10, // Default, can be enhanced later
+                status: "active",
+                imageUrl: undefined,
+              };
+            } catch (error) {
+              console.error(`Error fetching inventory for ${material.id}:`, error);
+              return {
+                id: material.id,
+                name: material.description || "Unknown",
+                sku: material.materialCode,
+                category: "General",
+                weight: 0,
+                dimensions: "",
+                totalStock: 0,
+                reorderPoint: 10,
+                status: "active",
+                imageUrl: undefined,
+              };
+            }
+          })
+        );
+        
+        setProducts(productsWithInventory);
+      } catch (error) {
+        console.error("Error loading products:", error);
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadProducts();
+  }, []);
+
   const summary = {
-    totalProducts: 156,
-    categories: 12,
-    lowStock: 8,
+    totalProducts: products.length,
+    categories: new Set(products.map(p => p.category)).size,
+    lowStock: products.filter(p => p.totalStock < p.reorderPoint).length,
   };
 
   const filteredProducts = products.filter((product) => {
@@ -118,7 +143,7 @@ export default function ProductsPage() {
     {
       key: "image",
       label: "Image",
-      render: (product: typeof products[0]) => (
+      render: (product: Product) => (
         <div className="w-12 h-12 bg-base-200 rounded-lg flex items-center justify-center overflow-hidden">
           {product.imageUrl ? (
             <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
@@ -131,7 +156,7 @@ export default function ProductsPage() {
     {
       key: "name",
       label: "Product Name",
-      render: (product: typeof products[0]) => (
+      render: (product: Product) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -169,7 +194,7 @@ export default function ProductsPage() {
     {
       key: "totalStock",
       label: "Total Stock",
-      render: (product: typeof products[0]) => (
+      render: (product: Product) => (
         <span className={product.totalStock <= product.reorderPoint ? "text-warning font-semibold" : ""}>
           {product.totalStock}
         </span>
@@ -184,7 +209,7 @@ export default function ProductsPage() {
     {
       key: "status",
       label: "Status",
-      render: (product: typeof products[0]) => (
+      render: (product: Product) => (
         <span className={`badge ${product.status === "active" ? "badge-success" : "badge-error"}`}>
           {product.status === "active" ? "Active" : "Discontinued"}
         </span>
@@ -192,7 +217,7 @@ export default function ProductsPage() {
     },
   ];
 
-  const renderActions = (product: typeof products[0]) => (
+  const renderActions = (product: Product) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -339,17 +364,23 @@ export default function ProductsPage() {
       )}
 
       {/* Products Table */}
-      <DataTable
-        data={filteredProducts}
-        columns={columns}
-        keyExtractor={(product) => product.id}
-        onRowClick={(product) => {
-          setSelectedProduct(product);
-          setShowDetailModal(true);
-        }}
-        actions={renderActions}
-        emptyMessage={searchQuery ? `No products found matching "${searchQuery}"` : "No products found"}
-      />
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <DataTable
+          data={filteredProducts}
+          columns={columns}
+          keyExtractor={(product) => product.id}
+          onRowClick={(product) => {
+            setSelectedProduct(product);
+            setShowDetailModal(true);
+          }}
+          actions={renderActions}
+          emptyMessage={searchQuery ? `No products found matching "${searchQuery}"` : "No products found"}
+        />
+      )}
 
       {/* Create Product Modal */}
       <CreateProductModal
@@ -401,10 +432,19 @@ export default function ProductsPage() {
             setSelectedProduct(null);
           }}
           onConfirm={() => {
-            // TODO: API call to delete product
-            console.log("Deleting product:", selectedProduct.id);
-            setShowDeleteModal(false);
-            setSelectedProduct(null);
+            try {
+              await materialsApi.delete(selectedProduct.id);
+              showToast.success("Product deleted successfully");
+              setShowDeleteModal(false);
+              setSelectedProduct(null);
+              // Reload data
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('reloadProducts'));
+              }
+            } catch (err) {
+              console.error("Failed to delete product:", err);
+              showToast.error(err instanceof Error ? err.message : "Failed to delete product");
+            }
           }}
           product={selectedProduct}
         />
@@ -444,28 +484,47 @@ function CreateProductModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     productImage: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create product
-    console.log("Creating product:", formData);
-    onClose();
-    setFormData({
-      name: "",
-      sku: "",
-      description: "",
-      category: "",
-      subcategory: "",
-      weight: "",
-      dimensionsLength: "",
-      dimensionsWidth: "",
-      dimensionsHeight: "",
-      requiresQualityCheck: true,
-      temperatureSensitive: false,
-      fragile: false,
-      reorderPoint: "",
-      optimalStockLevel: "",
-      productImage: null,
-    });
+    
+    try {
+      const createData: Omit<Material, 'id'> = {
+        materialCode: formData.sku,
+        description: formData.description || formData.name,
+        materialType: formData.category || "product",
+        unitType: "unit", // Default
+        storageType: formData.temperatureSensitive ? "cold" : "normal",
+      };
+
+      await materialsApi.create(createData);
+      showToast.success("Product created successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        name: "",
+        sku: "",
+        description: "",
+        category: "",
+        subcategory: "",
+        weight: "",
+        dimensionsLength: "",
+        dimensionsWidth: "",
+        dimensionsHeight: "",
+        requiresQualityCheck: true,
+        temperatureSensitive: false,
+        fragile: false,
+        reorderPoint: "",
+        optimalStockLevel: "",
+        productImage: null,
+      });
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadProducts'));
+      }
+    } catch (err) {
+      console.error("Failed to create product:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create product");
+    }
   };
 
   return (
@@ -686,7 +745,7 @@ function EditProductModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  product: typeof products[0];
+  product: Product;
 }) {
   const [formData, setFormData] = useState({
     name: product.name,
@@ -719,12 +778,28 @@ function EditProductModal({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update product
-    console.log("Updating product:", formData);
-    alert("Product updated successfully!");
-    onClose();
+    
+    try {
+      const updateData: Partial<Material> = {
+        materialCode: formData.sku,
+        description: formData.description || formData.name,
+        materialType: formData.category || "product",
+        storageType: formData.temperatureSensitive ? "cold" : "normal",
+      };
+
+      await materialsApi.update(product.id, updateData);
+      showToast.success("Product updated successfully");
+      onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadProducts'));
+      }
+    } catch (err) {
+      console.error("Failed to update product:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update product");
+    }
   };
 
   return (
@@ -995,9 +1070,32 @@ function ImportProductsModal({ onClose }: { onClose: () => void }) {
       console.log("Importing products from file:", importFile.name);
       console.log("File content preview:", text.substring(0, 200));
       
-      // TODO: Parse CSV/Excel and import products via API
-      // For now, simulate import
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!importFile) {
+        showToast.error("Please select a file to import");
+        return;
+      }
+
+      try {
+        setImporting(true);
+        const result = await materialsApi.importCsv(importFile);
+        
+        if (result.errorCount > 0) {
+          showToast.error(`Import completed with ${result.errorCount} errors. ${result.successCount} products imported.`);
+        } else {
+          showToast.success(`Successfully imported ${result.successCount} products`);
+        }
+        
+        onClose();
+        // Reload data
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reloadProducts'));
+        }
+      } catch (err) {
+        console.error("Failed to import products:", err);
+        showToast.error(err instanceof Error ? err.message : "Failed to import products");
+      } finally {
+        setImporting(false);
+      }
       
       alert("Products imported successfully!");
       setImportFile(null);
@@ -1134,7 +1232,7 @@ function ProductDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  product: typeof products[0];
+  product: Product;
   onEdit?: (product: typeof products[0]) => void;
 }) {
   const handleEdit = () => {
@@ -1207,7 +1305,7 @@ function DeleteProductModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  product: typeof products[0];
+  product: Product;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Product" size="md">

@@ -55,8 +55,10 @@ public class PickingService {
                     .findFirst()
                     .orElseThrow(() -> new RuntimeException("Order item not found"));
 
-            BigDecimal currentPicked = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : BigDecimal.ZERO;
-            orderItem.setPickedQuantity(currentPicked.add(pickedItem.quantity()));
+            Integer currentPicked = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0;
+            // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
+            Integer pickedQty = (int) Math.ceil(pickedItem.quantity().doubleValue());
+            orderItem.setPickedQuantity(currentPicked + pickedQty);
             orderItem.setStatus("picked");
             orderItemRepository.save(orderItem);
 
@@ -77,14 +79,17 @@ public class PickingService {
             throw new RuntimeException("Inventory not found for material: " + materialId);
         }
 
+        // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
+        Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
+        
         InventoryItem inventoryItem = existing.get(0);
-        BigDecimal newAvailable = inventoryItem.getAvailableQuantity().subtract(quantity);
-        if (newAvailable.compareTo(BigDecimal.ZERO) < 0) {
+        Integer newAvailable = (inventoryItem.getAvailableQuantity() != null ? inventoryItem.getAvailableQuantity() : 0) - qtyInteger;
+        if (newAvailable < 0) {
             throw new RuntimeException("Insufficient inventory for material: " + materialId);
         }
         
         inventoryItem.setAvailableQuantity(newAvailable);
-        inventoryItem.setReservedQuantity(inventoryItem.getReservedQuantity().add(quantity));
+        inventoryItem.setReservedQuantity((inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0) + qtyInteger);
         inventoryService.createOrUpdate(inventoryItem);
     }
 
