@@ -17,11 +17,23 @@ export interface InventoryItem {
   leadTimeDays?: number;
   lastCountedAt?: string;
   status: string;
+  materialType?: string; // raw_material, packaging_material, product
+  // Additional planning fields
+  bufferDays?: number;
+  leadTimeMonths?: string;
+  ropInDays?: string;
+  varianceDemand?: string;
+  varianceLeadTimeDemand?: string;
+  difference?: string;
+  orderDeliveryDays?: number;
+  orderQuantity?: string;
+  palletRequirement?: string;
 }
 
 export const inventoryApi = {
-  getAll: async (): Promise<InventoryItem[]> => {
-    return apiClient.get<InventoryItem[]>('/inventory');
+  getAll: async (materialType?: string): Promise<InventoryItem[]> => {
+    const params = materialType ? `?materialType=${materialType}` : '';
+    return apiClient.get<InventoryItem[]>(`/inventory${params}`);
   },
 
   getById: async (id: string): Promise<InventoryItem> => {

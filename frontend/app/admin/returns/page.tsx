@@ -126,63 +126,62 @@ export default function ReturnsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const [returnsData, warehousesData, customersData, ordersData] = await Promise.all([
-          returnsApi.getAll(),
-          warehousesApi.getAll(),
-          customersApi.getAll(),
-          ordersApi.getAllOutbound(),
-        ]);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [returnsData, warehousesData, customersData, ordersData] = await Promise.all([
+        returnsApi.getAll(),
+        warehousesApi.getAll(),
+        customersApi.getAll(),
+        ordersApi.getAllOutbound(),
+      ]);
 
-        // Build maps
-        const warehousesMap = new Map<string, string>();
-        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-        
-        const customersMap = new Map<string, string>();
-        customersData.forEach(c => customersMap.set(c.id, c.name));
-        
-        const ordersMap = new Map<string, string>();
-        ordersData.forEach(o => ordersMap.set(o.id, o.orderNumber));
+      // Build maps
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+      
+      const customersMap = new Map<string, string>();
+      customersData.forEach(c => customersMap.set(c.id, c.name));
+      
+      const ordersMap = new Map<string, string>();
+      ordersData.forEach(o => ordersMap.set(o.id, o.orderNumber));
 
-        // Transform API data to display format
-        const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
-          const warehouseName = r.warehouseId ? warehousesMap.get(r.warehouseId) || "Unknown" : "Unknown";
-          const customerName = r.customerId ? customersMap.get(r.customerId) || "Unknown" : "Unknown";
-          const orderNumber = r.originalOrderId ? ordersMap.get(r.originalOrderId) || r.originalOrderId : "N/A";
+      // Transform API data to display format
+      const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
+        const warehouseName = r.warehouseId ? warehousesMap.get(r.warehouseId) || "Unknown" : "Unknown";
+        const customerName = r.customerId ? customersMap.get(r.customerId) || "Unknown" : "Unknown";
+        const orderNumber = r.originalOrderId ? ordersMap.get(r.originalOrderId) || r.originalOrderId : "N/A";
 
-          return {
-            id: r.id,
-            returnNumber: r.returnNumber,
-            originalOrder: orderNumber,
-            customerName,
-            warehouse: warehouseName,
-            returnDate: r.returnDate || new Date().toISOString().split("T")[0],
-            reason: r.reason || "N/A",
-            totalItems: 0, // TODO: Get from return items when available
-            status: r.status || "pending",
-            resolution: r.resolution || null,
-            receivedBy: r.receivedBy || null,
-            inspectedBy: r.inspectedBy || null,
-          };
-        });
+        return {
+          id: r.id,
+          returnNumber: r.returnNumber,
+          originalOrder: orderNumber,
+          customerName,
+          warehouse: warehouseName,
+          returnDate: r.returnDate || new Date().toISOString().split("T")[0],
+          reason: r.reason || "N/A",
+          totalItems: 0, // TODO: Get from return items when available
+          status: r.status || "pending",
+          resolution: r.resolution || null,
+          receivedBy: r.receivedBy || null,
+          inspectedBy: r.inspectedBy || null,
+        };
+      });
 
-        setReturns(displayReturns);
-      } catch (err) {
-        console.error("Failed to load returns:", err);
-        setError(err instanceof Error ? err.message : "Failed to load returns");
-        setReturns([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load returns. Please try again.");
-        }
-      } finally {
-        setLoading(false);
+      setReturns(displayReturns);
+    } catch (err) {
+      console.error("Failed to load returns:", err);
+      setError(err instanceof Error ? err.message : "Failed to load returns");
+      setReturns([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load returns. Please try again.");
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();

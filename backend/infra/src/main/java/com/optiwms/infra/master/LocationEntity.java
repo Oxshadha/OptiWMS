@@ -73,6 +73,9 @@ public class LocationEntity {
     @Column(name = "coordinate_y", precision = 10, scale = 2)
     private java.math.BigDecimal coordinateY;
 
+    @Column(name = "coordinate_z", precision = 10, scale = 2)
+    private java.math.BigDecimal coordinateZ;
+
     @Column(name = "max_pallet_capacity")
     private Integer maxPalletCapacity;
 
@@ -120,6 +123,8 @@ public class LocationEntity {
     public void setCoordinateX(java.math.BigDecimal coordinateX) { this.coordinateX = coordinateX; }
     public java.math.BigDecimal getCoordinateY() { return coordinateY; }
     public void setCoordinateY(java.math.BigDecimal coordinateY) { this.coordinateY = coordinateY; }
+    public java.math.BigDecimal getCoordinateZ() { return coordinateZ; }
+    public void setCoordinateZ(java.math.BigDecimal coordinateZ) { this.coordinateZ = coordinateZ; }
     public Integer getMaxPalletCapacity() { return maxPalletCapacity; }
     public void setMaxPalletCapacity(Integer maxPalletCapacity) { this.maxPalletCapacity = maxPalletCapacity; }
     public Integer getCurrentPalletCount() { return currentPalletCount; }

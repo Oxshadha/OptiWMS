@@ -36,6 +36,14 @@ export function WarehouseLayoutVisualization({
     new Map()
   );
   const [isLoadingVelocity, setIsLoadingVelocity] = useState(false);
+  
+  // Helper function to get theme-aware colors
+  const getThemeColor = (variable: string, fallback: string) => {
+    if (typeof window === 'undefined') return fallback;
+    const root = document.documentElement;
+    const value = getComputedStyle(root).getPropertyValue(variable).trim();
+    return value || fallback;
+  };
 
   // Load velocity data when velocity mode is enabled
   useEffect(() => {
@@ -390,7 +398,7 @@ export function WarehouseLayoutVisualization({
                 }
                 // Empty bins in active racks show White/Very Light Gray
 
-                // Determine text color based on background
+                // Determine text color based on background - use theme-aware colors
                 const isDarkBackground =
                   segment.occupancy >= 85 ||
                   segment.isReserved ||
@@ -399,7 +407,10 @@ export function WarehouseLayoutVisualization({
                   (showVelocity &&
                     rack.velocity !== undefined &&
                     rack.velocity >= 20);
-                const textColor = isDarkBackground ? "#FFFFFF" : "#6B7280";
+                // Use CSS variables for theme-aware colors
+                const textColor = isDarkBackground 
+                  ? getThemeColor('--svg-text-light', '#FFFFFF')
+                  : getThemeColor('--svg-text-dark', '#6B7280');
 
                 return (
                   <g key={`${rack.id}-level-${segment.level}`}>
@@ -456,16 +467,16 @@ export function WarehouseLayoutVisualization({
                   
                   return (
                     <>
-                      {/* Background for better visibility - dynamically sized */}
+                      {/* Background for better visibility - dynamically sized - theme-aware */}
                       <rect
                         x={rack.x + rack.width / 2 - totalWidth / 2}
                         y={rack.y - 28}
                         width={totalWidth}
                         height={24}
-                        fill="#FFFFFF"
+                        fill={getThemeColor('--svg-bg', '#FFFFFF')}
                         opacity="0.95"
                         rx="4"
-                        stroke="#D1D5DB"
+                        stroke={getThemeColor('--svg-border', '#D1D5DB')}
                         strokeWidth="0.5"
                       />
                       {/* Rack ID on first line */}

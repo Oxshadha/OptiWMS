@@ -3,6 +3,8 @@ package com.optiwms.coreapp.operations;
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.infra.cyclecount.CycleCountEntity;
+import com.optiwms.infra.cyclecount.CycleCountRecountEntity;
+import com.optiwms.infra.cyclecount.CycleCountRecountRepository;
 import com.optiwms.infra.cyclecount.CycleCountRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,10 +19,14 @@ import java.util.stream.Collectors;
 public class CycleCountService {
 
     private final CycleCountRepository repository;
+    private final CycleCountRecountRepository recountRepository;
     private final InventoryService inventoryService;
 
-    public CycleCountService(CycleCountRepository repository, InventoryService inventoryService) {
+    public CycleCountService(CycleCountRepository repository,
+                            CycleCountRecountRepository recountRepository,
+                            InventoryService inventoryService) {
         this.repository = repository;
+        this.recountRepository = recountRepository;
         this.inventoryService = inventoryService;
     }
 
@@ -70,21 +76,116 @@ public class CycleCountService {
         Integer countedQtyInteger = (int) Math.ceil(countedQuantity.doubleValue());
         Integer systemQuantity = item.getQuantity() != null ? item.getQuantity() : 0;
         Integer variance = countedQtyInteger - systemQuantity;
+        BigDecimal varianceDecimal = new BigDecimal(variance);
 
-        // Update inventory if variance exists
+        // Get variance threshold (default 5 units if not set)
+        BigDecimal threshold = entity.getVarianceThreshold() != null ? 
+            entity.getVarianceThreshold() : new BigDecimal("5.0");
+
+        // Check if recount is required (variance exceeds threshold)
+        if (varianceDecimal.abs().compareTo(threshold) > 0 && !Boolean.TRUE.equals(entity.getRecountRequired())) {
+            // First count with large variance - require recount
+            entity.setRecountRequired(true);
+            entity.setPreviousVariance(varianceDecimal);
+            entity.setVariance(varianceDecimal);
+            entity.setCountedBy(countedBy);
+            entity.setCountedAt(LocalDateTime.now());
+            entity.setStatus("recount_required"); // New status
+            repository.save(entity);
+
+            // Record this count in recount history
+            saveRecountHistory(id, 1, countedQuantity, varianceDecimal, countedBy, 
+                "Initial count - variance exceeds threshold");
+
+            return new CycleCountResult(
+                false, 
+                String.format("Large variance detected (%.0f units, threshold: %.0f). Please recount.", 
+                    varianceDecimal.doubleValue(), threshold.doubleValue()),
+                varianceDecimal,
+                true // recountRequired flag
+            );
+        }
+
+        // If recount was required and this is a recount
+        if (Boolean.TRUE.equals(entity.getRecountRequired())) {
+            Integer currentRecountCount = entity.getRecountCount() != null ? entity.getRecountCount() : 0;
+            currentRecountCount++;
+            entity.setRecountCount(currentRecountCount);
+
+            // Record this recount in history
+            saveRecountHistory(id, currentRecountCount + 1, countedQuantity, varianceDecimal, countedBy, 
+                String.format("Recount #%d", currentRecountCount));
+
+            // After 2 recounts (3 total counts), accept the variance
+            if (currentRecountCount >= 2) {
+                entity.setRecountRequired(false);
+                entity.setFinalVariance(varianceDecimal);
+                entity.setVariance(varianceDecimal);
+                entity.setStatus("completed");
+                
+                // Update inventory with final count
+                item.setQuantity(countedQtyInteger);
+                item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
+                inventoryService.createOrUpdate(item);
+
+                repository.save(entity);
+                return new CycleCountResult(
+                    true, 
+                    String.format("Count completed after %d recounts. Final variance: %.0f units.", 
+                        currentRecountCount, varianceDecimal.doubleValue()),
+                    varianceDecimal,
+                    false
+                );
+            } else {
+                // Still need more recounts
+                entity.setVariance(varianceDecimal);
+                repository.save(entity);
+                return new CycleCountResult(
+                    false, 
+                    String.format("Recount #%d recorded. Variance: %.0f units. Please recount again.", 
+                        currentRecountCount, varianceDecimal.doubleValue()),
+                    varianceDecimal,
+                    true
+                );
+            }
+        }
+
+        // Normal flow: Small variance, accept immediately
+        entity.setVariance(varianceDecimal);
+        entity.setFinalVariance(varianceDecimal);
+        entity.setCountedBy(countedBy);
+        entity.setCountedAt(LocalDateTime.now());
+        entity.setStatus("completed");
+        repository.save(entity);
+
+        // Update inventory
         if (variance != 0) {
             item.setQuantity(countedQtyInteger);
             item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
             inventoryService.createOrUpdate(item);
         }
 
-        entity.setVariance(new BigDecimal(variance));
-        entity.setCountedBy(countedBy);
-        entity.setCountedAt(LocalDateTime.now());
-        entity.setStatus("completed");
-        CycleCountEntity saved = repository.save(entity);
+        return new CycleCountResult(
+            true, 
+            "Count recorded successfully", 
+            varianceDecimal,
+            false
+        );
+    }
 
-        return new CycleCountResult(true, "Count recorded successfully", new BigDecimal(variance));
+    /**
+     * Save recount history for audit trail
+     */
+    private void saveRecountHistory(UUID cycleCountId, Integer recountNumber, BigDecimal countedQuantity, 
+                                     BigDecimal variance, UUID countedBy, String notes) {
+        CycleCountRecountEntity recount = new CycleCountRecountEntity();
+        recount.setCycleCountId(cycleCountId);
+        recount.setRecountNumber(recountNumber);
+        recount.setCountedQuantity(countedQuantity);
+        recount.setVariance(variance);
+        recount.setCountedBy(countedBy);
+        recount.setNotes(notes);
+        recountRepository.save(recount);
     }
 
     private CycleCount toDomain(CycleCountEntity entity) {
@@ -141,6 +242,11 @@ public class CycleCountService {
         public void setNotes(String notes) { this.notes = notes; }
     }
 
-    public record CycleCountResult(boolean success, String message, BigDecimal variance) {}
+    public record CycleCountResult(boolean success, String message, BigDecimal variance, boolean recountRequired) {
+        // Backward compatible constructor
+        public CycleCountResult(boolean success, String message, BigDecimal variance) {
+            this(success, message, variance, false);
+        }
+    }
 }
 

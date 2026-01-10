@@ -18,6 +18,39 @@ public class MaterialService {
         this.repository = repository;
     }
 
+    /**
+     * Normalize material type to ensure consistent values in database.
+     * Handles variations like "packing_material" -> "packaging_material"
+     * Industry Best Practice: Centralized normalization prevents data inconsistencies
+     */
+    private String normalizeMaterialType(String materialType) {
+        if (materialType == null || materialType.trim().isEmpty()) {
+            return "raw_material"; // Default
+        }
+        
+        String normalized = materialType.toLowerCase().trim();
+        
+        // Handle common variations
+        if (normalized.equals("packing_material") || normalized.equals("packaging")) {
+            return "packaging_material";
+        }
+        if (normalized.equals("raw") || normalized.equals("rawmaterial")) {
+            return "raw_material";
+        }
+        if (normalized.equals("finished_good") || normalized.equals("finished_goods") 
+            || normalized.equals("finished_product") || normalized.equals("products")) {
+            return "product";
+        }
+        
+        // Return valid values as-is, default invalid ones to raw_material
+        if (normalized.equals("raw_material") || normalized.equals("packaging_material") || normalized.equals("product")) {
+            return normalized;
+        }
+        
+        // Invalid value - default to raw_material
+        return "raw_material";
+    }
+
     public List<Material> listAll() {
         return repository.findAll().stream()
                 .map(this::toDomain)
@@ -66,7 +99,7 @@ public class MaterialService {
         entity.setDescription(material.getDescription());
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
-        entity.setMaterialType(material.getMaterialType());
+        entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -89,7 +122,7 @@ public class MaterialService {
         entity.setDescription(material.getDescription());
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
-        entity.setMaterialType(material.getMaterialType());
+        entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);

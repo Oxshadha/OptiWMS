@@ -310,7 +310,7 @@ export default function AdminsPage() {
     setShowDeleteModal(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (selectedAdmin) {
       try {
         await usersApi.delete(selectedAdmin.id);

@@ -31,8 +31,8 @@ const allNavItems = [
     icon: "local_shipping",
   },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
-  { href: "/admin/products", label: "Products", icon: "category" },
-  { href: "/admin/raw-materials", label: "Raw Materials", icon: "science" },
+  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
+  { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
   {
     href: "/admin/dock-management",

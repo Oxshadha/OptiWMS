@@ -24,6 +24,7 @@ public class Location {
     private Integer accessibilityRating;
     private BigDecimal coordinateX;
     private BigDecimal coordinateY;
+    private BigDecimal coordinateZ;
     private Integer maxPalletCapacity;
     private Integer currentPalletCount;
 
@@ -66,6 +67,8 @@ public class Location {
     public void setCoordinateX(BigDecimal coordinateX) { this.coordinateX = coordinateX; }
     public BigDecimal getCoordinateY() { return coordinateY; }
     public void setCoordinateY(BigDecimal coordinateY) { this.coordinateY = coordinateY; }
+    public BigDecimal getCoordinateZ() { return coordinateZ; }
+    public void setCoordinateZ(BigDecimal coordinateZ) { this.coordinateZ = coordinateZ; }
     public Integer getMaxPalletCapacity() { return maxPalletCapacity; }
     public void setMaxPalletCapacity(Integer maxPalletCapacity) { this.maxPalletCapacity = maxPalletCapacity; }
     public Integer getCurrentPalletCount() { return currentPalletCount; }

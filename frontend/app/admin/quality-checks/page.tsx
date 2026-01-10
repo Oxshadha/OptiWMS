@@ -107,72 +107,71 @@ export default function QualityChecksPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [checksData, materialsData, warehousesData, usersData] = await Promise.all([
+        qualityChecksApi.getAll(),
+        materialsApi.getAll(),
+        warehousesApi.getAll(),
+        usersApi.getAll(),
+      ]);
+
+      // Build maps
+      const materialsMap = new Map<string, { name: string; sku: string }>();
+      materialsData.forEach(m => materialsMap.set(m.id, { name: m.name, sku: m.sku || m.code }));
+      
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+      
+      const usersMap = new Map<string, string>();
+      usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
+
+      // Transform API data to display format
+      const displayChecks: QualityCheckDisplay[] = checksData.map((qc, index) => {
+        const material = qc.materialId ? materialsMap.get(qc.materialId) : null;
+        const checkedBy = qc.checkedBy ? usersMap.get(qc.checkedBy) : "Unknown";
         
-        const [checksData, materialsData, warehousesData, usersData] = await Promise.all([
-          qualityChecksApi.getAll(),
-          materialsApi.getAll(),
-          warehousesApi.getAll(),
-          usersApi.getAll(),
-        ]);
-
-        // Build maps
-        const materialsMap = new Map<string, { name: string; sku: string }>();
-        materialsData.forEach(m => materialsMap.set(m.id, { name: m.name, sku: m.sku || m.code }));
+        const qtyReceived = parseInt(qc.qtyReceived) || 0;
+        const qtyPassed = parseInt(qc.qtyPassed) || 0;
+        const qtyRejected = parseInt(qc.qtyRejected) || 0;
         
-        const warehousesMap = new Map<string, string>();
-        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-        
-        const usersMap = new Map<string, string>();
-        usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
+        let result: "passed" | "failed" | "partial" = "partial";
+        if (qtyRejected === 0) result = "passed";
+        else if (qtyPassed === 0) result = "failed";
 
-        // Transform API data to display format
-        const displayChecks: QualityCheckDisplay[] = checksData.map((qc, index) => {
-          const material = qc.materialId ? materialsMap.get(qc.materialId) : null;
-          const checkedBy = qc.checkedBy ? usersMap.get(qc.checkedBy) : "Unknown";
-          
-          const qtyReceived = parseInt(qc.qtyReceived) || 0;
-          const qtyPassed = parseInt(qc.qtyPassed) || 0;
-          const qtyRejected = parseInt(qc.qtyRejected) || 0;
-          
-          let result: "passed" | "failed" | "partial" = "partial";
-          if (qtyRejected === 0) result = "passed";
-          else if (qtyPassed === 0) result = "failed";
+        return {
+          id: qc.id,
+          checkId: `QC-${qc.id.substring(0, 8).toUpperCase()}`,
+          inboundOrderNumber: qc.grnId ? `GRN-${qc.grnId.substring(0, 8).toUpperCase()}` : "N/A",
+          productName: material?.name || "Unknown",
+          sku: material?.sku || "N/A",
+          quantityChecked: qtyReceived,
+          quantityPassed: qtyPassed,
+          quantityFailed: qtyRejected,
+          result,
+          checkedByName: checkedBy,
+          checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
+          approvedByName: null, // TODO: Add approval tracking when available
+          approvalDate: null,
+          warehouseName: "Unknown", // TODO: Get from GRN when available
+        };
+      });
 
-          return {
-            id: qc.id,
-            checkId: `QC-${qc.id.substring(0, 8).toUpperCase()}`,
-            inboundOrderNumber: qc.grnId ? `GRN-${qc.grnId.substring(0, 8).toUpperCase()}` : "N/A",
-            productName: material?.name || "Unknown",
-            sku: material?.sku || "N/A",
-            quantityChecked: qtyReceived,
-            quantityPassed: qtyPassed,
-            quantityFailed: qtyRejected,
-            result,
-            checkedByName: checkedBy,
-            checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
-            approvedByName: null, // TODO: Add approval tracking when available
-            approvalDate: null,
-            warehouseName: "Unknown", // TODO: Get from GRN when available
-          };
-        });
-
-        setQualityChecks(displayChecks);
-      } catch (err) {
-        console.error("Failed to load quality checks:", err);
-        setError(err instanceof Error ? err.message : "Failed to load quality checks");
-        setQualityChecks([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load quality checks. Please try again.");
-        }
-      } finally {
-        setLoading(false);
+      setQualityChecks(displayChecks);
+    } catch (err) {
+      console.error("Failed to load quality checks:", err);
+      setError(err instanceof Error ? err.message : "Failed to load quality checks");
+      setQualityChecks([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load quality checks. Please try again.");
       }
-    };
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -536,7 +535,7 @@ export default function QualityChecksPage() {
               </button>
               <button
                 className="btn btn-error"
-                onClick={() => {
+                onClick={async () => {
                   if (!rejectReason.trim()) {
                     alert("Please enter a rejection reason");
                     return;
@@ -648,7 +647,7 @@ function QualityCheckDetailModal({
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => {
+                onClick={async () => {
                   try {
                     await qualityChecksApi.approve(check.id, admin?.id);
                     showToast.success("Quality check approved successfully");

@@ -5,9 +5,9 @@ services:
     image: postgres:16
     container_name: optiwms-db
     environment:
-      POSTGRES_DB: optiwms
-      POSTGRES_USER: optiwms
-      POSTGRES_PASSWORD: optiwms
+      POSTGRES_DB: ${POSTGRES_DB:-optiwms}
+      POSTGRES_USER: ${POSTGRES_USER:-optiwms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
     ports:
       - "5434:5432"
     volumes:
@@ -31,9 +31,10 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/optiwms
-      SPRING_DATASOURCE_USERNAME: optiwms
-      SPRING_DATASOURCE_PASSWORD: optiwms
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-optiwms}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-optiwms}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_THIS_IN_PRODUCTION}
       JAVA_OPTS: "-Xmx512m -Xms256m"
     ports:
       - "8080:8080"
@@ -84,8 +85,8 @@ services:
       db:
         condition: service_healthy
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@optiwms.com
-      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@optiwms.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
     ports:

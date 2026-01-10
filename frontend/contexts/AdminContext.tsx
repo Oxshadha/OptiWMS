@@ -169,7 +169,11 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           
           // Check if user is an admin role (include inbound_coordinator)
           const adminRoles = ['admin', 'warehouse_manager', 'inbound_coordinator'];
-          const userRole = userInfo.role?.toLowerCase();
+          // Normalize role (remove ROLE_ prefix if present, like "role_admin" -> "admin")
+          let userRole = userInfo.role?.toLowerCase() || '';
+          if (userRole.startsWith('role_')) {
+            userRole = userRole.substring(5); // Remove "role_" prefix
+          }
           
           if (adminRoles.includes(userRole)) {
             // Fetch full user details

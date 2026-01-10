@@ -8,21 +8,62 @@ export function ToasterProvider() {
       position="top-right"
       toastOptions={{
         duration: 3000,
+        // Default style for info/loading toasts
         style: {
-          background: "hsl(var(--b2))",
-          color: "hsl(var(--bc))",
-          border: "1px solid hsl(var(--b3))",
+          background: "#FFFFFF",
+          color: "#1F2937",
+          border: "1px solid #E5E7EB",
+          padding: "16px",
+          fontSize: "14px",
+          fontWeight: "500",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
         },
+        // Success toasts - green background, white text
         success: {
+          style: {
+            background: "#39BE7D",
+            color: "#FFFFFF",
+            border: "none",
+            padding: "16px",
+            fontSize: "14px",
+            fontWeight: "500",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+          },
           iconTheme: {
-            primary: "hsl(var(--su))",
-            secondary: "hsl(var(--b2))",
+            primary: "#FFFFFF",
+            secondary: "#39BE7D",
           },
         },
+        // Error toasts - red background, white text
         error: {
+          style: {
+            background: "#E34E4E",
+            color: "#FFFFFF",
+            border: "none",
+            padding: "16px",
+            fontSize: "14px",
+            fontWeight: "500",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+          },
           iconTheme: {
-            primary: "hsl(var(--er))",
-            secondary: "hsl(var(--b2))",
+            primary: "#FFFFFF",
+            secondary: "#E34E4E",
+          },
+        },
+        // Loading toasts - blue background, white text
+        loading: {
+          style: {
+            background: "#4AA8FF",
+            color: "#FFFFFF",
+            border: "none",
+            padding: "16px",
+            fontSize: "14px",
+            fontWeight: "500",
+            boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)",
+          },
+          iconTheme: {
+            primary: "#FFFFFF",
+            secondary: "#4AA8FF",
           },
         },
       }}

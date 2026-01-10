@@ -1,8 +1,10 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.inventory.InventoryService;
+import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.domain.master.Material;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
@@ -19,13 +21,16 @@ public class ReceivingService {
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;
+    private final MaterialService materialService;
 
     public ReceivingService(OrderService orderService,
                            OrderItemRepository orderItemRepository,
-                           InventoryService inventoryService) {
+                           InventoryService inventoryService,
+                           MaterialService materialService) {
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
         this.inventoryService = inventoryService;
+        this.materialService = materialService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -48,6 +53,9 @@ public class ReceivingService {
         List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(order.getId());
         
         for (ReceivedItem receivedItem : receivedItems) {
+            // Validate weight limit before processing
+            validatePalletWeight(receivedItem.materialId(), receivedItem.quantity());
+            
             OrderItemEntity orderItem = orderItems.stream()
                     .filter(item -> item.getMaterialId().equals(receivedItem.materialId()))
                     .findFirst()
@@ -109,6 +117,9 @@ public class ReceivingService {
 
         // Update inventory for each received item
         for (ReceivedItem receivedItem : receivedItems) {
+            // Validate weight limit before processing
+            validatePalletWeight(receivedItem.materialId(), receivedItem.quantity());
+            
             if (warehouseId == null) {
                 // Find warehouse from existing inventory or use default
                 List<InventoryItem> existing = inventoryService.findByMaterial(receivedItem.materialId());
@@ -143,6 +154,32 @@ public class ReceivingService {
         return new ReceivingResult(true, "Items received successfully (blind receive)", orderId);
     }
 
+    /**
+     * Validates pallet weight against material's maximum weight limit (SOP enforcement)
+     * @param materialId UUID of the material
+     * @param quantity Quantity being received (in kg for weight-based materials)
+     * @throws RuntimeException if weight exceeds the limit
+     */
+    private void validatePalletWeight(UUID materialId, BigDecimal quantity) {
+        Material material = materialService.findById(materialId);
+        
+        // Only validate if max weight is configured
+        if (material.getMaxPalletWeightKg() != null && material.getMaxPalletWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal maxWeight = material.getMaxPalletWeightKg();
+            
+            // Check if received quantity exceeds max weight
+            if (quantity.compareTo(maxWeight) > 0) {
+                throw new RuntimeException(String.format(
+                    "Weight limit exceeded for material %s: %.2f kg > %.2f kg (max). " +
+                    "As per SOP, raw materials are limited to 1500kg and packing materials to 1000kg per pallet.",
+                    material.getMaterialCode(),
+                    quantity.doubleValue(),
+                    maxWeight.doubleValue()
+                ));
+            }
+        }
+    }
+    
     private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
         List<InventoryItem> existing = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         

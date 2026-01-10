@@ -1,5 +1,6 @@
 package com.optiwms.coreapi.operations;
 
+import com.optiwms.coreapp.operations.LocationSuggestionService;
 import com.optiwms.coreapp.operations.PutawayService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -11,9 +12,13 @@ import java.util.UUID;
 public class PutawayController {
 
     private final PutawayService putawayService;
+    private final LocationSuggestionService locationSuggestionService;
 
-    public PutawayController(PutawayService putawayService) {
+    public PutawayController(
+            PutawayService putawayService,
+            LocationSuggestionService locationSuggestionService) {
         this.putawayService = putawayService;
+        this.locationSuggestionService = locationSuggestionService;
     }
 
     @PostMapping("/complete/{taskId}")
@@ -33,7 +38,40 @@ public class PutawayController {
         }
     }
 
+    @PostMapping("/suggest-location")
+    public ResponseEntity<LocationSuggestionResponse> suggestLocation(
+            @RequestBody SuggestLocationRequest request) {
+        try {
+            var suggestion = locationSuggestionService.suggestPutawayLocation(
+                    UUID.fromString(request.warehouseId()),
+                    UUID.fromString(request.materialId()),
+                    request.quantity(),
+                    request.materialType()
+            );
+            
+            return ResponseEntity.ok(new LocationSuggestionResponse(
+                    suggestion.getLocationCode(),
+                    suggestion.getReason(),
+                    suggestion.isAiEnhanced()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new LocationSuggestionResponse(null, e.getMessage(), false));
+        }
+    }
+
     public record CompletePutawayRequest(String locationCode, String lpn) {}
     public record PutawayResponse(boolean success, String message, String taskId) {}
+    
+    public record SuggestLocationRequest(
+            String warehouseId,
+            String materialId,
+            Integer quantity,
+            String materialType) {}
+    
+    public record LocationSuggestionResponse(
+            String suggestedLocation,
+            String reason,
+            boolean aiEnhanced) {}
 }
 

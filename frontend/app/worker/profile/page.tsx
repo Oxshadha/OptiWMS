@@ -3,11 +3,14 @@
 import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useWorker } from "@/contexts/WorkerContext";
 import { getRoleDisplayName, getOperationDisplayName } from "@/lib/worker-roles";
 import { analyticsApi } from "@/lib/api/analytics";
+import { logger } from "@/lib/utils/logger";
 
 export default function WorkerProfilePage() {
+  const router = useRouter();
   const { worker, allowedOperations } = useWorker();
   const [stats, setStats] = useState([
     { label: "Total Tasks", value: "0", icon: "task" },
@@ -42,7 +45,7 @@ export default function WorkerProfilePage() {
           ]);
         }
       } catch (err) {
-        console.error("Failed to load worker stats:", err);
+        logger.error("Failed to load worker stats:", err);
         // Keep default stats on error
       } finally {
         setLoading(false);
@@ -191,11 +194,17 @@ export default function WorkerProfilePage() {
 
       {/* Actions */}
       <div className="space-y-2">
-        <button className="btn btn-outline w-full">
+        <button 
+          className="btn btn-outline w-full"
+          onClick={() => router.push('/worker/account-settings')}
+        >
           <span className="material-symbols-outlined">edit</span>
           Edit Profile
         </button>
-        <button className="btn btn-outline w-full">
+        <button 
+          className="btn btn-outline w-full"
+          onClick={() => router.push('/worker/app-settings')}
+        >
           <span className="material-symbols-outlined">settings</span>
           Settings
         </button>
@@ -212,7 +221,7 @@ export default function WorkerProfilePage() {
               // Redirect to login
               window.location.href = "/worker/login";
             } catch (error) {
-              console.error("Error during logout:", error);
+              logger.error("Error during logout:", error);
               // Still redirect even if logout fails
               window.location.href = "/worker/login";
             }

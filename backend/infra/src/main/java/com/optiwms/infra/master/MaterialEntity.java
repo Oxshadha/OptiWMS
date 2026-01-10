@@ -39,6 +39,50 @@ public class MaterialEntity {
     @Column(name = "requires_pallet")
     private Boolean requiresPallet;
 
+    // Physical dimensions (from V12 migration)
+    @Column(name = "length_cm", precision = 10, scale = 2)
+    private java.math.BigDecimal lengthCm;
+
+    @Column(name = "width_cm", precision = 10, scale = 2)
+    private java.math.BigDecimal widthCm;
+
+    @Column(name = "height_cm", precision = 10, scale = 2)
+    private java.math.BigDecimal heightCm;
+
+    @Column(name = "weight_kg", precision = 10, scale = 2)
+    private java.math.BigDecimal weightKg;
+
+    @Column(name = "volume_cm3", precision = 15, scale = 2)
+    private java.math.BigDecimal volumeCm3;
+
+    @Column(name = "pallet_spaces", precision = 10, scale = 2)
+    private java.math.BigDecimal palletSpaces;
+
+    @Column(name = "stackable")
+    private Boolean stackable;
+
+    @Column(name = "max_stack_height")
+    private Integer maxStackHeight;
+
+    @Column(name = "temperature_controlled")
+    private Boolean temperatureControlled;
+
+    @Column(name = "hazardous")
+    private Boolean hazardous;
+
+    @Column(name = "fragile")
+    private Boolean fragile;
+
+    // Weight limits (from V15 migration - SOP enforcement)
+    @Column(name = "max_pallet_weight_kg", precision = 10, scale = 2)
+    private java.math.BigDecimal maxPalletWeightKg;
+
+    @Column(name = "min_order_quantity", precision = 15, scale = 2)
+    private java.math.BigDecimal minOrderQuantity;
+
+    @Column(name = "safety_stock_level", precision = 15, scale = 2)
+    private java.math.BigDecimal safetyStockLevel;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -135,6 +179,118 @@ public class MaterialEntity {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public java.math.BigDecimal getLengthCm() {
+        return lengthCm;
+    }
+
+    public void setLengthCm(java.math.BigDecimal lengthCm) {
+        this.lengthCm = lengthCm;
+    }
+
+    public java.math.BigDecimal getWidthCm() {
+        return widthCm;
+    }
+
+    public void setWidthCm(java.math.BigDecimal widthCm) {
+        this.widthCm = widthCm;
+    }
+
+    public java.math.BigDecimal getHeightCm() {
+        return heightCm;
+    }
+
+    public void setHeightCm(java.math.BigDecimal heightCm) {
+        this.heightCm = heightCm;
+    }
+
+    public java.math.BigDecimal getWeightKg() {
+        return weightKg;
+    }
+
+    public void setWeightKg(java.math.BigDecimal weightKg) {
+        this.weightKg = weightKg;
+    }
+
+    public java.math.BigDecimal getVolumeCm3() {
+        return volumeCm3;
+    }
+
+    public void setVolumeCm3(java.math.BigDecimal volumeCm3) {
+        this.volumeCm3 = volumeCm3;
+    }
+
+    public java.math.BigDecimal getPalletSpaces() {
+        return palletSpaces;
+    }
+
+    public void setPalletSpaces(java.math.BigDecimal palletSpaces) {
+        this.palletSpaces = palletSpaces;
+    }
+
+    public Boolean getStackable() {
+        return stackable;
+    }
+
+    public void setStackable(Boolean stackable) {
+        this.stackable = stackable;
+    }
+
+    public Integer getMaxStackHeight() {
+        return maxStackHeight;
+    }
+
+    public void setMaxStackHeight(Integer maxStackHeight) {
+        this.maxStackHeight = maxStackHeight;
+    }
+
+    public Boolean getTemperatureControlled() {
+        return temperatureControlled;
+    }
+
+    public void setTemperatureControlled(Boolean temperatureControlled) {
+        this.temperatureControlled = temperatureControlled;
+    }
+
+    public Boolean getHazardous() {
+        return hazardous;
+    }
+
+    public void setHazardous(Boolean hazardous) {
+        this.hazardous = hazardous;
+    }
+
+    public Boolean getFragile() {
+        return fragile;
+    }
+
+    public void setFragile(Boolean fragile) {
+        this.fragile = fragile;
+    }
+
+    public java.math.BigDecimal getMaxPalletWeightKg() {
+        return maxPalletWeightKg;
+    }
+
+    public void setMaxPalletWeightKg(java.math.BigDecimal maxPalletWeightKg) {
+        this.maxPalletWeightKg = maxPalletWeightKg;
+    }
+
+    public java.math.BigDecimal getMinOrderQuantity() {
+        return minOrderQuantity;
+    }
+
+    public void setMinOrderQuantity(java.math.BigDecimal minOrderQuantity) {
+        this.minOrderQuantity = minOrderQuantity;
+    }
+
+    public java.math.BigDecimal getSafetyStockLevel() {
+        return safetyStockLevel;
+    }
+
+    public void setSafetyStockLevel(java.math.BigDecimal safetyStockLevel) {
+        this.safetyStockLevel = safetyStockLevel;
     }
 }
 
