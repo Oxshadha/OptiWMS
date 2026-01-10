@@ -10,6 +10,7 @@ import { getRoleDisplayName } from "@/lib/admin-roles";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { notificationsApi, Notification } from "@/lib/api/notifications";
+import { useTheme } from "@/lib/hooks/useTheme";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
@@ -29,7 +30,7 @@ const MOCK_RESULTS: SearchItem[] = [
 export function Topbar() {
   const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
-  const [dark, setDark] = useState(false);
+  const { isDark, toggleTheme, mounted } = useTheme();
   const [query, setQuery] = useState("");
   const [openProfile, setOpenProfile] = useState(false);
   const [openCalendar, setOpenCalendar] = useState(false);
@@ -45,10 +46,6 @@ export function Topbar() {
     );
   }, [query]);
 
-  useEffect(() => {
-    const theme = dark ? "dark" : "optiwms";
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [dark]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -499,15 +496,17 @@ export function Topbar() {
           )}
         </div>
 
-        <button
-          className="btn btn-primary btn-circle"
-          title="Toggle theme"
-          onClick={() => setDark((v) => !v)}
-        >
-          <span className="material-symbols-outlined">
-            {dark ? "light_mode" : "dark_mode"}
-          </span>
-        </button>
+        {mounted && (
+          <button
+            className="btn btn-primary btn-circle"
+            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={toggleTheme}
+          >
+            <span className="material-symbols-outlined">
+              {isDark ? "dark_mode" : "light_mode"}
+            </span>
+          </button>
+        )}
 
         <div className="relative profile-dropdown">
           <button

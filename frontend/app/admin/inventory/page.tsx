@@ -8,6 +8,8 @@ import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
 import { materialsApi, Material } from "@/lib/api/materials";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
+import { Modal } from "@/components/Modal";
+import { logger } from "@/lib/utils/logger";
 import {
   AreaChart,
   Area,
@@ -28,9 +30,27 @@ interface InventoryDisplayItem {
   status: "Available" | "Low" | "Out of Stock";
   category: string;
   warehouseName: string;
-  itemType: "Product" | "Raw Material";
+  itemType: "Product" | "Raw Material" | "Packaging";
   materialId: string;
   warehouseId: string;
+  // Planning fields
+  reorderPoint?: string;
+  bufferStock?: string;
+  maxStock?: string;
+  minStock?: string;
+  moq?: string;
+  leadTimeDays?: number;
+  stackingQuantity?: number;
+  // Additional planning fields
+  bufferDays?: number;
+  leadTimeMonths?: string;
+  ropInDays?: string;
+  varianceDemand?: string;
+  varianceLeadTimeDemand?: string;
+  difference?: string;
+  orderDeliveryDays?: number;
+  orderQuantity?: string;
+  palletRequirement?: string;
 }
 
 const statusClass = (s: string) => {
@@ -40,8 +60,19 @@ const statusClass = (s: string) => {
   return "badge-outline";
 };
 
+// Format decimal numbers for display (WMS standard: show 2 decimal places or whole numbers)
+const formatDecimal = (value: number): string => {
+  if (value === 0) return "0";
+  // If it's a whole number, show without decimals
+  if (value % 1 === 0) {
+    return value.toLocaleString();
+  }
+  // Otherwise, show 2 decimal places
+  return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+};
+
 const categories = ["All", "Electronics", "Home", "Appliances", "Sports"];
-const itemTypes = ["All", "Product", "Raw Material"];
+const itemTypes = ["All", "Raw Material", "Packaging", "Product"];
 
 export default function InventoryPage() {
   const { admin, role } = useAdmin();
@@ -54,41 +85,57 @@ export default function InventoryPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [sortBy, setSortBy] = useState<
     "name" | "sku" | "qty" | "location" | null
   >(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set([
+    "sku", "name", "type", "category", "quantity", "location", "status",
+    "reorderPoint", "bufferStock", "moq", "leadTimeDays"
+  ]));
   
   // API state
   const [inventoryItems, setInventoryItems] = useState<InventoryDisplayItem[]>([]);
-  const [materials, setMaterials] = useState<Map<string, { name: string; category: string; materialType?: string }>>(new Map());
+  const [materials, setMaterials] = useState<Map<string, { materialCode: string; description: string; materialType?: string }>>(new Map());
   const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
-        // Load inventory, materials, and warehouses in parallel
-        const [inventoryData, materialsData, warehousesData] = await Promise.all([
-          inventoryApi.getAll(),
-          materialsApi.getAll(),
-          warehousesApi.getAll(),
-        ]);
+      // Determine materialType filter for API call
+      let materialTypeFilter: string | undefined = undefined;
+      if (activeItemType === "Raw Material") {
+        materialTypeFilter = "raw_material";
+      } else if (activeItemType === "Packaging") {
+        materialTypeFilter = "packaging_material";
+      } else if (activeItemType === "Product") {
+        materialTypeFilter = "product";
+      }
+      // If "All" is selected, materialTypeFilter remains undefined (no filter)
+
+      // Load inventory, materials, and warehouses in parallel
+      const [inventoryData, materialsData, warehousesData] = await Promise.all([
+        inventoryApi.getAll(materialTypeFilter),
+        materialsApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
 
         // Create lookup maps
         const materialsMap = new Map();
         materialsData.forEach((m) => {
           materialsMap.set(m.id, {
-            name: m.description,
-            category: m.storageType || "General",
-            materialType: m.storageType,
+            materialCode: m.materialCode,
+            description: m.description,
+            materialType: m.materialType,
           });
         });
 
@@ -108,30 +155,68 @@ export default function InventoryPage() {
           const qty = Math.ceil(parseFloat(item.quantity) || 0);
           const availableQty = Math.ceil(parseFloat(item.availableQuantity) || 0);
           
-          // Determine status based on quantity
+          // Determine status based on ROP, buffer stock, and quantity (WMS best practice)
           let status: "Available" | "Low" | "Out of Stock" = "Available";
-          if (qty === 0) {
+          const reorderPoint = item.reorderPoint ? parseFloat(item.reorderPoint) : null;
+          const bufferStock = item.bufferStock ? parseFloat(item.bufferStock) : null;
+          
+          if (item.status === "non_moving") {
+            status = "Out of Stock"; // Non-moving items shown as out of stock
+          } else if (qty === 0) {
             status = "Out of Stock";
+          } else if (reorderPoint != null && qty <= reorderPoint) {
+            // If quantity is at or below reorder point, it's low stock
+            status = "Low";
+          } else if (bufferStock != null && qty <= bufferStock) {
+            // If quantity is at or below buffer stock, it's low stock
+            status = "Low";
           } else if (qty < 10 || availableQty < 10) {
+            // Fallback: if no ROP/buffer stock set, use simple threshold
             status = "Low";
           }
 
           // Determine item type from material
-          const itemType: "Product" | "Raw Material" = 
-            material?.materialType?.toLowerCase().includes("raw") ? "Raw Material" : "Product";
+          // Use materialType from inventory item (denormalized) or material
+          const materialType = item.materialType || material?.materialType || "raw_material";
+          let itemType: "Product" | "Raw Material" | "Packaging";
+          if (materialType.toLowerCase().includes("packaging")) {
+            itemType = "Packaging";
+          } else if (materialType.toLowerCase().includes("product")) {
+            itemType = "Product";
+          } else {
+            itemType = "Raw Material"; // Default
+          }
 
           return {
             id: item.id,
-            sku: material?.name || item.materialId,
-            name: material?.name || "Unknown Material",
+            sku: material?.materialCode || item.materialId,
+            name: material?.description || "Unknown Material",
             qty,
             location: item.locationCode || "N/A",
             status,
-            category: material?.category || "General",
+            category: "General", // Category not in MaterialDto, using default
             warehouseName,
             itemType,
             materialId: item.materialId,
             warehouseId: item.warehouseId,
+            // Planning fields from API
+            reorderPoint: item.reorderPoint,
+            bufferStock: item.bufferStock,
+            maxStock: item.maxStock,
+            minStock: item.minStock,
+            moq: item.moq,
+            leadTimeDays: item.leadTimeDays,
+            stackingQuantity: item.stackingQuantity,
+            // Additional planning fields
+            bufferDays: item.bufferDays,
+            leadTimeMonths: item.leadTimeMonths,
+            ropInDays: item.ropInDays,
+            varianceDemand: item.varianceDemand,
+            varianceLeadTimeDemand: item.varianceLeadTimeDemand,
+            difference: item.difference,
+            orderDeliveryDays: item.orderDeliveryDays,
+            orderQuantity: item.orderQuantity,
+            palletRequirement: item.palletRequirement,
           };
         });
 
@@ -144,7 +229,17 @@ export default function InventoryPage() {
       }
     };
 
+  useEffect(() => {
     loadData();
+  }, [assignedWarehouseId, activeItemType]); // Reload when filter changes
+
+  // Listen for import success event
+  useEffect(() => {
+    const handleImportSuccess = () => {
+      loadData();
+    };
+    window.addEventListener('inventoryImported', handleImportSuccess);
+    return () => window.removeEventListener('inventoryImported', handleImportSuccess);
   }, []);
 
   // Filter inventory by warehouse for warehouse managers
@@ -159,7 +254,8 @@ export default function InventoryPage() {
     const matchesItemType =
       activeItemType === "All" || 
       (activeItemType === "Product" && item.itemType === "Product") ||
-      (activeItemType === "Raw Material" && item.itemType === "Raw Material");
+      (activeItemType === "Raw Material" && item.itemType === "Raw Material") ||
+      (activeItemType === "Packaging" && item.itemType === "Packaging");
     const query = searchQuery.trim().toLowerCase();
     if (!query) return matchesCategory && matchesItemType;
     const matchesSearch =
@@ -234,6 +330,14 @@ export default function InventoryPage() {
         <h1 className="text-3xl font-bold text-base-content">Inventory</h1>
         <div className="flex gap-3">
           <button
+            className="btn btn-outline"
+            onClick={() => setShowImportModal(true)}
+            title="Import inventory from CSV"
+          >
+            <span className="material-symbols-outlined">upload</span>
+            Import CSV
+          </button>
+          <button
             className="btn btn-sm btn-ghost"
             onClick={() => window.location.reload()}
             title="Refresh data"
@@ -243,6 +347,70 @@ export default function InventoryPage() {
           <div className="dropdown dropdown-end">
             <label tabIndex={0} className="btn btn-sm btn-ghost">
               <span className="material-symbols-outlined">swap_vert</span>
+              <span>Sort by</span>
+            </label>
+          </div>
+          <div className="dropdown dropdown-end">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setShowColumnMenu(!showColumnMenu)}
+            >
+              <span className="material-symbols-outlined">view_column</span>
+              <span>Columns</span>
+            </button>
+            {showColumnMenu && (
+              <ul className="dropdown-content menu bg-base-100 border border-base-300 rounded-box shadow-lg z-50 p-2 w-64 max-h-96 overflow-y-auto">
+                {[
+                  { key: "sku", label: "SKU" },
+                  { key: "name", label: "Item Name" },
+                  { key: "type", label: "Type" },
+                  { key: "category", label: "Category" },
+                  { key: "quantity", label: "Quantity" },
+                  { key: "location", label: "Location" },
+                  { key: "status", label: "Status" },
+                  { key: "reorderPoint", label: "ROP" },
+                  { key: "ropInDays", label: "ROP (Days)" },
+                  { key: "bufferStock", label: "Buffer Stock" },
+                  { key: "bufferDays", label: "Buffer Days" },
+                  { key: "maxStock", label: "Max Stock" },
+                  { key: "minStock", label: "Min Stock" },
+                  { key: "moq", label: "MOQ" },
+                  { key: "leadTimeDays", label: "Lead Time (Days)" },
+                  { key: "leadTimeMonths", label: "Lead Time (Months)" },
+                  { key: "stackingQuantity", label: "Stacking Qty" },
+                  { key: "varianceDemand", label: "Variance Demand" },
+                  { key: "varianceLeadTimeDemand", label: "Variance Lead Time" },
+                  { key: "difference", label: "Difference" },
+                  { key: "orderDeliveryDays", label: "Order Delivery" },
+                  { key: "orderQuantity", label: "Order Quantity" },
+                  { key: "palletRequirement", label: "Pallet Requirement" },
+                ].map((col) => (
+                  <li key={col.key}>
+                    <label className="label cursor-pointer">
+                      <span className="label-text">{col.label}</span>
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm"
+                        checked={visibleColumns.has(col.key)}
+                        onChange={(e) => {
+                          const newVisible = new Set(visibleColumns);
+                          if (e.target.checked) {
+                            newVisible.add(col.key);
+                          } else {
+                            newVisible.delete(col.key);
+                          }
+                          setVisibleColumns(newVisible);
+                        }}
+                      />
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="dropdown dropdown-end">
+            <label tabIndex={0} className="btn btn-sm btn-ghost">
+              <span className="material-symbols-outlined">sort</span>
               <span>Sort by</span>
             </label>
             <ul
@@ -437,70 +605,220 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      {/* Inventory Table */}
+      {/* Inventory Table - Scrollable Container */}
       <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="table w-full">
+        <div 
+          className="w-full" 
+          style={{ 
+            height: 'calc(100vh - 450px)',
+            minHeight: '500px',
+            overflow: 'auto',
+            position: 'relative'
+          }}
+        >
+          <table className="table w-full" style={{ minWidth: '1400px', width: 'max-content' }}>
             <thead className="bg-base-200">
               <tr>
-                <th className="font-semibold text-base-content">SKU</th>
-                <th className="font-semibold text-base-content">Item Name</th>
-                <th className="font-semibold text-base-content">Type</th>
-                <th className="font-semibold text-base-content">Category</th>
-                <th className="font-semibold text-base-content">Quantity</th>
-                <th className="font-semibold text-base-content">Location</th>
-                <th className="font-semibold text-base-content">Status</th>
+                {visibleColumns.has("sku") && <th className="font-semibold text-base-content">SKU</th>}
+                {visibleColumns.has("name") && <th className="font-semibold text-base-content">Item Name</th>}
+                {visibleColumns.has("type") && <th className="font-semibold text-base-content">Type</th>}
+                {visibleColumns.has("category") && <th className="font-semibold text-base-content">Category</th>}
+                {visibleColumns.has("quantity") && <th className="font-semibold text-base-content">Quantity</th>}
+                {visibleColumns.has("location") && <th className="font-semibold text-base-content">Location</th>}
+                {visibleColumns.has("status") && <th className="font-semibold text-base-content">Status</th>}
+                {visibleColumns.has("reorderPoint") && <th className="font-semibold text-base-content">ROP</th>}
+                {visibleColumns.has("ropInDays") && <th className="font-semibold text-base-content">ROP (Days)</th>}
+                {visibleColumns.has("bufferStock") && <th className="font-semibold text-base-content">Buffer Stock</th>}
+                {visibleColumns.has("bufferDays") && <th className="font-semibold text-base-content">Buffer Days</th>}
+                {visibleColumns.has("maxStock") && <th className="font-semibold text-base-content">Max Stock</th>}
+                {visibleColumns.has("minStock") && <th className="font-semibold text-base-content">Min Stock</th>}
+                {visibleColumns.has("moq") && <th className="font-semibold text-base-content">MOQ</th>}
+                {visibleColumns.has("leadTimeDays") && <th className="font-semibold text-base-content">Lead Time (Days)</th>}
+                {visibleColumns.has("leadTimeMonths") && <th className="font-semibold text-base-content">Lead Time (Months)</th>}
+                {visibleColumns.has("stackingQuantity") && <th className="font-semibold text-base-content">Stacking Qty</th>}
+                {visibleColumns.has("varianceDemand") && <th className="font-semibold text-base-content">Variance Demand</th>}
+                {visibleColumns.has("varianceLeadTimeDemand") && <th className="font-semibold text-base-content">Variance Lead Time</th>}
+                {visibleColumns.has("difference") && <th className="font-semibold text-base-content">Difference</th>}
+                {visibleColumns.has("orderDeliveryDays") && <th className="font-semibold text-base-content">Order Delivery</th>}
+                {visibleColumns.has("orderQuantity") && <th className="font-semibold text-base-content">Order Quantity</th>}
+                {visibleColumns.has("palletRequirement") && <th className="font-semibold text-base-content">Pallet Requirement</th>}
                 <th className="font-semibold text-base-content">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredInventory.map((item) => (
-                <tr key={item.sku} className="hover:bg-base-200/50">
-                  <td>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedItem(item);
-                        setShowDetailModal(true);
-                      }}
-                      className="font-semibold text-primary hover:underline text-left"
-                    >
-                      {item.sku}
-                    </button>
-                  </td>
-                  <td>{item.name}</td>
-                  <td>
-                    <span
-                      className={`badge text-xs whitespace-nowrap ${
-                        item.itemType === "Raw Material"
-                          ? "badge-info"
-                          : "badge-primary"
-                      }`}
-                    >
-                      {item.itemType}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className="badge text-xs whitespace-nowrap"
-                      style={{
-                        backgroundColor: "#EEEEEE",
-                        color: "#1F2937",
-                        border: "1px solid #E5E7EB",
-                      }}
-                    >
-                      {item.category}
-                    </span>
-                  </td>
-                  <td className="font-semibold">{Math.ceil(item.qty)}</td>
-                  <td>
-                    <span className="badge badge-ghost">{item.location}</span>
-                  </td>
-                  <td>
-                    <span className={`badge ${statusClass(item.status)} whitespace-nowrap text-xs`}>
-                      {item.status}
-                    </span>
-                  </td>
+                <tr key={item.id} className="hover:bg-base-200/50">
+                  {visibleColumns.has("sku") && (
+                    <td>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedItem(item);
+                          setShowDetailModal(true);
+                        }}
+                        className="font-semibold text-primary hover:underline text-left"
+                      >
+                        {item.sku}
+                      </button>
+                    </td>
+                  )}
+                  {visibleColumns.has("name") && <td>{item.name}</td>}
+                  {visibleColumns.has("type") && (
+                    <td>
+                      <span
+                        className={`badge text-xs whitespace-nowrap ${
+                          item.itemType === "Raw Material"
+                            ? "badge-info"
+                            : item.itemType === "Product"
+                            ? "badge-success"
+                            : "badge-neutral"
+                        }`}
+                      >
+                        {item.itemType}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("category") && (
+                    <td>
+                      <span
+                        className="badge text-xs whitespace-nowrap"
+                        style={{
+                          backgroundColor: "#EEEEEE",
+                          color: "#1F2937",
+                          border: "1px solid #E5E7EB",
+                        }}
+                      >
+                        {item.category}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("quantity") && (
+                    <td className="font-semibold">{Math.ceil(item.qty)}</td>
+                  )}
+                  {visibleColumns.has("location") && (
+                    <td>
+                      <span className="badge badge-ghost">{item.location}</span>
+                    </td>
+                  )}
+                  {visibleColumns.has("status") && (
+                    <td>
+                      <span className={`badge ${statusClass(item.status)} whitespace-nowrap text-xs`}>
+                        {item.status}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("reorderPoint") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.reorderPoint ? formatDecimal(parseFloat(item.reorderPoint)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("ropInDays") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.ropInDays ? formatDecimal(parseFloat(item.ropInDays)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("bufferStock") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.bufferStock ? formatDecimal(parseFloat(item.bufferStock)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("bufferDays") && (
+                    <td>
+                      <span className="text-sm">
+                        {item.bufferDays ? `${item.bufferDays} days` : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("maxStock") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.maxStock ? formatDecimal(parseFloat(item.maxStock)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("minStock") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.minStock ? formatDecimal(parseFloat(item.minStock)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("moq") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.moq ? formatDecimal(parseFloat(item.moq)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("leadTimeDays") && (
+                    <td>
+                      <span className="text-sm">
+                        {item.leadTimeDays ? `${item.leadTimeDays} days` : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("leadTimeMonths") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.leadTimeMonths ? formatDecimal(parseFloat(item.leadTimeMonths)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("stackingQuantity") && (
+                    <td>
+                      <span className="text-sm">
+                        {item.stackingQuantity ? item.stackingQuantity.toLocaleString() : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("varianceDemand") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.varianceDemand ? formatDecimal(parseFloat(item.varianceDemand)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("varianceLeadTimeDemand") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.varianceLeadTimeDemand ? formatDecimal(parseFloat(item.varianceLeadTimeDemand)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("difference") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.difference ? formatDecimal(parseFloat(item.difference)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("orderDeliveryDays") && (
+                    <td>
+                      <span className="text-sm">
+                        {item.orderDeliveryDays ? `${item.orderDeliveryDays} days` : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("orderQuantity") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.orderQuantity ? formatDecimal(parseFloat(item.orderQuantity)) : "—"}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("palletRequirement") && (
+                    <td>
+                      <span className="text-sm font-mono">
+                        {item.palletRequirement ? formatDecimal(parseFloat(item.palletRequirement)) : "—"}
+                      </span>
+                    </td>
+                  )}
                   <td>
                     <div className="flex gap-2">
                       <button
@@ -578,7 +896,115 @@ export default function InventoryPage() {
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
       />
+
+      {/* Import Inventory Modal */}
+      {showImportModal && (
+        <ImportInventoryModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={async () => {
+            setShowImportModal(false);
+            await loadData();
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('inventoryImported'));
+            }
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// Import Inventory Modal Component
+function ImportInventoryModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleImport = async () => {
+    if (!file) {
+      showToast.error("Please select a file");
+      return;
+    }
+
+    try {
+      setImporting(true);
+      const result = await materialsApi.importInventoryCsv(file);
+      if (result.successCount > 0) {
+        showToast.success(`Successfully imported ${result.successCount} inventory items`);
+        onSuccess();
+      }
+      if (result.errorCount > 0) {
+        showToast.error(`${result.errorCount} items failed to import`);
+      }
+    } catch (error: any) {
+      logger.error("[Inventory] Import failed:", error);
+      showToast.error(error.message || "Failed to import inventory");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Import Inventory from CSV">
+      <div className="space-y-4">
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <div>
+            <div className="font-semibold">Import Active stock.csv</div>
+            <div className="text-sm">
+              This will import stock levels for materials. Materials will be auto-created if they don't exist.
+              <br />
+              <strong>Note:</strong> Quantity is extracted from "Future Average" column (Column 9).
+            </div>
+          </div>
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">CSV File</span>
+          </label>
+          <input
+            type="file"
+            accept=".csv"
+            className="file-input file-input-bordered w-full"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            disabled={importing}
+          />
+          <label className="label">
+            <span className="label-text-alt">
+              Expected format: Material Code, Unit Type, Description, Supply Plan, ..., Future Average (Column 9 = Quantity), ...
+            </span>
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button className="btn btn-ghost" onClick={onClose} disabled={importing}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleImport}
+            disabled={!file || importing}
+          >
+            {importing ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Importing...
+              </>
+            ) : (
+              "Import"
+            )}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -923,6 +1349,57 @@ function InventoryItemDetailModal({
                 <span className={`badge ${statusClass(item.status)}`}>
                   {item.status}
                 </span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Planning Information */}
+        <div>
+          <h3 className="text-lg font-semibold text-base-content mb-4">
+            Planning & Reorder Information
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm text-base-content/60">Reorder Point (ROP)</label>
+              <p className="font-semibold font-mono">
+                {item.reorderPoint ? formatDecimal(parseFloat(item.reorderPoint)) : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Buffer Stock</label>
+              <p className="font-semibold font-mono">
+                {item.bufferStock ? formatDecimal(parseFloat(item.bufferStock)) : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Maximum Stock</label>
+              <p className="font-semibold font-mono">
+                {item.maxStock ? formatDecimal(parseFloat(item.maxStock)) : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Minimum Stock</label>
+              <p className="font-semibold font-mono">
+                {item.minStock ? formatDecimal(parseFloat(item.minStock)) : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Minimum Order Quantity (MOQ)</label>
+              <p className="font-semibold font-mono">
+                {item.moq ? formatDecimal(parseFloat(item.moq)) : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Lead Time</label>
+              <p className="font-semibold">
+                {item.leadTimeDays ? `${item.leadTimeDays} days` : "Not Set"}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Stacking Quantity</label>
+              <p className="font-semibold">
+                {item.stackingQuantity ? item.stackingQuantity.toLocaleString() : "Not Set"}
               </p>
             </div>
           </div>

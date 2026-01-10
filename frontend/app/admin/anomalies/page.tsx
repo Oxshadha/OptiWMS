@@ -12,7 +12,6 @@ import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
-import { useAdmin } from "@/contexts/AdminContext";
 
 interface AnomalyDisplay {
   id: string;
@@ -204,7 +203,6 @@ export default function AnomaliesPage() {
       }
     };
 
-  useEffect(() => {
     loadData();
   }, []);
 

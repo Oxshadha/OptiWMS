@@ -54,6 +54,18 @@ public class InventoryService {
                 .collect(Collectors.toList());
     }
 
+    public List<InventoryItem> findByMaterialType(String materialType) {
+        return repository.findByMaterialType(materialType).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<InventoryItem> findByWarehouseAndMaterialType(java.util.UUID warehouseId, String materialType) {
+        return repository.findByWarehouseIdAndMaterialType(warehouseId, materialType).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public List<InventoryItem> findQuarantined() {
         return repository.findByStatus("quarantine").stream()
                 .map(this::toDomain)
@@ -88,8 +100,20 @@ public class InventoryService {
         entity.setStackingQuantity(item.getStackingQuantity());
         entity.setMoq(item.getMoq());
         entity.setLeadTimeDays(item.getLeadTimeDays());
+        entity.setBufferDays(item.getBufferDays());
+        entity.setLeadTimeMonths(item.getLeadTimeMonths());
+        entity.setRopInDays(item.getRopInDays());
+        entity.setVarianceDemand(item.getVarianceDemand());
+        entity.setVarianceLeadTimeDemand(item.getVarianceLeadTimeDemand());
+        entity.setDifference(item.getDifference());
+        entity.setOrderDeliveryDays(item.getOrderDeliveryDays());
+        entity.setOrderQuantity(item.getOrderQuantity());
+        entity.setPalletRequirement(item.getPalletRequirement());
         if (item.getStatus() != null) {
             entity.setStatus(item.getStatus());
+        }
+        if (item.getMaterialType() != null) {
+            entity.setMaterialType(item.getMaterialType());
         }
 
         InventoryItemEntity saved = repository.save(entity);
@@ -117,7 +141,17 @@ public class InventoryService {
         entity.setStackingQuantity(item.getStackingQuantity());
         entity.setMoq(item.getMoq());
         entity.setLeadTimeDays(item.getLeadTimeDays());
+        entity.setBufferDays(item.getBufferDays());
+        entity.setLeadTimeMonths(item.getLeadTimeMonths());
+        entity.setRopInDays(item.getRopInDays());
+        entity.setVarianceDemand(item.getVarianceDemand());
+        entity.setVarianceLeadTimeDemand(item.getVarianceLeadTimeDemand());
+        entity.setDifference(item.getDifference());
+        entity.setOrderDeliveryDays(item.getOrderDeliveryDays());
+        entity.setOrderQuantity(item.getOrderQuantity());
+        entity.setPalletRequirement(item.getPalletRequirement());
         entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
+        entity.setMaterialType(item.getMaterialType());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -146,7 +180,17 @@ public class InventoryService {
         item.setStackingQuantity(entity.getStackingQuantity());
         item.setMoq(entity.getMoq());
         item.setLeadTimeDays(entity.getLeadTimeDays());
+        item.setBufferDays(entity.getBufferDays());
+        item.setLeadTimeMonths(entity.getLeadTimeMonths());
+        item.setRopInDays(entity.getRopInDays());
+        item.setVarianceDemand(entity.getVarianceDemand());
+        item.setVarianceLeadTimeDemand(entity.getVarianceLeadTimeDemand());
+        item.setDifference(entity.getDifference());
+        item.setOrderDeliveryDays(entity.getOrderDeliveryDays());
+        item.setOrderQuantity(entity.getOrderQuantity());
+        item.setPalletRequirement(entity.getPalletRequirement());
         item.setStatus(entity.getStatus());
+        item.setMaterialType(entity.getMaterialType());
         return item;
     }
 }

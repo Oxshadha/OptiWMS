@@ -1,3 +1,5 @@
+import { logger } from '@/lib/utils/logger';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
 // Check if user is authenticated
@@ -34,11 +36,11 @@ function getAuthHeaders(): Record<string, string> {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    console.error(`[API Client] Response not OK: ${response.status} ${response.statusText}`);
+    logger.error(`[API Client] Response not OK: ${response.status} ${response.statusText}`);
     
     // Handle 401 Unauthorized
     if (response.status === 401) {
-      console.error("[API Client] 401 Unauthorized - attempting token refresh");
+      logger.error("[API Client] 401 Unauthorized - attempting token refresh");
       const refreshToken = localStorage.getItem('refreshToken');
       
       // Try to refresh token if we have one
@@ -52,14 +54,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
             throw new Error('Session refreshed. Please try again.');
           } else {
             // Refresh failed - clear tokens and redirect
-            console.error("[API Client] Token refresh failed");
+            logger.error("[API Client] Token refresh failed");
             authApi.logout();
             redirectToLogin();
             throw new Error('Session expired. Please login again.');
           }
         } catch (refreshError) {
           // Refresh failed - clear tokens and redirect
-          console.error("[API Client] Token refresh error:", refreshError);
+          logger.error("[API Client] Token refresh error:", refreshError);
           const { authApi } = await import('./auth');
           authApi.logout();
           redirectToLogin();
@@ -67,7 +69,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
         }
       } else {
         // No refresh token - redirect to login
-        console.error("[API Client] No refresh token available");
+        logger.error("[API Client] No refresh token available");
         redirectToLogin();
         throw new Error('Not authenticated. Please login.');
       }
@@ -75,7 +77,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     
     // Handle 403 Forbidden - User doesn't have permission
     if (response.status === 403) {
-      console.error("[API Client] 403 Forbidden - User doesn't have permission");
+      logger.error("[API Client] 403 Forbidden - User doesn't have permission");
       let errorMessage = 'Access denied. You do not have permission to access this resource.';
       try {
         const errorData = await response.json();

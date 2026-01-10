@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { logger } from '@/lib/utils/logger';
 
 export interface LoginRequest {
   username: string;
@@ -42,7 +43,7 @@ export const authApi = {
   login: async (request: LoginRequest): Promise<LoginResponse> => {
     // CRITICAL: Clear any existing tokens before login to prevent token conflicts
     // This ensures we don't use an old token from a different user/role
-    console.log('[AuthAPI] Clearing existing tokens before login');
+    logger.log('[AuthAPI] Clearing existing tokens before login');
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     
@@ -73,14 +74,14 @@ export const authApi = {
     // Store new tokens (only if login was successful)
     if (data.accessToken) {
       localStorage.setItem('accessToken', data.accessToken);
-      console.log('[AuthAPI] New access token stored');
+      logger.log('[AuthAPI] New access token stored');
       // Dispatch custom event to notify other tabs AND current tab
       // Note: storage event only fires in OTHER tabs, not the current one
       window.dispatchEvent(new CustomEvent('tokenChanged'));
     }
     if (data.refreshToken) {
       localStorage.setItem('refreshToken', data.refreshToken);
-      console.log('[AuthAPI] New refresh token stored');
+      logger.log('[AuthAPI] New refresh token stored');
     }
 
     return data;
@@ -119,12 +120,12 @@ export const authApi = {
   },
 
   logout: async () => {
-    console.log('[AuthAPI] Logging out...');
+    logger.log('[AuthAPI] Logging out...');
     
     // Clear tokens from localStorage
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
-    console.log('[AuthAPI] Tokens cleared from localStorage');
+    logger.log('[AuthAPI] Tokens cleared from localStorage');
     // Dispatch custom event to notify other tabs AND current tab
     window.dispatchEvent(new CustomEvent('tokenChanged'));
     
@@ -137,25 +138,25 @@ export const authApi = {
         // Clear admin data
         try {
           await deleteFromStore(STORES.ADMIN_DATA, 'admin_data');
-          console.log('[AuthAPI] Admin data cleared from IndexedDB');
+          logger.log('[AuthAPI] Admin data cleared from IndexedDB');
         } catch (error) {
-          console.error('[AuthAPI] Error clearing admin data:', error);
+          logger.error('[AuthAPI] Error clearing admin data:', error);
         }
         
         // Clear worker data
         try {
           await deleteFromStore(STORES.WORKER_DATA, 'current_worker');
-          console.log('[AuthAPI] Worker data cleared from IndexedDB');
+          logger.log('[AuthAPI] Worker data cleared from IndexedDB');
         } catch (error) {
-          console.error('[AuthAPI] Error clearing worker data:', error);
+          logger.error('[AuthAPI] Error clearing worker data:', error);
         }
       } catch (error) {
-        console.error('[AuthAPI] Error during logout cleanup:', error);
+        logger.error('[AuthAPI] Error during logout cleanup:', error);
         // Continue anyway - tokens are already cleared
       }
     }
     
-    console.log('[AuthAPI] Logout complete');
+    logger.log('[AuthAPI] Logout complete');
   },
 
   getAccessToken: (): string | null => {

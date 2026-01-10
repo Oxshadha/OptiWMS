@@ -3,6 +3,7 @@ package com.optiwms.coreapi.config;
 import com.optiwms.coreapi.auth.CustomUserDetailsService;
 import com.optiwms.coreapi.auth.JwtAuthenticationFilter;
 import com.optiwms.coreapi.auth.RateLimitingFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,11 +30,20 @@ public class SecurityConfig {
     private final CustomUserDetailsService userDetailsService;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final RateLimitingFilter rateLimitingFilter;
+    private final SecurityHeadersFilter securityHeadersFilter;
 
-    public SecurityConfig(CustomUserDetailsService userDetailsService, JwtAuthenticationFilter jwtAuthenticationFilter, RateLimitingFilter rateLimitingFilter) {
+    @Value("${frontend.url:http://localhost:3000}")
+    private String frontendUrl;
+
+    public SecurityConfig(
+            CustomUserDetailsService userDetailsService, 
+            JwtAuthenticationFilter jwtAuthenticationFilter, 
+            RateLimitingFilter rateLimitingFilter,
+            SecurityHeadersFilter securityHeadersFilter) {
         this.userDetailsService = userDetailsService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.rateLimitingFilter = rateLimitingFilter;
+        this.securityHeadersFilter = securityHeadersFilter;
     }
 
     @Bean
@@ -58,7 +68,7 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf.disable()) // Disabled for stateless JWT authentication
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
@@ -73,6 +83,8 @@ public class SecurityConfig {
                         .anyRequest().permitAll()
                 )
                 .authenticationProvider(authenticationProvider())
+                // Order matters: Security Headers → Rate Limiting → JWT Auth
+                .addFilterBefore(securityHeadersFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
@@ -82,7 +94,14 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+        
+        // Use environment variable for production, fallback to localhost for development
+        String allowedOrigin = frontendUrl;
+        if (allowedOrigin == null || allowedOrigin.isEmpty()) {
+            allowedOrigin = "http://localhost:3000";
+        }
+        
+        configuration.setAllowedOrigins(List.of(allowedOrigin));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);

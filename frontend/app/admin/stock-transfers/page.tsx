@@ -109,7 +109,8 @@ export default function StockTransfersPage() {
   const [materialsMap, setMaterialsMap] = useState<Map<string, { name: string; sku: string }>>(new Map());
 
   // Load data from API
-  const loadData = async () => {
+  useEffect(() => {
+    const loadData = async () => {
       try {
         setLoading(true);
         setError(null);

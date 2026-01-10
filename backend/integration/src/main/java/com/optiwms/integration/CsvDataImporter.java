@@ -4,8 +4,9 @@ import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
-import com.optiwms.infra.master.WarehouseEntity;
 import com.optiwms.infra.master.WarehouseRepository;
+import com.optiwms.infra.planning.SupplyPlanEntity;
+import com.optiwms.infra.planning.SupplyPlanRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -19,8 +20,8 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDate;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 public class CsvDataImporter {
@@ -33,6 +34,9 @@ public class CsvDataImporter {
 
     @Autowired
     private WarehouseRepository warehouseRepository;
+
+    @Autowired
+    private SupplyPlanRepository supplyPlanRepository;
 
 
     /**
@@ -89,7 +93,7 @@ public class CsvDataImporter {
                 MaterialEntity material = new MaterialEntity();
                 material.setMaterialCode(materialCode);
                 material.setDescription(description);
-                material.setMaterialType("raw_material"); // Default, can be updated later
+                material.setMaterialType(classifyMaterialType(description, null)); // Classify based on description
                 material.setStorageType("pallet"); // Default
                 material.setRequiresPallet(true); // Default
 
@@ -111,12 +115,13 @@ public class CsvDataImporter {
         Path path = Paths.get(csvPath);
         int materialsProcessed = 0;
         int inventoryCreated = 0;
-        int supplyPlansCreated = 0;
+        AtomicInteger supplyPlansCreated = new AtomicInteger(0);
         int errors = 0;
 
-        // Get or create default warehouse
-        WarehouseEntity warehouse = warehouseRepository.findById(warehouseId)
-                .orElseThrow(() -> new RuntimeException("Warehouse not found: " + warehouseId));
+        // Verify warehouse exists
+        if (!warehouseRepository.existsById(warehouseId)) {
+            throw new RuntimeException("Warehouse not found: " + warehouseId);
+        }
 
         try (BufferedReader reader = new BufferedReader(new FileReader(path.toFile()))) {
             String line;
@@ -154,11 +159,17 @@ public class CsvDataImporter {
                                 m.setMaterialCode(materialCode);
                                 m.setDescription(description);
                                 m.setUnitType(unitType);
-                                m.setMaterialType("raw_material");
+                                m.setMaterialType(classifyMaterialType(description, unitType));
                                 m.setStorageType("pallet");
                                 m.setRequiresPallet(true);
                                 return materialRepository.save(m);
                             });
+                    
+                    // Update material type if not set
+                    if (material.getMaterialType() == null) {
+                        material.setMaterialType(classifyMaterialType(description, unitType));
+                        materialRepository.save(material);
+                    }
 
                     // Update unit type if not set
                     if (material.getUnitType() == null && !unitType.isEmpty()) {
@@ -172,14 +183,31 @@ public class CsvDataImporter {
                     // Parse planning fields (columns 8-30+)
                     // This is complex - we'll extract key fields
 
-                    // Try to parse numeric values
-                    BigDecimal quantity = parseBigDecimal(values, 18); // Approximate position for quantity
-                    BigDecimal bufferStock = parseBigDecimal(values, 16); // Buffer stock
-                    BigDecimal maxStock = parseBigDecimal(values, 17); // Maximum stock
-                    Integer stackingQuantity = parseInt(values, 18); // Stacking quantity
-                    BigDecimal moq = parseBigDecimal(values, 19); // MOQ
-                    Integer leadTimeDays = parseInt(values, 9); // Lead time days
-                    BigDecimal reorderPoint = parseBigDecimal(values, 13); // ROP
+                    // Parse numeric values from Active stock.csv
+                    // CSV Structure (after parsing): 
+                    // 0=Material Code, 1=Unit Type, 2=Description, 3-7=Supply Plan, 8=Buffer days, 
+                    // 9=Future Average (QUANTITY!), 10=Lead time, 11=Lead time months, 12=EX,
+                    // 13=Variance demand, 14=Variance lead time, 15=ROP, 16=ROP days, 17=Buffer stock,
+                    // 18=(empty), 19=Maximum stock, 20=Stacking quantity, 21=MOQ, 22=Difference,
+                    // 23=Order Delivery, 24=Order Quantity, 27=Pallet requirement (may be #VALUE!)
+                    // IMPORTANT: Column 9 = "Future Average" = Current Stock Quantity!
+                    BigDecimal quantity = parseBigDecimal(values, 9); // Column 9 = Future Average = Current Stock Quantity
+                    Integer bufferDays = parseInt(values, 8); // Column 8 = Buffer days
+                    Integer leadTimeDays = parseInt(values, 10); // Column 10 = Lead time days
+                    BigDecimal leadTimeMonths = parseBigDecimal(values, 11); // Column 11 = Lead time months
+                    BigDecimal varianceDemand = parseBigDecimal(values, 13); // Column 13 = Variance demand
+                    BigDecimal varianceLeadTimeDemand = parseBigDecimal(values, 14); // Column 14 = Variance lead time demand
+                    BigDecimal reorderPoint = parseBigDecimal(values, 15); // Column 15 = ROP
+                    BigDecimal ropInDays = parseBigDecimal(values, 16); // Column 16 = ROP in days
+                    BigDecimal bufferStock = parseBigDecimal(values, 17); // Column 17 = Buffer stock
+                    BigDecimal maxStock = parseBigDecimal(values, 19); // Column 19 = Maximum stock
+                    Integer stackingQuantity = parseInt(values, 20); // Column 20 = Stacking quantity
+                    BigDecimal moq = parseBigDecimal(values, 21); // Column 21 = MOQ
+                    BigDecimal difference = parseBigDecimal(values, 22); // Column 22 = Difference (may be negative in parentheses)
+                    Integer orderDeliveryDays = parseInt(values, 23); // Column 23 = Order Delivery
+                    BigDecimal orderQuantity = parseBigDecimal(values, 24); // Column 24 = Order Quantity
+                    // Column 27 = Pallet requirement (often #VALUE! in CSV, will be null)
+                    BigDecimal palletRequirement = parseBigDecimal(values, 27); // Column 27 = Pallet requirement
 
                     // Create or update inventory
                     List<InventoryItemEntity> existingList = inventoryItemRepository
@@ -197,46 +225,69 @@ public class CsvDataImporter {
                         inventory.setWarehouseId(warehouseId);
                     }
 
-                    if (quantity != null && quantity.compareTo(BigDecimal.ZERO) > 0) {
-                        // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
+                    // Always update quantity if available (even if 0, to ensure data consistency)
+                    if (quantity != null) {
                         Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
                         inventory.setQuantity(qtyInteger);
                         inventory.setAvailableQuantity(qtyInteger);
                     }
-                    if (bufferStock != null) {
-                        inventory.setBufferStock(bufferStock);
-                    }
-                    if (maxStock != null) {
-                        inventory.setMaxStock(maxStock);
-                    }
-                    if (stackingQuantity != null) {
-                        inventory.setStackingQuantity(stackingQuantity);
-                    }
-                    if (moq != null) {
-                        inventory.setMoq(moq);
-                    }
-                    if (leadTimeDays != null) {
-                        inventory.setLeadTimeDays(leadTimeDays);
-                    }
-                    if (reorderPoint != null) {
-                        inventory.setReorderPoint(reorderPoint);
-                    }
+                    
+                    // Update all planning fields - always set them (null is valid if CSV has no data)
+                    // This ensures existing records get updated when CSV is re-imported
+                    inventory.setBufferStock(bufferStock);
+                    inventory.setMaxStock(maxStock);
+                    inventory.setMinStock(null); // Not in CSV, keep null
+                    inventory.setStackingQuantity(stackingQuantity);
+                    inventory.setMoq(moq);
+                    inventory.setLeadTimeDays(leadTimeDays);
+                    inventory.setReorderPoint(reorderPoint);
+                    inventory.setBufferDays(bufferDays);
+                    inventory.setLeadTimeMonths(leadTimeMonths);
+                    inventory.setRopInDays(ropInDays);
+                    inventory.setVarianceDemand(varianceDemand);
+                    inventory.setVarianceLeadTimeDemand(varianceLeadTimeDemand);
+                    inventory.setDifference(difference);
+                    inventory.setOrderDeliveryDays(orderDeliveryDays);
+                    inventory.setOrderQuantity(orderQuantity);
+                    inventory.setPalletRequirement(palletRequirement);
 
                     inventory.setStatus("active");
+                    // Set material_type from material (denormalized for filtering)
+                    inventory.setMaterialType(material.getMaterialType());
                     inventoryItemRepository.save(inventory);
                     inventoryCreated++;
 
                     // Parse and create supply plans (Jul, Aug, Sep, Oct, Nov 2024)
-                    // Columns 3-7 should be supply plan months
+                    // Columns 3-7 should be supply plan months (after Material Code, Unit Type, Description)
+                    // CSV Structure: 0=Material Code, 1=Unit Type, 2=Description, 3=Jul SP, 4=Aug SP, 5=Sep SP, 6=Oct SP, 7=Nov SP
                     BigDecimal julSp = parseBigDecimal(values, 3);
                     BigDecimal augSp = parseBigDecimal(values, 4);
                     BigDecimal sepSp = parseBigDecimal(values, 5);
                     BigDecimal octSp = parseBigDecimal(values, 6);
                     BigDecimal novSp = parseBigDecimal(values, 7);
 
-                    // Create supply plan records (we'll need a SupplyPlanEntity)
-                    // For now, we'll store this in material planning fields
-                    // TODO: Create SupplyPlanEntity and repository
+                    // Create supply plan records for 2024
+                    int year = 2024;
+                    UUID materialUuid = material.getId();
+                    UUID warehouseUuid = warehouseId;
+
+                    // Save supply plans if quantities exist (even if zero, but not null)
+                    // Remove the > 0 check to save all non-null values
+                    if (julSp != null) {
+                        saveSupplyPlan(materialUuid, warehouseUuid, year, 7, julSp, supplyPlansCreated); // July
+                    }
+                    if (augSp != null) {
+                        saveSupplyPlan(materialUuid, warehouseUuid, year, 8, augSp, supplyPlansCreated); // August
+                    }
+                    if (sepSp != null) {
+                        saveSupplyPlan(materialUuid, warehouseUuid, year, 9, sepSp, supplyPlansCreated); // September
+                    }
+                    if (octSp != null) {
+                        saveSupplyPlan(materialUuid, warehouseUuid, year, 10, octSp, supplyPlansCreated); // October
+                    }
+                    if (novSp != null) {
+                        saveSupplyPlan(materialUuid, warehouseUuid, year, 11, novSp, supplyPlansCreated); // November
+                    }
 
                 } catch (Exception e) {
                     System.err.println("Error processing line " + lineNumber + ": " + e.getMessage());
@@ -245,7 +296,39 @@ public class CsvDataImporter {
             }
         }
 
-        return new ImportResult(materialsProcessed, inventoryCreated, supplyPlansCreated, errors);
+        System.out.println("✅ Import completed: " + materialsProcessed + " materials processed, " + 
+                          inventoryCreated + " inventory items created, " + 
+                          supplyPlansCreated.get() + " supply plans created, " + 
+                          errors + " errors");
+        return new ImportResult(materialsProcessed, inventoryCreated, supplyPlansCreated.get(), errors);
+    }
+
+    /**
+     * Classify material type based on description and unit type
+     * Returns: "raw_material" or "packaging_material"
+     */
+    private String classifyMaterialType(String description, String unitType) {
+        if (description == null) {
+            return "raw_material";
+        }
+        
+        String descLower = description.toLowerCase();
+        String unitLower = unitType != null ? unitType.toLowerCase() : "";
+        
+        // Packaging materials
+        if (descLower.contains("pouch") || 
+            descLower.contains("pe back") || 
+            descLower.contains("sheet") || 
+            descLower.contains("woven") || 
+            descLower.contains("paper") || 
+            descLower.contains("reel") ||
+            descLower.contains("tape") ||
+            unitLower.contains("reel")) {
+            return "packaging_material";
+        }
+        
+        // Default: raw material
+        return "raw_material";
     }
 
     /**
@@ -280,19 +363,33 @@ public class CsvDataImporter {
         }
 
         String value = values.get(index).trim();
-        if (value.isEmpty() || value.equals("#N/A") || value.equals("#VALUE!")) {
+        if (value.isEmpty() || value.equals("#N/A") || value.equals("#VALUE!") || value.equals("]") || value.equals("-")) {
             return null;
         }
 
         try {
-            // Remove commas and quotes
-            value = value.replace(",", "").replace("\"", "").replace(" ", "");
-            if (value.startsWith("(") && value.endsWith(")")) {
-                // Negative value in parentheses
-                value = "-" + value.substring(1, value.length() - 1);
+            // Remove quotes first, then handle commas and spaces
+            value = value.replace("\"", "").trim();
+            
+            // Handle negative values in parentheses: (78,715) -> -78715
+            boolean isNegative = value.startsWith("(") && value.endsWith(")");
+            if (isNegative) {
+                value = value.substring(1, value.length() - 1).trim();
             }
-            return new BigDecimal(value);
+            
+            // Remove commas (thousand separators) and spaces
+            value = value.replace(",", "").replace(" ", "");
+            
+            // Skip if empty after cleaning
+            if (value.isEmpty() || value.equals("-")) {
+                return null;
+            }
+            
+            BigDecimal result = new BigDecimal(value);
+            return isNegative ? result.negate() : result;
         } catch (Exception e) {
+            // Log but don't fail - return null for invalid values
+            // This is expected for #VALUE!, empty cells, etc.
             return null;
         }
     }
@@ -379,6 +476,38 @@ public class CsvDataImporter {
         public int getInventoryCreated() { return inventoryCreated; }
         public int getSupplyPlansCreated() { return supplyPlansCreated; }
         public int getErrors() { return errors; }
+    }
+
+    /**
+     * Save or update supply plan record
+     */
+    private void saveSupplyPlan(UUID materialId, UUID warehouseId, int year, int month, 
+                               BigDecimal plannedQuantity, AtomicInteger counter) {
+        try {
+            // Check if supply plan already exists
+            Optional<SupplyPlanEntity> existing = supplyPlanRepository
+                .findByMaterialIdAndWarehouseIdAndPlanYearAndPlanMonth(materialId, warehouseId, year, month);
+
+            SupplyPlanEntity supplyPlan;
+            if (existing.isPresent()) {
+                supplyPlan = existing.get();
+            } else {
+                supplyPlan = new SupplyPlanEntity();
+                supplyPlan.setMaterialId(materialId);
+                supplyPlan.setWarehouseId(warehouseId);
+                supplyPlan.setPlanYear(year);
+                supplyPlan.setPlanMonth(month);
+                counter.incrementAndGet(); // Only count new records
+            }
+
+            supplyPlan.setPlannedQuantity(plannedQuantity);
+            supplyPlanRepository.save(supplyPlan);
+        } catch (Exception e) {
+            System.err.println("Error saving supply plan for material " + materialId + 
+                             ", warehouse " + warehouseId + ", year " + year + ", month " + month + 
+                             ": " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 }
 

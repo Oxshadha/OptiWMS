@@ -21,11 +21,17 @@ public class InventoryController {
     @GetMapping
     public ResponseEntity<List<InventoryItemDto>> list(
             @RequestParam(required = false) UUID materialId,
-            @RequestParam(required = false) UUID warehouseId
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String materialType
     ) {
         List<com.optiwms.domain.inventory.InventoryItem> items;
 
-        if (materialId != null && warehouseId != null) {
+        // Filter by materialType (raw_material, packaging_material, product)
+        if (materialType != null && warehouseId != null) {
+            items = inventoryService.findByWarehouseAndMaterialType(warehouseId, materialType);
+        } else if (materialType != null) {
+            items = inventoryService.findByMaterialType(materialType);
+        } else if (materialId != null && warehouseId != null) {
             items = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         } else if (materialId != null) {
             items = inventoryService.findByMaterial(materialId);
@@ -215,7 +221,18 @@ public class InventoryController {
                 item.getStackingQuantity(),
                 item.getMoq() != null ? item.getMoq().toString() : null,
                 item.getLeadTimeDays(),
-                item.getStatus()
+                item.getStatus(),
+                item.getMaterialType(),
+                // Additional planning fields
+                item.getBufferDays(),
+                item.getLeadTimeMonths() != null ? item.getLeadTimeMonths().toString() : null,
+                item.getRopInDays() != null ? item.getRopInDays().toString() : null,
+                item.getVarianceDemand() != null ? item.getVarianceDemand().toString() : null,
+                item.getVarianceLeadTimeDemand() != null ? item.getVarianceLeadTimeDemand().toString() : null,
+                item.getDifference() != null ? item.getDifference().toString() : null,
+                item.getOrderDeliveryDays(),
+                item.getOrderQuantity() != null ? item.getOrderQuantity().toString() : null,
+                item.getPalletRequirement() != null ? item.getPalletRequirement().toString() : null
         );
     }
 
@@ -246,7 +263,18 @@ public class InventoryController {
             Integer stackingQuantity,
             String moq,  // Changed to String
             Integer leadTimeDays,
-            String status
+            String status,
+            String materialType,  // raw_material, packaging_material, product
+            // Additional planning fields
+            Integer bufferDays,
+            String leadTimeMonths,
+            String ropInDays,
+            String varianceDemand,
+            String varianceLeadTimeDemand,
+            String difference,
+            Integer orderDeliveryDays,
+            String orderQuantity,
+            String palletRequirement
     ) {}
 
     public record QuarantinedItemDto(

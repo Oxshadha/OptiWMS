@@ -76,6 +76,37 @@ public class InventoryItemEntity {
     @Column(name = "days_since_last_movement")
     private Integer daysSinceLastMovement;
 
+    @Column(name = "material_type", length = 20)
+    private String materialType;
+
+    // Additional planning fields from CSV (V20 migration)
+    @Column(name = "buffer_days")
+    private Integer bufferDays;
+
+    @Column(name = "lead_time_months", precision = 5, scale = 2)
+    private BigDecimal leadTimeMonths;
+
+    @Column(name = "rop_in_days", precision = 10, scale = 2)
+    private BigDecimal ropInDays;
+
+    @Column(name = "variance_demand", precision = 15, scale = 2)
+    private BigDecimal varianceDemand;
+
+    @Column(name = "variance_lead_time_demand", precision = 15, scale = 2)
+    private BigDecimal varianceLeadTimeDemand;
+
+    @Column(name = "difference", precision = 15, scale = 2)
+    private BigDecimal difference;
+
+    @Column(name = "order_delivery_days")
+    private Integer orderDeliveryDays;
+
+    @Column(name = "order_quantity", precision = 15, scale = 2)
+    private BigDecimal orderQuantity;
+
+    @Column(name = "pallet_requirement", precision = 10, scale = 2)
+    private BigDecimal palletRequirement;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -257,6 +288,14 @@ public class InventoryItemEntity {
         this.daysSinceLastMovement = daysSinceLastMovement;
     }
 
+    public String getMaterialType() {
+        return materialType;
+    }
+
+    public void setMaterialType(String materialType) {
+        this.materialType = materialType;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -271,6 +310,79 @@ public class InventoryItemEntity {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    // Getters and Setters for new planning fields (V20 migration)
+    public Integer getBufferDays() {
+        return bufferDays;
+    }
+
+    public void setBufferDays(Integer bufferDays) {
+        this.bufferDays = bufferDays;
+    }
+
+    public BigDecimal getLeadTimeMonths() {
+        return leadTimeMonths;
+    }
+
+    public void setLeadTimeMonths(BigDecimal leadTimeMonths) {
+        this.leadTimeMonths = leadTimeMonths;
+    }
+
+    public BigDecimal getRopInDays() {
+        return ropInDays;
+    }
+
+    public void setRopInDays(BigDecimal ropInDays) {
+        this.ropInDays = ropInDays;
+    }
+
+    public BigDecimal getVarianceDemand() {
+        return varianceDemand;
+    }
+
+    public void setVarianceDemand(BigDecimal varianceDemand) {
+        this.varianceDemand = varianceDemand;
+    }
+
+    public BigDecimal getVarianceLeadTimeDemand() {
+        return varianceLeadTimeDemand;
+    }
+
+    public void setVarianceLeadTimeDemand(BigDecimal varianceLeadTimeDemand) {
+        this.varianceLeadTimeDemand = varianceLeadTimeDemand;
+    }
+
+    public BigDecimal getDifference() {
+        return difference;
+    }
+
+    public void setDifference(BigDecimal difference) {
+        this.difference = difference;
+    }
+
+    public Integer getOrderDeliveryDays() {
+        return orderDeliveryDays;
+    }
+
+    public void setOrderDeliveryDays(Integer orderDeliveryDays) {
+        this.orderDeliveryDays = orderDeliveryDays;
+    }
+
+    public BigDecimal getOrderQuantity() {
+        return orderQuantity;
+    }
+
+    public void setOrderQuantity(BigDecimal orderQuantity) {
+        this.orderQuantity = orderQuantity;
+    }
+
+    public BigDecimal getPalletRequirement() {
+        return palletRequirement;
+    }
+
+    public void setPalletRequirement(BigDecimal palletRequirement) {
+        this.palletRequirement = palletRequirement;
     }
 }
 

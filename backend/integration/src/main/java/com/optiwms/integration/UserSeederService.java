@@ -53,31 +53,9 @@ public class UserSeederService {
             System.out.println("   Email: admin@optiwms.com");
             System.out.println("   Password: admin123");
         } else {
-            // Always verify and update password to ensure it's correct
-            UserEntity admin = existingAdmin.get();
-            String passwordHash = admin.getPasswordHash();
-            
-            // Test if current password hash works with "admin123"
-            boolean passwordValid = false;
-            try {
-                if (passwordHash != null && (passwordHash.startsWith("$2a$") || passwordHash.startsWith("$2b$") || passwordHash.startsWith("$2y$"))) {
-                    // It's a BCrypt hash, test it
-                    passwordValid = passwordEncoder.matches("admin123", passwordHash);
-                }
-            } catch (Exception e) {
-                // Hash format invalid, will update
-                passwordValid = false;
-            }
-            
-            if (!passwordValid) {
-                System.out.println("Updating admin password hash (current hash doesn't match 'admin123')...");
-                admin.setPasswordHash(passwordEncoder.encode("admin123"));
-                admin.setUpdatedAt(OffsetDateTime.now());
-                userRepository.save(admin);
-                System.out.println("Admin password updated to: admin123");
-            } else {
-                System.out.println("Default admin user already exists with correct password");
-            }
+            // Admin user already exists - DO NOT reset password
+            // User may have changed password, so we respect their choice
+            System.out.println("Default admin user already exists (password unchanged)");
         }
     }
 }

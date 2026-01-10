@@ -212,6 +212,139 @@ public class AuthController {
         }
     }
 
+    /**
+     * Update current user's profile information (name, email, phone)
+     * Accessible to all authenticated users
+     */
+    @PutMapping("/me/profile")
+    public ResponseEntity<Map<String, Object>> updateProfile(
+            Authentication authentication,
+            @RequestBody UpdateProfileRequest request
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401)
+                .body(Map.of("success", false, "error", "Unauthorized"));
+        }
+
+        try {
+            String username = authentication.getName();
+            Optional<UserEntity> userEntity = userRepository.findByUsername(username);
+            if (userEntity.isEmpty()) {
+                userEntity = userRepository.findByEmail(username);
+            }
+
+            if (userEntity.isEmpty()) {
+                return ResponseEntity.status(401)
+                    .body(Map.of("success", false, "error", "User not found"));
+            }
+
+            UserEntity user = userEntity.get();
+            
+            // Update only if provided
+            if (request.firstName() != null && !request.firstName().trim().isEmpty()) {
+                user.setFirstName(request.firstName().trim());
+            }
+            if (request.lastName() != null && !request.lastName().trim().isEmpty()) {
+                user.setLastName(request.lastName().trim());
+            }
+            if (request.email() != null && !request.email().trim().isEmpty()) {
+                // Check if email is already taken by another user
+                Optional<UserEntity> existingEmail = userRepository.findByEmail(request.email().trim());
+                if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
+                    return ResponseEntity.badRequest()
+                        .body(Map.of("success", false, "error", "Email is already in use"));
+                }
+                user.setEmail(request.email().trim());
+            }
+            if (request.phone() != null) {
+                user.setPhone(request.phone().trim());
+            }
+            
+            userRepository.save(user);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Profile updated successfully",
+                "user", Map.of(
+                    "id", user.getId().toString(),
+                    "username", user.getUsername(),
+                    "email", user.getEmail() != null ? user.getEmail() : "",
+                    "firstName", user.getFirstName() != null ? user.getFirstName() : "",
+                    "lastName", user.getLastName() != null ? user.getLastName() : "",
+                    "phone", user.getPhone() != null ? user.getPhone() : "",
+                    "role", user.getRole()
+                )
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Change current user's password
+     * Requires current password verification for security
+     * Accessible to all authenticated users
+     */
+    @PutMapping("/me/password")
+    public ResponseEntity<Map<String, Object>> changePassword(
+            Authentication authentication,
+            @RequestBody ChangePasswordRequest request
+    ) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401)
+                .body(Map.of("success", false, "error", "Unauthorized"));
+        }
+
+        try {
+            // Validate request
+            if (request.currentPassword() == null || request.currentPassword().trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "error", "Current password is required"));
+            }
+            if (request.newPassword() == null || request.newPassword().trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "error", "New password is required"));
+            }
+            if (request.newPassword().length() < 6) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "error", "New password must be at least 6 characters"));
+            }
+
+            String username = authentication.getName();
+            Optional<UserEntity> userEntity = userRepository.findByUsername(username);
+            if (userEntity.isEmpty()) {
+                userEntity = userRepository.findByEmail(username);
+            }
+
+            if (userEntity.isEmpty()) {
+                return ResponseEntity.status(401)
+                    .body(Map.of("success", false, "error", "User not found"));
+            }
+
+            UserEntity user = userEntity.get();
+            
+            // Verify current password
+            if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+                return ResponseEntity.status(400)
+                    .body(Map.of("success", false, "error", "Current password is incorrect"));
+            }
+            
+            // Hash and set new password
+            String hashedPassword = passwordEncoder.encode(request.newPassword());
+            user.setPasswordHash(hashedPassword);
+            userRepository.save(user);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Password changed successfully"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("success", false, "error", e.getMessage()));
+        }
+    }
+
     public record LoginRequest(String username, String password) {}
     
     public record LoginResponse(
@@ -243,5 +376,17 @@ public class AuthController {
             String name,
             String role,
             String warehouseId
+    ) {}
+
+    public record UpdateProfileRequest(
+            String firstName,
+            String lastName,
+            String email,
+            String phone
+    ) {}
+
+    public record ChangePasswordRequest(
+            String currentPassword,
+            String newPassword
     ) {}
 }

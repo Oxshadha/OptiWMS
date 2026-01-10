@@ -542,9 +542,18 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
         
         const [ordersResult, warehousesResult, partnersResult] = results;
         
-        // Handle orders
+        // Handle orders - show orders that are ready to ship (picked, packed, or ready_to_ship status)
         if (ordersResult.status === 'fulfilled') {
-          setAvailableOrders(ordersResult.value.filter(o => o.status === "ready_to_ship"));
+          const readyOrders = ordersResult.value.filter(o => 
+            o.status === "ready_to_ship" || 
+            o.status === "picked" || 
+            o.status === "packing" ||
+            o.status === "packed"
+          );
+          setAvailableOrders(readyOrders);
+          if (readyOrders.length === 0) {
+            console.warn("No orders ready for shipment. Orders need to be picked/packed first.");
+          }
         } else {
           setAvailableOrders([]);
           const error = ordersResult.reason;
@@ -610,7 +619,7 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
       const shipmentPromises = formData.selectedOrders.map(orderId =>
         shipmentsApi.create({
           orderId,
-          carrier: partner?.name || formData.deliveryPartner,
+          carrier: partner?.companyName || partner?.partnerCode || formData.deliveryPartner,
           driverName: formData.driverName,
           driverPhone: formData.driverPhone,
           vehicleNumber: formData.vehicleNumber,
@@ -674,9 +683,13 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
               required
             >
               <option value="">Select Partner</option>
-              {deliveryPartners.map(partner => (
-                <option key={partner.id} value={partner.id}>{partner.name}</option>
-              ))}
+              {deliveryPartners.length === 0 ? (
+                <option value="" disabled>No delivery partners available. Generate data first.</option>
+              ) : (
+                deliveryPartners.map(partner => (
+                  <option key={partner.id} value={partner.id}>{partner.companyName || partner.partnerCode}</option>
+                ))
+              )}
             </select>
           </div>
         </div>
@@ -740,20 +753,29 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
             <span className="label-text font-medium">Select Orders to Include *</span>
           </label>
           <div className="space-y-2 max-h-48 overflow-y-auto border border-base-300 rounded-lg p-3">
-            {availableOrders.map((order) => (
-              <label key={order.id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-base-200 rounded">
-                <input
-                  type="checkbox"
-                  className="checkbox"
-                  checked={formData.selectedOrders.includes(order.id)}
-                  onChange={() => toggleOrder(order.id)}
-                />
-                <div className="flex-1">
-                  <div className="font-medium">{order.id}</div>
-                  <div className="text-sm text-base-content/60">{order.customer} • {order.items} items</div>
-                </div>
-              </label>
-            ))}
+            {availableOrders.length === 0 ? (
+              <div className="text-center py-4 text-base-content/60">
+                <p className="text-sm">No orders ready for shipment</p>
+                <p className="text-xs mt-1">Orders need to be picked/packed first</p>
+              </div>
+            ) : (
+              availableOrders.map((order) => (
+                <label key={order.id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-base-200 rounded">
+                  <input
+                    type="checkbox"
+                    className="checkbox"
+                    checked={formData.selectedOrders.includes(order.id)}
+                    onChange={() => toggleOrder(order.id)}
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium">{order.orderNumber || order.id}</div>
+                    <div className="text-sm text-base-content/60">
+                      Status: {order.status} • {order.orderDate ? new Date(order.orderDate).toLocaleDateString() : 'N/A'}
+                    </div>
+                  </div>
+                </label>
+              ))
+            )}
           </div>
         </div>
 

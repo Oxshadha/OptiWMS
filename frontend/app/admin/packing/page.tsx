@@ -108,82 +108,87 @@ export default function PackingPage() {
   const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Assign packer modal state - MUST be before early returns
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedRecordForAssign, setSelectedRecordForAssign] = useState<PackingRecord | null>(null);
+  const [availableWorkers, setAvailableWorkers] = useState<any[]>([]);
 
   // Load data from API
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const recordsData = await packingApi.getAll();
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const recordsData = await packingApi.getAll();
+      
+      // Fetch orders to get customer names
+      const ordersData = await ordersApi.getAllOutbound();
+      const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
+      ordersData.forEach(o => {
+        ordersMap.set(o.id, {
+          customerName: o.customerName || "Unknown",
+          warehouseName: o.warehouseName || "Unknown",
+        });
+      });
+
+      // Transform API data to display format
+      const displayRecords: PackingRecord[] = recordsData.map((r) => {
+        const orderInfo = r.orderId ? ordersMap.get(r.orderId) : null;
         
-        // Fetch orders to get customer names
-        const ordersData = await ordersApi.getAllOutbound();
-        const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
-        ordersData.forEach(o => {
-          ordersMap.set(o.id, {
-            customerName: o.customerName || "Unknown",
-            warehouseName: o.warehouseName || "Unknown",
-          });
-        });
-
-        // Transform API data to display format
-        const displayRecords: PackingRecord[] = recordsData.map((r) => {
-          const orderInfo = r.orderId ? ordersMap.get(r.orderId) : null;
-          
-          // Parse box dimensions if available
-          let boxDimensions: { length: number; width: number; height: number } | undefined;
-          if (r.boxDimensions) {
-            try {
-              const dims = JSON.parse(r.boxDimensions);
-              if (dims.length && dims.width && dims.height) {
-                boxDimensions = { length: dims.length, width: dims.width, height: dims.height };
-              }
-            } catch (e) {
-              // Ignore parse errors
+        // Parse box dimensions if available
+        let boxDimensions: { length: number; width: number; height: number } | undefined;
+        if (r.boxDimensions) {
+          try {
+            const dims = JSON.parse(r.boxDimensions);
+            if (dims.length && dims.width && dims.height) {
+              boxDimensions = { length: dims.length, width: dims.width, height: dims.height };
             }
+          } catch (e) {
+            // Ignore parse errors
           }
+        }
 
-          // Map status from API to display format
-          let displayStatus: PackingStatus = "pending";
-          if (r.status === "in_progress") displayStatus = "in_progress";
-          else if (r.status === "packed") displayStatus = "packed";
-          else if (r.status === "shipped") displayStatus = "shipped";
-          else displayStatus = "pending";
+        // Map status from API to display format
+        let displayStatus: PackingStatus = "pending";
+        if (r.status === "in_progress") displayStatus = "in_progress";
+        else if (r.status === "packed") displayStatus = "packed";
+        else if (r.status === "shipped") displayStatus = "shipped";
+        else displayStatus = "pending";
 
-          return {
-            id: r.id,
-            orderId: r.orderId || "",
-            orderNumber: r.orderNumber || "N/A",
-            customer: orderInfo?.customerName || "Unknown",
-            priority: "normal" as const, // TODO: Get from order when available
-            packagingType: r.boxType || "",
-            boxDimensions,
-            actualWeight: r.actualWeightKg ? parseFloat(r.actualWeightKg) : 0,
-            dimensionalWeight: r.dimensionalWeightKg ? parseFloat(r.dimensionalWeightKg) : 0,
-            chargeableWeight: r.chargeableWeightKg ? parseFloat(r.chargeableWeightKg) : 0,
-            trackingNumber: r.trackingNumber,
-            packerId: r.packerId,
-            packerName: undefined, // TODO: Get from user API
-            status: displayStatus,
-            startedAt: r.startedAt,
-            completedAt: r.completedAt,
-            createdAt: r.startedAt || new Date().toISOString(),
-            warehouseName: orderInfo?.warehouseName,
-          };
-        });
+        return {
+          id: r.id,
+          orderId: r.orderId || "",
+          orderNumber: r.orderNumber || "N/A",
+          customer: orderInfo?.customerName || "Unknown",
+          priority: "normal" as const, // TODO: Get from order when available
+          packagingType: r.boxType || "",
+          boxDimensions,
+          actualWeight: r.actualWeightKg ? parseFloat(r.actualWeightKg) : 0,
+          dimensionalWeight: r.dimensionalWeightKg ? parseFloat(r.dimensionalWeightKg) : 0,
+          chargeableWeight: r.chargeableWeightKg ? parseFloat(r.chargeableWeightKg) : 0,
+          trackingNumber: r.trackingNumber,
+          packerId: r.packerId,
+          packerName: undefined, // TODO: Get from user API
+          status: displayStatus,
+          startedAt: r.startedAt,
+          completedAt: r.completedAt,
+          createdAt: r.startedAt || new Date().toISOString(),
+          warehouseName: orderInfo?.warehouseName,
+        };
+      });
 
-        setPackingRecords(displayRecords);
-      } catch (err) {
-        console.error("Failed to load packing records:", err);
-        setError(err instanceof Error ? err.message : "Failed to load packing records");
-        setPackingRecords([]);
-        showToast.error("Failed to load packing records. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-    };
+      setPackingRecords(displayRecords);
+    } catch (err) {
+      console.error("Failed to load packing records:", err);
+      setError(err instanceof Error ? err.message : "Failed to load packing records");
+      setPackingRecords([]);
+      showToast.error("Failed to load packing records. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -196,6 +201,19 @@ export default function PackingPage() {
     return () => {
       window.removeEventListener('reloadPacking', handleReload);
     };
+  }, []);
+  
+  // Load workers - MUST be before early returns
+  useEffect(() => {
+    const loadWorkers = async () => {
+      try {
+        const workers = await usersApi.getAll("worker");
+        setAvailableWorkers(workers);
+      } catch (err) {
+        console.error("Failed to load workers:", err);
+      }
+    };
+    loadWorkers();
   }, []);
 
   // Filter packing records by warehouse for warehouse managers
@@ -239,22 +257,6 @@ export default function PackingPage() {
     setSelectedRecord(record);
     setShowDetailModal(true);
   };
-
-  const [showAssignModal, setShowAssignModal] = useState(false);
-  const [selectedRecordForAssign, setSelectedRecordForAssign] = useState<PackingRecord | null>(null);
-  const [availableWorkers, setAvailableWorkers] = useState<any[]>([]);
-
-  useEffect(() => {
-    const loadWorkers = async () => {
-      try {
-        const workers = await usersApi.getAll("worker");
-        setAvailableWorkers(workers);
-      } catch (err) {
-        console.error("Failed to load workers:", err);
-      }
-    };
-    loadWorkers();
-  }, []);
 
   const handleAssignPacker = (record: PackingRecord) => {
     setSelectedRecordForAssign(record);

@@ -49,6 +49,22 @@ public class CycleCountEntity {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    // Re-count workflow fields (V15 migration)
+    @Column(name = "recount_required")
+    private Boolean recountRequired;
+
+    @Column(name = "recount_count")
+    private Integer recountCount;
+
+    @Column(name = "previous_variance", precision = 15, scale = 2)
+    private BigDecimal previousVariance;
+
+    @Column(name = "variance_threshold", precision = 15, scale = 2)
+    private BigDecimal varianceThreshold;
+
+    @Column(name = "final_variance", precision = 15, scale = 2)
+    private BigDecimal finalVariance;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -61,6 +77,15 @@ public class CycleCountEntity {
         updatedAt = LocalDateTime.now();
         if (status == null) {
             status = "scheduled";
+        }
+        if (recountRequired == null) {
+            recountRequired = false;
+        }
+        if (recountCount == null) {
+            recountCount = 0;
+        }
+        if (varianceThreshold == null) {
+            varianceThreshold = new BigDecimal("5.0"); // Default threshold: 5 units
         }
     }
 
@@ -96,5 +121,15 @@ public class CycleCountEntity {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public Boolean getRecountRequired() { return recountRequired; }
+    public void setRecountRequired(Boolean recountRequired) { this.recountRequired = recountRequired; }
+    public Integer getRecountCount() { return recountCount; }
+    public void setRecountCount(Integer recountCount) { this.recountCount = recountCount; }
+    public BigDecimal getPreviousVariance() { return previousVariance; }
+    public void setPreviousVariance(BigDecimal previousVariance) { this.previousVariance = previousVariance; }
+    public BigDecimal getVarianceThreshold() { return varianceThreshold; }
+    public void setVarianceThreshold(BigDecimal varianceThreshold) { this.varianceThreshold = varianceThreshold; }
+    public BigDecimal getFinalVariance() { return finalVariance; }
+    public void setFinalVariance(BigDecimal finalVariance) { this.finalVariance = finalVariance; }
 }
 

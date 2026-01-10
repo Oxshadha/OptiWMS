@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
-import { AdminRole, isValidAdminRole } from "@/lib/admin-roles";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login, user, isAdmin, refreshAuth } = useAuth();
   const { setAdmin } = useAdmin();
   const [formData, setFormData] = useState({
     email: "",
@@ -39,6 +40,13 @@ export default function LoginPage() {
 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Redirect if already authenticated as admin
+  useEffect(() => {
+    if (isAdmin && user) {
+      router.replace("/admin/dashboard");
+    }
+  }, [isAdmin, user, router]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -59,81 +67,81 @@ export default function LoginPage() {
     }
 
     try {
-      // CRITICAL: Clear any existing admin/worker contexts before login
-      // This prevents token conflicts when switching between worker and admin
-      console.log("[AdminLogin] Clearing existing contexts before login");
+      // Use centralized auth login
+      const result = await login(formData.email, formData.password);
+      
+      if (!result.success) {
+        setError(result.error || "Invalid email or password");
+        setIsLoading(false);
+        return;
+      }
+
+      // Refresh auth state to get updated user info
+      await refreshAuth();
+      
+      // Wait a bit for auth state to update
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Check if user is admin - we need to check the role from the login response
+      // Since we can't access user state immediately, we'll check via API
       try {
-        const { initDB, deleteFromStore, STORES } = await import("@/lib/indexeddb");
-        const db = await initDB();
-        await deleteFromStore(STORES.WORKER_DATA, "current_worker");
-        console.log("[AdminLogin] Worker context cleared");
-      } catch (err) {
-        console.warn("[AdminLogin] Could not clear worker context (non-critical):", err);
-      }
-      
-      // Call authentication API (this will also clear tokens before login)
-      const { authApi } = await import("@/lib/api/auth");
-      const loginResponse = await authApi.login({
-        username: formData.email, // Use email for login
-        password: formData.password,
-      });
-
-      if (!loginResponse.success) {
-        setError(loginResponse.message || "Invalid email or password");
-        setIsLoading(false);
-        return;
-      }
-
-      // CRITICAL: Verify the user is actually an admin role before proceeding
-      const userRole = loginResponse.role?.toLowerCase();
-      const adminRoles = ['admin', 'warehouse_manager', 'inbound_coordinator'];
-      
-      if (!userRole || !adminRoles.includes(userRole)) {
-        // User logged in but is not an admin role - clear tokens and show error
-        console.error("[AdminLogin] User is not an admin role:", userRole);
-        await authApi.logout();
-        setError(`Access denied. This account (role: ${userRole || 'unknown'}) is not authorized for admin portal.`);
-        setIsLoading(false);
-        return;
-      }
-      
-      // Get warehouse name if user has warehouseId
-      let warehouseName = "All Warehouses";
-      if (loginResponse.warehouseId) {
-        try {
-          const selectedWarehouse = availableWarehouses.find(w => w.id === loginResponse.warehouseId);
-          if (selectedWarehouse) {
-            warehouseName = selectedWarehouse.name;
-          }
-        } catch (err) {
-          console.error("Error fetching warehouse:", err);
+        const { authApi } = await import("@/lib/api/auth");
+        const userInfo = await authApi.getCurrentUser();
+        // Normalize role (remove ROLE_ prefix if present, like "role_admin" -> "admin")
+        let userRole = userInfo.role?.toLowerCase() || '';
+        if (userRole.startsWith('role_')) {
+          userRole = userRole.substring(5); // Remove "role_" prefix
         }
+        const adminRoles = ['admin', 'warehouse_manager', 'inbound_coordinator'];
+        
+        if (!userRole || !adminRoles.includes(userRole)) {
+          // Logout the non-admin user
+          const { authApi } = await import("@/lib/api/auth");
+          await authApi.logout();
+          setError(`Access denied. This account (role: ${userRole || 'unknown'}) is not authorized for admin portal.`);
+          setIsLoading(false);
+          return;
+        }
+
+        // Get full user details and update admin context
+        const { usersApi } = await import("@/lib/api/users");
+        const fullUser = await usersApi.getById(userInfo.userId);
+        
+        let warehouseName: string | undefined;
+        if (fullUser.warehouseId) {
+          try {
+            const selectedWarehouse = availableWarehouses.find(w => w.id === fullUser.warehouseId);
+            if (selectedWarehouse) {
+              warehouseName = selectedWarehouse.name;
+            }
+          } catch (err) {
+            console.error("Error fetching warehouse:", err);
+          }
+        }
+
+        const adminData = {
+          id: fullUser.id,
+          name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
+          email: fullUser.email || userInfo.email,
+          role: fullUser.role as any,
+          avatar: fullUser.avatarUrl || "/assets/avatars/Henry Kual.jpg",
+          ...(fullUser.warehouseId && {
+            warehouseId: fullUser.warehouseId,
+            warehouseName: warehouseName,
+          }),
+        };
+        setAdmin(adminData);
+      } catch (apiError) {
+        console.error("Error verifying admin role:", apiError);
+        setError("Failed to verify user role. Please try again.");
+        setIsLoading(false);
+        return;
       }
       
-      // Store admin data in context
-      const adminData = {
-        id: loginResponse.userId || `admin-${formData.email}`,
-        name: loginResponse.name || formData.email.split("@")[0],
-        email: loginResponse.email || formData.email,
-        role: (loginResponse.role as AdminRole) || "admin",
-        avatar: "/assets/avatars/Henry Kual.jpg",
-        ...(loginResponse.warehouseId && {
-          warehouseId: loginResponse.warehouseId,
-          warehouseName: warehouseName,
-        }),
-      };
-
-      // Store admin data (updates state immediately)
-      setAdmin(adminData);
-      
-      // Ensure state is updated and token is saved
       setIsLoading(false);
       
-      // Use router.replace to avoid back button issues
-      // Small delay to ensure state propagation
-      setTimeout(() => {
-        router.replace("/admin/dashboard");
-      }, 150);
+      // Redirect to dashboard
+      router.replace("/admin/dashboard");
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Login failed";
       // Show user-friendly error messages
