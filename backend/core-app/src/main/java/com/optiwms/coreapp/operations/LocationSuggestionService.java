@@ -33,16 +33,19 @@ public class LocationSuggestionService {
     private final InventoryService inventoryService;
     private final MaterialService materialService;
     private final AIServiceAdapter aiServiceAdapter;
+    private final com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService;
 
     public LocationSuggestionService(
             LocationService locationService,
             InventoryService inventoryService,
             MaterialService materialService,
-            AIServiceAdapter aiServiceAdapter) {
+            AIServiceAdapter aiServiceAdapter,
+            com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService) {
         this.locationService = locationService;
         this.inventoryService = inventoryService;
         this.materialService = materialService;
         this.aiServiceAdapter = aiServiceAdapter;
+        this.defaultLocationService = defaultLocationService;
     }
 
     /**
@@ -60,7 +63,32 @@ public class LocationSuggestionService {
         
         logger.info("Suggesting putaway location for material: {}, warehouse: {}", materialId, warehouseId);
         
-        // Try AI service first (non-blocking, graceful degradation)
+        // FIRST: Check if material has default location assigned in catalog
+        try {
+            com.optiwms.domain.master.MaterialDefaultLocation defaultLoc = 
+                defaultLocationService.getPrimaryLocation(materialId, warehouseId);
+            if (defaultLoc != null && defaultLoc.getLocationCode() != null) {
+                // Verify location is still valid and available
+                try {
+                    Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
+                    if (location != null && Boolean.TRUE.equals(location.getIsActive()) && 
+                        ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
+                        logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
+                        return new LocationSuggestion(
+                            defaultLoc.getLocationCode(),
+                            "Default location from material catalog",
+                            false
+                        );
+                    }
+                } catch (Exception e) {
+                    logger.warn("Default location {} is invalid, falling back: {}", defaultLoc.getLocationCode(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not check default locations: {}", e.getMessage());
+        }
+        
+        // Try AI service (non-blocking, graceful degradation)
         Optional<LocationSuggestion> aiSuggestion = aiServiceAdapter.suggestOptimalStorage(
             warehouseId, materialId, quantity, materialType);
         
@@ -118,10 +146,16 @@ public class LocationSuggestionService {
         Material material = materialService.findById(materialId);
         boolean isFastMoving = isFastMovingMaterial(material);
         
+        // Only show storage locations (exclude staging, receiving, shipment, packing areas)
         List<Location> availableLocations = locationService.findByWarehouse(warehouseId)
             .stream()
             .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
-            .filter(loc -> "storage".equals(loc.getLocationType()) || "putaway".equals(loc.getLocationType()))
+            .filter(loc -> {
+                // Only storage locations - exclude staging, receiving, shipment, packing
+                String locType = loc.getLocationType();
+                String zoneType = loc.getZoneType();
+                return "storage".equals(locType) || "STORAGE".equals(zoneType);
+            })
             .filter(loc -> isLocationAvailable(loc))
             .filter(loc -> hasCapacity(loc, quantity))
             .sorted(Comparator

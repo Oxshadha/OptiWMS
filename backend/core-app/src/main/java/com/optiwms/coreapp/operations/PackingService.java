@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.operations.PackingRecord;
 import com.optiwms.infra.operations.PackingRecordEntity;
 import com.optiwms.infra.operations.PackingRecordRepository;
@@ -15,9 +16,36 @@ import java.util.stream.Collectors;
 public class PackingService {
 
     private final PackingRecordRepository repository;
+    private final OrderService orderService;
 
-    public PackingService(PackingRecordRepository repository) {
+    public PackingService(PackingRecordRepository repository, OrderService orderService) {
         this.repository = repository;
+        this.orderService = orderService;
+    }
+
+    @Transactional
+    public PackingRecord updateStatusWithWorker(UUID id, String status, UUID workerId) {
+        PackingRecordEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
+        entity.setStatus(status);
+        if ("completed".equals(status) && entity.getCompletedAt() == null) {
+            entity.setCompletedAt(LocalDateTime.now());
+            
+            // Update order status to "ready_to_ship" when packing is completed
+            if (entity.getOrderId() != null) {
+                try {
+                    orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
+                    // Store worker record
+                    if (workerId != null) {
+                        orderService.updateWorkerRecord(entity.getOrderId(), workerId, "packed");
+                    }
+                } catch (RuntimeException e) {
+                    // Log but don't fail packing update
+                }
+            }
+        }
+        PackingRecordEntity saved = repository.save(entity);
+        return toDomain(saved);
     }
 
     public List<PackingRecord> listAll() {
@@ -89,6 +117,15 @@ public class PackingService {
         entity.setStatus(status);
         if ("completed".equals(status) && entity.getCompletedAt() == null) {
             entity.setCompletedAt(LocalDateTime.now());
+            
+            // Update order status to "ready_to_ship" when packing is completed
+            if (entity.getOrderId() != null) {
+                try {
+                    orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
+                } catch (RuntimeException e) {
+                    // Log but don't fail packing update
+                }
+            }
         }
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);

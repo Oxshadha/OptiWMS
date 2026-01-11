@@ -125,8 +125,31 @@ public class RackDataSeeder implements CommandLineRunner {
                     .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
             }
 
+            // Check if realistic storage zones (A, B, C, D) exist
+            boolean hasRealisticZones = existingAreas.contains("A") || 
+                                        existingAreas.contains("B") || 
+                                        existingAreas.contains("C") || 
+                                        existingAreas.contains("D");
+            
+            // Generate realistic storage zones (A, B, C, D) for ABC/FMS if they don't exist
+            if (!hasRealisticZones) {
+                // Use realistic generator for ABC/FMS zones
+                try {
+                    var realisticGenerator = new com.optiwms.integration.RealisticStorageLocationGenerator(
+                        locationRepository, 
+                        null // Will be injected if needed, or create levels separately
+                    );
+                    // Note: This will be called via API endpoint instead
+                    System.out.println("  Realistic zones (A, B, C, D) should be generated via API endpoint: /api/integration/locations/generate/{warehouseId}");
+                } catch (Exception e) {
+                    // Fallback to old method if realistic generator not available
+                    System.out.println("  Falling back to standard storage area generation");
+                }
+            }
+            
             // Generate racks for different storage areas (only if area doesn't exist)
-            if (!existingAreas.contains("ST")) {
+            // Keep old areas for backward compatibility, but prefer realistic zones
+            if (!existingAreas.contains("ST") && !hasRealisticZones) {
                 int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "ST", "Storage", 20, 4);
                 totalRacks += racks;
                 totalLocations += racks * 5 * 3; // 5 levels * 3 bins per level

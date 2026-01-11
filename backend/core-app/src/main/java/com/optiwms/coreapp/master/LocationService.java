@@ -37,6 +37,26 @@ public class LocationService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Get only storage locations (exclude staging, receiving, shipment, packing areas)
+     * For warehouse map visualization - only show racks, not staging areas
+     * 
+     * Simplified: Only show locations with zoneType = 'STORAGE' and isActive = true
+     * Material type categorization (raw materials, finished goods) is handled by inventory,
+     * not by location type.
+     */
+    public List<Location> findStorageLocationsByWarehouse(UUID warehouseId) {
+        return repository.findByWarehouseId(warehouseId).stream()
+                .filter(entity -> {
+                    // Only STORAGE zone type - exclude RECEIVING, SHIPMENT, PACKING, STAGING
+                    String zoneType = entity.getZoneType();
+                    Boolean isActive = entity.getIsActive();
+                    return "STORAGE".equals(zoneType) && Boolean.TRUE.equals(isActive);
+                })
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public List<Location> findAvailableByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseIdAndIsActive(warehouseId, true).stream()
                 .map(this::toDomain)
@@ -47,6 +67,11 @@ public class LocationService {
         return repository.findByLocationCode(locationCode)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Location not found: " + locationCode));
+    }
+
+    public java.util.Optional<Location> findByLocationCodeOptional(String locationCode) {
+        return repository.findByLocationCode(locationCode)
+                .map(this::toDomain);
     }
 
     @Transactional
@@ -60,6 +85,7 @@ public class LocationService {
         entity.setLevelNumber(location.getLevelNumber());
         entity.setBinPosition(location.getBinPosition());
         entity.setLocationType(location.getLocationType() != null ? location.getLocationType() : "storage");
+        entity.setZoneType(location.getZoneType() != null ? location.getZoneType() : "STORAGE");
         entity.setCapacity(location.getCapacity());
         entity.setIsActive(location.getIsActive() != null ? location.getIsActive() : true);
         entity.setQrCode(location.getQrCode());
@@ -88,6 +114,7 @@ public class LocationService {
         entity.setLevelNumber(location.getLevelNumber());
         entity.setBinPosition(location.getBinPosition());
         entity.setLocationType(location.getLocationType());
+        if (location.getZoneType() != null) entity.setZoneType(location.getZoneType());
         entity.setCapacity(location.getCapacity());
         entity.setIsActive(location.getIsActive());
         entity.setQrCode(location.getQrCode());
@@ -123,6 +150,7 @@ public class LocationService {
         location.setLevelNumber(entity.getLevelNumber());
         location.setBinPosition(entity.getBinPosition());
         location.setLocationType(entity.getLocationType());
+        location.setZoneType(entity.getZoneType()); // Add zoneType to domain object
         location.setCapacity(entity.getCapacity());
         location.setIsActive(entity.getIsActive());
         location.setQrCode(entity.getQrCode());

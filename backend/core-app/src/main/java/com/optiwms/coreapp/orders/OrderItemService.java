@@ -30,6 +30,22 @@ public class OrderItemService {
                 .collect(Collectors.toList());
     }
 
+    @org.springframework.transaction.annotation.Transactional
+    public OrderItem create(OrderItem orderItem) {
+        OrderItemEntity entity = new OrderItemEntity();
+        entity.setOrderId(orderItem.getOrderId());
+        entity.setMaterialId(orderItem.getMaterialId());
+        entity.setQuantity(orderItem.getQuantity());
+        entity.setUnitPrice(orderItem.getUnitPrice());
+        entity.setPickedQuantity(orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0);
+        entity.setPackedQuantity(orderItem.getPackedQuantity() != null ? orderItem.getPackedQuantity() : 0);
+        entity.setLocationCode(orderItem.getLocationCode());
+        entity.setStatus(orderItem.getStatus() != null ? orderItem.getStatus() : "pending");
+        
+        OrderItemEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
     private OrderItem toDomain(OrderItemEntity entity) {
         OrderItem domain = new OrderItem();
         domain.setId(entity.getId());

@@ -30,6 +30,10 @@ export const shipmentsApi = {
     return apiClient.get<Shipment>(`/shipments/${id}`);
   },
 
+  getByOrderId: async (orderId: string): Promise<Shipment[]> => {
+    return apiClient.get<Shipment[]>(`/shipments?orderId=${orderId}`);
+  },
+
   create: async (shipment: Omit<Shipment, 'id'>): Promise<Shipment> => {
     return apiClient.post<Shipment>('/shipments', shipment);
   },

@@ -9,6 +9,7 @@ import { ordersApi, Order } from "@/lib/api/orders";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
+import { orderItemsApi } from "@/lib/api/orderItems";
 import { showToast } from "@/lib/utils/toast";
 
 // Display format for inbound orders
@@ -78,8 +79,35 @@ export default function InboundOrdersPage() {
         setSuppliers(suppliersMap);
         setWarehouses(warehousesMap);
 
+        // Fetch order items for all orders in parallel
+        const ordersWithItems = await Promise.all(
+          ordersData.map(async (order) => {
+            try {
+              const orderItems = await orderItemsApi.getByOrderId(order.id);
+              const totalItems = orderItems.length;
+              // Calculate received items (items with pickedQuantity > 0 or status indicating received)
+              const receivedItems = orderItems.filter(
+                item => item.pickedQuantity > 0 || item.status === "received" || item.status === "picked"
+              ).length;
+              
+              return {
+                order,
+                totalItems,
+                receivedItems,
+              };
+            } catch (err) {
+              console.warn(`Failed to load items for order ${order.orderNumber}:`, err);
+              return {
+                order,
+                totalItems: 0,
+                receivedItems: 0,
+              };
+            }
+          })
+        );
+
         // Transform orders to display format
-        const displayOrders: InboundOrderDisplay[] = ordersData.map((order) => {
+        const displayOrders: InboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, receivedItems }) => {
           const supplierName = order.supplierId ? suppliersMap.get(order.supplierId) || "Unknown Supplier" : "N/A";
           const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
           
@@ -99,8 +127,8 @@ export default function InboundOrdersPage() {
             orderDate: order.orderDate || new Date().toISOString().split("T")[0],
             expectedDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
             status,
-            totalItems: 0, // TODO: Get from order items when available
-            receivedItems: 0, // TODO: Get from receiving records
+            totalItems,
+            receivedItems,
           };
         });
 
@@ -212,6 +240,9 @@ export default function InboundOrdersPage() {
               </li>
               <li>
                 <button onClick={() => setStatusFilter("completed")}>Completed</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
               </li>
             </ul>
           </div>
@@ -386,7 +417,23 @@ export default function InboundOrdersPage() {
                           </li>
                           {order.status === "ordered" || order.status === "in_transit" ? (
                             <li>
-                              <button className="text-error">
+                              <button 
+                                className="text-error"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Are you sure you want to cancel order ${order.orderNumber}?`)) {
+                                    try {
+                                      await ordersApi.cancel(order.id);
+                                      showToast.success("Order cancelled successfully");
+                                      // Reload orders
+                                      window.location.reload();
+                                    } catch (err) {
+                                      console.error("Failed to cancel order:", err);
+                                      showToast.error("Failed to cancel order. Please try again.");
+                                    }
+                                  }
+                                }}
+                              >
                                 <span className="material-symbols-outlined text-sm">cancel</span>
                                 Cancel Order
                               </button>
@@ -530,12 +577,17 @@ function EditInboundOrderModal({
     e.preventDefault();
     try {
       setIsSubmitting(true);
-      // TODO: Update order expected date via API when endpoint is available
-      // For now, just reload to refresh data
+      await ordersApi.update(order.id, {
+        expectedDate: formData.expectedDelivery,
+        notes: undefined,
+        priority: undefined,
+      });
+      showToast.success("Order updated successfully!");
+      onClose();
       window.location.reload();
     } catch (error) {
       console.error("Failed to update order:", error);
-      alert("Failed to update order. Please try again.");
+      showToast.error("Failed to update order. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -641,10 +693,35 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
         return;
       }
 
+      // Validate items
+      if (formData.items.length === 0) {
+        setError("Please add at least one item to the order.");
+        return;
+      }
+
+      // Validate all items have product and quantity
+      const invalidItems = formData.items.filter(
+        item => !item.productId || item.quantityOrdered <= 0
+      );
+      if (invalidItems.length > 0) {
+        setError("Please ensure all items have a product selected and quantity greater than 0.");
+        return;
+      }
+
+      // Validate date logic: expiry date must be after manufacture date
+      const invalidDates = formData.items.filter(
+        item => item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate)
+      );
+      if (invalidDates.length > 0) {
+        setError("Expiry date must be after manufacture date for all items. Please correct the dates.");
+        return;
+      }
+
       // Generate order number
       const orderNumber = `PO-${Date.now()}`;
 
-      await ordersApi.create({
+      // Create the order first
+      const createdOrder = await ordersApi.create({
         orderNumber,
         orderType: "inbound",
         supplierId: formData.supplierId,
@@ -655,7 +732,25 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
         priority: "normal", // Default priority for inbound orders
       });
 
-      showToast.success("Inbound order created successfully!");
+      // Create order items
+      const { orderItemsApi } = await import("@/lib/api/orderItems");
+      try {
+        await Promise.all(
+          formData.items.map(item =>
+            orderItemsApi.create(createdOrder.id, {
+              materialId: item.productId,
+              quantity: item.quantityOrdered,
+              locationCode: undefined, // Will be set during putaway
+            })
+          )
+        );
+      } catch (itemError) {
+        console.error("Failed to create order items:", itemError);
+        setError("Order created but failed to add items. Please edit the order to add items.");
+        // Don't return - order was created, just show warning
+      }
+
+      showToast.success(`Inbound order created successfully with ${formData.items.length} item(s)!`);
       onClose();
       // Reload page to refresh order list
       window.location.reload();
@@ -862,14 +957,20 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                       </label>
                       <input
                         type="date"
-                        className="input input-bordered input-sm"
+                        className={`input input-bordered input-sm ${item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate) ? 'input-error' : ''}`}
                         value={item.manufactureDate}
                         onChange={(e) => {
                           const newItems = [...formData.items];
                           newItems[idx].manufactureDate = e.target.value;
                           setFormData({ ...formData, items: newItems });
                         }}
+                        max={item.expiryDate || undefined}
                       />
+                      {item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate) && (
+                        <label className="label">
+                          <span className="label-text-alt text-error">Expiry date must be after manufacture date</span>
+                        </label>
+                      )}
                     </div>
                     <div className="form-control col-span-2">
                       <label className="label">
@@ -877,14 +978,20 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
                       </label>
                       <input
                         type="date"
-                        className="input input-bordered input-sm"
+                        className={`input input-bordered input-sm ${item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate) ? 'input-error' : ''}`}
                         value={item.expiryDate}
                         onChange={(e) => {
                           const newItems = [...formData.items];
                           newItems[idx].expiryDate = e.target.value;
                           setFormData({ ...formData, items: newItems });
                         }}
+                        min={item.manufactureDate || undefined}
                       />
+                      {item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate) && (
+                        <label className="label">
+                          <span className="label-text-alt text-error">Expiry date must be after manufacture date</span>
+                        </label>
+                      )}
                     </div>
                   </div>
                 </div>

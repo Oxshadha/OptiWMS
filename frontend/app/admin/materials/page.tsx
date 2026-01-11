@@ -8,9 +8,14 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { materialsApi, type Material } from "@/lib/api/materials";
+import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
+import { locationsApi } from "@/lib/api/locations";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { useMaterials, useCreateMaterial, useUpdateMaterial, useDeleteMaterial } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { AssignBinLocationModal, BulkAssignBinLocationsModal } from "./AssignBinLocationModal";
+import { MaterialDetailModal } from "./MaterialDetailModal";
 
 // Material type options (industry standard)
 const MATERIAL_TYPES = [
@@ -40,9 +45,13 @@ export default function MaterialsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showAssignLocationModal, setShowAssignLocationModal] = useState(false);
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
+  const [materialsWithLocations, setMaterialsWithLocations] = useState<Map<string, string>>(new Map()); // materialId -> locationCode
 
   const canEdit = hasPermission(ADMIN_ROUTES.MATERIALS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
@@ -52,6 +61,39 @@ export default function MaterialsPage() {
   const createMutation = useCreateMaterial();
   const updateMutation = useUpdateMaterial();
   const deleteMutation = useDeleteMaterial();
+
+  // Load materials with their bin locations
+  const loadMaterialLocations = async () => {
+    if (!allMaterials || allMaterials.length === 0) return;
+    
+    try {
+      // Get all warehouses
+      const warehouses = await warehousesApi.getAll();
+      if (warehouses.length === 0) return;
+      
+      // For each warehouse, get materials with locations
+      const locationMap = new Map<string, string>();
+      for (const warehouse of warehouses) {
+        try {
+          const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
+          materialsWithLocs.forEach(m => {
+            if (m.locationCode) {
+              locationMap.set(m.materialId, m.locationCode);
+            }
+          });
+        } catch (err) {
+          console.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
+        }
+      }
+      setMaterialsWithLocations(locationMap);
+    } catch (err) {
+      console.error("Failed to load material locations:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadMaterialLocations();
+  }, [allMaterials]);
 
   // Filter materials by type and search query
   const filteredMaterials = React.useMemo(() => {
@@ -196,13 +238,23 @@ export default function MaterialsPage() {
             Import CSV
           </button>
           {canEdit && (
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowCreateModal(true)}
-            >
-              <span className="material-symbols-outlined">add</span>
-              Add Product
-            </button>
+            <>
+              <button
+                className="btn btn-outline btn-primary"
+                onClick={() => setShowBulkAssignModal(true)}
+                title="Assign bin locations to all materials in warehouse"
+              >
+                <span className="material-symbols-outlined">location_on</span>
+                Assign Bin Locations (Bulk)
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowCreateModal(true)}
+              >
+                <span className="material-symbols-outlined">add</span>
+                Add Product
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -289,7 +341,7 @@ export default function MaterialsPage() {
                 key: "materialCode",
                 label: "Product Code",
                 render: (material: Material) => (
-                  <span className="font-mono font-semibold">{material.materialCode}</span>
+                  <span className="font-mono font-semibold text-primary">{material.materialCode}</span>
                 ),
               },
               {
@@ -352,6 +404,20 @@ export default function MaterialsPage() {
                   </span>
                 ),
               },
+              {
+                key: "binLocation",
+                label: "Bin Location",
+                render: (material: Material) => {
+                  const locationCode = materialsWithLocations.get(material.id);
+                  return locationCode ? (
+                    <span className="font-mono text-xs text-primary font-semibold">
+                      {locationCode}
+                    </span>
+                  ) : (
+                    <span className="text-base-content/40 text-xs">—</span>
+                  );
+                },
+              },
             ]}
             onRowClick={(material) => {
               setSelectedMaterial(material);
@@ -360,16 +426,30 @@ export default function MaterialsPage() {
             actions={(material) => (
               <div className="flex gap-2">
                 {canEdit && (
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingMaterial(material);
-                      setShowEditModal(true);
-                    }}
-                  >
-                    <span className="material-symbols-outlined">edit</span>
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedMaterial(material);
+                        setSelectedWarehouseId(null);
+                        setShowAssignLocationModal(true);
+                      }}
+                      title="Assign bin location"
+                    >
+                      <span className="material-symbols-outlined">location_on</span>
+                    </button>
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingMaterial(material);
+                        setShowEditModal(true);
+                      }}
+                    >
+                      <span className="material-symbols-outlined">edit</span>
+                    </button>
+                  </>
                 )}
                 {canDelete && (
                   <button
@@ -416,40 +496,29 @@ export default function MaterialsPage() {
 
       {/* Detail Modal */}
       {selectedMaterial && (
-        <DetailModal
+        <MaterialDetailModal
           isOpen={showDetailModal}
           onClose={() => {
             setShowDetailModal(false);
             setSelectedMaterial(null);
           }}
-          title={`Material: ${selectedMaterial.materialCode}`}
-          data={[
-            { label: "Product Code", value: selectedMaterial.materialCode },
-            { label: "Description", value: selectedMaterial.description || "—" },
-            {
-              label: "Type",
-              value: (() => {
-                const type = selectedMaterial.materialType || "raw_material";
-                const typeMap: Record<string, string> = {
-                  raw_material: "Raw Material",
-                  product: "Product",
-                  packaging_material: "Packaging",
-                };
-                return typeMap[type] || type;
-              })(),
-            },
-            { label: "Unit Type", value: selectedMaterial.unitType || "—" },
-            { label: "Storage Type", value: selectedMaterial.storageType || "—" },
-          ]}
-          onEdit={canEdit ? () => {
+          material={selectedMaterial}
+          canEdit={canEdit}
+          canDelete={canDelete}
+          onEdit={() => {
             setShowDetailModal(false);
             setEditingMaterial(selectedMaterial);
             setShowEditModal(true);
-          } : undefined}
-          onDelete={canDelete ? () => {
+          }}
+          onDelete={() => {
             setShowDetailModal(false);
             setShowDeleteModal(true);
-          } : undefined}
+          }}
+          onAssignLocation={() => {
+            setShowDetailModal(false);
+            setSelectedWarehouseId(null);
+            setShowAssignLocationModal(true);
+          }}
         />
       )}
 
@@ -506,6 +575,33 @@ export default function MaterialsPage() {
           onSuccess={() => {
             setShowImportModal(false);
             refetch();
+          }}
+        />
+      )}
+
+      {/* Assign Bin Location Modal */}
+      {selectedMaterial && (
+        <AssignBinLocationModal
+          isOpen={showAssignLocationModal}
+          onClose={() => {
+            setShowAssignLocationModal(false);
+            setSelectedMaterial(null);
+          }}
+          material={selectedMaterial}
+          warehouseId={selectedWarehouseId}
+          onSuccess={() => {
+            loadMaterialLocations(); // Refresh locations after assignment
+          }}
+        />
+      )}
+
+      {/* Bulk Assign Bin Locations Modal */}
+      {showBulkAssignModal && (
+        <BulkAssignBinLocationsModal
+          isOpen={showBulkAssignModal}
+          onClose={() => setShowBulkAssignModal(false)}
+          onSuccess={() => {
+            loadMaterialLocations(); // Refresh locations after bulk assignment
           }}
         />
       )}

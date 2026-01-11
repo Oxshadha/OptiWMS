@@ -7,10 +7,11 @@ import { useOffline } from "@/hooks/useOffline";
 import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { ordersApi } from "@/lib/api/orders";
-import { orderItemsApi } from "@/lib/api/orderItems";
+import { orderItemsApi, OrderItem } from "@/lib/api/orderItems";
 import { materialsApi } from "@/lib/api/materials";
 import { useWorker } from "@/contexts/WorkerContext";
 import { authApi } from "@/lib/api/auth";
+import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
 
 export default function ReceivingPage() {
   const { worker } = useWorker();
@@ -101,36 +102,78 @@ export default function ReceivingPage() {
         // First, try to get order by number
         let order;
         try {
-          order = await ordersApi.getByOrderNumber(scannedValue);
+          order = await ordersApi.getByOrderNumber(scannedValue.trim());
         } catch (err) {
+          console.log("[Receiving] Order not found via ordersApi, trying operationsApi:", err);
           // If that fails, try the operations API
-          order = await operationsApi.getOrderByNumber(scannedValue);
+          try {
+            order = await operationsApi.getOrderByNumber(scannedValue.trim());
+          } catch (err2) {
+            console.error("[Receiving] Order not found in both APIs:", err2);
+            throw new Error(`Order not found: ${scannedValue}`);
+          }
         }
         
+        console.log("[Receiving] Order found:", order);
         setOrderDetails(order);
         
         // Load order items
-        const orderItems = await orderItemsApi.getByOrderId(order.id);
+        let orderItems: OrderItem[] = [];
+        try {
+          orderItems = await orderItemsApi.getByOrderId(order.id);
+          console.log("[Receiving] Order items loaded:", orderItems.length);
+        } catch (err) {
+          console.error("[Receiving] Failed to load order items:", err);
+          orderItems = [];
+        }
+        
+        // If no items found, show message but allow blind mode
+        if (orderItems.length === 0) {
+          console.warn("[Receiving] Order has no items");
+          if (blindMode) {
+            // Allow blind receiving with unknown item
+            setItems([{
+              id: "unknown",
+              sku: "",
+              name: "Unknown Item",
+              expected: 0,
+              received: 0,
+              materialId: "",
+            }]);
+          } else {
+            showToast.error("Order found but has no items. Enable Blind Receiving Mode to receive unknown items.");
+            setItems([]);
+          }
+          setSelectedItemIndex(0);
+          setReceivedQty(0);
+          return;
+        }
         
         // Load material details for each item
         const itemsWithDetails = await Promise.all(
-          orderItems.map(async (orderItem) => {
+          orderItems.map(async (orderItem: OrderItem) => {
             try {
               const material = await materialsApi.getById(orderItem.materialId);
+              const display = formatMaterialDisplay(
+                material.materialCode,
+                material.description,
+                orderItem.materialId
+              );
               return {
                 id: orderItem.id,
-                sku: material.materialCode,
-                name: material.description || material.materialCode,
+                sku: display.sku,
+                name: display.name,
                 expected: orderItem.quantity,
                 received: 0,
                 materialId: orderItem.materialId,
               };
             } catch (err) {
-              // If material fetch fails, use order item data
+              console.warn(`[Receiving] Failed to load material ${orderItem.materialId}:`, err);
+              // If material fetch fails, show user-friendly message instead of UUID
               return {
                 id: orderItem.id,
-                sku: orderItem.materialId,
-                name: `Material ${orderItem.materialId}`,
+                sku: "N/A", // Don't show UUID
+                name: "Material details not available",
                 expected: orderItem.quantity,
                 received: 0,
                 materialId: orderItem.materialId,
@@ -142,9 +185,10 @@ export default function ReceivingPage() {
         setItems(itemsWithDetails);
         setSelectedItemIndex(0);
         setReceivedQty(0);
-      } catch (error) {
-        console.error("Failed to load order details:", error);
-        showToast.error("Failed to load order. Please check the PO/ASN number.");
+      } catch (error: any) {
+        console.error("[Receiving] Failed to load order details:", error);
+        const errorMessage = error?.message || "Failed to load order. Please check the PO/ASN number.";
+        showToast.error(errorMessage);
         setItems([]);
         setOrderDetails(null);
         
@@ -215,9 +259,19 @@ export default function ReceivingPage() {
 
     // Validate material IDs for blind mode
     if (blindMode) {
-      const invalidItems = items.filter(item => item.received > 0 && (!item.materialId || item.materialId.trim() === ""));
+      const invalidItems = items.filter(item => {
+        if (item.received <= 0) return false;
+        // Check if materialId is empty or if it's not a valid UUID (might be SKU string)
+        if (!item.materialId || item.materialId.trim() === "") return true;
+        // Check if materialId looks like a UUID (has dashes and proper length)
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidPattern.test(item.materialId)) return true;
+        return false;
+      });
+      
       if (invalidItems.length > 0) {
-        showToast.error("Please enter SKU/Material ID for all received items");
+        const skuList = invalidItems.map(item => item.sku || "Unknown").join(", ");
+        showToast.error(`Please enter valid Material Code (SKU) for: ${skuList}. Material not found in system.`);
         return;
       }
     }
@@ -236,24 +290,48 @@ export default function ReceivingPage() {
     }
 
     // Prepare received items (only items with quantity > 0)
+    // For blind mode, materialId must be a valid UUID (looked up from SKU)
     const receivedItems = items
       .filter(item => item.received > 0)
-      .map(item => ({
-        materialId: item.materialId || item.sku,
-        quantity: item.received.toString(),
-        locationCode: "", // Can be set later in putaway
-      }));
+      .map(item => {
+        if (!item.materialId || item.materialId.trim() === "") {
+          throw new Error(`Material ID not found for SKU: ${item.sku}. Please enter a valid Material Code.`);
+        }
+        // Validate it's a UUID format
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidPattern.test(item.materialId)) {
+          throw new Error(`Invalid Material ID for SKU: ${item.sku}. Please re-enter the Material Code.`);
+        }
+        return {
+          materialId: item.materialId,
+          quantity: item.received.toString(),
+          locationCode: "", // Can be set later in putaway
+        };
+      });
 
     try {
       if (blindMode) {
-        // Use blind receiving API
+        // Use blind receiving API with worker's warehouse
         if (isOnline) {
-          await operationsApi.blindReceive({
-            orderNumber: scannedValue.trim(),
-            items: receivedItems,
-            notes: notes || undefined,
-            photos: photos.length > 0 ? photos : undefined,
-          });
+          // Get worker's warehouse ID
+          let workerWarehouseId: string | undefined = undefined;
+          if (worker?.warehouseId) {
+            workerWarehouseId = worker.warehouseId;
+          } else if (orderDetails?.warehouseId) {
+            // Fallback to order's warehouse if worker warehouse not available
+            workerWarehouseId = orderDetails.warehouseId;
+          }
+          
+          await operationsApi.blindReceive(
+            {
+              orderNumber: scannedValue.trim(),
+              items: receivedItems,
+              notes: notes || undefined,
+              photos: photos.length > 0 ? photos : undefined,
+              warehouseId: workerWarehouseId, // Send worker's warehouse ID
+            },
+            worker?.id // Pass worker ID for tracking
+          );
           showToast.success(`Blind receiving confirmed: ${receivedItems.reduce((sum, item) => sum + parseInt(item.quantity), 0)} units received`);
         } else {
           // Queue for sync when offline
@@ -270,13 +348,24 @@ export default function ReceivingPage() {
         }
         } else {
         // Use regular receiving API
+        // Note: Regular receive uses order's warehouse, but we can override with worker's warehouse if needed
         if (isOnline) {
-          await operationsApi.receive({
-            orderNumber: scannedValue.trim(),
-            items: receivedItems,
-            notes: notes || undefined,
-            photos: photos.length > 0 ? photos : undefined,
-          });
+          // Get worker's warehouse ID (for potential override)
+          let workerWarehouseId: string | undefined = undefined;
+          if (worker?.warehouseId) {
+            workerWarehouseId = worker.warehouseId;
+          }
+          
+          await operationsApi.receive(
+            {
+              orderNumber: scannedValue.trim(),
+              items: receivedItems,
+              notes: notes || undefined,
+              photos: photos.length > 0 ? photos : undefined,
+              warehouseId: workerWarehouseId, // Send worker's warehouse (may override order warehouse)
+            },
+            worker?.id // Pass worker ID for tracking
+          );
           const totalQty = receivedItems.reduce((sum, item) => sum + parseInt(item.quantity), 0);
           showToast.success(`Receiving confirmed: ${totalQty} units received`);
         } else {
@@ -372,9 +461,22 @@ export default function ReceivingPage() {
                 <div className="font-bold text-lg text-base-content mb-1">
                   {item.name || "Unknown Item"}
                 </div>
-                <div className="text-sm text-base-content/60">
-                  SKU: {item.sku || item.materialId || "N/A"}
-                </div>
+                {item.sku && item.sku !== "N/A" && !isUUID(item.sku) ? (
+                  <div className="text-sm text-base-content/60">
+                    <span className="font-mono font-semibold text-primary">SKU: {item.sku}</span>
+                    {item.name && item.name !== item.sku && item.name !== "Unknown Item" && item.name !== "Material details not available" && (
+                      <span className="ml-2 text-base-content/40">• {item.name}</span>
+                    )}
+                  </div>
+                ) : !item.materialId || item.materialId === "" ? (
+                  <div className="text-sm text-warning">
+                    SKU: Not set - Please enter Material Code
+                  </div>
+                ) : (
+                  <div className="text-sm text-base-content/60">
+                    <span className="font-mono font-semibold text-primary">SKU: {item.sku || "N/A"}</span>
+                  </div>
+                )}
               </div>
               {!blindMode && (
                 <div className="text-right">
@@ -439,26 +541,111 @@ export default function ReceivingPage() {
             {blindMode && (!item.materialId || item.materialId === "") && (
               <div className="bg-warning/10 border border-warning/20 rounded-lg p-3">
                 <label className="label">
-                  <span className="label-text text-sm font-semibold">SKU / Material ID *</span>
+                  <span className="label-text text-sm font-semibold">SKU / Material Code *</span>
+                  <span className="label-text-alt text-xs text-base-content/60">
+                    Enter code like: 100036, MAT-12345, or PROD-001
+                  </span>
                 </label>
                 <input
                   type="text"
-                  className="input input-bordered w-full"
-                  placeholder="Enter SKU or Material ID"
-                  value={item.sku}
-                  onChange={(e) => {
+                  className="input input-bordered w-full font-mono"
+                  placeholder="Enter Material Code (e.g., 100036)"
+                  value={item.sku || ""}
+                  onChange={async (e) => {
+                    const newValue = e.target.value;
+                    // Update SKU immediately for display
                     setItems(prev => {
                       const updated = [...prev];
                       updated[index] = {
                         ...updated[index],
-                        sku: e.target.value,
-                        materialId: e.target.value,
+                        sku: newValue,
+                        // Don't set materialId yet - will lookup when user finishes typing
                       };
                       return updated;
                     });
+
+                    // Lookup material by code when user stops typing (debounced)
+                    // Use debounce to avoid too many API calls
+                    const trimmedValue = newValue.trim();
+                    if (trimmedValue.length >= 1) {
+                      // Clear any existing timeout
+                      const timeoutId = setTimeout(async () => {
+                        try {
+                          console.log(`[Receiving] Looking up material code: ${trimmedValue}`);
+                          const material = await materialsApi.getByCode(trimmedValue);
+                          console.log(`[Receiving] Material found:`, material);
+                          // Found material - set the UUID
+                          const display = formatMaterialDisplay(
+                            material.materialCode,
+                            material.description,
+                            material.id
+                          );
+                          setItems(prev => {
+                            const updated = [...prev];
+                            updated[index] = {
+                              ...updated[index],
+                              sku: display.sku,
+                              materialId: material.id,
+                              name: display.name,
+                            };
+                            return updated;
+                          });
+                          showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
+                        } catch (err: any) {
+                          // Material not found - that's OK for blind receiving
+                          console.error(`[Receiving] Material lookup failed for code: ${trimmedValue}`, err);
+                          // Only show error if user has typed a reasonable length code
+                          if (trimmedValue.length >= 3) {
+                            // Don't show toast on every keystroke, only log
+                            console.warn(`[Receiving] Material not found for: ${trimmedValue}. Error:`, err?.message || err);
+                          }
+                        }
+                      }, 500); // 500ms debounce
+                      
+                      // Store timeout ID to clear if needed (would need ref management for production)
+                    }
                   }}
+                  onKeyDown={(e) => {
+                    // Prevent any interference with input
+                    e.stopPropagation();
+                  }}
+                  onBlur={async (e) => {
+                    // Final lookup when user leaves the field
+                    const skuValue = e.target.value.trim();
+                    if (skuValue && (!item.materialId || item.materialId === "")) {
+                      try {
+                        const material = await materialsApi.getByCode(skuValue);
+                        const display = formatMaterialDisplay(
+                          material.materialCode,
+                          material.description,
+                          material.id
+                        );
+                        setItems(prev => {
+                          const updated = [...prev];
+                          updated[index] = {
+                            ...updated[index],
+                            sku: display.sku,
+                            materialId: material.id,
+                            name: display.name,
+                          };
+                          return updated;
+                        });
+                        showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
+                      } catch (err: any) {
+                        // Material not found - user will need to enter valid SKU
+                        console.error(`Material lookup failed for: ${skuValue}`, err);
+                        showToast.error(`Material not found for code: "${skuValue}". Please check the SKU or verify it exists in Materials.`);
+                      }
+                    }
+                  }}
+                  autoComplete="off"
                   required
                 />
+                {item.sku && !item.materialId && (
+                  <div className="text-xs text-warning mt-1">
+                    Material lookup pending... Enter a valid Material Code
+                  </div>
+                )}
               </div>
             )}
           </div>

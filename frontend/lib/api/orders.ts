@@ -40,12 +40,41 @@ export const ordersApi = {
     return apiClient.put<Order>(`/orders/${id}/status`, { status });
   },
 
+  update: async (id: string, order: Partial<Order>): Promise<Order> => {
+    return apiClient.put<Order>(`/orders/${id}`, order);
+  },
+
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete<void>(`/orders/${id}`);
+    // 204 No Content response - no body to return
+  },
+
+  cancel: async (id: string): Promise<Order> => {
+    return ordersApi.updateStatus(id, "cancelled");
+  },
+
   getAllInbound: async (): Promise<Order[]> => {
     return ordersApi.getAll("inbound");
   },
 
   getAllOutbound: async (): Promise<Order[]> => {
     return ordersApi.getAll("outbound");
+  },
+
+  /**
+   * Get orders that need putaway (received but not yet put away)
+   * For putaway workers to see available orders
+   */
+  getOrdersNeedingPutaway: async (warehouseId: string): Promise<Order[]> => {
+    return apiClient.get<Order[]>(`/orders/warehouse/${warehouseId}/needs-putaway`);
+  },
+
+  /**
+   * Get orders that need receiving (pending inbound orders)
+   * For receiving workers to see available orders
+   */
+  getOrdersNeedingReceiving: async (warehouseId: string): Promise<Order[]> => {
+    return apiClient.get<Order[]>(`/orders/warehouse/${warehouseId}/needs-receiving`);
   },
 };
 

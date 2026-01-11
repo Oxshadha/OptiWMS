@@ -2,16 +2,20 @@ package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
+import com.optiwms.coreapp.operations.TaskOperationService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import com.optiwms.infra.orders.OrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,20 +25,29 @@ public class PickingService {
     private final TaskService taskService;
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
+    private final OrderRepository orderRepository;
     private final InventoryService inventoryService;
+    private final OutboundOrderWorkflowService workflowService;
+    private final TaskOperationService taskOperationService;
 
     public PickingService(TaskService taskService,
                          OrderService orderService,
                          OrderItemRepository orderItemRepository,
-                         InventoryService inventoryService) {
+                         OrderRepository orderRepository,
+                         InventoryService inventoryService,
+                         OutboundOrderWorkflowService workflowService,
+                         TaskOperationService taskOperationService) {
         this.taskService = taskService;
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
+        this.orderRepository = orderRepository;
         this.inventoryService = inventoryService;
+        this.workflowService = workflowService;
+        this.taskOperationService = taskOperationService;
     }
 
     @Transactional
-    public PickingResult completePicking(UUID taskId, List<PickedItem> pickedItems) {
+    public PickingResult completePicking(UUID taskId, List<PickedItem> pickedItems, UUID workerId) {
         Task task = taskService.findById(taskId);
         
         if (!"picking".equals(task.getTaskType())) {
@@ -66,8 +79,11 @@ public class PickingService {
             updateInventory(order.getWarehouseId(), pickedItem.materialId(), pickedItem.quantity(), pickedItem.locationCode());
         }
 
-        taskService.updateStatus(taskId, "completed");
-        orderService.updateStatus(order.getId(), "picking");
+        // Complete task using centralized service (updates task status and worker records)
+        taskOperationService.completeTask(taskId, workerId, "picked");
+        
+        // Update order status through workflow service (checks if all items are picked)
+        workflowService.updateOrderStatusIfNeeded(order.getId());
 
         return new PickingResult(true, "Picking completed successfully", taskId);
     }

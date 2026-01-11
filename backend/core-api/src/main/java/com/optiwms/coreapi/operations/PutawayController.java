@@ -26,7 +26,13 @@ public class PutawayController {
             @PathVariable UUID taskId,
             @RequestBody CompletePutawayRequest request) {
         try {
-            var result = putawayService.completePutaway(taskId, request.locationCode(), request.lpn());
+            var result = putawayService.completePutaway(
+                    taskId, 
+                    request.locationCode(), 
+                    request.lpn(),
+                    request.quantity(),
+                    request.materialId() != null ? UUID.fromString(request.materialId()) : null
+            );
             return ResponseEntity.ok(new PutawayResponse(
                     result.success(),
                     result.message(),
@@ -60,7 +66,11 @@ public class PutawayController {
         }
     }
 
-    public record CompletePutawayRequest(String locationCode, String lpn) {}
+    public record CompletePutawayRequest(
+            String locationCode, 
+            String lpn,
+            Integer quantity,
+            String materialId) {}
     public record PutawayResponse(boolean success, String message, String taskId) {}
     
     public record SuggestLocationRequest(

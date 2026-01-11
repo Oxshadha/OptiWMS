@@ -7,6 +7,7 @@ import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
 import { operationsApi, CycleCount } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
+import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
 
 interface CycleCountTask {
   id: string;
@@ -65,21 +66,27 @@ export default function CycleCountPage() {
           activeCounts.map(async (count) => {
             try {
               const material = await materialsApi.getById(count.materialId);
+              const display = formatMaterialDisplay(
+                material.materialCode,
+                material.description,
+                material.id
+              );
               return {
                 id: count.id,
                 location: count.locationCode,
-                sku: material.materialCode || count.materialId,
-                item: material.description || "Unknown",
+                sku: display.sku,
+                item: display.name,
                 expected: parseInt(count.expectedQuantity) || 0,
                 counted: parseInt(count.countedQuantity) || 0,
               };
             } catch (error) {
               console.error(`Error fetching material ${count.materialId}:`, error);
+              // Don't show UUID, show user-friendly message
               return {
                 id: count.id,
                 location: count.locationCode,
-                sku: count.materialId,
-                item: "Unknown",
+                sku: "N/A",
+                item: "Material details not available",
                 expected: parseInt(count.expectedQuantity) || 0,
                 counted: parseInt(count.countedQuantity) || 0,
               };
@@ -340,9 +347,16 @@ export default function CycleCountPage() {
               >
                 <div>
                   <div className="font-semibold text-sm text-base-content">
-                    {task.location} • {task.item}
+                    {task.item}
                   </div>
-                  <div className="text-xs text-base-content/60">Expected: {task.expected}</div>
+                  {task.sku && task.sku !== "N/A" && !isUUID(task.sku) && (
+                    <div className="text-xs text-base-content/60">
+                      <span className="font-mono font-semibold text-primary">SKU: {task.sku}</span>
+                    </div>
+                  )}
+                  <div className="text-xs text-base-content/60">
+                    Location: {task.location} • Expected: {task.expected}
+                  </div>
                 </div>
                 <span className="material-symbols-outlined text-base-content/40">chevron_right</span>
               </div>

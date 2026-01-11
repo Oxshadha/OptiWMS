@@ -2,7 +2,10 @@ package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.master.MaterialService;
+import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.orders.OrderStatusService;
+import com.optiwms.coreapp.operations.PutawayTaskService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.master.Material;
 import com.optiwms.domain.orders.Order;
@@ -19,18 +22,27 @@ import java.util.UUID;
 public class ReceivingService {
 
     private final OrderService orderService;
+    private final OrderStatusService orderStatusService;
     private final OrderItemRepository orderItemRepository;
     private final InventoryService inventoryService;
     private final MaterialService materialService;
+    private final WarehouseService warehouseService;
+    private final PutawayTaskService putawayTaskService;
 
     public ReceivingService(OrderService orderService,
+                           OrderStatusService orderStatusService,
                            OrderItemRepository orderItemRepository,
                            InventoryService inventoryService,
-                           MaterialService materialService) {
+                           MaterialService materialService,
+                           WarehouseService warehouseService,
+                           PutawayTaskService putawayTaskService) {
         this.orderService = orderService;
+        this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
         this.inventoryService = inventoryService;
         this.materialService = materialService;
+        this.warehouseService = warehouseService;
+        this.putawayTaskService = putawayTaskService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -38,7 +50,7 @@ public class ReceivingService {
     }
 
     @Transactional
-    public ReceivingResult receiveOrder(String orderNumber, List<ReceivedItem> receivedItems, String notes, List<String> photos) {
+    public ReceivingResult receiveOrder(String orderNumber, List<ReceivedItem> receivedItems, String notes, List<String> photos, UUID workerWarehouseId, UUID workerId) {
         Order order = orderService.findByOrderNumber(orderNumber);
         
         if (!"inbound".equals(order.getOrderType())) {
@@ -48,6 +60,9 @@ public class ReceivingService {
         if (!"pending".equals(order.getStatus()) && !"received".equals(order.getStatus())) {
             throw new RuntimeException("Order cannot be received in current status: " + order.getStatus());
         }
+
+        // Determine warehouse: Use worker's warehouse if provided, otherwise use order's warehouse
+        UUID warehouseId = workerWarehouseId != null ? workerWarehouseId : order.getWarehouseId();
 
         // Update order items with received quantities
         List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(order.getId());
@@ -69,12 +84,28 @@ public class ReceivingService {
             orderItem.setStatus("received");
             orderItemRepository.save(orderItem);
 
-            // Update inventory
-            updateInventory(order.getWarehouseId(), receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            // Update inventory to worker's warehouse (or order's warehouse if worker warehouse not provided)
+            updateInventory(warehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
         }
 
-        // Update order status
-        orderService.updateStatus(order.getId(), "received");
+        // Update order status using centralized service
+        // This checks if all items are received and updates status accordingly
+        orderStatusService.updateStatusAfterReceiving(order.getId());
+        
+        // Store worker record in order (received_by, received_at)
+        if (workerId != null && "inbound".equals(order.getOrderType())) {
+            orderService.updateWorkerRecord(order.getId(), workerId, "received");
+        }
+
+        // CRITICAL: Create putaway tasks automatically after receiving
+        // This ensures items get assigned to bin locations
+        try {
+            putawayTaskService.createPutawayTasksForReceivedOrder(order.getId(), warehouseId);
+        } catch (Exception e) {
+            // Log error but don't fail receiving
+            // Putaway tasks can be created manually if needed
+            System.err.println("Failed to create putaway tasks after receiving: " + e.getMessage());
+        }
 
         // Store notes and photos in order notes
         if (notes != null && !notes.trim().isEmpty() || (photos != null && !photos.isEmpty())) {
@@ -96,7 +127,7 @@ public class ReceivingService {
     }
 
     @Transactional
-    public ReceivingResult blindReceive(String orderNumber, List<ReceivedItem> receivedItems, String notes, List<String> photos) {
+    public ReceivingResult blindReceive(String orderNumber, List<ReceivedItem> receivedItems, String notes, List<String> photos, UUID workerWarehouseId, UUID workerId) {
         // Blind receive - create inventory without order validation
         // Try to find order, but don't fail if not found
         Order order = null;
@@ -107,12 +138,13 @@ public class ReceivingService {
         }
 
         UUID warehouseId;
-        if (order != null) {
-            warehouseId = order.getWarehouseId();
+        // Priority: 1) Worker's warehouse, 2) Order's warehouse, 3) Existing inventory warehouse
+        if (workerWarehouseId != null) {
+            warehouseId = workerWarehouseId; // Use worker's assigned warehouse
+        } else if (order != null) {
+            warehouseId = order.getWarehouseId(); // Use order's warehouse
         } else {
-            // For blind receive, we need warehouseId - use first item's warehouse or default
-            // This is a limitation - in real implementation, warehouseId should be in request
-            warehouseId = null; // Will need to be provided or inferred
+            warehouseId = null; // Will try to infer from existing inventory
         }
 
         // Update inventory for each received item
@@ -120,16 +152,36 @@ public class ReceivingService {
             // Validate weight limit before processing
             validatePalletWeight(receivedItem.materialId(), receivedItem.quantity());
             
-            if (warehouseId == null) {
+            UUID itemWarehouseId = warehouseId;
+            if (itemWarehouseId == null) {
                 // Find warehouse from existing inventory or use default
                 List<InventoryItem> existing = inventoryService.findByMaterial(receivedItem.materialId());
                 if (!existing.isEmpty()) {
-                    warehouseId = existing.get(0).getWarehouseId();
+                    itemWarehouseId = existing.get(0).getWarehouseId();
                 } else {
-                    throw new RuntimeException("Cannot determine warehouse for blind receive");
+                    // If no existing inventory and no warehouse specified, use first warehouse
+                    List<com.optiwms.domain.master.Warehouse> warehouses = warehouseService.listAll();
+                    if (warehouses.isEmpty()) {
+                        throw new RuntimeException("No warehouses found. Cannot perform blind receive.");
+                    }
+                    itemWarehouseId = warehouses.get(0).getId();
                 }
             }
-            updateInventory(warehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            updateInventory(itemWarehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            
+            // CRITICAL: Create putaway task for blind received items
+            // This ensures items get assigned to bin locations
+            try {
+                Integer qtyInteger = (int) Math.ceil(receivedItem.quantity().doubleValue());
+                putawayTaskService.createPutawayTaskForBlindReceive(
+                    itemWarehouseId, 
+                    receivedItem.materialId(), 
+                    qtyInteger
+                );
+            } catch (Exception e) {
+                // Log error but don't fail blind receive
+                System.err.println("Failed to create putaway task for blind receive: " + e.getMessage());
+            }
         }
 
         // Store notes and photos in order notes (if order exists)

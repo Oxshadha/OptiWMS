@@ -15,6 +15,18 @@ export const showToast = {
     });
   },
   
+  warning: (message: string) => {
+    toast(message, {
+      duration: 3000,
+      position: 'top-right',
+      icon: '⚠️',
+      style: {
+        background: '#fbbf24',
+        color: '#fff',
+      },
+    });
+  },
+  
   loading: (message: string) => {
     return toast.loading(message, {
       position: 'top-right',

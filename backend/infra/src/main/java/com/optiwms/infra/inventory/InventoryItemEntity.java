@@ -27,6 +27,9 @@ public class InventoryItemEntity {
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
+    @Column(name = "lpn_code", length = 20)
+    private String lpnCode;
+
     @Column(name = "quantity", nullable = false)
     private Integer quantity = 0;
 
@@ -158,6 +161,14 @@ public class InventoryItemEntity {
 
     public void setLocationCode(String locationCode) {
         this.locationCode = locationCode;
+    }
+
+    public String getLpnCode() {
+        return lpnCode;
+    }
+
+    public void setLpnCode(String lpnCode) {
+        this.lpnCode = lpnCode;
     }
 
     public Integer getQuantity() {

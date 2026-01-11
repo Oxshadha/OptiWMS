@@ -12,6 +12,25 @@ import React from "react";
 import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
 import { showToast } from "@/lib/utils/toast";
 
+// Helper function to format currency
+const formatCurrency = (amount: number, currencyCode?: string): string => {
+  const code = currencyCode || "USD";
+  switch (code.toUpperCase()) {
+    case "LKR":
+      return `Rs. ${amount.toFixed(2)}`;
+    case "USD":
+      return `$${amount.toFixed(2)}`;
+    case "EUR":
+      return `€${amount.toFixed(2)}`;
+    case "GBP":
+      return `£${amount.toFixed(2)}`;
+    case "INR":
+      return `₹${amount.toFixed(2)}`;
+    default:
+      return `${code} ${amount.toFixed(2)}`;
+  }
+};
+
 interface DeliveryPartnerDisplay {
   id: string;
   partnerCode: string;
@@ -23,6 +42,7 @@ interface DeliveryPartnerDisplay {
   type: "local" | "foreign";
   rating: number;
   costPerDelivery: number;
+  currencyCode?: string; // e.g., "USD", "LKR", "EUR"
   status: string;
 }
 
@@ -142,6 +162,7 @@ export default function DeliveryPartnersPage() {
       type,
       rating: p.rating ? parseFloat(p.rating) : 0,
       costPerDelivery: p.costPerDelivery ? parseFloat(p.costPerDelivery) : 0,
+      currencyCode: p.currencyCode || "USD", // Default to USD if not specified
       status: p.status || "active",
     };
   };
@@ -337,7 +358,14 @@ export default function DeliveryPartnersPage() {
     {
       key: "costPerDelivery",
       label: "Cost per Delivery",
-      render: (partner: typeof deliveryPartners[0]) => `$${partner.costPerDelivery.toFixed(2)}`,
+      render: (partner: typeof deliveryPartners[0]) => (
+        <div>
+          <span className="font-semibold">{formatCurrency(partner.costPerDelivery, partner.currencyCode)}</span>
+          {partner.currencyCode && (
+            <span className="text-xs text-base-content/60 ml-2">({partner.currencyCode})</span>
+          )}
+        </div>
+      ),
       sortable: true,
     },
     {
@@ -667,7 +695,12 @@ function DeliveryPartnerDetailModal({
           </div>
           <div>
             <label className="text-sm text-base-content/60">Cost per Delivery</label>
-            <p className="font-semibold">${partner.costPerDelivery.toFixed(2)}</p>
+            <p className="font-semibold">
+              {formatCurrency(partner.costPerDelivery, partner.currencyCode)}
+              {partner.currencyCode && (
+                <span className="text-xs text-base-content/60 ml-2">({partner.currencyCode})</span>
+              )}
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
@@ -730,6 +763,7 @@ function EditDeliveryPartnerModal({
     type: partner.type,
     serviceAreas: [...partner.serviceAreas],
     costPerDelivery: partner.costPerDelivery.toString(),
+    currencyCode: partner.currencyCode || "USD",
     rating: partner.rating.toString(),
   });
 
@@ -745,6 +779,7 @@ function EditDeliveryPartnerModal({
         email: formData.email || undefined,
         phone: formData.phone || undefined,
         country: formData.country || undefined,
+        currencyCode: formData.currencyCode || undefined,
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery ? formData.costPerDelivery : undefined,
         rating: formData.rating ? formData.rating : undefined,
@@ -978,6 +1013,7 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
     type: "" as "local" | "foreign" | "",
     serviceAreas: [] as string[],
     costPerDelivery: "",
+    currencyCode: "USD",
     rating: "",
   });
 
@@ -994,6 +1030,7 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
         phone: formData.phone || undefined,
         address: formData.address || undefined,
         country: formData.country || undefined,
+        currencyCode: formData.currencyCode || undefined,
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery || undefined,
         rating: formData.rating || undefined,
@@ -1015,6 +1052,7 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
         type: "" as "local" | "foreign" | "",
         serviceAreas: [],
         costPerDelivery: "",
+        currencyCode: "USD",
         rating: "",
       });
       // Reload data - trigger reload in parent
@@ -1202,7 +1240,17 @@ function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onCl
               <span className="label-text font-medium">Cost per Delivery</span>
             </label>
             <div className="input-group">
-              <span>$</span>
+              <select
+                className="select select-bordered"
+                value={formData.currencyCode}
+                onChange={(e) => setFormData({ ...formData, currencyCode: e.target.value })}
+              >
+                <option value="USD">USD ($)</option>
+                <option value="LKR">LKR (Rs.)</option>
+                <option value="EUR">EUR (€)</option>
+                <option value="GBP">GBP (£)</option>
+                <option value="INR">INR (₹)</option>
+              </select>
               <input
                 type="number"
                 step="0.01"

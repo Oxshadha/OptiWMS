@@ -233,6 +233,33 @@ public class UserController {
         }
     }
 
+    /**
+     * Assign a user to a warehouse.
+     * Useful for fixing workers who don't have warehouseId set.
+     */
+    @PutMapping("/{id}/assign-warehouse")
+    public ResponseEntity<UserDto> assignWarehouse(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> request
+    ) {
+        try {
+            User user = service.findById(id);
+            String warehouseId = request.get("warehouseId");
+            
+            if (warehouseId == null || warehouseId.trim().isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            user.setWarehouseId(UUID.fromString(warehouseId));
+            User updated = service.update(user);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     public record UserDto(
             String id,
             String username,

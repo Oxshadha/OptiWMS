@@ -10,6 +10,7 @@ export interface Location {
   levelNumber?: number;
   binPosition?: string;
   locationType?: string;
+  zoneType?: string; // STORAGE, STAGING, RECEIVING, SHIPMENT, PACKING
   capacity?: number;
   isActive: boolean;
   qrCode?: string;
@@ -90,6 +91,14 @@ export const locationsApi = {
 
   getByWarehouse: async (warehouseId: string): Promise<Location[]> => {
     return apiClient.get<Location[]>(`/master/locations/warehouse/${warehouseId}`);
+  },
+
+  /**
+   * Get only storage locations (exclude staging, receiving, shipment, packing areas)
+   * For warehouse map visualization - only show racks, not staging areas
+   */
+  getStorageLocationsByWarehouse: async (warehouseId: string): Promise<Location[]> => {
+    return apiClient.get<Location[]>(`/master/locations/warehouse/${warehouseId}/storage-only`);
   },
 
   getHierarchyByWarehouse: async (warehouseId: string): Promise<LocationHierarchy> => {

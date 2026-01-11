@@ -377,11 +377,15 @@ public class CsvDataImporter {
                 value = value.substring(1, value.length() - 1).trim();
             }
             
-            // Remove commas (thousand separators) and spaces
-            value = value.replace(",", "").replace(" ", "");
+            // Remove commas (thousand separators) - but keep decimal point
+            // Handle both "88,715" and " 88,715 " formats
+            value = value.replace(",", "").trim();
+            
+            // Remove any remaining spaces (shouldn't be any, but just in case)
+            value = value.replaceAll("\\s+", "");
             
             // Skip if empty after cleaning
-            if (value.isEmpty() || value.equals("-")) {
+            if (value.isEmpty() || value.equals("-") || value.equals(".")) {
                 return null;
             }
             

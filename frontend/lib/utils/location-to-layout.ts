@@ -1,6 +1,6 @@
 /**
  * Convert Location API data to WarehouseLayout format
- * Transforms location hierarchy from backend into the format expected by WarehouseLayoutVisualization
+ * SIMPLIFIED: Only shows STORAGE locations (receiving, packing, shipping areas are hidden)
  */
 
 import { Location, LocationHierarchy } from '@/lib/api/locations';
@@ -41,8 +41,13 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
   const rackMap = new Map<string, Location[]>();
   
   locations.forEach((location) => {
-    // Create rack key from area, row, and bay
-    const area = location.area || 'ST';
+    // Normalize area code: Convert "ST" to "C" for consistency (storage areas use single letter)
+    // This ensures all storage racks use consistent naming (C-01-01, A-01-01, etc.)
+    let area = location.area || 'C';
+    if (area === 'ST') {
+      area = 'C'; // Standardize ST (Storage) to C for consistency
+    }
+    
     const row = location.rowNumber || '01';
     const bay = location.bayNumber || '01';
     const rackKey = `${area}-${row}-${bay}`;
@@ -58,138 +63,80 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
 
 /**
  * Convert locations to RackUnit format
- * Groups racks by area into square/rectangular sections in a grid layout
- * Layout: Storage (top) -> Reception -> Picking -> Packing -> Putaway -> Shipping (bottom)
+ * SIMPLIFIED: Only shows STORAGE locations in a simple grid layout
  */
 function locationsToRacks(
   locations: Location[],
   inventoryMap: Map<string, { quantity: number; sku: string }>
 ): RackUnit[] {
-  const rackMap = groupLocationsByRack(locations);
+  // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
+  const storageLocations = locations.filter((loc) => 
+    loc.zoneType === 'STORAGE' && loc.isActive !== false
+  );
+  
+  const rackMap = groupLocationsByRack(storageLocations);
   const racks: RackUnit[] = [];
   
-  // Group racks by area
-  const racksByArea = new Map<string, Array<{rackKey: string; locations: Location[]}>>();
-  rackMap.forEach((rackLocations, rackKey) => {
-    const firstLocation = rackLocations[0];
-    const area = firstLocation.area || 'ST';
-    if (!racksByArea.has(area)) {
-      racksByArea.set(area, []);
-    }
-    racksByArea.get(area)!.push({ rackKey, locations: rackLocations });
-  });
-  
-  // Define area layout: grid positions and sizes
-  // Layout: Storage (top full width), then Reception/Picking/Packing/Putaway in columns, Shipping (bottom full width)
+  // Simple grid layout for storage racks only
   const rackWidth = 90;
   const rackHeight = 160;
   const rackSpacing = 30;
-  const sectionSpacing = 50; // Space between area sections (increased to prevent overlap)
-  const sectionPadding = 50; // Padding inside each section
-  const labelHeight = 40; // Height reserved for area label
+  const sectionPadding = 50;
+  const racksPerRow = 12; // Number of racks per row
   
-  // Calculate section dimensions
-  const sectionWidth = 600; // Width of each area section
-  const sectionHeight = 450; // Height of each area section (reduced to account for label)
-  const totalGridWidth = sectionWidth * 4 + sectionSpacing * 3; // 4 columns + spacing
+  let rackIndex = 0;
+  let currentAisle = 1;
   
-  // Area positions in grid layout
-  // Row 1: Storage (full width, top)
-  // Row 2: Reception, Picking, Putaway, Raw Materials/Finished Goods (4 columns)
-  // Row 3: Shipping (full width, bottom)
-  const areaLayout: Record<string, {row: number; col: number; colspan: number; rowspan: number}> = {
-    'ST': { row: 0, col: 0, colspan: 4, rowspan: 1 }, // Storage - top, full width
-    'RC': { row: 1, col: 0, colspan: 1, rowspan: 1 }, // Reception - row 2, col 1
-    'PK': { row: 1, col: 1, colspan: 1, rowspan: 1 }, // Picking - row 2, col 2
-    'PA': { row: 1, col: 2, colspan: 1, rowspan: 1 }, // Putaway - row 2, col 3
-    'RM': { row: 1, col: 3, colspan: 1, rowspan: 1 }, // Raw Materials - row 2, col 4
-    'FG': { row: 1, col: 3, colspan: 1, rowspan: 1 }, // Finished Goods - row 2, col 4 (shares with RM)
-    'SH': { row: 2, col: 0, colspan: 4, rowspan: 1 }, // Shipping - bottom, full width
-  };
-  
-  // Process each area
-  racksByArea.forEach((areaRacks, area) => {
-    const layout = areaLayout[area];
-    if (!layout || areaRacks.length === 0) return;
+  rackMap.forEach((rackLocations, rackKey) => {
+    const rowInGrid = Math.floor(rackIndex / racksPerRow);
+    const colInGrid = rackIndex % racksPerRow;
     
-    // Calculate section position
-    // For full-width sections (colspan > 1), center them
-    let sectionX: number;
-    if (layout.colspan > 1) {
-      // Full width section - center it
-      sectionX = sectionPadding;
-    } else {
-      // Column section
-      sectionX = sectionPadding + layout.col * (sectionWidth + sectionSpacing);
+    const rackX = sectionPadding + colInGrid * (rackWidth + rackSpacing);
+    const rackY = sectionPadding + rowInGrid * (rackHeight + rackSpacing);
+    
+    // Get first location to extract rack info
+    const firstLocation = rackLocations[0];
+    // Normalize area: Convert "ST" to "C" for consistency
+    let area = firstLocation.area || 'C';
+    if (area === 'ST') {
+      area = 'C'; // Standardize ST (Storage) to C for consistency
     }
-    // Calculate section Y position - account for label height and spacing
-    // Row 0: sectionPadding
-    // Row 1: sectionPadding + sectionHeight + labelHeight + sectionSpacing
-    // Row 2: sectionPadding + (sectionHeight + labelHeight + sectionSpacing) * 2
-    const sectionY = sectionPadding + layout.row * (sectionHeight + labelHeight + sectionSpacing);
+    const row = parseInt(firstLocation.rowNumber || '01');
+    const bay = parseInt(firstLocation.bayNumber || '01');
     
-    // Calculate actual section width
-    const actualSectionWidth = layout.colspan > 1 
-      ? totalGridWidth - sectionPadding * 2
-      : sectionWidth;
+    // Convert locations to bins
+    const bins: LocationBin[] = rackLocations
+      .sort((a, b) => (a.levelNumber || 1) - (b.levelNumber || 1))
+      .map((loc) => locationToBin(loc, inventoryMap));
     
-    // Calculate how many racks fit in this section (excluding label area)
-    const racksPerRow = Math.floor((actualSectionWidth - sectionPadding * 2) / (rackWidth + rackSpacing));
-    const maxRows = Math.floor((sectionHeight - sectionPadding * 2) / (rackHeight + rackSpacing));
-    const maxRacksInSection = racksPerRow * maxRows;
+    // Determine rack status
+    const hasInactiveLocations = rackLocations.some((loc) => !loc.isActive);
+    const hasOccupiedBins = bins.some((bin) => bin.status === 'occupied');
     
-    // Limit racks to fit in section
-    const racksToShow = areaRacks.slice(0, maxRacksInSection);
+    let status: 'active' | 'maintenance' | 'reserved' | 'out_of_service' = 'active';
+    if (hasInactiveLocations && !hasOccupiedBins) {
+      status = 'out_of_service';
+    }
     
-    let rackIndex = 0;
-    let currentAisle = 1;
+    const rack: RackUnit = {
+      id: rackKey,
+      zone: area,
+      aisle: currentAisle,
+      bay,
+      x: rackX,
+      y: rackY,
+      width: rackWidth,
+      height: rackHeight,
+      bins,
+      maxLevels: Math.max(...rackLocations.map((loc) => loc.levelNumber || 1), 5),
+      status,
+    };
     
-    racksToShow.forEach(({ rackKey, locations: rackLocations }) => {
-      const rowInSection = Math.floor(rackIndex / racksPerRow);
-      const colInSection = rackIndex % racksPerRow;
-      
-      const rackX = sectionX + sectionPadding + colInSection * (rackWidth + rackSpacing);
-      const rackY = sectionY + labelHeight + sectionPadding + rowInSection * (rackHeight + rackSpacing); // Start after label
-      
-      // Get first location to extract rack info
-      const firstLocation = rackLocations[0];
-      const row = parseInt(firstLocation.rowNumber || '01');
-      const bay = parseInt(firstLocation.bayNumber || '01');
-      
-      // Convert locations to bins
-      const bins: LocationBin[] = rackLocations
-        .sort((a, b) => (a.levelNumber || 1) - (b.levelNumber || 1))
-        .map((loc) => locationToBin(loc, inventoryMap));
-      
-      // Determine rack status
-      const hasInactiveLocations = rackLocations.some((loc) => !loc.isActive);
-      const hasOccupiedBins = bins.some((bin) => bin.status === 'occupied');
-      
-      let status: 'active' | 'maintenance' | 'reserved' | 'out_of_service' = 'active';
-      if (hasInactiveLocations && !hasOccupiedBins) {
-        status = 'out_of_service';
-      }
-      
-      const rack: RackUnit = {
-        id: rackKey,
-        zone: area,
-        aisle: currentAisle,
-        bay,
-        x: rackX,
-        y: rackY,
-        width: rackWidth,
-        height: rackHeight,
-        bins,
-        maxLevels: Math.max(...rackLocations.map((loc) => loc.levelNumber || 1), 5),
-        status,
-      };
-      
-      racks.push(rack);
-      rackIndex++;
-      if (rackIndex % racksPerRow === 0) {
-        currentAisle++;
-      }
-    });
+    racks.push(rack);
+    rackIndex++;
+    if (rackIndex % racksPerRow === 0) {
+      currentAisle++;
+    }
   });
   
   return racks;
@@ -214,33 +161,38 @@ export async function convertLocationHierarchyToLayout(
     });
   });
   
-  // Load inventory for this warehouse
+  // Filter to only STORAGE locations (safety check - backend should already filter)
+  const storageLocations = allLocations.filter((loc) => 
+    loc.zoneType === 'STORAGE' && loc.isActive !== false
+  );
+  
+  // Load inventory for this warehouse - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
-    if (item.locationCode) {
-      // Find location by code
-      const location = allLocations.find((loc) => loc.locationCode === item.locationCode);
+    // Only include items that have locationCode AND are in-stock (quantity > 0)
+    if (item.locationCode && parseFloat(item.quantity) > 0) {
+      const location = storageLocations.find((loc) => loc.locationCode === item.locationCode);
       if (location) {
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
-          sku: item.materialId, // Using materialId as SKU for now
+          sku: item.materialId,
         });
       }
     }
   });
   
-  // Convert to racks
-  const racks = locationsToRacks(allLocations, inventoryMap);
+  // Convert to racks (only storage locations)
+  const racks = locationsToRacks(storageLocations, inventoryMap);
   
-  // Calculate warehouse dimensions (accounting for grid layout with labels and spacing)
-  // 3 rows: Storage (row 0), Middle row (row 1), Shipping (row 2)
-  const sectionHeight = 450;
-  const labelHeight = 40;
-  const sectionSpacing = 50;
+  // Calculate warehouse dimensions (simplified - only storage racks)
   const sectionPadding = 50;
-  const totalHeight = sectionPadding + 3 * (sectionHeight + labelHeight + sectionSpacing) - sectionSpacing + sectionPadding;
+  const rackHeight = 160;
+  const rackSpacing = 30;
+  const racksPerRow = 12;
+  const totalRows = Math.ceil(racks.length / racksPerRow);
+  const totalHeight = sectionPadding + totalRows * (rackHeight + rackSpacing) - rackSpacing + sectionPadding;
   
   const maxX = Math.max(...racks.map((r) => r.x + r.width), 2500);
   const maxY = Math.max(...racks.map((r) => r.y + r.height), totalHeight);
@@ -285,13 +237,18 @@ export async function convertLocationsToLayout(
   warehouseId: string,
   warehouseName: string
 ): Promise<WarehouseLayout> {
-  // Load inventory
+  // Filter to only STORAGE locations (safety check - backend should already filter)
+  const storageLocations = locations.filter((loc) => 
+    loc.zoneType === 'STORAGE' && loc.isActive !== false
+  );
+  
+  // Load inventory - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
-    if (item.locationCode) {
-      const location = locations.find((loc) => loc.locationCode === item.locationCode);
+    if (item.locationCode && parseFloat(item.quantity) > 0) {
+      const location = storageLocations.find((loc) => loc.locationCode === item.locationCode);
       if (location) {
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
@@ -301,14 +258,15 @@ export async function convertLocationsToLayout(
     }
   });
   
-  const racks = locationsToRacks(locations, inventoryMap);
+  const racks = locationsToRacks(storageLocations, inventoryMap);
   
-  // Calculate warehouse dimensions (accounting for grid layout with labels and spacing)
-  const sectionHeight = 450;
-  const labelHeight = 40;
-  const sectionSpacing = 50;
+  // Calculate warehouse dimensions (simplified - only storage racks)
   const sectionPadding = 50;
-  const totalHeight = sectionPadding + 3 * (sectionHeight + labelHeight + sectionSpacing) - sectionSpacing + sectionPadding;
+  const rackHeight = 160;
+  const rackSpacing = 30;
+  const racksPerRow = 12;
+  const totalRows = Math.ceil(racks.length / racksPerRow);
+  const totalHeight = sectionPadding + totalRows * (rackHeight + rackSpacing) - rackSpacing + sectionPadding;
   
   const maxX = Math.max(...racks.map((r) => r.x + r.width), 2500);
   const maxY = Math.max(...racks.map((r) => r.y + r.height), totalHeight);
@@ -320,7 +278,6 @@ export async function convertLocationsToLayout(
     width: maxX + 100,
     height: maxY + 100,
     racks,
-    aisles: [], // Will be calculated if needed
+    aisles: [],
   };
 }
-

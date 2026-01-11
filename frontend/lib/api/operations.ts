@@ -22,6 +22,7 @@ export interface ReceiveRequest {
   items: ReceiveItem[];
   notes?: string;
   photos?: string[];
+  warehouseId?: string; // Worker's warehouse ID for blind receive
 }
 
 export interface ReceiveResponse {
@@ -51,6 +52,8 @@ export interface PickingResponse {
 export interface CompletePutawayRequest {
   locationCode: string;
   lpn?: string;
+  quantity?: number; // Optional - will be determined from order item if not provided
+  materialId?: string; // Optional - will be determined from order item if not provided
 }
 
 export interface PutawayResponse {
@@ -104,12 +107,14 @@ export const operationsApi = {
     return apiClient.get<OrderDetail>(`/operations/receiving/order/${orderNumber}`);
   },
 
-  receive: async (request: ReceiveRequest): Promise<ReceiveResponse> => {
-    return apiClient.post<ReceiveResponse>('/operations/receiving/receive', request);
+  receive: async (request: ReceiveRequest, workerId?: string): Promise<ReceiveResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<ReceiveResponse>('/operations/receiving/receive', requestWithWorker);
   },
 
-  blindReceive: async (request: ReceiveRequest): Promise<ReceiveResponse> => {
-    return apiClient.post<ReceiveResponse>('/operations/receiving/blind-receive', request);
+  blindReceive: async (request: ReceiveRequest, workerId?: string): Promise<ReceiveResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<ReceiveResponse>('/operations/receiving/blind-receive', requestWithWorker);
   },
   
   // Legacy aliases for backward compatibility
@@ -128,8 +133,9 @@ export const operationsApi = {
   },
 
   // Picking
-  completePicking: async (taskId: string, request: CompletePickingRequest): Promise<PickingResponse> => {
-    return apiClient.post<PickingResponse>(`/operations/picking/complete/${taskId}`, request);
+  completePicking: async (taskId: string, request: CompletePickingRequest, workerId?: string): Promise<PickingResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<PickingResponse>(`/operations/picking/complete/${taskId}`, requestWithWorker);
   },
 
   // Putaway

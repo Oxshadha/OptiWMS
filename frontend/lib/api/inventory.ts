@@ -5,6 +5,7 @@ export interface InventoryItem {
   materialId: string;
   warehouseId: string;
   locationCode?: string;
+  lpnCode?: string; // License Plate Number
   quantity: string;
   availableQuantity: string;
   reservedQuantity: string;
@@ -42,6 +43,38 @@ export const inventoryApi = {
 
   getByMaterial: async (materialId: string): Promise<InventoryItem[]> => {
     return apiClient.get<InventoryItem[]>(`/inventory/material/${materialId}`);
+  },
+
+  getByMaterialAndWarehouse: async (materialId: string, warehouseId: string): Promise<InventoryItem | null> => {
+    const isDev = process.env.NODE_ENV === 'development';
+    
+    try {
+      // Validate UUIDs
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(materialId)) {
+        if (isDev) console.error(`[Inventory API] Invalid materialId format`);
+        throw new Error('Invalid material ID format');
+      }
+      if (!uuidRegex.test(warehouseId)) {
+        if (isDev) console.error(`[Inventory API] Invalid warehouseId format`);
+        throw new Error('Invalid warehouse ID format');
+      }
+      
+      const url = `/inventory?materialId=${encodeURIComponent(materialId)}&warehouseId=${encodeURIComponent(warehouseId)}`;
+      const items = await apiClient.get<InventoryItem[]>(url);
+      
+      if (items && Array.isArray(items) && items.length > 0) {
+        return items[0];
+      } else {
+        return null;
+      }
+    } catch (error: any) {
+      // Only log errors in development, and without sensitive data
+      if (isDev) {
+        console.error(`[Inventory API] Error fetching inventory:`, error?.message || 'Unknown error');
+      }
+      throw error;
+    }
   },
 
   getByWarehouse: async (warehouseId: string): Promise<InventoryItem[]> => {
@@ -82,6 +115,7 @@ export const inventoryApi = {
     materialId: string;
     warehouseId: string;
     locationCode?: string;
+    lpnCode?: string; // License Plate Number
     quantity?: string;
     availableQuantity?: string;
     reservedQuantity?: string;
@@ -98,7 +132,9 @@ export const inventoryApi = {
   },
 
   update: async (id: string, inventory: {
+    warehouseId?: string;
     locationCode?: string;
+    lpnCode?: string; // License Plate Number
     quantity?: string;
     availableQuantity?: string;
     reservedQuantity?: string;
@@ -112,6 +148,15 @@ export const inventoryApi = {
     status?: string;
   }): Promise<InventoryItem> => {
     return apiClient.put<InventoryItem>(`/inventory/${id}`, inventory);
+  },
+
+  // Calculate missing planning fields
+  calculateMissingFields: async (): Promise<{ itemsUpdated: number; message: string }> => {
+    return apiClient.post<{ itemsUpdated: number; message: string }>('/inventory/calculate/missing-fields', {});
+  },
+
+  recalculateItem: async (inventoryId: string): Promise<{ itemsUpdated: number; message: string }> => {
+    return apiClient.post<{ itemsUpdated: number; message: string }>(`/inventory/calculate/${inventoryId}`, {});
   },
 };
 
