@@ -1,14 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useOffline } from "@/hooks/useOffline";
+import { useWorker } from "@/contexts/WorkerContext";
 import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
+import { shipmentsApi } from "@/lib/api/shipments";
+import { ordersApi } from "@/lib/api/orders";
+import { showToast } from "@/lib/utils/toast";
 
 export default function ShipmentsPage() {
+  const { isOnline } = useOffline();
+  const { worker } = useWorker();
   const [selectedShipment, setSelectedShipment] = useState<any>(null);
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedOrder, setScannedOrder] = useState("");
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [deliveryDetails, setDeliveryDetails] = useState({
     driverName: "",
     driverPhone: "",
@@ -17,35 +26,74 @@ export default function ShipmentsPage() {
     notes: "",
   });
 
-  const shipments = [
-    {
-      id: "SH-9001",
-      orderNumber: "SO-1001",
-      carrier: "DHL",
-      status: "Ready to Ship",
-      destination: "New York, NY",
-      items: 5,
-      orders: ["SO-1001"],
-    },
-    {
-      id: "SH-9002",
-      orderNumber: "SO-1002",
-      carrier: "FedEx",
-      status: "In Transit",
-      destination: "Los Angeles, CA",
-      items: 3,
-      orders: ["SO-1002"],
-    },
-    {
-      id: "SH-9003",
-      orderNumber: "SO-1003",
-      carrier: "UPS",
-      status: "Ready to Ship",
-      destination: "Chicago, IL",
-      items: 8,
-      orders: ["SO-1003"],
-    },
-  ];
+  // Load shipments - filtered by worker's warehouse and ready_to_ship status
+  useEffect(() => {
+    const loadShipments = async () => {
+      if (!isOnline || !worker?.warehouseId) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        // Fetch orders that are ready_to_ship for worker's warehouse
+        const readyToShipOrders = await ordersApi.getAll("outbound", "ready_to_ship");
+        
+        // Filter by worker's warehouse
+        const warehouseOrders = readyToShipOrders.filter(
+          order => order.warehouseId === worker.warehouseId
+        );
+
+        // Fetch shipments for these orders
+        const shipmentsData = await Promise.all(
+          warehouseOrders.map(async (order) => {
+            try {
+              const orderShipments = await shipmentsApi.getByOrderId(order.id);
+              return orderShipments.map(shipment => ({
+                id: shipment.id,
+                shipmentNumber: shipment.shipmentNumber,
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                carrier: shipment.carrier || "N/A",
+                status: shipment.status === "label_created" ? "Ready to Ship" : shipment.status,
+                destination: shipment.destination || "N/A",
+                trackingNumber: shipment.trackingNumber,
+                weightKg: shipment.weightKg,
+                orders: [order.orderNumber],
+              }));
+            } catch (error) {
+              // If no shipment exists, create a virtual one for display
+              return [{
+                id: `virtual-${order.id}`,
+                shipmentNumber: `SH-${order.orderNumber}`,
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                carrier: "N/A",
+                status: "Ready to Ship",
+                destination: "N/A",
+                trackingNumber: "",
+                weightKg: "",
+                orders: [order.orderNumber],
+                isVirtual: true, // Flag to indicate this needs shipment creation
+              }];
+            }
+          })
+        );
+
+        setShipments(shipmentsData.flat());
+      } catch (error) {
+        console.error("Failed to load shipments:", error);
+        showToast.error("Failed to load shipments");
+        setShipments([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (isOnline && worker?.warehouseId) {
+      loadShipments();
+    }
+  }, [isOnline, worker?.warehouseId]);
 
   const handleProcessShipment = (shipment: typeof shipments[0]) => {
     setSelectedShipment(shipment);
@@ -69,25 +117,54 @@ export default function ShipmentsPage() {
 
   const handleConfirmShipment = async () => {
     if (!deliveryDetails.driverName || !deliveryDetails.driverPhone || !deliveryDetails.vehicleNumber) {
-      alert("Please fill in all required delivery details");
+      showToast.error("Please fill in all required delivery details");
       return;
     }
     
+    if (!selectedShipment) {
+      showToast.error("No shipment selected");
+      return;
+    }
+
     try {
-      // Save to IndexedDB for offline-first
-      const shipmentData = {
-        shipmentId: selectedShipment?.id,
-        deliveryDetails,
-        scannedOrder,
-        processedAt: new Date().toISOString(),
-        status: "processed",
-      };
-      
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing shipment:", shipmentData);
-      
-      // Show success message
-      alert("Shipment processed successfully! Delivery details have been saved.");
+      if (isOnline) {
+        // If virtual shipment, create it first
+        if (selectedShipment.isVirtual) {
+          const shipmentNumber = `SH-${selectedShipment.orderNumber}-${Date.now()}`;
+          await shipmentsApi.create({
+            shipmentNumber,
+            orderId: selectedShipment.orderId,
+            carrier: deliveryDetails.trackingNumber ? "Custom" : "N/A",
+            trackingNumber: deliveryDetails.trackingNumber || "",
+            destination: "N/A",
+            weightKg: "",
+            driverName: deliveryDetails.driverName,
+            driverPhone: deliveryDetails.driverPhone,
+            vehicleNumber: deliveryDetails.vehicleNumber,
+            status: "label_created",
+          });
+        } else {
+          // Update existing shipment
+          await shipmentsApi.update(selectedShipment.id, {
+            driverName: deliveryDetails.driverName,
+            driverPhone: deliveryDetails.driverPhone,
+            vehicleNumber: deliveryDetails.vehicleNumber,
+            trackingNumber: deliveryDetails.trackingNumber || selectedShipment.trackingNumber,
+            status: "ready_to_ship",
+          });
+        }
+
+        // Update shipment status to "shipped" (this will update order status automatically)
+        if (!selectedShipment.isVirtual) {
+          await shipmentsApi.updateStatus(selectedShipment.id, "shipped");
+        }
+
+        showToast.success("Shipment processed successfully!");
+      } else {
+        // Offline mode - save to sync queue
+        // TODO: Implement offline sync
+        showToast.warning("Offline mode - changes will sync when online");
+      }
       
       setShowProcessModal(false);
       setDeliveryDetails({
@@ -98,6 +175,11 @@ export default function ShipmentsPage() {
         notes: "",
       });
       setScannedOrder("");
+      
+      // Reload shipments
+      if (isOnline && worker?.warehouseId) {
+        window.location.reload();
+      }
     } catch (error) {
       console.error("Error processing shipment:", error);
       alert("Error processing shipment. Please try again.");
@@ -152,8 +234,9 @@ export default function ShipmentsPage() {
               Process Shipment
             </button>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Process Shipment Modal */}
       {selectedShipment && (

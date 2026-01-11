@@ -1130,13 +1130,17 @@ function EditWorkerModal({
   const canAssignRole =
     role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "edit");
 
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [formData, setFormData] = useState({
     firstName: worker.name.split(" ")[0] || "",
     lastName: worker.name.split(" ").slice(1).join(" ") || "",
     email: "",
     phone: "",
     workerId: worker.workerId,
-    warehouseId: worker.warehouseName,
+    warehouseId: "",
     shiftStart: worker.shiftStart,
     shiftEnd: worker.shiftEnd,
     password: "",
@@ -1144,11 +1148,87 @@ function EditWorkerModal({
     avatar: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Load warehouses and user data when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadData = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        
+        // Load warehouses
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+        console.log("[EditWorkerModal] Loaded warehouses:", warehousesData.length);
+        
+        // Find warehouseId from warehouseName
+        const matchingWarehouse = warehousesData.find(w => w.name === worker.warehouseName);
+        if (matchingWarehouse) {
+          setFormData(prev => ({
+            ...prev,
+            warehouseId: matchingWarehouse.id
+          }));
+        }
+
+        // Load full user data to get email, phone, etc.
+        try {
+          const userData = await usersApi.getById(worker.id);
+          setFormData(prev => ({
+            ...prev,
+            email: userData.email || "",
+            phone: userData.phone || "",
+          }));
+        } catch (err) {
+          console.warn("[EditWorkerModal] Could not load user details:", err);
+        }
+      } catch (err) {
+        console.error("[EditWorkerModal] Failed to load warehouses:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
+        showToast.error(errorMessage);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+
+    loadData();
+  }, [isOpen, worker.id, worker.warehouseName]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update worker
-    console.log("Updating worker:", formData);
-    onClose();
+    
+    try {
+      setIsSubmitting(true);
+      
+      // Update worker
+      await usersApi.update(worker.id, {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        employeeId: formData.workerId,
+        role: formData.role || undefined,
+        warehouseId: formData.warehouseId || undefined,
+      });
+
+      // If warehouse changed, assign it
+      if (formData.warehouseId) {
+        await usersApi.assignWarehouse(worker.id, formData.warehouseId);
+      }
+
+      showToast.success("Worker updated successfully");
+      onClose();
+      
+      // Reload workers list
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadWorkers'));
+      }
+    } catch (err: any) {
+      console.error("[EditWorkerModal] Failed to update worker:", err);
+      const errorMessage = err?.response?.data?.message || err?.message || "Failed to update worker. Please try again.";
+      showToast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -1241,6 +1321,7 @@ function EditWorkerModal({
                 setFormData({ ...formData, warehouseId: e.target.value })
               }
               required
+              disabled={isLoadingWarehouses}
             >
               <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
               {warehouses.map((warehouse) => (
@@ -1347,11 +1428,18 @@ function EditWorkerModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Update Worker
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting || isLoadingWarehouses}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Updating...
+              </>
+            ) : (
+              "Update Worker"
+            )}
           </button>
         </div>
       </form>

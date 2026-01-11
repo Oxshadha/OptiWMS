@@ -119,11 +119,47 @@ async function handleResponse<T>(response: Response): Promise<T> {
     throw new Error(`API Error: ${response.status} - ${errorMessage}`);
   }
   
+  // Handle 204 No Content (empty response)
+  if (response.status === 204 || response.status === 201) {
+    // Check if response has content
+    const contentType = response.headers.get('content-type');
+    const contentLength = response.headers.get('content-length');
+    
+    // If no content or empty content, return undefined
+    if (!contentType || contentLength === '0' || !contentType.includes('application/json')) {
+      return undefined as T;
+    }
+  }
+  
+  // Check if response has content before parsing
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    // Not JSON, return empty or text
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    try {
+      const text = await response.text();
+      return (text || undefined) as T;
+    } catch {
+      return undefined as T;
+    }
+  }
+  
   try {
-    const data = await response.json();
+    const text = await response.text();
+    // If empty string, return undefined
+    if (!text || text.trim() === '') {
+      return undefined as T;
+    }
+    const data = JSON.parse(text);
     return data;
   } catch (jsonError) {
     console.error("[API Client] JSON parse error:", jsonError);
+    // For 204 No Content, this is expected - return undefined
+    if (response.status === 204) {
+      return undefined as T;
+    }
     throw new Error('Invalid response from server');
   }
 }

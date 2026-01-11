@@ -158,6 +158,7 @@ public class InventoryController {
             item.setMaterialId(request.materialId());
             item.setWarehouseId(request.warehouseId());
             item.setLocationCode(request.locationCode());
+            item.setLpnCode(request.lpnCode());
             // Convert string quantities to Integer (actual pallet quantities are integers)
             item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : 0);
             item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) : 
@@ -183,7 +184,14 @@ public class InventoryController {
     public ResponseEntity<InventoryItemDto> update(@PathVariable UUID id, @RequestBody UpdateInventoryRequest request) {
         try {
             var item = new com.optiwms.domain.inventory.InventoryItem();
+            // Update warehouse if provided
+            if (request.warehouseId() != null) {
+                item.setWarehouseId(UUID.fromString(request.warehouseId()));
+            }
             item.setLocationCode(request.locationCode());
+            if (request.lpnCode() != null) {
+                item.setLpnCode(request.lpnCode());
+            }
             // Convert string quantities to Integer (actual pallet quantities are integers)
             item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : null);
             item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) : null);
@@ -211,6 +219,7 @@ public class InventoryController {
                 item.getMaterialId(),
                 item.getWarehouseId(),
                 item.getLocationCode(),
+                item.getLpnCode(),
                 item.getQuantity() != null ? item.getQuantity().toString() : "0",
                 item.getAvailableQuantity() != null ? item.getAvailableQuantity().toString() : "0",
                 item.getReservedQuantity() != null ? item.getReservedQuantity().toString() : "0",
@@ -253,6 +262,7 @@ public class InventoryController {
             UUID materialId,
             UUID warehouseId,
             String locationCode,
+            String lpnCode,  // License Plate Number
             String quantity,  // Changed to String
             String availableQuantity,  // Changed to String
             String reservedQuantity,  // Changed to String
@@ -297,6 +307,7 @@ public class InventoryController {
             UUID materialId,
             UUID warehouseId,
             String locationCode,
+            String lpnCode,  // License Plate Number
             String quantity,  // Accept as String, convert to BigDecimal
             String availableQuantity,  // Accept as String
             String reservedQuantity,  // Accept as String
@@ -311,7 +322,9 @@ public class InventoryController {
     ) {}
 
     public record UpdateInventoryRequest(
+            String warehouseId,  // Allow updating warehouse
             String locationCode,
+            String lpnCode,  // License Plate Number
             String quantity,  // Accept as String
             String availableQuantity,  // Accept as String
             String reservedQuantity,  // Accept as String

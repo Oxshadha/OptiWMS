@@ -81,6 +81,9 @@ export default function InventoryPage() {
   const assignedWarehouseName = admin?.warehouseName;
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeItemType, setActiveItemType] = useState("All");
+  const [activeWarehouse, setActiveWarehouse] = useState<string>(
+    isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "All"
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -94,7 +97,7 @@ export default function InventoryPage() {
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set([
-    "sku", "name", "type", "category", "quantity", "location", "status",
+    "sku", "name", "type", "category", "warehouse", "quantity", "location", "status",
     "reorderPoint", "bufferStock", "moq", "leadTimeDays"
   ]));
   
@@ -248,7 +251,10 @@ export default function InventoryPage() {
       ? inventoryItems.filter((item) => item.warehouseId === assignedWarehouseId)
       : inventoryItems;
 
-  let filteredInventory = inventoryForWarehouse.filter((item) => {
+  // Filter to only show in-stock items (quantity > 0) - real-time database connection
+  const inStockItems = inventoryForWarehouse.filter((item) => item.qty > 0);
+
+  let filteredInventory = inStockItems.filter((item) => {
     const matchesCategory =
       activeCategory === "All" || item.category === activeCategory;
     const matchesItemType =
@@ -256,16 +262,19 @@ export default function InventoryPage() {
       (activeItemType === "Product" && item.itemType === "Product") ||
       (activeItemType === "Raw Material" && item.itemType === "Raw Material") ||
       (activeItemType === "Packaging" && item.itemType === "Packaging");
+    const matchesWarehouse =
+      activeWarehouse === "All" || item.warehouseId === activeWarehouse;
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return matchesCategory && matchesItemType;
+    if (!query) return matchesCategory && matchesItemType && matchesWarehouse;
     const matchesSearch =
       item.name.toLowerCase().includes(query) ||
       item.sku.toLowerCase().includes(query) ||
       item.location.toLowerCase().includes(query) ||
       item.status.toLowerCase().includes(query) ||
       item.category.toLowerCase().includes(query) ||
+      item.warehouseName.toLowerCase().includes(query) ||
       item.qty.toString().includes(query);
-    return matchesCategory && matchesItemType && matchesSearch;
+    return matchesCategory && matchesItemType && matchesWarehouse && matchesSearch;
   });
 
   // Apply sorting
@@ -286,14 +295,14 @@ export default function InventoryPage() {
     });
   }
 
-  const totalItems = Math.ceil(inventoryForWarehouse.reduce(
+  const totalItems = Math.ceil(inStockItems.reduce(
     (sum, item) => sum + item.qty,
     0
   ));
-  const lowStockItems = inventoryForWarehouse.filter(
+  const lowStockItems = inStockItems.filter(
     (item) => item.status === "Low" || item.status === "Out of Stock"
   ).length;
-  const availableItems = inventoryForWarehouse.filter(
+  const availableItems = inStockItems.filter(
     (item) => item.status === "Available"
   ).length;
 
@@ -332,7 +341,7 @@ export default function InventoryPage() {
           <button
             className="btn btn-outline"
             onClick={() => setShowImportModal(true)}
-            title="Import inventory from CSV"
+            title="Import inventory from CSV (updates existing records)"
           >
             <span className="material-symbols-outlined">upload</span>
             Import CSV
@@ -365,6 +374,7 @@ export default function InventoryPage() {
                   { key: "name", label: "Item Name" },
                   { key: "type", label: "Type" },
                   { key: "category", label: "Category" },
+                  { key: "warehouse", label: "Warehouse" },
                   { key: "quantity", label: "Quantity" },
                   { key: "location", label: "Location" },
                   { key: "status", label: "Status" },
@@ -602,6 +612,23 @@ export default function InventoryPage() {
               </button>
             ))}
           </div>
+          {!isWarehouseManager && (
+            <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
+              <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Warehouse:</span>
+              <select
+                className="select select-bordered select-sm"
+                value={activeWarehouse}
+                onChange={(e) => setActiveWarehouse(e.target.value)}
+              >
+                <option value="All">All Warehouses</option>
+                {Array.from(warehouses.entries()).map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -623,6 +650,7 @@ export default function InventoryPage() {
                 {visibleColumns.has("name") && <th className="font-semibold text-base-content">Item Name</th>}
                 {visibleColumns.has("type") && <th className="font-semibold text-base-content">Type</th>}
                 {visibleColumns.has("category") && <th className="font-semibold text-base-content">Category</th>}
+                {visibleColumns.has("warehouse") && <th className="font-semibold text-base-content">Warehouse</th>}
                 {visibleColumns.has("quantity") && <th className="font-semibold text-base-content">Quantity</th>}
                 {visibleColumns.has("location") && <th className="font-semibold text-base-content">Location</th>}
                 {visibleColumns.has("status") && <th className="font-semibold text-base-content">Status</th>}
@@ -656,7 +684,7 @@ export default function InventoryPage() {
                           setSelectedItem(item);
                           setShowDetailModal(true);
                         }}
-                        className="font-semibold text-primary hover:underline text-left"
+                        className="font-mono font-semibold text-primary hover:underline text-left"
                       >
                         {item.sku}
                       </button>
@@ -689,6 +717,13 @@ export default function InventoryPage() {
                         }}
                       >
                         {item.category}
+                      </span>
+                    </td>
+                  )}
+                  {visibleColumns.has("warehouse") && (
+                    <td>
+                      <span className="badge badge-info text-xs whitespace-nowrap">
+                        {item.warehouseName}
                       </span>
                     </td>
                   )}
@@ -876,6 +911,10 @@ export default function InventoryPage() {
             setSelectedItem(null);
           }}
           item={selectedItem}
+          onEdit={() => {
+            setShowDetailModal(false);
+            setShowEditModal(true);
+          }}
         />
       )}
 
@@ -960,6 +999,8 @@ function ImportInventoryModal({
           <div>
             <div className="font-semibold">Import Active stock.csv</div>
             <div className="text-sm">
+              This will <strong>update existing inventory records</strong> with values from CSV.
+              All planning fields (ROP, Buffer Stock, MOQ, etc.) will be updated.
               This will import stock levels for materials. Materials will be auto-created if they don't exist.
               <br />
               <strong>Note:</strong> Quantity is extracted from "Future Average" column (Column 9).
@@ -1016,12 +1057,17 @@ function AddInventoryItemModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const { admin, role } = useAdmin();
+  const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
+  
   const [formData, setFormData] = useState({
     sku: "",
     name: "",
     category: "",
     qty: "",
     location: "",
+    warehouseId: isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "",
     status: "Available" as "Available" | "Low" | "Out of Stock",
   });
 
@@ -1059,16 +1105,15 @@ function AddInventoryItemModal({
         return;
       }
 
-      // Get warehouse ID (use first warehouse for now, or get from context)
-      const warehouse = warehouses[0];
-      if (!warehouse) {
-        setError("No warehouse available.");
+      // Get warehouse ID from form
+      if (!formData.warehouseId) {
+        setError("Please select a warehouse.");
         return;
       }
 
       await inventoryApi.create({
         materialId: material.id,
-        warehouseId: warehouse.id,
+        warehouseId: formData.warehouseId,
         locationCode: formData.location || undefined,
         quantity: formData.qty || "0",
         availableQuantity: formData.qty || "0",
@@ -1083,6 +1128,7 @@ function AddInventoryItemModal({
         category: "",
         qty: "",
         location: "",
+        warehouseId: "",
         status: "Available",
       });
       // Reload page to refresh inventory list
@@ -1133,6 +1179,34 @@ function AddInventoryItemModal({
               ))}
             </select>
           </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Warehouse *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.warehouseId}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouseId: e.target.value })
+            }
+            required
+            disabled={isWarehouseManager && assignedWarehouseId ? true : false}
+          >
+            <option value="">Select warehouse</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
+          {isWarehouseManager && assignedWarehouseId && (
+            <label className="label">
+              <span className="label-text-alt text-info">
+                Your assigned warehouse (cannot be changed)
+              </span>
+            </label>
+          )}
+        </div>
         <div className="form-control">
           <label className="label">
             <span className="label-text font-medium">Category *</span>
@@ -1259,10 +1333,12 @@ function InventoryItemDetailModal({
   isOpen,
   onClose,
   item,
+  onEdit,
 }: {
   isOpen: boolean;
   onClose: () => void;
   item: InventoryDisplayItem;
+  onEdit?: () => void;
 }) {
   const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
 
@@ -1409,11 +1485,19 @@ function InventoryItemDetailModal({
         <div className="border-t pt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-lg font-semibold text-base-content">
-                Inventory Levels Over Time
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-base-content">
+                  Inventory Levels Over Time
+                </h3>
+                <div className="badge badge-warning badge-sm">
+                  Mock Data
+                </div>
+              </div>
               <p className="text-sm text-base-content/60 mt-1">
                 Track inventory changes and trends
+              </p>
+              <p className="text-xs text-base-content/50 mt-1">
+                Note: Currently displaying simulated data. Real historical data will be available once inventory movements are tracked.
               </p>
             </div>
             <div className="flex gap-2">
@@ -1560,7 +1644,17 @@ function InventoryItemDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">Edit Item</button>
+          <button 
+            className="btn btn-primary" 
+            onClick={() => {
+              onClose();
+              if (onEdit) {
+                onEdit();
+              }
+            }}
+          >
+            Edit Item
+          </button>
         </div>
       </div>
     </DetailModal>
@@ -1580,9 +1674,23 @@ function EditInventoryItemModal({
   const [formData, setFormData] = useState({
     qty: item.qty.toString(),
     location: item.location,
+    warehouseId: item.warehouseId,
     status: item.status,
   });
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load warehouses:", err);
+      }
+    };
+    loadWarehouses();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1595,6 +1703,20 @@ function EditInventoryItemModal({
 
       if (quantityChange !== 0) {
         await inventoryApi.updateQuantity(item.id, quantityChange);
+      }
+
+      // Update warehouse if changed
+      if (formData.warehouseId !== item.warehouseId) {
+        await inventoryApi.update(item.id, {
+          warehouseId: formData.warehouseId,
+        });
+      }
+
+      // Update location if changed
+      if (formData.location !== item.location) {
+        await inventoryApi.update(item.id, {
+          locationCode: formData.location || undefined,
+        });
       }
 
       showToast.success("Inventory updated successfully!");
@@ -1649,6 +1771,26 @@ function EditInventoryItemModal({
             onChange={(e) => setFormData({ ...formData, qty: e.target.value })}
             required
           />
+        </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Warehouse *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.warehouseId}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouseId: e.target.value })
+            }
+            required
+          >
+            <option value="">Select warehouse</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="form-control">
           <label className="label">

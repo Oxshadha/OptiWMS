@@ -8,6 +8,7 @@ public class InventoryItem extends BaseEntity {
     private java.util.UUID materialId;
     private java.util.UUID warehouseId;
     private String locationCode;
+    private String lpnCode; // License Plate Number
     private Integer quantity;
     private Integer availableQuantity;
     private Integer reservedQuantity;
@@ -55,6 +56,14 @@ public class InventoryItem extends BaseEntity {
 
     public void setLocationCode(String locationCode) {
         this.locationCode = locationCode;
+    }
+
+    public String getLpnCode() {
+        return lpnCode;
+    }
+
+    public void setLpnCode(String lpnCode) {
+        this.lpnCode = lpnCode;
     }
 
     public Integer getQuantity() {

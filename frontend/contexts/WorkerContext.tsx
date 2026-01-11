@@ -24,6 +24,7 @@ export interface WorkerData {
   workerId: string;
   name: string;
   warehouse: string;
+  warehouseId?: string; // Warehouse ID for API calls
   role: WorkerRole | null;
   avatar?: string;
   email?: string;
@@ -213,16 +214,35 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               const fullUser = await usersApi.getById(userInfo.userId);
               
               // Get warehouse name (non-blocking)
-              let warehouseName = "Unknown";
+              let warehouseName = "Unknown Warehouse";
               if (fullUser.warehouseId) {
                 try {
                   const { warehousesApi } = await import('@/lib/api/warehouses');
-                  const warehouse = await warehousesApi.getById(fullUser.warehouseId);
-                  warehouseName = warehouse.name;
+                  // Try to get warehouse by ID
+                  try {
+                    const warehouse = await warehousesApi.getById(fullUser.warehouseId);
+                    warehouseName = warehouse.name;
+                  } catch (err) {
+                    // If getById fails, try to get all warehouses and find by ID
+                    console.log("[WorkerContext] getById failed, trying getAll:", err);
+                    try {
+                      const warehouses = await warehousesApi.getAll();
+                      const warehouse = warehouses.find(w => w.id === fullUser.warehouseId);
+                      if (warehouse) {
+                        warehouseName = warehouse.name;
+                      } else {
+                        console.warn("[WorkerContext] Warehouse not found in list");
+                        warehouseName = "Unknown Warehouse";
+                      }
+                    } catch (err2) {
+                      console.warn("[WorkerContext] Could not fetch warehouse name:", err2);
+                      warehouseName = "Unknown Warehouse";
+                    }
+                  }
                 } catch (err) {
-                  // Workers may not have permission - use ID as fallback
+                  // Workers may not have permission - use fallback
                   console.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
-                  warehouseName = fullUser.warehouseId ? `Warehouse ${fullUser.warehouseId.substring(0, 8)}...` : "Unknown";
+                  warehouseName = "Unknown Warehouse";
                 }
               }
               
@@ -231,6 +251,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                 workerId: fullUser.employeeId || fullUser.id.slice(0, 6),
                 name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
                 warehouse: warehouseName,
+                warehouseId: fullUser.warehouseId, // Store warehouse ID
                 role: normalizedRole as WorkerRole,
                 avatar: fullUser.avatarUrl,
                 email: fullUser.email,
@@ -241,16 +262,70 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               // Workers don't have permission to access /api/users - use data from getCurrentUser
               console.warn("[WorkerContext] Could not fetch full user details (workers may not have permission), using basic info:", apiError);
               
-              // Get warehouse name from warehouseId if available (non-blocking)
+              // Get warehouse name and ID - try multiple methods
               let warehouseName = "Unknown";
-              if (userInfo.warehouseId) {
+              let warehouseId: string | undefined = userInfo.warehouseId;
+              
+              // If warehouseId is missing, try to find warehouse by name (fallback)
+              // NOTE: This is a TEMPORARY fallback. Workers should have warehouseId set in database.
+              if (!warehouseId) {
+                console.warn("[WorkerContext] ⚠️ No warehouseId in userInfo, trying fallback");
                 try {
                   const { warehousesApi } = await import('@/lib/api/warehouses');
-                  const warehouse = await warehousesApi.getById(userInfo.warehouseId);
-                  warehouseName = warehouse.name;
+                  const warehouses = await warehousesApi.getAll();
+                  console.log("[WorkerContext] Fetched warehouses for fallback:", warehouses.length);
+                  
+                  if (warehouses.length > 0) {
+                    // Try to find "Colombo Main Warehouse" first, otherwise use first warehouse
+                    const colomboWarehouse = warehouses.find(w => 
+                      (w.name && w.name.toLowerCase().includes("colombo")) ||
+                      w.code === "WH-001" ||
+                      (w.name && w.name.toLowerCase().includes("main"))
+                    );
+                    
+                    const selectedWarehouse = colomboWarehouse || warehouses[0];
+                    warehouseId = selectedWarehouse.id;
+                    warehouseName = selectedWarehouse.name;
+                    console.warn("[WorkerContext] ⚠️ Using fallback warehouse (worker should be assigned in database):", warehouseName, warehouseId);
+                    console.warn("[WorkerContext] ⚠️ Admin should assign worker to correct warehouse using: PUT /api/users/{id}/assign-warehouse");
+                    console.warn("[WorkerContext] ⚠️ Or via Admin UI: Workers → Edit → Select Warehouse → Update");
+                  } else {
+                    console.error("[WorkerContext] ❌ No warehouses found in system!");
+                    console.error("[WorkerContext] ❌ Cannot set fallback warehouse - no warehouses exist!");
+                  }
+                } catch (err: any) {
+                  console.error("[WorkerContext] ❌ Could not fetch warehouses for fallback:", err?.message || err);
+                  console.error("[WorkerContext] ❌ Worker needs warehouseId assigned in database. Use: PUT /api/users/{id}/assign-warehouse");
+                  // Don't set warehouseId if fallback fails - let the UI show the error
+                }
+              } else {
+                // warehouseId exists - get warehouse name
+                try {
+                  const { warehousesApi } = await import('@/lib/api/warehouses');
+                  // Try to get warehouse by ID
+                  try {
+                    const warehouse = await warehousesApi.getById(warehouseId);
+                    warehouseName = warehouse.name;
+                  } catch (err) {
+                    // If getById fails, try to get all warehouses and find by ID
+                    console.log("[WorkerContext] getById failed, trying getAll:", err);
+                    try {
+                      const warehouses = await warehousesApi.getAll();
+                      const warehouse = warehouses.find(w => w.id === warehouseId);
+                      if (warehouse) {
+                        warehouseName = warehouse.name;
+                      } else {
+                        console.warn("[WorkerContext] Warehouse not found in list");
+                        warehouseName = "Unknown Warehouse";
+                      }
+                    } catch (err2) {
+                      console.warn("[WorkerContext] Could not fetch warehouse name:", err2);
+                      warehouseName = "Unknown Warehouse";
+                    }
+                  }
                 } catch (err) {
                   console.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
-                  warehouseName = userInfo.warehouseId ? `Warehouse ${userInfo.warehouseId.substring(0, 8)}...` : "Unknown";
+                  warehouseName = "Unknown Warehouse";
                 }
               }
               
@@ -264,11 +339,21 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                 employeeId = userInfo.userId.slice(0, 6);
               }
               
+              // CRITICAL: Ensure warehouseId is set (from userInfo or fallback)
+              if (!warehouseId) {
+                console.error("[WorkerContext] ❌ CRITICAL: warehouseId is still undefined after fallback attempt!");
+                console.error("[WorkerContext] ❌ Worker MUST be assigned to warehouse in database.");
+                console.error("[WorkerContext] ❌ Admin should use: PUT /api/users/{id}/assign-warehouse");
+              } else {
+                console.log("[WorkerContext] ✅ warehouseId is set:", warehouseId, "warehouseName:", warehouseName);
+              }
+              
               workerData = {
                 id: userInfo.userId,
                 workerId: employeeId, // Use employeeId format, not UUID
                 name: userInfo.name || "Worker",
                 warehouse: warehouseName,
+                warehouseId: warehouseId || undefined, // Use found warehouseId (from API or fallback) - explicitly set to undefined if null
                 role: normalizedRole as WorkerRole,
                 avatar: undefined,
                 email: userInfo.email,
@@ -279,7 +364,14 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
             
             setWorkerState(workerData);
             setIsLoading(false); // CRITICAL: Set loading to false when worker data is set
-            console.log("[WorkerContext] Worker data set from API, isLoading set to false");
+            console.log("[WorkerContext] Worker data set from API:", {
+              workerId: workerData.workerId,
+              name: workerData.name,
+              role: workerData.role,
+              warehouse: workerData.warehouse,
+              warehouseId: workerData.warehouseId,
+              hasWarehouseId: !!workerData.warehouseId
+            });
             
             // Save to IndexedDB in background
             try {
@@ -344,6 +436,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
             workerId: newWorker.workerId,
             name: newWorker.name,
             warehouse: newWorker.warehouse,
+            warehouseId: newWorker.warehouseId,
             role: newWorker.role,
             avatar: newWorker.avatar,
             email: newWorker.email,

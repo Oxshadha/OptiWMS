@@ -46,8 +46,12 @@ export const packingApi = {
     return apiClient.put<PackingRecord>(`/packing/${id}`, record);
   },
 
-  updateStatus: async (id: string, status: string): Promise<PackingRecord> => {
-    return apiClient.put<PackingRecord>(`/packing/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, workerId?: string): Promise<PackingRecord> => {
+    const request: any = { status };
+    if (workerId) {
+      request.workerId = workerId;
+    }
+    return apiClient.put<PackingRecord>(`/packing/${id}/status`, request);
   },
 
   delete: async (id: string): Promise<void> => {

@@ -42,6 +42,9 @@ public class LocationEntity {
     @Column(name = "location_type")
     private String locationType;
 
+    @Column(name = "zone_type", length = 20)
+    private String zoneType;
+
     @Column(name = "capacity", precision = 15, scale = 2)
     private java.math.BigDecimal capacity;
 
@@ -101,6 +104,8 @@ public class LocationEntity {
     public void setBinPosition(String binPosition) { this.binPosition = binPosition; }
     public String getLocationType() { return locationType; }
     public void setLocationType(String locationType) { this.locationType = locationType; }
+    public String getZoneType() { return zoneType; }
+    public void setZoneType(String zoneType) { this.zoneType = zoneType; }
     public java.math.BigDecimal getCapacity() { return capacity; }
     public void setCapacity(java.math.BigDecimal capacity) { this.capacity = capacity; }
     public Boolean getIsActive() { return isActive; }

@@ -268,7 +268,16 @@ export default function OutboundOrderDetailPage() {
                       return (
                         <tr key={item.id}>
                           <td>
-                            <div className="font-semibold">{material?.materialCode || item.materialId}</div>
+                            <div>
+                              <div className="font-mono font-semibold text-primary">
+                                {material?.materialCode || item.materialId}
+                              </div>
+                              {material?.description && (
+                                <div className="text-xs text-base-content/60 mt-0.5">
+                                  {material.description}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <div className="text-sm text-base-content/70">

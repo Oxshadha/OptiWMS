@@ -54,5 +54,9 @@ export const usersApi = {
   updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean }): Promise<User> => {
     return apiClient.put<User>(`/users/${id}/preferences`, preferences);
   },
+
+  assignWarehouse: async (id: string, warehouseId: string): Promise<User> => {
+    return apiClient.put<User>(`/users/${id}/assign-warehouse`, { warehouseId });
+  },
 };
 

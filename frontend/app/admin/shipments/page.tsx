@@ -340,6 +340,9 @@ export default function ShipmentsPage() {
               <li>
                 <button onClick={() => setStatusFilter("ready to ship")}>Ready to Ship</button>
               </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+              </li>
             </ul>
           </div>
           <button 

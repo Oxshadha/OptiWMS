@@ -81,12 +81,73 @@ public class OrderService {
     }
 
     @Transactional
+    public Order updateWorkerRecord(java.util.UUID id, java.util.UUID workerId, String operation) {
+        OrderEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + id));
+        
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        
+        switch (operation) {
+            case "received":
+                entity.setReceivedBy(workerId);
+                entity.setReceivedAt(now);
+                break;
+            case "picked":
+                entity.setPickedBy(workerId);
+                entity.setPickedAt(now);
+                break;
+            case "packed":
+                entity.setPackedBy(workerId);
+                entity.setPackedAt(now);
+                break;
+            case "shipped":
+                entity.setShippedBy(workerId);
+                entity.setShippedAt(now);
+                break;
+        }
+        
+        OrderEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public Order updateNotes(java.util.UUID id, String notes) {
         OrderEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
         entity.setNotes(notes);
         OrderEntity saved = repository.save(entity);
         return toDomain(saved);
+    }
+
+    @Transactional
+    public Order update(java.util.UUID id, Order order) {
+        OrderEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Order not found: " + id));
+        
+        // Only update fields that are provided (not null)
+        if (order.getExpectedDate() != null) {
+            entity.setExpectedDate(order.getExpectedDate());
+        }
+        if (order.getNotes() != null) {
+            entity.setNotes(order.getNotes());
+        }
+        if (order.getPriority() != null) {
+            entity.setPriority(order.getPriority());
+        }
+        if (order.getTotalAmount() != null) {
+            entity.setTotalAmount(order.getTotalAmount());
+        }
+        
+        OrderEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public void delete(java.util.UUID id) {
+        if (!repository.existsById(id)) {
+            throw new RuntimeException("Order not found: " + id);
+        }
+        repository.deleteById(id);
     }
 
     private Order toDomain(OrderEntity entity) {
@@ -103,6 +164,14 @@ public class OrderService {
         order.setExpectedDate(entity.getExpectedDate());
         order.setTotalAmount(entity.getTotalAmount());
         order.setNotes(entity.getNotes());
+        order.setReceivedBy(entity.getReceivedBy());
+        order.setPickedBy(entity.getPickedBy());
+        order.setPackedBy(entity.getPackedBy());
+        order.setShippedBy(entity.getShippedBy());
+        order.setReceivedAt(entity.getReceivedAt());
+        order.setPickedAt(entity.getPickedAt());
+        order.setPackedAt(entity.getPackedAt());
+        order.setShippedAt(entity.getShippedAt());
         return order;
     }
 }

@@ -2,12 +2,16 @@
 
 import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
+import { useWorker } from "@/contexts/WorkerContext";
 import { saveScanRecord, addToSyncQueue } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
 import { ordersApi } from "@/lib/api/orders";
 import { customersApi } from "@/lib/api/customers";
 import { orderItemsApi } from "@/lib/api/orderItems";
 import { materialsApi } from "@/lib/api/materials";
+import { packingApi } from "@/lib/api/packing";
+import { showToast } from "@/lib/utils/toast";
+import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
 
 interface OrderItem {
   id: string;
@@ -42,6 +46,7 @@ interface PackingData {
 
 export default function PackingPage() {
   const { isOnline } = useOffline();
+  const { worker } = useWorker();
   const [step, setStep] = useState<"select" | "verify" | "package" | "weight" | "complete">("select");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showOrderScanner, setShowOrderScanner] = useState(false);
@@ -59,21 +64,26 @@ export default function PackingPage() {
     photos: [],
   });
 
-  // Load orders ready to pack
+  // Load orders ready to pack - filtered by worker's warehouse
   useEffect(() => {
     const loadOrders = async () => {
-      if (!isOnline) {
+      if (!isOnline || !worker?.warehouseId) {
         setLoading(false);
         return;
       }
       try {
         setLoading(true);
-        // Fetch outbound orders that are picked (ready to pack)
-        const outboundOrders = await ordersApi.getAll("outbound", "picked");
+        // Fetch outbound orders that are picked (ready to pack) for worker's warehouse
+        const allOutboundOrders = await ordersApi.getAll("outbound", "picked");
+        
+        // Filter by worker's warehouse
+        const warehouseOrders = allOutboundOrders.filter(
+          order => order.warehouseId === worker.warehouseId
+        );
         
         // Fetch order items and customer names for each order
         const ordersWithDetails = await Promise.all(
-          outboundOrders.map(async (apiOrder) => {
+          warehouseOrders.map(async (apiOrder) => {
             try {
               // Fetch customer name
               let customerName = "Unknown";
@@ -95,20 +105,26 @@ export default function PackingPage() {
                   orderItems.map(async (item) => {
                     try {
                       const material = await materialsApi.getById(item.materialId);
+                      const display = formatMaterialDisplay(
+                        material.materialCode,
+                        material.description,
+                        material.id
+                      );
                       return {
                         id: item.id,
-                        sku: material.materialCode || item.materialId,
-                        name: material.description || "Unknown",
+                        sku: display.sku,
+                        name: display.name,
                         quantity: item.quantity,
                         pickedQuantity: item.pickedQuantity || 0,
                         verified: false,
                       };
                     } catch (error) {
                       console.error(`Error fetching material ${item.materialId}:`, error);
+                      // Don't show UUID, show user-friendly message
                       return {
                         id: item.id,
-                        sku: item.materialId,
-                        name: "Unknown",
+                        sku: "N/A",
+                        name: "Material details not available",
                         quantity: item.quantity,
                         pickedQuantity: item.pickedQuantity || 0,
                         verified: false,
@@ -392,7 +408,11 @@ export default function PackingPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="font-semibold text-base-content">{item.name}</div>
-                      <div className="text-sm text-base-content/60">SKU: {item.sku}</div>
+                      {item.sku && item.sku !== "N/A" && !isUUID(item.sku) && (
+                        <div className="text-sm text-base-content/60">
+                          <span className="font-mono font-semibold text-primary">SKU: {item.sku}</span>
+                        </div>
+                      )}
                       <div className="text-sm text-base-content/60">
                         Quantity: {item.pickedQuantity} / {item.quantity}
                       </div>

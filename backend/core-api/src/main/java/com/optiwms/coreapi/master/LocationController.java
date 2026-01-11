@@ -52,9 +52,29 @@ public class LocationController {
         }
     }
 
+    @GetMapping("/code/{locationCode}")
+    public ResponseEntity<LocationDto> getByCode(@PathVariable String locationCode) {
+        try {
+            var location = locationService.findByLocationCode(locationCode);
+            return ResponseEntity.ok(toDto(location));
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     @GetMapping("/warehouse/{warehouseId}")
     public ResponseEntity<List<LocationDto>> getByWarehouse(@PathVariable UUID warehouseId) {
         var locations = locationService.findByWarehouse(warehouseId);
+        return ResponseEntity.ok(locations.stream().map(this::toDto).toList());
+    }
+
+    /**
+     * Get only storage locations (exclude staging, receiving, shipment, packing areas)
+     * For warehouse map visualization - only show racks, not staging areas
+     */
+    @GetMapping("/warehouse/{warehouseId}/storage-only")
+    public ResponseEntity<List<LocationDto>> getStorageLocationsByWarehouse(@PathVariable UUID warehouseId) {
+        var locations = locationService.findStorageLocationsByWarehouse(warehouseId);
         return ResponseEntity.ok(locations.stream().map(this::toDto).toList());
     }
 
@@ -179,6 +199,7 @@ public class LocationController {
                 location.getLevelNumber(),
                 location.getBinPosition(),
                 location.getLocationType(),
+                location.getZoneType(),
                 location.getCapacity() != null ? location.getCapacity().toString() : null,
                 location.getIsActive() != null ? location.getIsActive() : true,
                 location.getQrCode(),
@@ -203,6 +224,7 @@ public class LocationController {
             Integer levelNumber,
             String binPosition,
             String locationType,
+            String zoneType,
             String capacity,
             Boolean isActive,
             String qrCode,

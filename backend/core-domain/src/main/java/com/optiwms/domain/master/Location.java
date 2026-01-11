@@ -13,6 +13,7 @@ public class Location {
     private Integer levelNumber;
     private String binPosition;
     private String locationType;
+    private String zoneType; // STORAGE, STAGING, RECEIVING, SHIPMENT, PACKING
     private BigDecimal capacity;
     private Boolean isActive;
     private String qrCode;
@@ -47,6 +48,8 @@ public class Location {
     public void setBinPosition(String binPosition) { this.binPosition = binPosition; }
     public String getLocationType() { return locationType; }
     public void setLocationType(String locationType) { this.locationType = locationType; }
+    public String getZoneType() { return zoneType; }
+    public void setZoneType(String zoneType) { this.zoneType = zoneType; }
     public BigDecimal getCapacity() { return capacity; }
     public void setCapacity(BigDecimal capacity) { this.capacity = capacity; }
     public Boolean getIsActive() { return isActive; }

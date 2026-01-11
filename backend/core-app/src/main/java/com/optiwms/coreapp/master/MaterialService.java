@@ -3,19 +3,30 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Material;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
+import com.optiwms.infra.orders.OrderItemRepository;
+import com.optiwms.infra.inventory.InventoryItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
 public class MaterialService {
 
     private final MaterialRepository repository;
+    private final OrderItemRepository orderItemRepository;
+    private final InventoryItemRepository inventoryItemRepository;
 
-    public MaterialService(MaterialRepository repository) {
+    public MaterialService(
+            MaterialRepository repository,
+            OrderItemRepository orderItemRepository,
+            InventoryItemRepository inventoryItemRepository) {
         this.repository = repository;
+        this.orderItemRepository = orderItemRepository;
+        this.inventoryItemRepository = inventoryItemRepository;
     }
 
     /**
@@ -70,9 +81,19 @@ public class MaterialService {
     }
 
     public Material findByCode(String materialCode) {
-        return repository.findByMaterialCode(materialCode)
-                .map(this::toDomain)
-                .orElseThrow(() -> new RuntimeException("Material not found: " + materialCode));
+        // First try exact match
+        Optional<MaterialEntity> exactMatch = repository.findByMaterialCode(materialCode.trim());
+        if (exactMatch.isPresent()) {
+            return toDomain(exactMatch.get());
+        }
+        
+        // If not found, try case-insensitive lookup
+        Optional<MaterialEntity> caseInsensitiveMatch = repository.findByMaterialCodeIgnoreCase(materialCode);
+        if (caseInsensitiveMatch.isPresent()) {
+            return toDomain(caseInsensitiveMatch.get());
+        }
+        
+        throw new RuntimeException("Material not found: " + materialCode);
     }
 
     @Transactional
@@ -108,9 +129,37 @@ public class MaterialService {
     @Transactional
     public void delete(java.util.UUID id) {
         if (!repository.existsById(id)) {
-            throw new RuntimeException("Material not found: " + id);
+            throw new RuntimeException("Material not found");
         }
-        repository.deleteById(id);
+        
+        // Check if material is referenced in order items
+        long orderItemCount = orderItemRepository.findByMaterialId(id).size();
+        if (orderItemCount > 0) {
+            throw new RuntimeException("Cannot delete material: It is currently used in " + orderItemCount + " order item(s). Please remove it from all orders first.");
+        }
+        
+        // Check if material is referenced in inventory
+        long inventoryCount = inventoryItemRepository.findByMaterialId(id).size();
+        if (inventoryCount > 0) {
+            throw new RuntimeException("Cannot delete material: It has inventory records. Please remove all inventory first.");
+        }
+        
+        try {
+            repository.deleteById(id);
+        } catch (DataIntegrityViolationException e) {
+            // Catch any other foreign key violations and provide user-friendly message
+            String message = e.getMessage();
+            if (message != null && message.contains("foreign key constraint")) {
+                if (message.contains("order_items")) {
+                    throw new RuntimeException("Cannot delete material: It is currently used in order items. Please remove it from all orders first.");
+                } else if (message.contains("inventory")) {
+                    throw new RuntimeException("Cannot delete material: It has inventory records. Please remove all inventory first.");
+                } else {
+                    throw new RuntimeException("Cannot delete material: It is referenced by other records in the system.");
+                }
+            }
+            throw new RuntimeException("Cannot delete material: It is referenced by other records in the system.");
+        }
     }
 
     @Transactional

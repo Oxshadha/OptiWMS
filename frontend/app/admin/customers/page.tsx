@@ -536,9 +536,34 @@ function AddCustomerModal({
     phone: "",
     status: "Active",
   });
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Client-side validation before submitting
+    const { validateEmail, validatePhone, validateRequired } = await import("@/lib/utils/form-validation");
+    const errors: Record<string, string> = {};
+    
+    const nameResult = validateRequired(formData.name, "Customer Name");
+    if (!nameResult.valid) errors.name = nameResult.error || "";
+    
+    const emailResult = validateRequired(formData.contact, "Contact Email");
+    if (!emailResult.valid) {
+      errors.contact = emailResult.error || "";
+    } else {
+      const emailFormatResult = validateEmail(formData.contact);
+      if (!emailFormatResult.valid) errors.contact = emailFormatResult.error || "";
+    }
+    
+    const phoneResult = validatePhone(formData.phone);
+    if (!phoneResult.valid) errors.phone = phoneResult.error || "";
+    
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      showToast.error("Please fix the validation errors before submitting");
+      return;
+    }
     
     try {
       const createData: Omit<Customer, 'id'> = {
@@ -558,6 +583,7 @@ function AddCustomerModal({
         phone: "",
         status: "Active",
       });
+      setValidationErrors({});
       // Reload data
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('reloadCustomers'));
@@ -582,11 +608,21 @@ function AddCustomerModal({
           </label>
           <input
             type="text"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.name ? 'input-error' : ''}`}
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, name: e.target.value });
+              if (validationErrors.name) {
+                setValidationErrors({ ...validationErrors, name: "" });
+              }
+            }}
             required
           />
+          {validationErrors.name && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.name}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">
@@ -594,13 +630,33 @@ function AddCustomerModal({
           </label>
           <input
             type="email"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.contact ? 'input-error' : ''}`}
             value={formData.contact}
-            onChange={(e) =>
-              setFormData({ ...formData, contact: e.target.value })
-            }
+            onChange={async (e) => {
+              setFormData({ ...formData, contact: e.target.value });
+              if (validationErrors.contact) {
+                setValidationErrors({ ...validationErrors, contact: "" });
+              }
+            }}
+            onBlur={async () => {
+              const { validateEmail, validateRequired } = await import("@/lib/utils/form-validation");
+              const requiredResult = validateRequired(formData.contact, "Contact Email");
+              if (!requiredResult.valid) {
+                setValidationErrors({ ...validationErrors, contact: requiredResult.error || "" });
+              } else {
+                const emailResult = validateEmail(formData.contact);
+                if (!emailResult.valid) {
+                  setValidationErrors({ ...validationErrors, contact: emailResult.error || "" });
+                }
+              }
+            }}
             required
           />
+          {validationErrors.contact && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.contact}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">
@@ -608,12 +664,28 @@ function AddCustomerModal({
           </label>
           <input
             type="tel"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.phone ? 'input-error' : ''}`}
             value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
+            onChange={async (e) => {
+              setFormData({ ...formData, phone: e.target.value });
+              if (validationErrors.phone) {
+                setValidationErrors({ ...validationErrors, phone: "" });
+              }
+            }}
+            onBlur={async () => {
+              const { validatePhone } = await import("@/lib/utils/form-validation");
+              const result = validatePhone(formData.phone);
+              if (!result.valid) {
+                setValidationErrors({ ...validationErrors, phone: result.error || "" });
+              }
+            }}
+            placeholder="+94 77 123 4567 or 0771234567"
           />
+          {validationErrors.phone && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.phone}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">

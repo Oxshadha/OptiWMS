@@ -37,11 +37,19 @@ export interface AssignTaskRequest {
 }
 
 export const tasksApi = {
-  getAll: async (taskType?: string, status?: string, assignedTo?: string): Promise<Task[]> => {
+  getAll: async (
+    taskType?: string, 
+    status?: string, 
+    assignedTo?: string,
+    warehouseId?: string,
+    availableOnly?: boolean
+  ): Promise<Task[]> => {
     const params = new URLSearchParams();
     if (taskType) params.append('taskType', taskType);
     if (status) params.append('status', status);
     if (assignedTo) params.append('assignedTo', assignedTo);
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    if (availableOnly) params.append('availableOnly', 'true');
     const query = params.toString();
     return apiClient.get<Task[]>(`/tasks${query ? `?${query}` : ''}`);
   },
@@ -60,6 +68,10 @@ export const tasksApi = {
 
   assign: async (id: string, request: AssignTaskRequest): Promise<Task> => {
     return apiClient.post<Task>(`/tasks/${id}/assign`, request);
+  },
+
+  claim: async (id: string, workerId: string): Promise<Task> => {
+    return apiClient.post<Task>(`/tasks/${id}/claim`, { workerId });
   },
 };
 

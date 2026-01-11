@@ -101,9 +101,10 @@ export default function WarehousesPage() {
         );
         setLayout(layout);
       } catch (hierarchyError) {
-        // Fallback: get all locations and convert
-        console.log("Hierarchy not available, using locations list");
-        const locations = await locationsApi.getByWarehouse(warehouseId);
+        // Fallback: get storage-only locations and convert
+        // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
+        console.log("Hierarchy not available, using storage-only locations list");
+        const locations = await locationsApi.getStorageLocationsByWarehouse(warehouseId);
         if (locations.length > 0) {
           const warehouse = warehouses.find((w) => w.id === warehouseId);
           const layout = await convertLocationsToLayout(
@@ -114,7 +115,7 @@ export default function WarehousesPage() {
           setLayout(layout);
         } else {
           // No locations found, use mock layout
-          console.log("No locations found, using mock layout");
+          console.log("No storage locations found, using mock layout");
           setLayout(getWarehouseLayout(warehouseId));
         }
       }

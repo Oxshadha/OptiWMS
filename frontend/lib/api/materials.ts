@@ -27,6 +27,12 @@ export const materialsApi = {
     return apiClient.get<Material>(`/master/materials/${id}`);
   },
 
+  getByCode: async (materialCode: string): Promise<Material> => {
+    // URL encode the material code to handle special characters
+    const encodedCode = encodeURIComponent(materialCode.trim());
+    return apiClient.get<Material>(`/master/materials/code/${encodedCode}`);
+  },
+
   create: async (material: Omit<Material, 'id'>): Promise<Material> => {
     return apiClient.post<Material>('/master/materials', material);
   },

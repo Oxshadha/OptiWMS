@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.operations.ShipmentEntity;
 import com.optiwms.infra.operations.ShipmentRepository;
@@ -15,9 +16,11 @@ import java.util.stream.Collectors;
 public class ShipmentService {
 
     private final ShipmentRepository repository;
+    private final OrderService orderService;
 
-    public ShipmentService(ShipmentRepository repository) {
+    public ShipmentService(ShipmentRepository repository, OrderService orderService) {
         this.repository = repository;
+        this.orderService = orderService;
     }
 
     public List<Shipment> listAll() {
@@ -76,17 +79,44 @@ public class ShipmentService {
     }
 
     @Transactional
-    public Shipment updateStatus(UUID id, String status) {
+    public Shipment updateStatus(UUID id, String status, UUID workerId) {
         ShipmentEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
         entity.setStatus(status);
         if ("shipped".equals(status) && entity.getShippedAt() == null) {
             entity.setShippedAt(LocalDateTime.now());
+            
+            // Update order status to "shipped" when shipment status is "shipped"
+            if (entity.getOrderId() != null) {
+                try {
+                    orderService.updateStatus(entity.getOrderId(), "shipped");
+                    // Store worker record
+                    if (workerId != null) {
+                        orderService.updateWorkerRecord(entity.getOrderId(), workerId, "shipped");
+                    }
+                } catch (RuntimeException e) {
+                    // Log but don't fail shipment update
+                }
+            }
         } else if ("delivered".equals(status) && entity.getDeliveredAt() == null) {
             entity.setDeliveredAt(LocalDateTime.now());
+            
+            // Update order status to "delivered" when shipment is delivered
+            if (entity.getOrderId() != null) {
+                try {
+                    orderService.updateStatus(entity.getOrderId(), "delivered");
+                } catch (RuntimeException e) {
+                    // Log but don't fail shipment update
+                }
+            }
         }
         ShipmentEntity saved = repository.save(entity);
         return toDomain(saved);
+    }
+
+    @Transactional
+    public Shipment updateStatus(UUID id, String status) {
+        return updateStatus(id, status, null);
     }
 
     @Transactional

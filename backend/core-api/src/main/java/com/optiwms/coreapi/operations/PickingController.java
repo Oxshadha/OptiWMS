@@ -31,7 +31,8 @@ public class PickingController {
                     ))
                     .toList();
 
-            var result = pickingService.completePicking(taskId, pickedItems);
+            UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
+            var result = pickingService.completePicking(taskId, pickedItems, workerId);
             return ResponseEntity.ok(new PickingResponse(
                     result.success(),
                     result.message(),
@@ -43,7 +44,7 @@ public class PickingController {
         }
     }
 
-    public record CompletePickingRequest(List<PickedItemDto> items) {}
+    public record CompletePickingRequest(List<PickedItemDto> items, String workerId) {}
     public record PickedItemDto(String materialId, String quantity, String locationCode) {}
     public record PickingResponse(boolean success, String message, String taskId) {}
 }

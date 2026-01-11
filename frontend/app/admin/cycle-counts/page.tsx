@@ -492,6 +492,9 @@ export default function CycleCountsPage() {
               <li>
                 <button onClick={() => setStatusFilter("completed")}>Completed</button>
               </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+              </li>
             </ul>
           </div>
           {canCreate && (

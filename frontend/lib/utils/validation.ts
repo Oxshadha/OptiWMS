@@ -4,8 +4,16 @@
 
 /**
  * Validates location code format: AREA-ROW-BAY-LEVEL-POS
- * Example: "C-02-05-3-B"
- * Format: Single letter area, 2-digit row, 2-digit bay, 1-2 digit level, single letter position
+ * Industry standard format: C-02-05-3-B
+ * 
+ * Format rules:
+ * - AREA: Single letter (A-Z) - Storage area
+ * - ROW: 2 digits (01-99) - Row number
+ * - BAY: 2 digits (01-99) - Bay number
+ * - LEVEL: 1-2 digits (1-10) - Level/shelf
+ * - POS: Single letter (A-Z) - Bin position
+ * 
+ * Examples: C-02-05-3-B, A-01-01-1-A
  */
 export function validateLocationCode(locationCode: string): {
   valid: boolean;
@@ -25,13 +33,13 @@ export function validateLocationCode(locationCode: string): {
   // Remove whitespace
   const code = locationCode.trim().toUpperCase();
 
-  // Pattern: AREA-ROW-BAY-LEVEL-POS
+  // Standard format: AREA-ROW-BAY-LEVEL-POS
   // AREA: Single letter (A-Z)
   // ROW: 2 digits (01-99)
-  // BAY: 2-3 digits (001-999)
+  // BAY: 2 digits (01-99)
   // LEVEL: 1-2 digits (1-10)
   // POS: Single letter (A-Z)
-  const pattern = /^([A-Z])-(\d{2})-(\d{2,3})-(\d{1,2})-([A-Z])$/;
+  const pattern = /^([A-Z])-(\d{2})-(\d{2})-(\d{1,2})-([A-Z])$/;
 
   const match = code.match(pattern);
   if (!match) {

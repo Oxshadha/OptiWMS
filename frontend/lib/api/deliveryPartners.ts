@@ -10,6 +10,7 @@ export interface DeliveryPartner {
   address?: string;
   city?: string;
   country?: string;
+  currencyCode?: string; // e.g., "USD", "LKR", "EUR"
   serviceAreas?: string; // JSON string
   rating?: string;
   costPerDelivery?: string;

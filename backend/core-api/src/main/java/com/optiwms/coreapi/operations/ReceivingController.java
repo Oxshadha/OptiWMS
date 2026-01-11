@@ -49,7 +49,9 @@ public class ReceivingController {
                     request.orderNumber(), 
                     receivedItems,
                     request.notes(),
-                    request.photos()
+                    request.photos(),
+                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
             );
             return ResponseEntity.ok(new ReceivingResponse(
                     result.success(),
@@ -78,7 +80,9 @@ public class ReceivingController {
                     request.orderNumber(), 
                     receivedItems,
                     request.notes(),
-                    request.photos()
+                    request.photos(),
+                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
             );
             return ResponseEntity.ok(new ReceivingResponse(
                     result.success(),
@@ -103,7 +107,9 @@ public class ReceivingController {
             String orderNumber,
             List<ReceivedItemDto> items,
             String notes,
-            List<String> photos
+            List<String> photos,
+            String warehouseId,  // Worker's warehouse ID for blind receive
+            String workerId      // Worker ID for tracking
     ) {}
 
     public record ReceivedItemDto(

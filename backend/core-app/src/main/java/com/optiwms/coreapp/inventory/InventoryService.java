@@ -83,7 +83,14 @@ public class InventoryService {
         InventoryItemEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Inventory item not found: " + id));
 
+        // Update warehouse if provided
+        if (item.getWarehouseId() != null) {
+            entity.setWarehouseId(item.getWarehouseId());
+        }
         entity.setLocationCode(item.getLocationCode());
+        if (item.getLpnCode() != null) {
+            entity.setLpnCode(item.getLpnCode());
+        }
         if (item.getQuantity() != null) {
             entity.setQuantity(item.getQuantity());
         }
@@ -131,6 +138,7 @@ public class InventoryService {
         entity.setMaterialId(item.getMaterialId());
         entity.setWarehouseId(item.getWarehouseId());
         entity.setLocationCode(item.getLocationCode());
+        entity.setLpnCode(item.getLpnCode());
         entity.setQuantity(item.getQuantity() != null ? item.getQuantity() : 0);
         entity.setAvailableQuantity(item.getAvailableQuantity() != null ? item.getAvailableQuantity() : (item.getQuantity() != null ? item.getQuantity() : 0));
         entity.setReservedQuantity(item.getReservedQuantity() != null ? item.getReservedQuantity() : 0);
@@ -170,6 +178,7 @@ public class InventoryService {
         item.setMaterialId(entity.getMaterialId());
         item.setWarehouseId(entity.getWarehouseId());
         item.setLocationCode(entity.getLocationCode());
+        item.setLpnCode(entity.getLpnCode());
         item.setQuantity(entity.getQuantity());
         item.setAvailableQuantity(entity.getAvailableQuantity());
         item.setReservedQuantity(entity.getReservedQuantity());
