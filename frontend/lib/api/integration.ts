@@ -23,6 +23,15 @@ export interface MigratePasswordsResponse {
   error?: string;
 }
 
+export interface ImportActiveStockResponse {
+  success: boolean;
+  message: string;
+  materialsProcessed: number;
+  inventoryCreated: number;
+  supplyPlansCreated: number;
+  errors: number;
+}
+
 export const integrationApi = {
   generateUsers: async (request: GenerateUsersRequest): Promise<GenerateUsersResponse> => {
     return apiClient.post<GenerateUsersResponse>('/integration/users/generate', request);
@@ -31,5 +40,12 @@ export const integrationApi = {
   migratePasswords: async (): Promise<MigratePasswordsResponse> => {
     return apiClient.post<MigratePasswordsResponse>('/integration/users/migrate-passwords', {});
   },
-};
 
+  /**
+   * Import Active stock.csv data including ROP, Buffer Stock, MOQ, Lead Time
+   */
+  importActiveStock: async (warehouseId?: string): Promise<ImportActiveStockResponse> => {
+    const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
+    return apiClient.post<ImportActiveStockResponse>(`/integration/data-import/import-active-stock${params}`, {});
+  },
+};

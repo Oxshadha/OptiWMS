@@ -38,7 +38,8 @@ public class MaterialDefaultLocationService {
 
     /**
      * Assign default location to a material in a warehouse
-     * Also updates inventory location_code if inventory exists for this material+warehouse
+     * Also updates inventory location_code if inventory exists for this
+     * material+warehouse
      */
     @Transactional
     public MaterialDefaultLocation assignDefaultLocation(
@@ -47,38 +48,41 @@ public class MaterialDefaultLocationService {
             String locationCode,
             Integer priority,
             String materialType) {
-        
+
         // Verify material exists
         materialService.findById(materialId);
-        
-        // Verify location exists and is a storage location (not staging/receiving/shipment/packing)
+
+        // Verify location exists and is a storage location (not
+        // staging/receiving/shipment/packing)
         com.optiwms.domain.master.Location location = locationService.findByLocationCodeOptional(locationCode)
                 .orElseThrow(() -> new RuntimeException("Location not found: " + locationCode));
-        
+
         if (!location.getWarehouseId().equals(warehouseId)) {
             throw new RuntimeException("Location does not belong to warehouse: " + warehouseId);
         }
-        
+
         // Only allow storage locations (exclude staging, receiving, shipment, packing)
-        if (!"storage".equals(location.getLocationType()) && 
-            !"STORAGE".equals(location.getZoneType())) {
-            throw new RuntimeException("Only storage locations can be assigned to materials. Location type: " + location.getLocationType());
+        if (!"storage".equals(location.getLocationType()) &&
+                !"STORAGE".equals(location.getZoneType())) {
+            throw new RuntimeException("Only storage locations can be assigned to materials. Location type: "
+                    + location.getLocationType());
         }
-        
+
         MaterialDefaultLocationEntity entity = repository
                 .findByMaterialIdAndWarehouseIdAndLocationCode(materialId, warehouseId, locationCode)
                 .orElse(new MaterialDefaultLocationEntity());
-        
+
         entity.setMaterialId(materialId);
         entity.setWarehouseId(warehouseId);
         entity.setLocationCode(locationCode);
         entity.setPriority(priority != null ? priority : 1);
         entity.setMaterialType(materialType);
-        
+
         MaterialDefaultLocationEntity saved = repository.save(entity);
-        
+
         // CRITICAL: Also update inventory location_code if inventory exists
-        // This ensures bulk assignment updates actual inventory, not just default locations
+        // This ensures bulk assignment updates actual inventory, not just default
+        // locations
         List<InventoryItem> existingInventory = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         for (InventoryItem inv : existingInventory) {
             // Only update if inventory has quantity > 0 (in-stock items)
@@ -87,7 +91,7 @@ public class MaterialDefaultLocationService {
                 inventoryService.createOrUpdate(inv);
             }
         }
-        
+
         return toDomain(saved);
     }
 
@@ -139,41 +143,71 @@ public class MaterialDefaultLocationService {
                             material.getDescription(),
                             material.getMaterialType(),
                             entity.getLocationCode(),
-                            entity.getPriority()
-                    );
+                            entity.getPriority());
                 })
                 .collect(Collectors.toList());
     }
 
     /**
      * Assign default locations to all materials in a warehouse (bulk assignment)
+     * Uses ABC/FMS preferred zone when available, otherwise defaults to Zone C
      * Also updates inventory location_code for existing inventory
-     * Useful for initial setup
      */
     @Transactional
     public BulkAssignResult assignDefaultLocationsToAllMaterials(UUID warehouseId) {
         // Get all materials
         List<Material> materials = materialService.listAll();
-        
-        // Get all storage locations in warehouse
-        List<com.optiwms.domain.master.Location> storageLocations = locationService.findStorageLocationsByWarehouse(warehouseId);
-        
-        if (storageLocations.isEmpty()) {
-            throw new RuntimeException("No storage locations found in warehouse. Please create storage locations first.");
+
+        // Get all storage locations in warehouse, grouped by zone
+        List<com.optiwms.domain.master.Location> allStorageLocations = locationService
+                .findStorageLocationsByWarehouse(warehouseId);
+
+        if (allStorageLocations.isEmpty()) {
+            throw new RuntimeException(
+                    "No storage locations found in warehouse. Please create storage locations first.");
         }
-        
+
+        // Group locations by zone (area = A, B, C, D)
+        java.util.Map<String, List<com.optiwms.domain.master.Location>> locationsByZone = allStorageLocations.stream()
+                .collect(Collectors.groupingBy(loc -> loc.getArea() != null ? loc.getArea().toUpperCase() : "C"));
+
+        // Track which locations we've used in each zone
+        java.util.Map<String, Integer> zoneIndexes = new java.util.HashMap<>();
+        locationsByZone.keySet().forEach(zone -> zoneIndexes.put(zone, 0));
+
         int assignedCount = 0;
         int inventoryUpdatedCount = 0;
-        
-        // Assign locations based on material type
-        int locationIndex = 0;
+
         for (Material material : materials) {
-            if (locationIndex >= storageLocations.size()) {
-                locationIndex = 0; // Cycle back
+            // Determine preferred zone (from ABC/FMS classification, or default to C)
+            String preferredZone = material.getPreferredZone();
+            if (preferredZone == null || preferredZone.isEmpty()) {
+                // Default zone selection based on material type
+                preferredZone = "C"; // Most materials go to main storage
             }
-            
-            com.optiwms.domain.master.Location location = storageLocations.get(locationIndex);
-            
+
+            // Get locations in preferred zone, fallback to Zone C if not available
+            List<com.optiwms.domain.master.Location> zoneLocations = locationsByZone.get(preferredZone);
+            if (zoneLocations == null || zoneLocations.isEmpty()) {
+                zoneLocations = locationsByZone.get("C");
+                preferredZone = "C";
+            }
+
+            if (zoneLocations == null || zoneLocations.isEmpty()) {
+                // Fallback to any available location
+                zoneLocations = allStorageLocations;
+                preferredZone = allStorageLocations.get(0).getArea();
+            }
+
+            // Get next available location in zone (round-robin within zone)
+            int currentIndex = zoneIndexes.getOrDefault(preferredZone, 0);
+            if (currentIndex >= zoneLocations.size()) {
+                currentIndex = 0;
+            }
+
+            com.optiwms.domain.master.Location location = zoneLocations.get(currentIndex);
+            zoneIndexes.put(preferredZone, currentIndex + 1);
+
             // Check if already assigned
             if (repository.findByMaterialIdAndWarehouseId(material.getId(), warehouseId).isEmpty()) {
                 assignDefaultLocation(
@@ -181,26 +215,64 @@ public class MaterialDefaultLocationService {
                         warehouseId,
                         location.getLocationCode(),
                         1,
-                        material.getMaterialType()
-                );
+                        material.getMaterialType());
                 assignedCount++;
-                
+
                 // Count inventory updates
-                List<InventoryItem> inventory = inventoryService.findByMaterialAndWarehouse(material.getId(), warehouseId);
+                List<InventoryItem> inventory = inventoryService.findByMaterialAndWarehouse(material.getId(),
+                        warehouseId);
                 for (InventoryItem inv : inventory) {
                     if (inv.getQuantity() != null && inv.getQuantity() > 0) {
                         inventoryUpdatedCount++;
                     }
                 }
             }
-            
-            locationIndex++;
         }
-        
+
         return new BulkAssignResult(assignedCount, inventoryUpdatedCount);
     }
-    
-    public record BulkAssignResult(int materialsAssigned, int inventoryRecordsUpdated) {}
+
+    /**
+     * Sync inventory location_code from existing material default locations.
+     * Useful when default locations exist but inventory wasn't updated.
+     */
+    @Transactional
+    public BulkAssignResult syncInventoryLocationsFromDefaults(UUID warehouseId) {
+        int inventoryUpdatedCount = 0;
+        int materialsProcessed = 0;
+
+        // Get all existing default locations for this warehouse
+        List<MaterialDefaultLocationEntity> defaultLocations = repository.findByWarehouseId(warehouseId);
+
+        for (MaterialDefaultLocationEntity defaultLoc : defaultLocations) {
+            materialsProcessed++;
+
+            // Get inventory items for this material in this warehouse
+            List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(
+                    defaultLoc.getMaterialId(), warehouseId);
+
+            for (InventoryItem inv : inventoryItems) {
+                // Update location_code if inventory has quantity and location is different
+                if (inv.getQuantity() != null && inv.getQuantity() > 0) {
+                    String currentLocation = inv.getLocationCode();
+                    String defaultLocation = defaultLoc.getLocationCode();
+
+                    // Only update if location is null, empty, or different
+                    if (currentLocation == null || currentLocation.isEmpty() ||
+                            !currentLocation.equals(defaultLocation)) {
+                        inv.setLocationCode(defaultLocation);
+                        inventoryService.createOrUpdate(inv);
+                        inventoryUpdatedCount++;
+                    }
+                }
+            }
+        }
+
+        return new BulkAssignResult(materialsProcessed, inventoryUpdatedCount);
+    }
+
+    public record BulkAssignResult(int materialsAssigned, int inventoryRecordsUpdated) {
+    }
 
     private MaterialDefaultLocation toDomain(MaterialDefaultLocationEntity entity) {
         MaterialDefaultLocation domain = new MaterialDefaultLocation();
@@ -222,6 +294,6 @@ public class MaterialDefaultLocationService {
             String description,
             String materialType,
             String locationCode,
-            Integer priority
-    ) {}
+            Integer priority) {
+    }
 }

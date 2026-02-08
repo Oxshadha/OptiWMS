@@ -34,13 +34,13 @@ export function AssignBinLocationModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const loadData = async () => {
       try {
         setIsLoading(true);
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData.map(w => ({ id: w.id, name: w.name })));
-        
+
         if (warehousesData.length > 0 && !warehouseId) {
           setWarehouseId(warehousesData[0].id);
         }
@@ -95,7 +95,7 @@ export function AssignBinLocationModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!warehouseId || !locationCode) {
       showToast.error("Please select warehouse and location");
       return;
@@ -126,7 +126,7 @@ export function AssignBinLocationModal({
 
   const handleRemoveLocation = async (locCode: string) => {
     if (!warehouseId) return;
-    
+
     try {
       await materialDefaultLocationsApi.removeDefaultLocation(material.id, warehouseId, locCode);
       showToast.success(`Location ${locCode} removed`);
@@ -283,7 +283,7 @@ export function BulkAssignBinLocationsModal({ isOpen, onClose, onSuccess }: Bulk
 
   useEffect(() => {
     if (!isOpen) return;
-    
+
     const loadWarehouses = async () => {
       try {
         const warehousesData = await warehousesApi.getAll();
@@ -336,7 +336,7 @@ export function BulkAssignBinLocationsModal({ isOpen, onClose, onSuccess }: Bulk
               Materials will be distributed across available storage locations.
             </p>
             <p className="text-sm mt-2 font-semibold text-primary">
-              ⚠️ This will also update inventory location_code for existing in-stock items.
+              Note: This will also update inventory location_code for existing in-stock items.
             </p>
           </div>
         </div>

@@ -128,13 +128,12 @@ export function RackElevationView({
             {rack.status !== "active" && (
               <p className="text-sm mt-1">
                 <span
-                  className={`badge badge-sm ${
-                    rack.status === "maintenance"
-                      ? "badge-warning"
-                      : rack.status === "out_of_service"
+                  className={`badge badge-sm ${rack.status === "maintenance"
+                    ? "badge-warning"
+                    : rack.status === "out_of_service"
                       ? "badge-error"
                       : "badge-info"
-                  }`}
+                    }`}
                 >
                   {rack.status.replace("_", " ").toUpperCase()}
                 </span>
@@ -207,8 +206,7 @@ export function RackElevationView({
                   key={bin.id}
                   className={clsx(
                     "flex items-center gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer",
-                    "hover:shadow-lg",
-                    isRecent && "animate-pulse"
+                    "hover:shadow-lg"
                   )}
                   style={{
                     backgroundColor: getBinColor(displayBin),
@@ -240,12 +238,12 @@ export function RackElevationView({
                         displayBin.status === "occupied"
                           ? "badge-success"
                           : displayBin.status === "reserved"
-                          ? "badge-info"
-                          : isEmptyAndRackInSpecialStatus
-                          ? rack.status === "maintenance"
-                            ? "badge-warning"
-                            : "badge-error"
-                          : "badge-ghost"
+                            ? "badge-info"
+                            : isEmptyAndRackInSpecialStatus
+                              ? rack.status === "maintenance"
+                                ? "badge-warning"
+                                : "badge-error"
+                              : "badge-ghost"
                       )}
                     >
                       {isEmptyAndRackInSpecialStatus
@@ -260,13 +258,10 @@ export function RackElevationView({
                         className="text-base font-bold"
                         style={{
                           color: displayBin.inventory
-                            ? displayBin.status === "reserved"
-                              ? "#2563EB"
-                              : getOccupancyColor(getBinOccupancy(displayBin))
-                                  .stroke
+                            ? "#FFFFFF"  // White text for all occupied bins (consistency)
                             : isEmptyAndRackInSpecialStatus
-                            ? "#FFFFFF"
-                            : "#6B7280",
+                              ? "#FFFFFF"
+                              : "#6B7280",
                         }}
                       >
                         {getBinOccupancy(displayBin).toFixed(0)}%
@@ -281,11 +276,7 @@ export function RackElevationView({
                         <div
                           className="text-xs"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "rgba(255,255,255,0.8)"
-                                : "rgba(0,0,0,0.7)",
+                            color: "rgba(255,255,255,0.85)", // White for all occupied bins
                           }}
                         >
                           SKU
@@ -293,11 +284,7 @@ export function RackElevationView({
                         <div
                           className="font-semibold truncate"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "#FFFFFF"
-                                : "#1F2937",
+                            color: "#FFFFFF", // White for all occupied bins
                           }}
                         >
                           {displayBin.inventory.sku}
@@ -307,11 +294,7 @@ export function RackElevationView({
                         <div
                           className="text-xs"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "rgba(255,255,255,0.8)"
-                                : "rgba(0,0,0,0.7)",
+                            color: "rgba(255,255,255,0.85)", // White for all occupied bins
                           }}
                         >
                           Qty
@@ -319,11 +302,7 @@ export function RackElevationView({
                         <div
                           className="font-semibold"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "#FFFFFF"
-                                : "#1F2937",
+                            color: "#FFFFFF", // White for all occupied bins
                           }}
                         >
                           {Math.ceil(displayBin.inventory.quantity || 0)}
@@ -333,11 +312,7 @@ export function RackElevationView({
                         <div
                           className="text-xs"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "rgba(255,255,255,0.8)"
-                                : "rgba(0,0,0,0.7)",
+                            color: "rgba(255,255,255,0.85)", // White for all occupied bins
                           }}
                         >
                           Weight
@@ -345,11 +320,7 @@ export function RackElevationView({
                         <div
                           className="font-semibold"
                           style={{
-                            color:
-                              displayBin.status === "reserved" ||
-                              getBinOccupancy(displayBin) >= 85
-                                ? "#FFFFFF"
-                                : "#1F2937",
+                            color: "#FFFFFF", // White for all occupied bins
                           }}
                         >
                           {displayBin.inventory.weight} kg

@@ -10,7 +10,8 @@ import java.util.UUID;
 
 /**
  * API for managing default bin locations for materials.
- * Allows admin/warehouse manager to assign bin locations to materials in catalog.
+ * Allows admin/warehouse manager to assign bin locations to materials in
+ * catalog.
  */
 @RestController
 @RequestMapping("/api/master/material-default-locations")
@@ -34,8 +35,7 @@ public class MaterialDefaultLocationController {
                     UUID.fromString(request.warehouseId()),
                     request.locationCode(),
                     request.priority(),
-                    request.materialType()
-            );
+                    request.materialType());
             return ResponseEntity.ok(toDto(location));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -68,8 +68,8 @@ public class MaterialDefaultLocationController {
     public ResponseEntity<List<MaterialWithLocationDto>> getMaterialsWithLocations(
             @PathVariable UUID warehouseId) {
         try {
-            List<MaterialDefaultLocationService.MaterialWithLocation> materials = 
-                    service.getMaterialsWithLocations(warehouseId);
+            List<MaterialDefaultLocationService.MaterialWithLocation> materials = service
+                    .getMaterialsWithLocations(warehouseId);
             List<MaterialWithLocationDto> dtos = materials.stream()
                     .map(m -> new MaterialWithLocationDto(
                             m.materialId().toString(),
@@ -77,8 +77,7 @@ public class MaterialDefaultLocationController {
                             m.description(),
                             m.materialType(),
                             m.locationCode(),
-                            m.priority()
-                    ))
+                            m.priority()))
                     .toList();
             return ResponseEntity.ok(dtos);
         } catch (RuntimeException e) {
@@ -113,10 +112,28 @@ public class MaterialDefaultLocationController {
         try {
             var result = service.assignDefaultLocationsToAllMaterials(warehouseId);
             return ResponseEntity.ok(new BulkAssignResult(
-                    true, 
-                    String.format("Assigned locations to %d materials. Updated %d inventory records.", 
-                            result.materialsAssigned(), result.inventoryRecordsUpdated())
-            ));
+                    true,
+                    String.format("Assigned locations to %d materials. Updated %d inventory records.",
+                            result.materialsAssigned(), result.inventoryRecordsUpdated())));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new BulkAssignResult(false, e.getMessage()));
+        }
+    }
+
+    /**
+     * Sync inventory location_code from existing material default locations.
+     * Use this when default locations exist but inventory location_code shows N/A.
+     */
+    @PostMapping("/warehouse/{warehouseId}/sync-inventory")
+    public ResponseEntity<BulkAssignResult> syncInventoryLocations(
+            @PathVariable UUID warehouseId) {
+        try {
+            var result = service.syncInventoryLocationsFromDefaults(warehouseId);
+            return ResponseEntity.ok(new BulkAssignResult(
+                    true,
+                    String.format("Processed %d materials. Updated %d inventory records with location codes.",
+                            result.materialsAssigned(), result.inventoryRecordsUpdated())));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()
                     .body(new BulkAssignResult(false, e.getMessage()));
@@ -131,8 +148,7 @@ public class MaterialDefaultLocationController {
                 location.getLocationCode(),
                 location.getPriority(),
                 location.getMaterialType(),
-                location.getNotes()
-        );
+                location.getNotes());
     }
 
     public record AssignDefaultLocationRequest(
@@ -140,8 +156,8 @@ public class MaterialDefaultLocationController {
             String warehouseId,
             String locationCode,
             Integer priority,
-            String materialType
-    ) {}
+            String materialType) {
+    }
 
     public record MaterialDefaultLocationDto(
             String id,
@@ -150,8 +166,8 @@ public class MaterialDefaultLocationController {
             String locationCode,
             Integer priority,
             String materialType,
-            String notes
-    ) {}
+            String notes) {
+    }
 
     public record MaterialWithLocationDto(
             String materialId,
@@ -159,11 +175,12 @@ public class MaterialDefaultLocationController {
             String description,
             String materialType,
             String locationCode,
-            Integer priority
-    ) {}
+            Integer priority) {
+    }
 
-    public record BulkAssignResult(boolean success, String message) {}
-    
+    public record BulkAssignResult(boolean success, String message) {
+    }
+
     // Update return type for assignAllMaterials
     // Note: The service now returns BulkAssignResult with counts
 }

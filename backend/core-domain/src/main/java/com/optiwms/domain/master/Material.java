@@ -9,7 +9,7 @@ public class Material extends BaseEntity {
     private String unitType;
     private String storageType;
     private String materialType;
-    
+
     // Physical dimensions
     private BigDecimal lengthCm;
     private BigDecimal widthCm;
@@ -22,11 +22,16 @@ public class Material extends BaseEntity {
     private Boolean temperatureControlled;
     private Boolean hazardous;
     private Boolean fragile;
-    
+
     // Weight limits (SOP enforcement)
     private BigDecimal maxPalletWeightKg;
     private BigDecimal minOrderQuantity;
     private BigDecimal safetyStockLevel;
+
+    // ABC/FMS Classification for storage zone assignment
+    private String abcClass; // A, B, C (volume-based)
+    private String fmsClass; // F, M, S (frequency-based)
+    private String preferredZone; // A, B, C, D (derived from amalgamated analysis)
 
     public String getMaterialCode() {
         return materialCode;
@@ -179,5 +184,29 @@ public class Material extends BaseEntity {
     public void setSafetyStockLevel(BigDecimal safetyStockLevel) {
         this.safetyStockLevel = safetyStockLevel;
     }
-}
 
+    // ABC/FMS Classification getters and setters
+    public String getAbcClass() {
+        return abcClass;
+    }
+
+    public void setAbcClass(String abcClass) {
+        this.abcClass = abcClass;
+    }
+
+    public String getFmsClass() {
+        return fmsClass;
+    }
+
+    public void setFmsClass(String fmsClass) {
+        this.fmsClass = fmsClass;
+    }
+
+    public String getPreferredZone() {
+        return preferredZone;
+    }
+
+    public void setPreferredZone(String preferredZone) {
+        this.preferredZone = preferredZone;
+    }
+}

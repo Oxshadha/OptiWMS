@@ -1,6 +1,9 @@
 package com.optiwms.coreapi.integration;
 
+import com.optiwms.integration.CsvDataImporter;
 import com.optiwms.integration.SyntheticDataImportService;
+import com.optiwms.infra.master.WarehouseEntity;
+import com.optiwms.infra.master.WarehouseRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -8,7 +11,9 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * REST Controller for importing synthetic data into the database
@@ -24,9 +29,15 @@ public class DataImportController {
     private static final Logger logger = LoggerFactory.getLogger(DataImportController.class);
 
     private final SyntheticDataImportService importService;
+    private final CsvDataImporter csvDataImporter;
+    private final WarehouseRepository warehouseRepository;
 
-    public DataImportController(SyntheticDataImportService importService) {
+    public DataImportController(SyntheticDataImportService importService,
+            CsvDataImporter csvDataImporter,
+            WarehouseRepository warehouseRepository) {
         this.importService = importService;
+        this.csvDataImporter = csvDataImporter;
+        this.warehouseRepository = warehouseRepository;
     }
 
     /**
@@ -36,24 +47,23 @@ public class DataImportController {
     @PostMapping("/material-dimensions")
     public ResponseEntity<ImportResponse> importMaterialDimensions(
             @RequestParam(required = false) String filePath) {
-        
+
         // Use default path if not provided
         if (filePath == null || filePath.isEmpty()) {
             filePath = getDefaultMaterialDimensionsPath();
         }
-        
+
         logger.info("Received request to import material dimensions from: {}", filePath);
 
         try {
             SyntheticDataImportService.ImportResult result = importService.importMaterialDimensions(filePath);
-            
+
             return ResponseEntity.ok(new ImportResponse(
                     true,
                     result.getMessage(),
                     result.getUpdated(),
                     result.getSkipped(),
-                    result.getErrors()
-            ));
+                    result.getErrors()));
 
         } catch (Exception e) {
             logger.error("Error importing material dimensions", e);
@@ -66,8 +76,7 @@ public class DataImportController {
                     "Import failed: " + errorMessage,
                     0,
                     0,
-                    1
-            ));
+                    1));
         }
     }
 
@@ -78,24 +87,23 @@ public class DataImportController {
     @PostMapping("/location-coordinates")
     public ResponseEntity<ImportResponse> importLocationCoordinates(
             @RequestParam(required = false) String filePath) {
-        
+
         // Use default path if not provided
         if (filePath == null || filePath.isEmpty()) {
             filePath = getDefaultLocationCoordinatesPath();
         }
-        
+
         logger.info("Received request to import location coordinates from: {}", filePath);
 
         try {
             SyntheticDataImportService.ImportResult result = importService.importLocationCoordinates(filePath);
-            
+
             return ResponseEntity.ok(new ImportResponse(
                     true,
                     result.getMessage(),
                     result.getUpdated(),
                     result.getSkipped(),
-                    result.getErrors()
-            ));
+                    result.getErrors()));
 
         } catch (Exception e) {
             logger.error("Error importing location coordinates", e);
@@ -108,8 +116,7 @@ public class DataImportController {
                     "Import failed: " + errorMessage,
                     0,
                     0,
-                    1
-            ));
+                    1));
         }
     }
 
@@ -125,26 +132,24 @@ public class DataImportController {
 
         try {
             // Import material dimensions
-            SyntheticDataImportService.ImportResult materialResult = 
-                    importService.importMaterialDimensions(getDefaultMaterialDimensionsPath());
+            SyntheticDataImportService.ImportResult materialResult = importService
+                    .importMaterialDimensions(getDefaultMaterialDimensionsPath());
             results.put("materials", new ImportResponse(
                     true,
                     materialResult.getMessage(),
                     materialResult.getUpdated(),
                     materialResult.getSkipped(),
-                    materialResult.getErrors()
-            ));
+                    materialResult.getErrors()));
 
             // Import location coordinates
-            SyntheticDataImportService.ImportResult locationResult = 
-                    importService.importLocationCoordinates(getDefaultLocationCoordinatesPath());
+            SyntheticDataImportService.ImportResult locationResult = importService
+                    .importLocationCoordinates(getDefaultLocationCoordinatesPath());
             results.put("locations", new ImportResponse(
                     true,
                     locationResult.getMessage(),
                     locationResult.getUpdated(),
                     locationResult.getSkipped(),
-                    locationResult.getErrors()
-            ));
+                    locationResult.getErrors()));
 
             logger.info("All imports completed successfully");
             return ResponseEntity.ok(results);
@@ -160,10 +165,90 @@ public class DataImportController {
                     "Import failed: " + errorMessage,
                     0,
                     0,
-                    1
-            ));
+                    1));
             return ResponseEntity.status(500).body(results);
         }
+    }
+
+    /**
+     * Import inventory and supply plan data from Active stock.csv
+     * This imports ROP, Buffer Stock, MOQ, Lead Time, and quantity data
+     */
+    @PostMapping("/import-active-stock")
+    public ResponseEntity<Map<String, Object>> importActiveStock(
+            @RequestParam(required = false) UUID warehouseId) {
+
+        logger.info("Received request to import Active stock.csv data");
+
+        try {
+            // Get warehouse ID - use provided or default to first warehouse
+            UUID targetWarehouseId = warehouseId;
+            if (targetWarehouseId == null) {
+                List<WarehouseEntity> warehouses = warehouseRepository.findAll();
+                if (warehouses.isEmpty()) {
+                    return ResponseEntity.badRequest().body(Map.of(
+                            "success", false,
+                            "message", "No warehouses found. Please create a warehouse first."));
+                }
+                targetWarehouseId = warehouses.get(0).getId();
+                logger.info("Using default warehouse: {}", targetWarehouseId);
+            }
+
+            // Get path to Active stock.csv
+            String csvPath = getDefaultActiveStockPath();
+            logger.info("Importing from: {}", csvPath);
+
+            // Verify file exists
+            if (!java.nio.file.Files.exists(java.nio.file.Paths.get(csvPath))) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Active stock.csv not found at: " + csvPath));
+            }
+
+            // Import the data
+            CsvDataImporter.ImportResult result = csvDataImporter.importInventoryAndSupplyPlans(
+                    csvPath, targetWarehouseId);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Import completed successfully");
+            response.put("materialsProcessed", result.getMaterialsProcessed());
+            response.put("inventoryCreated", result.getInventoryCreated());
+            response.put("supplyPlansCreated", result.getSupplyPlansCreated());
+            response.put("errors", result.getErrors());
+
+            logger.info("Import completed: {} materials processed, {} inventory items created",
+                    result.getMaterialsProcessed(), result.getInventoryCreated());
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Error importing Active stock.csv", e);
+            return ResponseEntity.status(500).body(Map.of(
+                    "success", false,
+                    "message", "Import failed: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Get default path for Active stock CSV
+     */
+    private String getDefaultActiveStockPath() {
+        // First try the frontend Database Documents folder
+        String[] possiblePaths = {
+                "/Users/k.e.oshada/Documents/OptiWMS/frontend/Database Documents/Active stock.csv",
+                System.getProperty("user.dir") + "/Resources/DataBase Resources/Active stock.csv",
+                System.getProperty("user.dir") + "/../Resources/DataBase Resources/Active stock.csv"
+        };
+
+        for (String path : possiblePaths) {
+            if (java.nio.file.Files.exists(java.nio.file.Paths.get(path))) {
+                return path;
+            }
+        }
+
+        // Return the most likely path (even if not found)
+        return possiblePaths[0];
     }
 
     /**
@@ -172,19 +257,21 @@ public class DataImportController {
     private String getDefaultMaterialDimensionsPath() {
         String userDir = System.getProperty("user.dir");
         java.nio.file.Path currentPath = java.nio.file.Paths.get(userDir);
-        
+
         // Find the backend directory by going up until we find it
         java.nio.file.Path backendDir = currentPath;
         while (backendDir != null && !backendDir.getFileName().toString().equals("backend")) {
             backendDir = backendDir.getParent();
         }
-        
-        // If we found backend directory, use it; otherwise assume we're already in project root
+
+        // If we found backend directory, use it; otherwise assume we're already in
+        // project root
         if (backendDir != null) {
             return backendDir.resolve("synthetic_data").resolve("material_dimensions.csv").toString();
         } else {
             // Fallback: assume current directory is project root
-            return currentPath.resolve("backend").resolve("synthetic_data").resolve("material_dimensions.csv").toString();
+            return currentPath.resolve("backend").resolve("synthetic_data").resolve("material_dimensions.csv")
+                    .toString();
         }
     }
 
@@ -194,19 +281,21 @@ public class DataImportController {
     private String getDefaultLocationCoordinatesPath() {
         String userDir = System.getProperty("user.dir");
         java.nio.file.Path currentPath = java.nio.file.Paths.get(userDir);
-        
+
         // Find the backend directory by going up until we find it
         java.nio.file.Path backendDir = currentPath;
         while (backendDir != null && !backendDir.getFileName().toString().equals("backend")) {
             backendDir = backendDir.getParent();
         }
-        
-        // If we found backend directory, use it; otherwise assume we're already in project root
+
+        // If we found backend directory, use it; otherwise assume we're already in
+        // project root
         if (backendDir != null) {
             return backendDir.resolve("synthetic_data").resolve("location_coordinates.csv").toString();
         } else {
             // Fallback: assume current directory is project root
-            return currentPath.resolve("backend").resolve("synthetic_data").resolve("location_coordinates.csv").toString();
+            return currentPath.resolve("backend").resolve("synthetic_data").resolve("location_coordinates.csv")
+                    .toString();
         }
     }
 
@@ -218,6 +307,6 @@ public class DataImportController {
             String message,
             int updated,
             int skipped,
-            int errors
-    ) {}
+            int errors) {
+    }
 }
