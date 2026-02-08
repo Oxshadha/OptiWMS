@@ -65,17 +65,22 @@ export default function MaterialsPage() {
   // Load materials with their bin locations
   const loadMaterialLocations = async () => {
     if (!allMaterials || allMaterials.length === 0) return;
-    
+
     try {
       // Get all warehouses
       const warehouses = await warehousesApi.getAll();
+      console.log("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
       if (warehouses.length === 0) return;
-      
+
       // For each warehouse, get materials with locations
       const locationMap = new Map<string, string>();
       for (const warehouse of warehouses) {
         try {
           const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
+          console.log(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
+          if (materialsWithLocs.length > 0) {
+            console.log("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
+          }
           materialsWithLocs.forEach(m => {
             if (m.locationCode) {
               locationMap.set(m.materialId, m.locationCode);
@@ -85,6 +90,7 @@ export default function MaterialsPage() {
           console.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
         }
       }
+      console.log("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
       setMaterialsWithLocations(locationMap);
     } catch (err) {
       console.error("Failed to load material locations:", err);
@@ -357,7 +363,7 @@ export default function MaterialsPage() {
                 render: (material: Material) => {
                   // Normalize material type (handle variations like "packing_material" without 'g')
                   let type = (material.materialType || "raw_material").toLowerCase().trim();
-                  
+
                   // Handle common variations
                   if (type === "packing_material" || type === "packaging") {
                     type = "packaging_material";
@@ -366,7 +372,7 @@ export default function MaterialsPage() {
                   } else if (type === "finished_good" || type === "finished_goods" || type === "finished_product" || type === "products") {
                     type = "product";
                   }
-                  
+
                   const typeLabels: Record<string, string> = {
                     raw_material: "Raw Material",
                     product: "Product",
@@ -377,10 +383,10 @@ export default function MaterialsPage() {
                     product: "badge-success",          // Green - Finished Goods/Products
                     packaging_material: "badge-neutral", // Gray - Packaging Materials (not yellow to avoid conflict with low stock)
                   };
-                  
+
                   const label = typeLabels[type] || type;
                   const color = typeColors[type] || "badge-outline";
-                  
+
                   return (
                     <span className={`badge ${color}`}>
                       {label}

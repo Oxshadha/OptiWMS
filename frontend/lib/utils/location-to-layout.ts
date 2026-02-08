@@ -6,6 +6,7 @@
 import { Location, LocationHierarchy } from '@/lib/api/locations';
 import { WarehouseLayout, RackUnit, LocationBin, BinStatus } from '@/lib/types/warehouse-layout';
 import { inventoryApi } from '@/lib/api/inventory';
+import { materialsApi } from '@/lib/api/materials';
 
 /**
  * Convert a single location to a LocationBin
@@ -168,6 +169,27 @@ export async function convertLocationHierarchyToLayout(
   
   // Load inventory for this warehouse - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
+  
+  // Get unique material IDs from inventory items
+  const uniqueMaterialIds = [...new Set(inventoryItems.map(item => item.materialId))];
+  
+  // Fetch materials to map materialId to materialCode (human-readable SKU)
+  const materialCodeMap = new Map<string, string>();
+  try {
+    // Fetch materials in parallel for better performance
+    const materialPromises = uniqueMaterialIds.map(id => 
+      materialsApi.getById(id).catch(() => null)
+    );
+    const materials = await Promise.all(materialPromises);
+    materials.forEach((material) => {
+      if (material) {
+        materialCodeMap.set(material.id, material.materialCode);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch materials for SKU mapping:', error);
+  }
+  
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
@@ -175,9 +197,11 @@ export async function convertLocationHierarchyToLayout(
     if (item.locationCode && parseFloat(item.quantity) > 0) {
       const location = storageLocations.find((loc) => loc.locationCode === item.locationCode);
       if (location) {
+        // Use materialCode if available, otherwise fallback to materialId
+        const sku = materialCodeMap.get(item.materialId) || item.materialId;
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
-          sku: item.materialId,
+          sku: sku,
         });
       }
     }
@@ -244,15 +268,38 @@ export async function convertLocationsToLayout(
   
   // Load inventory - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
+  
+  // Get unique material IDs from inventory items
+  const uniqueMaterialIds = [...new Set(inventoryItems.map(item => item.materialId))];
+  
+  // Fetch materials to map materialId to materialCode (human-readable SKU)
+  const materialCodeMap = new Map<string, string>();
+  try {
+    // Fetch materials in parallel for better performance
+    const materialPromises = uniqueMaterialIds.map(id => 
+      materialsApi.getById(id).catch(() => null)
+    );
+    const materials = await Promise.all(materialPromises);
+    materials.forEach((material) => {
+      if (material) {
+        materialCodeMap.set(material.id, material.materialCode);
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch materials for SKU mapping:', error);
+  }
+  
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
     if (item.locationCode && parseFloat(item.quantity) > 0) {
       const location = storageLocations.find((loc) => loc.locationCode === item.locationCode);
       if (location) {
+        // Use materialCode if available, otherwise fallback to materialId
+        const sku = materialCodeMap.get(item.materialId) || item.materialId;
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
-          sku: item.materialId,
+          sku: sku,
         });
       }
     }

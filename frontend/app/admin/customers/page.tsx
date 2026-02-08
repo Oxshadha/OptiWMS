@@ -499,7 +499,7 @@ export default function CustomersPage() {
             setShowDeleteModal(false);
             setSelectedCustomer(null);
           }}
-          onConfirm={() => {
+          onConfirm={async () => {
             try {
               const customerId = selectedCustomer.originalId || selectedCustomer.id;
               await customersApi.delete(customerId);

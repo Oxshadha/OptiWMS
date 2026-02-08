@@ -85,4 +85,14 @@ export const materialDefaultLocationsApi = {
       `/master/material-default-locations/warehouse/${warehouseId}/assign-all`
     );
   },
+
+  /**
+   * Sync inventory location_code from existing material default locations
+   * Use when default locations exist but inventory shows N/A
+   */
+  syncInventoryLocations: async (warehouseId: string): Promise<{ success: boolean; message: string }> => {
+    return apiClient.post<{ success: boolean; message: string }>(
+      `/master/material-default-locations/warehouse/${warehouseId}/sync-inventory`
+    );
+  },
 };
