@@ -19,6 +19,18 @@ export interface DeliveryPartner {
   onTimeDeliveryRate?: string;
 }
 
+export interface DeliveryPartnerMetrics {
+  partnerId: string;
+  partnerCode: string;
+  companyName: string;
+  totalShipments: number;
+  deliveredShipments: number;
+  onTimeDeliveryRate: number;
+  averageCostPerDelivery: number;
+  currencyCode?: string;
+  generatedAt: string;
+}
+
 export const deliveryPartnersApi = {
   getAll: async (status?: string): Promise<DeliveryPartner[]> => {
     const params = new URLSearchParams();
@@ -35,6 +47,10 @@ export const deliveryPartnersApi = {
     return apiClient.get<DeliveryPartner>(`/delivery-partners/code/${partnerCode}`);
   },
 
+  getMetrics: async (id: string): Promise<DeliveryPartnerMetrics> => {
+    return apiClient.get<DeliveryPartnerMetrics>(`/delivery-partners/${id}/metrics`);
+  },
+
   create: async (partner: Omit<DeliveryPartner, 'id'>): Promise<DeliveryPartner> => {
     return apiClient.post<DeliveryPartner>('/delivery-partners', partner);
   },
@@ -47,4 +63,3 @@ export const deliveryPartnersApi = {
     return apiClient.delete<void>(`/delivery-partners/${id}`);
   },
 };
-
