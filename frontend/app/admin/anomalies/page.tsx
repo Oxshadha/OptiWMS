@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { anomaliesApi, Anomaly as ApiAnomaly } from "@/lib/api/anomalies";
+import { anomaliesApi } from "@/lib/api/anomalies";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { usersApi } from "@/lib/api/users";
@@ -28,70 +28,6 @@ interface AnomalyDisplay {
   resolvedBy: string | null;
   resolvedAt: string | null;
 }
-
-// Mock data - will be replaced with API calls
-const mockAnomalies: AnomalyDisplay[] = [
-  {
-    id: "anom-1",
-    anomalyId: "ANOM-2025-001",
-    anomalyType: "quantity_mismatch",
-    severity: "high",
-    description: "Inventory count discrepancy: Expected 50, Found 45 at location A1",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "product",
-    relatedEntityId: "SKU-1001",
-    detectedBy: "ai_service",
-    detectedAt: "2025-12-15 10:30",
-    status: "open",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-  {
-    id: "anom-2",
-    anomalyId: "ANOM-2025-002",
-    anomalyType: "location_error",
-    severity: "medium",
-    description: "Item scanned at wrong location during picking task",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "task",
-    relatedEntityId: "TASK-452368",
-    detectedBy: "system",
-    detectedAt: "2025-12-15 09:15",
-    status: "investigating",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-  {
-    id: "anom-3",
-    anomalyId: "ANOM-2025-003",
-    anomalyType: "expiry_alert",
-    severity: "low",
-    description: "Product batch expiring within 7 days",
-    warehouseName: "Warehouse 2",
-    relatedEntityType: "product",
-    relatedEntityId: "SKU-2001",
-    detectedBy: "system",
-    detectedAt: "2025-12-14 14:20",
-    status: "resolved",
-    resolvedBy: "Manager A",
-    resolvedAt: "2025-12-14 15:00",
-  },
-  {
-    id: "anom-4",
-    anomalyId: "ANOM-2025-004",
-    anomalyType: "unauthorized_access",
-    severity: "critical",
-    description: "Worker accessed restricted location without authorization",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "worker",
-    relatedEntityId: "worker-3",
-    detectedBy: "ai_service",
-    detectedAt: "2025-12-15 08:45",
-    status: "open",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-];
 
 const severityConfig = {
   low: { label: "Low", class: "badge-outline" },
@@ -217,17 +153,6 @@ export default function AnomaliesPage() {
   // Load data from API
   useEffect(() => {
     loadData();
-  }, [loadData]);
-
-  // Listen for reload events
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadAnomalies', handleReload);
-    return () => {
-      window.removeEventListener('reloadAnomalies', handleReload);
-    };
   }, [loadData]);
 
   // Filter anomalies by warehouse for warehouse managers
@@ -523,7 +448,7 @@ export default function AnomaliesPage() {
               </li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-ghost">
+          <button className="btn btn-sm btn-ghost" onClick={() => loadData()}>
             <span className="material-symbols-outlined">refresh</span>
             <span>Refresh</span>
           </button>
@@ -558,6 +483,7 @@ export default function AnomaliesPage() {
             setShowResolveModal(false);
             setSelectedAnomaly(null);
           }}
+          onResolved={loadData}
           anomaly={selectedAnomaly}
         />
       )}
@@ -569,10 +495,12 @@ export default function AnomaliesPage() {
 function ResolveAnomalyModal({
   isOpen,
   onClose,
+  onResolved,
   anomaly,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onResolved: () => Promise<void>;
   anomaly: AnomalyDisplay;
 }) {
   const [formData, setFormData] = useState({
@@ -584,7 +512,7 @@ function ResolveAnomalyModal({
 
   const { admin } = useAdmin();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
@@ -596,12 +524,9 @@ function ResolveAnomalyModal({
         resolutionText
       );
       showToast.success("Anomaly resolved successfully");
+      await onResolved();
       onClose();
       setFormData({ resolutionNotes: "", actionsTaken: "" });
-      // Reload data - trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadAnomalies'));
-      }
     } catch (err) {
       console.error("Failed to resolve anomaly:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to resolve anomaly");

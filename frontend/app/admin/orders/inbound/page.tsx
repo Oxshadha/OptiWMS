@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
@@ -48,17 +48,14 @@ export default function InboundOrdersPage() {
   
   // API state
   const [orders, setOrders] = useState<InboundOrderDisplay[]>([]);
-  const [suppliers, setSuppliers] = useState<Map<string, string>>(new Map());
-  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+  const loadData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
 
         // Load orders, suppliers, and warehouses in parallel
         const [ordersData, suppliersData, warehousesData] = await Promise.all([
@@ -71,67 +68,65 @@ export default function InboundOrdersPage() {
         const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
         const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
 
-        setSuppliers(suppliersMap);
-        setWarehouses(warehousesMap);
+      // Fetch order items for all orders in parallel
+      const ordersWithItems = await Promise.all(
+        ordersData.map(async (order) => {
+          try {
+            const orderItems = await orderItemsApi.getByOrderId(order.id);
+            const totalItems = orderItems.length;
+            // Calculate received items (items with pickedQuantity > 0 or status indicating received)
+            const receivedItems = orderItems.filter(
+              item => item.pickedQuantity > 0 || item.status === "received" || item.status === "picked"
+            ).length;
+            
+            return {
+              order,
+              totalItems,
+              receivedItems,
+            };
+          } catch (err) {
+            console.warn(`Failed to load items for order ${order.orderNumber}:`, err);
+            return {
+              order,
+              totalItems: 0,
+              receivedItems: 0,
+            };
+          }
+        })
+      );
 
-        // Fetch order items for all orders in parallel
-        const ordersWithItems = await Promise.all(
-          ordersData.map(async (order) => {
-            try {
-              const orderItems = await orderItemsApi.getByOrderId(order.id);
-              const totalItems = orderItems.length;
-              // Calculate received items (items with pickedQuantity > 0 or status indicating received)
-              const receivedItems = orderItems.filter(
-                item => item.pickedQuantity > 0 || item.status === "received" || item.status === "picked"
-              ).length;
-              
-              return {
-                order,
-                totalItems,
-                receivedItems,
-              };
-            } catch (err) {
-              console.warn(`Failed to load items for order ${order.orderNumber}:`, err);
-              return {
-                order,
-                totalItems: 0,
-                receivedItems: 0,
-              };
-            }
-          })
-        );
+      // Transform orders to display format
+      const displayOrders: InboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, receivedItems }) => {
+        const supplierName = order.supplierId
+          ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
+          : "N/A";
+        const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
+        
+        const status = mapInboundOrderStatus(order.status);
 
-        // Transform orders to display format
-        const displayOrders: InboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, receivedItems }) => {
-          const supplierName = order.supplierId
-            ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
-            : "N/A";
-          const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
-          
-          const status = mapInboundOrderStatus(order.status);
+        return {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          supplierName,
+          warehouseName,
+          orderDate: order.orderDate || new Date().toISOString().split("T")[0],
+          expectedDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
+          status,
+          totalItems,
+          receivedItems,
+        };
+      });
 
-          return {
-            id: order.id,
-            orderNumber: order.orderNumber,
-            supplierName,
-            warehouseName,
-            orderDate: order.orderDate || new Date().toISOString().split("T")[0],
-            expectedDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
-            status,
-            totalItems,
-            receivedItems,
-          };
-        });
+      setOrders(displayOrders);
+    } catch (err) {
+      console.error("Failed to load inbound orders:", err);
+      setError("Failed to load inbound orders. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-        setOrders(displayOrders);
-      } catch (err) {
-        console.error("Failed to load inbound orders:", err);
-        setError("Failed to load inbound orders. Please try again.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
+  useEffect(() => {
     loadData();
   }, []);
 
@@ -175,7 +170,7 @@ export default function InboundOrdersPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+          <button className="btn btn-sm" onClick={() => loadData()}>
             Retry
           </button>
         </div>
@@ -194,7 +189,7 @@ export default function InboundOrdersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => window.location.reload()}
+            onClick={() => loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -416,8 +411,7 @@ export default function InboundOrdersPage() {
                                     try {
                                       await ordersApi.cancel(order.id);
                                       showToast.success("Order cancelled successfully");
-                                      // Reload orders
-                                      window.location.reload();
+                                      await loadData();
                                     } catch (err) {
                                       console.error("Failed to cancel order:", err);
                                       showToast.error("Failed to cancel order. Please try again.");
@@ -443,7 +437,10 @@ export default function InboundOrdersPage() {
 
       {/* Create Inbound Order Modal */}
       {showCreateModal && (
-        <CreateInboundOrderModal onClose={() => setShowCreateModal(false)} />
+        <CreateInboundOrderModal
+          onClose={() => setShowCreateModal(false)}
+          onSaved={loadData}
+        />
       )}
 
       {/* Inbound Order Detail Modal */}
@@ -466,6 +463,7 @@ export default function InboundOrdersPage() {
             setShowEditModal(false);
             setSelectedOrder(null);
           }}
+          onSaved={loadData}
           order={selectedOrder}
         />
       )}
@@ -551,10 +549,12 @@ function InboundOrderDetailModal({
 function EditInboundOrderModal({
   isOpen,
   onClose,
+  onSaved,
   order,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSaved: () => Promise<void>;
   order: InboundOrderDisplay;
 }) {
   const [formData, setFormData] = useState({
@@ -564,7 +564,7 @@ function EditInboundOrderModal({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       setIsSubmitting(true);
@@ -574,8 +574,8 @@ function EditInboundOrderModal({
         priority: undefined,
       });
       showToast.success("Order updated successfully!");
+      await onSaved();
       onClose();
-      window.location.reload();
     } catch (error) {
       console.error("Failed to update order:", error);
       showToast.error("Failed to update order. Please try again.");
@@ -635,7 +635,13 @@ function EditInboundOrderModal({
 }
 
 // Multi-step Create Inbound Order Modal
-function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
+function CreateInboundOrderModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -742,9 +748,8 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
       }
 
       showToast.success(`Inbound order created successfully with ${formData.items.length} item(s)!`);
+      await onSaved();
       onClose();
-      // Reload page to refresh order list
-      window.location.reload();
     } catch (err) {
       console.error("Failed to create inbound order:", err);
       setError("Failed to create order. Please try again.");
