@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -236,15 +236,6 @@ export default function InventoryPage() {
     loadData();
   }, [assignedWarehouseId, activeItemType]); // Reload when filter changes
 
-  // Listen for import success event
-  useEffect(() => {
-    const handleImportSuccess = () => {
-      loadData();
-    };
-    window.addEventListener('inventoryImported', handleImportSuccess);
-    return () => window.removeEventListener('inventoryImported', handleImportSuccess);
-  }, []);
-
   // Filter inventory by warehouse for warehouse managers
   const inventoryForWarehouse =
     isWarehouseManager && assignedWarehouseId
@@ -324,7 +315,7 @@ export default function InventoryPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+          <button className="btn btn-sm" onClick={() => loadData()}>
             Retry
           </button>
         </div>
@@ -348,7 +339,7 @@ export default function InventoryPage() {
           </button>
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => window.location.reload()}
+            onClick={() => loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -926,6 +917,7 @@ export default function InventoryPage() {
             setShowEditModal(false);
             setSelectedItem(null);
           }}
+          onSaved={loadData}
           item={selectedItem}
         />
       )}
@@ -934,6 +926,7 @@ export default function InventoryPage() {
       <AddInventoryItemModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onSaved={loadData}
       />
 
       {/* Import Inventory Modal */}
@@ -944,9 +937,6 @@ export default function InventoryPage() {
           onSuccess={async () => {
             setShowImportModal(false);
             await loadData();
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('inventoryImported'));
-            }
           }}
         />
       )}
@@ -962,7 +952,7 @@ function ImportInventoryModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
@@ -978,7 +968,7 @@ function ImportInventoryModal({
       const result = await materialsApi.importInventoryCsv(file);
       if (result.successCount > 0) {
         showToast.success(`Successfully imported ${result.successCount} inventory items`);
-        onSuccess();
+        await onSuccess();
       }
       if (result.errorCount > 0) {
         showToast.error(`${result.errorCount} items failed to import`);
@@ -1053,9 +1043,11 @@ function ImportInventoryModal({
 function AddInventoryItemModal({
   isOpen,
   onClose,
+  onSaved,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSaved: () => Promise<void>;
 }) {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -1092,7 +1084,7 @@ function AddInventoryItemModal({
     loadData();
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       setIsSubmitting(true);
@@ -1121,6 +1113,7 @@ function AddInventoryItemModal({
       });
 
       showToast.success("Inventory item added successfully!");
+      await onSaved();
       onClose();
       setFormData({
         sku: "",
@@ -1131,8 +1124,6 @@ function AddInventoryItemModal({
         warehouseId: "",
         status: "Available",
       });
-      // Reload page to refresh inventory list
-      window.location.reload();
     } catch (err) {
       console.error("Failed to add inventory item:", err);
       setError("Failed to add inventory item. Please try again.");
@@ -1665,10 +1656,12 @@ function InventoryItemDetailModal({
 function EditInventoryItemModal({
   isOpen,
   onClose,
+  onSaved,
   item,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSaved: () => Promise<void>;
   item: InventoryDisplayItem;
 }) {
   const [formData, setFormData] = useState({
@@ -1692,7 +1685,7 @@ function EditInventoryItemModal({
     loadWarehouses();
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       setIsSubmitting(true);
@@ -1720,8 +1713,8 @@ function EditInventoryItemModal({
       }
 
       showToast.success("Inventory updated successfully!");
-      // Reload page to refresh data
-      window.location.reload();
+      await onSaved();
+      onClose();
     } catch (error) {
       console.error("Failed to update inventory:", error);
       showToast.error("Failed to update inventory. Please try again.");

@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
-import { operationsApi, StockTransfer as ApiStockTransfer } from "@/lib/api/operations";
+import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
@@ -32,54 +31,6 @@ interface StockTransfer {
   createdAt: string;
 }
 
-const mockTransfers: StockTransfer[] = [
-  {
-    id: "tf-1",
-    transferNumber: "TF-2025-001",
-    transferType: "intra_warehouse",
-    sourceLocationCode: "A-01-01-4-A",
-    destLocationCode: "B-02-03-2-C",
-    itemSku: "SKU-001",
-    itemName: "Product A",
-    quantity: 50,
-    status: "received",
-    notes: "Replenishment",
-    dispatchedBy: "John Doe",
-    dispatchedAt: "2025-12-15T10:30:00",
-    receivedBy: "Jane Smith",
-    receivedAt: "2025-12-15T14:20:00",
-    createdAt: "2025-12-15T09:00:00",
-  },
-  {
-    id: "tf-2",
-    transferNumber: "TF-2025-002",
-    transferType: "inter_warehouse",
-    sourceWarehouse: "Warehouse 1",
-    sourceLocationCode: "A-02-05-3-B",
-    destWarehouse: "Warehouse 2",
-    destLocationCode: "C-01-02-1-A",
-    itemSku: "SKU-002",
-    itemName: "Product B",
-    quantity: 100,
-    status: "in_transit",
-    dispatchedBy: "Mike Johnson",
-    dispatchedAt: "2025-12-16T08:15:00",
-    createdAt: "2025-12-16T07:00:00",
-  },
-  {
-    id: "tf-3",
-    transferNumber: "TF-2025-003",
-    transferType: "intra_warehouse",
-    sourceLocationCode: "C-03-01-4-A",
-    destLocationCode: "A-01-02-2-B",
-    itemSku: "SKU-003",
-    itemName: "Product C",
-    quantity: 25,
-    status: "draft",
-    createdAt: "2025-12-16T11:00:00",
-  },
-];
-
 const statusClass = (status: TransferStatus) => {
   if (status === "received") return "badge-success";
   if (status === "in_transit") return "badge-info";
@@ -105,8 +56,6 @@ export default function StockTransfersPage() {
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [warehousesMap, setWarehousesMap] = useState<Map<string, string>>(new Map());
-  const [materialsMap, setMaterialsMap] = useState<Map<string, { name: string; sku: string }>>(new Map());
 
   const loadData = useCallback(async () => {
     try {
@@ -123,7 +72,6 @@ export default function StockTransfersPage() {
       // Build warehouses map
       const whMap = new Map<string, string>();
       warehousesData.forEach(wh => whMap.set(wh.id, wh.name));
-      setWarehousesMap(whMap);
 
       // Build materials map
       const matMap = new Map<string, { name: string; sku: string }>();
@@ -133,7 +81,6 @@ export default function StockTransfersPage() {
           sku: mat.materialCode || mat.id,
         })
       );
-      setMaterialsMap(matMap);
 
       // Transform API data to display format
       const displayTransfers: StockTransfer[] = transfersData.map((t) => {
@@ -171,17 +118,6 @@ export default function StockTransfersPage() {
   // Load data from API
   useEffect(() => {
     loadData();
-  }, [loadData]);
-
-  // Listen for reload events
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadStockTransfers', handleReload);
-    return () => {
-      window.removeEventListener('reloadStockTransfers', handleReload);
-    };
   }, [loadData]);
 
   // Filter stock transfers by warehouse for warehouse managers
@@ -237,10 +173,7 @@ export default function StockTransfersPage() {
       try {
         await operationsApi.cancelStockTransfer(transfer.id);
         showToast.success("Transfer cancelled successfully");
-        // Reload data
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('reloadStockTransfers'));
-        }
+        await loadData();
       } catch (err) {
         console.error("Failed to cancel transfer:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to cancel transfer");
@@ -515,11 +448,8 @@ export default function StockTransfersPage() {
                         <li>
                           <button
                             onClick={() => {
-                              // TODO: Implement print functionality
-                              window.print();
-                              console.log(
-                                "Printing transfer slip:",
-                                transfer.transferNumber
+                              showToast.warning(
+                                `Printing transfer slip: ${transfer.transferNumber}`
                               );
                             }}
                           >
@@ -675,11 +605,8 @@ export default function StockTransfersPage() {
               <button
                 className="btn btn-primary flex-1"
                 onClick={() => {
-                  // TODO: Implement print functionality
-                  window.print();
-                  console.log(
-                    "Printing transfer slip:",
-                    selectedTransfer.transferNumber
+                  showToast.warning(
+                    `Printing transfer slip: ${selectedTransfer.transferNumber}`
                   );
                 }}
               >
