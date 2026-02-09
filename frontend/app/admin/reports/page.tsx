@@ -389,7 +389,12 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
           <select
             className="select select-bordered w-full"
             value={formData.frequency}
-            onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                frequency: e.target.value as "daily" | "weekly" | "monthly",
+              })
+            }
             required
           >
             <option value="daily">Daily</option>

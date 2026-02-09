@@ -897,9 +897,8 @@ export default function PutawayPage() {
         {/* Modals */}
         {showLocationPicker && (
           <LocationPicker
-            isOpen={showLocationPicker}
             onClose={() => setShowLocationPicker(false)}
-            onSelect={handleLocationSelect}
+            onLocationSelect={handleLocationSelect}
             warehouseId={worker?.warehouseId}
           />
         )}

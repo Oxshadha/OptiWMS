@@ -236,8 +236,6 @@ export default function ShipmentsPage() {
           </div>
           ))}
         </div>
-      )}
-
       {/* Process Shipment Modal */}
       {selectedShipment && (
         <Modal

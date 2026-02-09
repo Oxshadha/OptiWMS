@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -108,65 +108,70 @@ export default function StockTransfersPage() {
   const [warehousesMap, setWarehousesMap] = useState<Map<string, string>>(new Map());
   const [materialsMap, setMaterialsMap] = useState<Map<string, { name: string; sku: string }>>(new Map());
 
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch all data in parallel
+      const [transfersData, warehousesData, materialsData] = await Promise.all([
+        operationsApi.getStockTransfers(),
+        warehousesApi.getAll(),
+        materialsApi.getAll(),
+      ]);
+
+      // Build warehouses map
+      const whMap = new Map<string, string>();
+      warehousesData.forEach(wh => whMap.set(wh.id, wh.name));
+      setWarehousesMap(whMap);
+
+      // Build materials map
+      const matMap = new Map<string, { name: string; sku: string }>();
+      materialsData.forEach((mat) =>
+        matMap.set(mat.id, {
+          name: mat.description || "Unknown",
+          sku: mat.materialCode || mat.id,
+        })
+      );
+      setMaterialsMap(matMap);
+
+      // Transform API data to display format
+      const displayTransfers: StockTransfer[] = transfersData.map((t) => {
+        const material = matMap.get(t.materialId) || { name: "Unknown", sku: "N/A" };
+        const sourceWarehouse = whMap.get(t.sourceWarehouseId);
+        const destWarehouse = whMap.get(t.destWarehouseId);
+        const isIntraWarehouse = t.transferType === "intra_warehouse" || t.sourceWarehouseId === t.destWarehouseId;
+
+        return {
+          id: t.id,
+          transferNumber: t.transferNumber,
+          transferType: (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse") as TransferType,
+          sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
+          sourceLocationCode: t.sourceLocationCode,
+          destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
+          destLocationCode: t.destLocationCode,
+          itemSku: material.sku,
+          itemName: material.name,
+          quantity: parseInt(t.quantity) || 0,
+          status: (t.status as TransferStatus) || "draft",
+          notes: t.notes,
+          createdAt: new Date().toISOString(), // TODO: Get from API when available
+        };
+      });
+
+      setTransfers(displayTransfers);
+    } catch (err) {
+      console.error("Failed to load stock transfers:", err);
+      setError(err instanceof Error ? err.message : "Failed to load stock transfers");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Load data from API
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Fetch all data in parallel
-        const [transfersData, warehousesData, materialsData] = await Promise.all([
-          operationsApi.getStockTransfers(),
-          warehousesApi.getAll(),
-          materialsApi.getAll(),
-        ]);
-
-        // Build warehouses map
-        const whMap = new Map<string, string>();
-        warehousesData.forEach(wh => whMap.set(wh.id, wh.name));
-        setWarehousesMap(whMap);
-
-        // Build materials map
-        const matMap = new Map<string, { name: string; sku: string }>();
-        materialsData.forEach(mat => matMap.set(mat.id, { name: mat.name, sku: mat.sku || mat.code }));
-        setMaterialsMap(matMap);
-
-        // Transform API data to display format
-        const displayTransfers: StockTransfer[] = transfersData.map((t) => {
-          const material = matMap.get(t.materialId) || { name: "Unknown", sku: "N/A" };
-          const sourceWarehouse = whMap.get(t.sourceWarehouseId);
-          const destWarehouse = whMap.get(t.destWarehouseId);
-          const isIntraWarehouse = t.transferType === "intra_warehouse" || t.sourceWarehouseId === t.destWarehouseId;
-
-          return {
-            id: t.id,
-            transferNumber: t.transferNumber,
-            transferType: (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse") as TransferType,
-            sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
-            sourceLocationCode: t.sourceLocationCode,
-            destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
-            destLocationCode: t.destLocationCode,
-            itemSku: material.sku,
-            itemName: material.name,
-            quantity: parseInt(t.quantity) || 0,
-            status: (t.status as TransferStatus) || "draft",
-            notes: t.notes,
-            createdAt: new Date().toISOString(), // TODO: Get from API when available
-          };
-        });
-
-        setTransfers(displayTransfers);
-      } catch (err) {
-        console.error("Failed to load stock transfers:", err);
-        setError(err instanceof Error ? err.message : "Failed to load stock transfers");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Listen for reload events
   useEffect(() => {
@@ -177,7 +182,7 @@ export default function StockTransfersPage() {
     return () => {
       window.removeEventListener('reloadStockTransfers', handleReload);
     };
-  }, []);
+  }, [loadData]);
 
   // Filter stock transfers by warehouse for warehouse managers
   const transfersForWarehouse =

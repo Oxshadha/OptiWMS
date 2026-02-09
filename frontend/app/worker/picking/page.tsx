@@ -69,7 +69,7 @@ export default function PickingPage() {
         );
         
         // Transform tasks to picks with material details
-        const transformedPicks = await Promise.all(
+        const transformedPicks: Pick[] = await Promise.all(
           uniqueTasks.map(async (task, index) => {
             let itemName = task.notes || "Item";
             let sku = "N/A";
@@ -134,7 +134,7 @@ export default function PickingPage() {
               sku: sku,
               materialId: materialId || task.referenceId || "",
               qty: qty,
-              status: "upcoming", // All tasks start as upcoming until claimed
+              status: "upcoming" as const, // All tasks start as upcoming until claimed
               pickedLocations: [], // Track which locations have been picked (multi-location picking)
             };
           })
@@ -248,7 +248,7 @@ export default function PickingPage() {
         
         // Track picked location and mark as completed if all locations picked
         setPicks(prev => {
-          const updated = prev.map(p => {
+          const updated: Pick[] = prev.map((p): Pick => {
             if (p.id === currentPick.id) {
               // Track this location as picked
               const pickedLocations = [...(p.pickedLocations || []), currentPick.location];
@@ -262,10 +262,10 @@ export default function PickingPage() {
               
               // If all locations for this material/order are picked, mark as completed
               if (sameOrderPicks.length <= 1 || pickedLocations.length >= sameOrderPicks.length) {
-                return { ...p, status: "completed", pickedLocations };
+                return { ...p, status: "completed" as const, pickedLocations };
               } else {
                 // Still more locations to pick
-                return { ...p, pickedLocations, status: "current" };
+                return { ...p, pickedLocations, status: "current" as const };
               }
             }
             return p;
@@ -276,8 +276,8 @@ export default function PickingPage() {
           if (!current || current.status === "completed") {
             const nextUpcoming = updated.find(p => p.status === "upcoming");
             if (nextUpcoming) {
-              return updated.map(p => 
-                p.id === nextUpcoming.id ? { ...p, status: "current" } : p
+              return updated.map((p): Pick =>
+                p.id === nextUpcoming.id ? { ...p, status: "current" as const } : p
               );
             }
           }
@@ -346,7 +346,7 @@ export default function PickingPage() {
       );
       
       // Transform tasks (same logic as in useEffect)
-      const transformedPicks = await Promise.all(
+      const transformedPicks: Pick[] = await Promise.all(
         uniqueTasks.map(async (task) => {
           let itemName = task.notes || "Item";
           let sku = "N/A";
@@ -395,7 +395,7 @@ export default function PickingPage() {
             sku: sku,
             materialId: materialId || task.referenceId || "",
             qty: qty,
-            status: "upcoming",
+            status: "upcoming" as const,
             pickedLocations: [],
           };
         })
@@ -591,7 +591,7 @@ export default function PickingPage() {
                 pickedQty > currentPick.qty || 
                 saveStatus === "saving" || 
                 !dbReady ||
-                (currentPick.location && !locationVerified && !scannedLocation)
+                (Boolean(currentPick.location) && !locationVerified && !scannedLocation)
               }
             >
               {saveStatus === "saving" ? (
