@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState, useEffect, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
-import React from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
@@ -28,52 +27,8 @@ interface SupplierDisplay {
   status: string;
 }
 
-const mockSuppliers: SupplierDisplay[] = [
-  {
-    id: "supplier-1",
-    supplierCode: "SUP-001",
-    name: "Tech Supplies Inc",
-    country: "United States",
-    type: "local" as const,
-    contactPerson: "John Smith",
-    email: "john@techsupplies.com",
-    phone: "+1-555-0101",
-    productsSupplied: 45,
-    leadTimeDays: 7,
-    rating: 4.5,
-    status: "active",
-  },
-  {
-    id: "supplier-2",
-    supplierCode: "SUP-002",
-    name: "Global Electronics",
-    country: "China",
-    type: "foreign" as const,
-    contactPerson: "Li Wei",
-    email: "li@globalelec.com",
-    phone: "+86-555-0102",
-    productsSupplied: 32,
-    leadTimeDays: 14,
-    rating: 4.2,
-    status: "active",
-  },
-  {
-    id: "supplier-3",
-    supplierCode: "SUP-003",
-    name: "Quality Goods Co",
-    country: "United Kingdom",
-    type: "foreign" as const,
-    contactPerson: "Emma Johnson",
-    email: "emma@qualitygoods.co.uk",
-    phone: "+44-555-0103",
-    productsSupplied: 28,
-    leadTimeDays: 10,
-    rating: 4.8,
-    status: "active",
-  },
-];
-
 export default function SuppliersPage() {
+  const router = useRouter();
   const { hasPermission } = useAdmin();
   const canDelete = hasPermission(ADMIN_ROUTES.SUPPLIERS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -137,17 +92,6 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  // Listen for reload events from modals
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadSuppliers', handleReload);
-    return () => {
-      window.removeEventListener('reloadSuppliers', handleReload);
-    };
   }, []);
 
   const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
@@ -338,8 +282,7 @@ export default function SuppliersPage() {
         <li>
           <button
             onClick={() => {
-              // Navigate to products page filtered by supplier
-              window.location.href = `/admin/products?supplier=${supplier.id}`;
+              router.push(`/admin/products?supplier=${supplier.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">inventory</span>
@@ -349,8 +292,7 @@ export default function SuppliersPage() {
         <li>
           <button
             onClick={() => {
-              // Navigate to inbound orders page filtered by supplier
-              window.location.href = `/admin/orders/inbound?supplier=${supplier.id}`;
+              router.push(`/admin/orders/inbound?supplier=${supplier.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">
@@ -363,8 +305,7 @@ export default function SuppliersPage() {
           <li>
             <button
               onClick={() => {
-                // TODO: Handle PO approval
-                console.log("Approving PO for supplier:", supplier.id);
+                showToast.warning("Purchase order approval workflow coming soon");
               }}
             >
               <span className="material-symbols-outlined text-sm">
@@ -406,7 +347,7 @@ export default function SuppliersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => window.location.reload()}
+            onClick={() => loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -504,26 +445,46 @@ export default function SuppliersPage() {
       )}
 
       {/* Suppliers Table */}
-      <DataTable
-        data={filteredSuppliers}
-        columns={columns}
-        keyExtractor={(supplier) => supplier.id}
-        onRowClick={(supplier) => {
-          setSelectedSupplier(supplier);
-          setShowDetailModal(true);
-        }}
-        actions={renderActions}
-        emptyMessage={
-          searchQuery
-            ? `No suppliers found matching "${searchQuery}"`
-            : "No suppliers found"
-        }
-      />
+      {error && (
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>{error}</span>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+            Retry
+          </button>
+        </div>
+      )}
+      {isLoading && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-center gap-3 text-base-content/70">
+            <span className="loading loading-spinner loading-md" />
+            <span>Loading suppliers...</span>
+          </div>
+        </div>
+      )}
+      {!isLoading && (
+        <DataTable
+          data={filteredSuppliers}
+          columns={columns}
+          keyExtractor={(supplier) => supplier.id}
+          onRowClick={(supplier) => {
+            setSelectedSupplier(supplier);
+            setShowDetailModal(true);
+          }}
+          actions={renderActions}
+          emptyMessage={
+            searchQuery
+              ? `No suppliers found matching "${searchQuery}"`
+              : "No suppliers found"
+          }
+        />
+      )}
 
       {/* Create Supplier Modal */}
       <CreateSupplierModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSuccess={loadData}
       />
 
       {/* Supplier Detail Modal */}
@@ -533,6 +494,11 @@ export default function SuppliersPage() {
           onClose={() => {
             setShowDetailModal(false);
             setSelectedSupplier(null);
+          }}
+          onEdit={(supplier) => {
+            setShowDetailModal(false);
+            setSelectedSupplier(supplier);
+            setShowEditModal(true);
           }}
           supplier={selectedSupplier}
         />
@@ -546,6 +512,7 @@ export default function SuppliersPage() {
             setShowEditModal(false);
             setSelectedSupplier(null);
           }}
+          onUpdated={loadData}
           supplier={selectedSupplier}
         />
       )}
@@ -576,49 +543,20 @@ export default function SuppliersPage() {
         />
       )}
 
-      {/* Listen for edit event from detail modal */}
-      {typeof window !== "undefined" && (
-        <EditSupplierListener
-          onEdit={(supplier) => {
-            setShowDetailModal(false);
-            setSelectedSupplier(supplier);
-            setShowEditModal(true);
-          }}
-        />
-      )}
     </div>
   );
-}
-
-// Edit Supplier Event Listener Component
-function EditSupplierListener({
-  onEdit,
-}: {
-  onEdit: (supplier: SupplierDisplay) => void;
-}) {
-  React.useEffect(() => {
-    const handleEdit = (event: CustomEvent) => {
-      onEdit(event.detail);
-    };
-    window.addEventListener("editSupplier" as any, handleEdit as EventListener);
-    return () => {
-      window.removeEventListener(
-        "editSupplier" as any,
-        handleEdit as EventListener
-      );
-    };
-  }, [onEdit]);
-  return null;
 }
 
 // Supplier Detail Modal
 function SupplierDetailModal({
   isOpen,
   onClose,
+  onEdit,
   supplier,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onEdit: (supplier: SupplierDisplay) => void;
   supplier: SupplierDisplay;
 }) {
   return (
@@ -703,13 +641,7 @@ function SupplierDetailModal({
           <button
             className="btn btn-primary"
             onClick={() => {
-              onClose();
-              // Trigger edit modal - will be handled by parent
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(
-                  new CustomEvent("editSupplier", { detail: supplier })
-                );
-              }
+              onEdit(supplier);
             }}
           >
             Edit Supplier
@@ -724,10 +656,12 @@ function SupplierDetailModal({
 function EditSupplierModal({
   isOpen,
   onClose,
+  onUpdated,
   supplier,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onUpdated: () => Promise<void>;
   supplier: SupplierDisplay;
 }) {
   const [formData, setFormData] = useState({
@@ -742,7 +676,7 @@ function EditSupplierModal({
     rating: supplier.rating.toString(),
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
@@ -759,11 +693,8 @@ function EditSupplierModal({
 
       await suppliersApi.update(supplier.id, updateData);
       showToast.success("Supplier updated successfully");
+      await onUpdated();
       onClose();
-      // Trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
-      }
     } catch (err) {
       console.error("Failed to update supplier:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update supplier");
@@ -938,9 +869,11 @@ function EditSupplierModal({
 function CreateSupplierModal({
   isOpen,
   onClose,
+  onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess: () => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     supplierCode: "",
@@ -949,17 +882,13 @@ function CreateSupplierModal({
     email: "",
     phone: "",
     address: "",
-    city: "",
-    state: "",
     country: "",
     type: "" as "local" | "foreign" | "",
-    postalCode: "",
-    paymentTerms: "",
     leadTimeDays: "",
     rating: "",
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
@@ -978,6 +907,7 @@ function CreateSupplierModal({
 
       await suppliersApi.create(createData);
       showToast.success("Supplier created successfully");
+      await onSuccess();
       onClose();
       // Reset form
       setFormData({
@@ -987,19 +917,11 @@ function CreateSupplierModal({
         email: "",
         phone: "",
         address: "",
-        city: "",
-        state: "",
         country: "",
         type: "" as "local" | "foreign" | "",
-        postalCode: "",
-        paymentTerms: "",
         leadTimeDays: "",
         rating: "",
       });
-      // Trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
-      }
     } catch (err) {
       console.error("Failed to create supplier:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create supplier");
@@ -1097,52 +1019,24 @@ function CreateSupplierModal({
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">City</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.city}
-              onChange={(e) =>
-                setFormData({ ...formData, city: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">State/Province</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.state}
-              onChange={(e) =>
-                setFormData({ ...formData, state: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Country *</span>
-            </label>
-            <select
-              className="select select-bordered w-full"
-              value={formData.country}
-              onChange={(e) =>
-                setFormData({ ...formData, country: e.target.value })
-              }
-              required
-            >
-              <option value="">Select country</option>
-              <option value="United States">United States</option>
-              <option value="United Kingdom">United Kingdom</option>
-              <option value="China">China</option>
-              <option value="Canada">Canada</option>
-            </select>
-          </div>
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Country *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.country}
+            onChange={(e) =>
+              setFormData({ ...formData, country: e.target.value })
+            }
+            required
+          >
+            <option value="">Select country</option>
+            <option value="United States">United States</option>
+            <option value="United Kingdom">United Kingdom</option>
+            <option value="China">China</option>
+            <option value="Canada">Canada</option>
+          </select>
         </div>
 
         <div className="form-control">
@@ -1166,34 +1060,6 @@ function CreateSupplierModal({
           </select>
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Postal Code</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered w-full"
-            value={formData.postalCode}
-            onChange={(e) =>
-              setFormData({ ...formData, postalCode: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Payment Terms</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered w-full"
-            rows={2}
-            value={formData.paymentTerms}
-            onChange={(e) =>
-              setFormData({ ...formData, paymentTerms: e.target.value })
-            }
-            placeholder="e.g., Net 30, COD, etc."
-          />
-        </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="form-control">
