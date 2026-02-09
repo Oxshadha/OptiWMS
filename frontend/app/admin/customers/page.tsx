@@ -1,13 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { customersApi, Customer } from "@/lib/api/customers";
+import { ordersApi } from "@/lib/api/orders";
+import { showToast } from "@/lib/utils/toast";
 
-const customers = [
+// Display format for customers
+interface CustomerDisplay {
+  id: string;
+  originalId?: string; // Original UUID for API calls
+  name: string;
+  contact: string;
+  phone: string;
+  orders: number;
+  status: string;
+  joinDate: string;
+}
+
+const mockCustomers: CustomerDisplay[] = [
   {
     id: "CUST-001",
     name: "Acme Corp",
@@ -63,13 +78,77 @@ export default function CustomersPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(
-    null
-  );
+  const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [selectedCustomer, setSelectedCustomer] = useState<
-    (typeof customers)[0] | null
-  >(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerDisplay | null>(null);
+  
+  // API state
+  const [customers, setCustomers] = useState<CustomerDisplay[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const [customersData, ordersData] = await Promise.all([
+          customersApi.getAll(),
+          ordersApi.getAllOutbound(),
+        ]);
+        
+        // Count orders per customer
+        const orderCounts = new Map<string, number>();
+        ordersData.forEach((order) => {
+          if (order.customerId) {
+            orderCounts.set(order.customerId, (orderCounts.get(order.customerId) || 0) + 1);
+          }
+        });
+        
+        // Transform to display format with shorter IDs
+        const displayCustomers: CustomerDisplay[] = customersData.map((c) => {
+          // Create shorter, more intuitive ID using first 8 characters of UUID
+          // Format: CUST-XXXXXXXX (e.g., CUST-d07b7d74)
+          const shortId = `CUST-${c.id.substring(0, 8)}`;
+          return {
+            id: shortId, // Display short ID
+            originalId: c.id, // Keep original ID for API calls
+            name: c.name,
+            contact: c.email || "",
+            phone: c.phone || "",
+            orders: orderCounts.get(c.id) || 0,
+            status: c.status === "active" ? "Active" : "On Hold",
+            joinDate: new Date().toISOString().split("T")[0], // TODO: Get from customer data
+          };
+        });
+        
+        setCustomers(displayCustomers);
+      } catch (err) {
+        console.error("Failed to load customers:", err);
+        setError(err instanceof Error ? err.message : "Failed to load customers");
+        setCustomers([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load customers. Please try again.");
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadCustomers', handleReload);
+    return () => {
+      window.removeEventListener('reloadCustomers', handleReload);
+    };
+  }, []);
 
   let filteredCustomers = customers.filter((c) => {
     const query = searchQuery.trim().toLowerCase();
@@ -118,6 +197,13 @@ export default function CustomersPage() {
           Customers ({totalCustomers})
         </h1>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="dropdown dropdown-end">
             <label tabIndex={0} className="btn btn-sm btn-ghost">
               <span className="material-symbols-outlined">swap_vert</span>
@@ -413,11 +499,21 @@ export default function CustomersPage() {
             setShowDeleteModal(false);
             setSelectedCustomer(null);
           }}
-          onConfirm={() => {
-            // TODO: API call to delete customer
-            console.log("Deleting customer:", selectedCustomer.id);
-            setShowDeleteModal(false);
-            setSelectedCustomer(null);
+          onConfirm={async () => {
+            try {
+              const customerId = selectedCustomer.originalId || selectedCustomer.id;
+              await customersApi.delete(customerId);
+              showToast.success("Customer deleted successfully");
+              setShowDeleteModal(false);
+              setSelectedCustomer(null);
+              // Reload data
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('reloadCustomers'));
+              }
+            } catch (err) {
+              console.error("Failed to delete customer:", err);
+              showToast.error(err instanceof Error ? err.message : "Failed to delete customer");
+            }
           }}
           customer={selectedCustomer}
         />
@@ -440,19 +536,62 @@ function AddCustomerModal({
     phone: "",
     status: "Active",
   });
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to add customer
-    console.log("Adding customer:", formData);
-    alert("Customer added successfully!");
-    onClose();
-    setFormData({
-      name: "",
-      contact: "",
-      phone: "",
-      status: "Active",
-    });
+    
+    // Client-side validation before submitting
+    const { validateEmail, validatePhone, validateRequired } = await import("@/lib/utils/form-validation");
+    const errors: Record<string, string> = {};
+    
+    const nameResult = validateRequired(formData.name, "Customer Name");
+    if (!nameResult.valid) errors.name = nameResult.error || "";
+    
+    const emailResult = validateRequired(formData.contact, "Contact Email");
+    if (!emailResult.valid) {
+      errors.contact = emailResult.error || "";
+    } else {
+      const emailFormatResult = validateEmail(formData.contact);
+      if (!emailFormatResult.valid) errors.contact = emailFormatResult.error || "";
+    }
+    
+    const phoneResult = validatePhone(formData.phone);
+    if (!phoneResult.valid) errors.phone = phoneResult.error || "";
+    
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      showToast.error("Please fix the validation errors before submitting");
+      return;
+    }
+    
+    try {
+      const createData: Omit<Customer, 'id'> = {
+        name: formData.name,
+        email: formData.contact || undefined,
+        phone: formData.phone || undefined,
+        status: formData.status.toLowerCase(),
+      };
+
+      await customersApi.create(createData);
+      showToast.success("Customer added successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        name: "",
+        contact: "",
+        phone: "",
+        status: "Active",
+      });
+      setValidationErrors({});
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCustomers'));
+      }
+    } catch (err) {
+      console.error("Failed to add customer:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to add customer");
+    }
   };
 
   return (
@@ -469,11 +608,21 @@ function AddCustomerModal({
           </label>
           <input
             type="text"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.name ? 'input-error' : ''}`}
             value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            onChange={(e) => {
+              setFormData({ ...formData, name: e.target.value });
+              if (validationErrors.name) {
+                setValidationErrors({ ...validationErrors, name: "" });
+              }
+            }}
             required
           />
+          {validationErrors.name && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.name}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">
@@ -481,13 +630,33 @@ function AddCustomerModal({
           </label>
           <input
             type="email"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.contact ? 'input-error' : ''}`}
             value={formData.contact}
-            onChange={(e) =>
-              setFormData({ ...formData, contact: e.target.value })
-            }
+            onChange={async (e) => {
+              setFormData({ ...formData, contact: e.target.value });
+              if (validationErrors.contact) {
+                setValidationErrors({ ...validationErrors, contact: "" });
+              }
+            }}
+            onBlur={async () => {
+              const { validateEmail, validateRequired } = await import("@/lib/utils/form-validation");
+              const requiredResult = validateRequired(formData.contact, "Contact Email");
+              if (!requiredResult.valid) {
+                setValidationErrors({ ...validationErrors, contact: requiredResult.error || "" });
+              } else {
+                const emailResult = validateEmail(formData.contact);
+                if (!emailResult.valid) {
+                  setValidationErrors({ ...validationErrors, contact: emailResult.error || "" });
+                }
+              }
+            }}
             required
           />
+          {validationErrors.contact && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.contact}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">
@@ -495,12 +664,28 @@ function AddCustomerModal({
           </label>
           <input
             type="tel"
-            className="input input-bordered w-full"
+            className={`input input-bordered w-full ${validationErrors.phone ? 'input-error' : ''}`}
             value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
+            onChange={async (e) => {
+              setFormData({ ...formData, phone: e.target.value });
+              if (validationErrors.phone) {
+                setValidationErrors({ ...validationErrors, phone: "" });
+              }
+            }}
+            onBlur={async () => {
+              const { validatePhone } = await import("@/lib/utils/form-validation");
+              const result = validatePhone(formData.phone);
+              if (!result.valid) {
+                setValidationErrors({ ...validationErrors, phone: result.error || "" });
+              }
+            }}
+            placeholder="+94 77 123 4567 or 0771234567"
           />
+          {validationErrors.phone && (
+            <label className="label">
+              <span className="label-text-alt text-error">{validationErrors.phone}</span>
+            </label>
+          )}
         </div>
         <div className="form-control">
           <label className="label">
@@ -539,7 +724,7 @@ function CustomerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: (typeof customers)[0];
+  customer: CustomerDisplay;
 }) {
   return (
     <DetailModal
@@ -600,7 +785,7 @@ function CustomerEditModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  customer: (typeof customers)[0];
+  customer: CustomerDisplay;
 }) {
   const [formData, setFormData] = useState({
     name: customer.name,
@@ -609,11 +794,29 @@ function CustomerEditModal({
     status: customer.status,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update customer
-    console.log("Updating customer:", formData);
-    onClose();
+    
+    try {
+      const customerId = customer.originalId || customer.id;
+      const updateData: Partial<Customer> = {
+        name: formData.name,
+        email: formData.contact || undefined,
+        phone: formData.phone || undefined,
+        status: formData.status.toLowerCase(),
+      };
+
+      await customersApi.update(customerId, updateData);
+      showToast.success("Customer updated successfully");
+      onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCustomers'));
+      }
+    } catch (err) {
+      console.error("Failed to update customer:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update customer");
+    }
   };
 
   return (
@@ -702,7 +905,7 @@ function DeleteCustomerModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  customer: (typeof customers)[0];
+  customer: CustomerDisplay;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Customer" size="md">

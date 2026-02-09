@@ -3,6 +3,7 @@ package com.optiwms.coreapp.users;
 import com.optiwms.domain.users.User;
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,9 +16,11 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository repository;
+    private final PasswordEncoder passwordEncoder;
 
-    public UserService(UserRepository repository) {
+    public UserService(UserRepository repository, PasswordEncoder passwordEncoder) {
         this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public List<User> listAll() {
@@ -71,7 +74,12 @@ public class UserService {
         UserEntity entity = new UserEntity();
         entity.setUsername(user.getUsername());
         entity.setEmail(user.getEmail());
-        entity.setPasswordHash(user.getPasswordHash());
+        // Hash password if it's provided and not already hashed
+        if (user.getPasswordHash() != null && !user.getPasswordHash().startsWith("$2a$")) {
+            entity.setPasswordHash(passwordEncoder.encode(user.getPasswordHash()));
+        } else {
+            entity.setPasswordHash(user.getPasswordHash());
+        }
         entity.setEmployeeId(user.getEmployeeId());
         entity.setFirstName(user.getFirstName());
         entity.setLastName(user.getLastName());
@@ -81,6 +89,7 @@ public class UserService {
         entity.setAvatarUrl(user.getAvatarUrl());
         entity.setStatus(user.getStatus() != null ? user.getStatus() : "active");
         entity.setDeviceId(user.getDeviceId());
+        entity.setBlindReceivingMode(user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false);
 
         UserEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -98,7 +107,12 @@ public class UserService {
             entity.setEmail(user.getEmail());
         }
         if (user.getPasswordHash() != null) {
-            entity.setPasswordHash(user.getPasswordHash());
+            // Hash password if it's provided and not already hashed
+            if (!user.getPasswordHash().startsWith("$2a$")) {
+                entity.setPasswordHash(passwordEncoder.encode(user.getPasswordHash()));
+            } else {
+                entity.setPasswordHash(user.getPasswordHash());
+            }
         }
         if (user.getFirstName() != null) entity.setFirstName(user.getFirstName());
         if (user.getLastName() != null) entity.setLastName(user.getLastName());
@@ -108,6 +122,7 @@ public class UserService {
         if (user.getAvatarUrl() != null) entity.setAvatarUrl(user.getAvatarUrl());
         if (user.getStatus() != null) entity.setStatus(user.getStatus());
         if (user.getDeviceId() != null) entity.setDeviceId(user.getDeviceId());
+        if (user.getBlindReceivingMode() != null) entity.setBlindReceivingMode(user.getBlindReceivingMode());
 
         UserEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -141,6 +156,7 @@ public class UserService {
         u.setAvatarUrl(entity.getAvatarUrl());
         u.setStatus(entity.getStatus());
         u.setDeviceId(entity.getDeviceId());
+        u.setBlindReceivingMode(entity.getBlindReceivingMode() != null ? entity.getBlindReceivingMode() : false);
         u.setLastLoginAt(entity.getLastLoginAt());
         u.setCreatedAt(entity.getCreatedAt());
         u.setUpdatedAt(entity.getUpdatedAt());

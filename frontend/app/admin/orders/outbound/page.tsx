@@ -1,77 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { ordersApi, Order } from "@/lib/api/orders";
+import { customersApi, Customer } from "@/lib/api/customers";
+import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { materialsApi } from "@/lib/api/materials";
+import { inventoryApi } from "@/lib/api/inventory";
+import { showToast } from "@/lib/utils/toast";
 import clsx from "clsx";
+import { SORTED_COUNTRIES, getCountryByName } from "@/lib/utils/countries";
+import { validateEmail, validateRequired } from "@/lib/utils/form-validation";
 
-// Mock data - will be replaced with API calls
-const outboundOrders = [
-  {
-    id: "OO-1001",
-    orderNumber: "#56281",
-    customerName: "Acme Corp",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-15",
-    requiredDelivery: "2025-12-20",
-    priority: "high",
-    status: "picking",
-    totalItems: 12,
-    pickedItems: 5,
-  },
-  {
-    id: "OO-1002",
-    orderNumber: "#56282",
-    customerName: "Bright Retail",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-14",
-    requiredDelivery: "2025-12-19",
-    priority: "normal",
-    status: "picked",
-    totalItems: 8,
-    pickedItems: 8,
-  },
-  {
-    id: "OO-1003",
-    orderNumber: "#56283",
-    customerName: "Delta Mart",
-    warehouseName: "Warehouse 2",
-    orderDate: "2025-12-14",
-    requiredDelivery: "2025-12-18",
-    priority: "urgent",
-    status: "pending",
-    totalItems: 15,
-    pickedItems: 0,
-  },
-  {
-    id: "OO-1004",
-    orderNumber: "#56284",
-    customerName: "Echo Stores",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-13",
-    requiredDelivery: "2025-12-17",
-    priority: "normal",
-    status: "ready_to_ship",
-    totalItems: 5,
-    pickedItems: 5,
-  },
-  {
-    id: "OO-1005",
-    orderNumber: "#56285",
-    customerName: "Falcon Inc",
-    warehouseName: "Warehouse 1",
-    orderDate: "2025-12-15",
-    requiredDelivery: "2025-12-21",
-    priority: "low",
-    status: "shipped",
-    totalItems: 9,
-    pickedItems: 9,
-  },
-];
+// Display format for outbound orders
+interface OutboundOrderDisplay {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  warehouseName: string;
+  orderDate: string;
+  requiredDelivery: string;
+  priority: string;
+  status: string;
+  totalItems: number;
+  pickedItems: number;
+}
 
 const statusConfig = {
   pending: { label: "Pending", class: "badge-outline" },
@@ -95,18 +53,131 @@ export default function OutboundOrdersPage() {
   const { hasPermission } = useAdmin();
   const canCreate = hasPermission(ADMIN_ROUTES.ORDERS, "create");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<OutboundOrderDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  
+  // API state
+  const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
+  const [customers, setCustomers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Load orders, customers, and warehouses in parallel
+        const [ordersData, customersData, warehousesData] = await Promise.all([
+          ordersApi.getAllOutbound(),
+          customersApi.getAll(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Create lookup maps
+        const customersMap = new Map();
+        customersData.forEach((c) => {
+          customersMap.set(c.id, c.name);
+        });
+
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+
+        setCustomers(customersMap);
+        setWarehouses(warehousesMap);
+
+        // Fetch order items for all orders in parallel
+        const ordersWithItems = await Promise.all(
+          ordersData.map(async (order) => {
+            try {
+              const { orderItemsApi } = await import("@/lib/api/orderItems");
+              const orderItems = await orderItemsApi.getByOrderId(order.id);
+              const totalItems = orderItems.length;
+              // Calculate picked items (items with pickedQuantity > 0)
+              const pickedItems = orderItems.filter(
+                item => item.pickedQuantity > 0
+              ).length;
+              
+              return {
+                order,
+                totalItems,
+                pickedItems,
+              };
+            } catch (err) {
+              const isDev = process.env.NODE_ENV === 'development';
+              if (isDev) {
+                console.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
+              }
+              return {
+                order,
+                totalItems: 0,
+                pickedItems: 0,
+              };
+            }
+          })
+        );
+
+        // Transform orders to display format
+        const displayOrders: OutboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, pickedItems }) => {
+          const customerName = order.customerId ? customersMap.get(order.customerId) || "Unknown Customer" : "N/A";
+          const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
+          
+          // Map backend status to frontend status
+          let status = order.status;
+          if (status === "pending") status = "pending";
+          if (status === "processing") status = "picking";
+          if (status === "picked") status = "picked";
+          if (status === "packing") status = "packing";
+          if (status === "ready") status = "ready_to_ship";
+          if (status === "shipped") status = "shipped";
+          if (status === "delivered") status = "delivered";
+
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            customerName,
+            warehouseName,
+            orderDate: order.orderDate || new Date().toISOString().split("T")[0],
+            requiredDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
+            priority: order.priority || "normal",
+            status,
+            totalItems,
+            pickedItems,
+          };
+        });
+
+        setOrders(displayOrders);
+      } catch (err) {
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) {
+          console.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
+        }
+        setError("Failed to load outbound orders. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Calculate summary from orders
   const summary = {
-    totalOrders: 245,
-    pendingPicking: 18,
-    readyToShip: 12,
-    shippedToday: 35,
+    totalOrders: orders.length,
+    pendingPicking: orders.filter((o) => o.status === "pending" || o.status === "picking").length,
+    readyToShip: orders.filter((o) => o.status === "ready_to_ship").length,
+    shippedToday: orders.filter((o) => o.status === "shipped" || o.status === "delivered").length,
   };
 
-  const filteredOrders = outboundOrders.filter((order) => {
+  const filteredOrders = orders.filter((order) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch = !query || (
       order.orderNumber.toLowerCase().includes(query) ||
@@ -152,11 +223,34 @@ export default function OutboundOrdersPage() {
     },
   ];
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-center h-64">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && orders.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="alert alert-error">
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const columns = [
     {
       key: "orderNumber",
       label: "Order Number",
-      render: (order: typeof outboundOrders[0]) => (
+      render: (order: OutboundOrderDisplay) => (
         <Link
           href={`/admin/orders/outbound/${order.id}`}
           className="font-semibold text-primary hover:underline"
@@ -191,8 +285,12 @@ export default function OutboundOrdersPage() {
     {
       key: "priority",
       label: "Priority",
-      render: (order: typeof outboundOrders[0]) => {
+      render: (order: OutboundOrderDisplay) => {
         const priority = priorityConfig[order.priority as keyof typeof priorityConfig];
+        if (!priority) {
+          // Fallback for unknown priority
+          return <span className="badge badge-outline">{order.priority || "normal"}</span>;
+        }
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (priority.class === "badge-outline") {
           return (
@@ -211,8 +309,12 @@ export default function OutboundOrdersPage() {
     {
       key: "status",
       label: "Status",
-      render: (order: typeof outboundOrders[0]) => {
+      render: (order: OutboundOrderDisplay) => {
         const status = statusConfig[order.status as keyof typeof statusConfig];
+        if (!status) {
+          // Fallback for unknown status
+          return <span className="badge badge-outline">{order.status}</span>;
+        }
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (status.class === "badge-outline") {
           return (
@@ -231,7 +333,7 @@ export default function OutboundOrdersPage() {
     {
       key: "items",
       label: "Items",
-      render: (order: typeof outboundOrders[0]) => (
+      render: (order: OutboundOrderDisplay) => (
         <div className="flex items-center gap-2">
           <span>{order.pickedItems}/{order.totalItems}</span>
           <div className="w-16 bg-base-300 rounded-full h-2">
@@ -247,7 +349,12 @@ export default function OutboundOrdersPage() {
     },
   ];
 
-  const renderActions = (order: typeof outboundOrders[0]) => (
+  const handleEditOrder = (order: OutboundOrderDisplay) => {
+    setEditingOrder(order);
+    setShowEditModal(true);
+  };
+
+  const renderActions = (order: OutboundOrderDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -263,12 +370,20 @@ export default function OutboundOrdersPage() {
           </Link>
         </li>
         {order.status === "pending" && (
-          <li>
-            <button>
-              <span className="material-symbols-outlined text-sm">person_add</span>
-              Assign Picker
-            </button>
-          </li>
+          <>
+            <li>
+              <button onClick={() => handleEditOrder(order)}>
+                <span className="material-symbols-outlined text-sm">edit</span>
+                Edit Order
+              </button>
+            </li>
+            <li>
+              <button>
+                <span className="material-symbols-outlined text-sm">person_add</span>
+                Assign Picker
+              </button>
+            </li>
+          </>
         )}
         {order.status === "picked" && (
           <li>
@@ -293,12 +408,58 @@ export default function OutboundOrdersPage() {
           </button>
         </li>
         {order.status === "pending" && (
-          <li>
-            <button className="text-error">
-              <span className="material-symbols-outlined text-sm">cancel</span>
-              Cancel Order
-            </button>
-          </li>
+          <>
+            <li>
+              <button 
+                className="text-error"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (confirm(`Are you sure you want to cancel order ${order.orderNumber}?`)) {
+                    try {
+                      await ordersApi.cancel(order.id);
+                      showToast.success("Order cancelled successfully");
+                      // Reload orders
+                      window.location.reload();
+                    } catch (err) {
+                      const isDev = process.env.NODE_ENV === 'development';
+                      if (isDev) {
+                        console.error("Failed to cancel order:", err instanceof Error ? err.message : 'Unknown error');
+                      }
+                      showToast.error("Failed to cancel order. Please try again.");
+                    }
+                  }
+                }}
+              >
+                <span className="material-symbols-outlined text-sm">cancel</span>
+                Cancel Order
+              </button>
+            </li>
+            <li>
+              <button 
+                className="text-error"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  if (confirm(`Are you sure you want to delete order ${order.orderNumber}? This action cannot be undone.`)) {
+                    try {
+                      await ordersApi.delete(order.id);
+                      showToast.success("Order deleted successfully");
+                      // Reload orders
+                      window.location.reload();
+                    } catch (err) {
+                      const isDev = process.env.NODE_ENV === 'development';
+                      if (isDev) {
+                        console.error("Failed to delete order:", err instanceof Error ? err.message : 'Unknown error');
+                      }
+                      showToast.error("Failed to delete order. Please try again.");
+                    }
+                  }
+                }}
+              >
+                <span className="material-symbols-outlined text-sm">delete</span>
+                Delete Order
+              </button>
+            </li>
+          </>
         )}
       </ul>
     </div>
@@ -313,6 +474,13 @@ export default function OutboundOrdersPage() {
           <p className="text-sm text-base-content/60 mt-1">Manage customer orders and fulfillment</p>
         </div>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <input
               type="text"
@@ -346,6 +514,9 @@ export default function OutboundOrdersPage() {
               </li>
               <li>
                 <button onClick={() => setStatusFilter("shipped")}>Shipped</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
               </li>
               <li className="menu-title mt-2">Priority</li>
               <li>
@@ -395,22 +566,44 @@ export default function OutboundOrdersPage() {
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
       />
+      
+      {/* Edit Outbound Order Modal */}
+      {editingOrder && (
+        <CreateOutboundOrderModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingOrder(null);
+          }}
+          editingOrder={editingOrder}
+        />
+      )}
     </div>
   );
 }
 
 // Multi-step Create Outbound Order Modal
-function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function CreateOutboundOrderModal({ 
+  isOpen, 
+  onClose,
+  editingOrder 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void;
+  editingOrder?: OutboundOrderDisplay | null;
+}) {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
     customerName: "",
     customerEmail: "",
     customerPhone: "",
-    deliveryAddress: "",
+    deliveryAddressLine1: "",
+    deliveryAddressLine2: "",
     deliveryCity: "",
     deliveryState: "",
     deliveryCountry: "",
     deliveryPostalCode: "",
+    customCountry: "",
     warehouseId: "",
     requiredDeliveryDate: "",
     priority: "normal",
@@ -421,29 +614,344 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
       orderQuantity: number;
     }>,
   });
+  
+  // Validation errors
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   const steps = ["Customer Details", "Order Details", "Add Items", "Review & Confirm"];
 
-  const handleSubmit = () => {
-    // TODO: API call to create outbound order
-    console.log("Creating outbound order:", formData);
-    onClose();
-    setStep(1);
-    setFormData({
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [customersData, warehousesData, materialsData] = await Promise.all([
+          customersApi.getAll(),
+          warehousesApi.getAll(),
+          materialsApi.getAll(),
+        ]);
+        setCustomers(customersData);
+        setWarehouses(warehousesData);
+        setMaterials(materialsData);
+      } catch (err) {
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) {
+          console.error("Failed to load data:", err instanceof Error ? err.message : 'Unknown error');
+        }
+      }
+    };
+    loadData();
+  }, []);
+
+  // Load order data when editing
+  useEffect(() => {
+    if (editingOrder && isOpen) {
+      const loadOrderData = async () => {
+        try {
+          const order = await ordersApi.getById(editingOrder.id);
+          const { orderItemsApi } = await import("@/lib/api/orderItems");
+          const items = await orderItemsApi.getByOrderId(editingOrder.id);
+          
+          // Load customer if exists
+          let customerName = "";
+          let customerEmail = "";
+          let customerPhone = "";
+          let deliveryAddressLine1 = "";
+          let deliveryAddressLine2 = "";
+          let deliveryCity = "";
+          let deliveryState = "";
+          let deliveryCountry = "";
+          let deliveryPostalCode = "";
+          
+          if (order.customerId) {
+            try {
+              const customer = await customersApi.getById(order.customerId);
+              customerName = customer.name;
+              customerEmail = customer.email || "";
+              customerPhone = customer.phone || "";
+              
+              // Parse address (assuming format: "Line1\nLine2" or just "Line1")
+              const addressParts = (customer.address || "").split("\n");
+              deliveryAddressLine1 = addressParts[0] || "";
+              deliveryAddressLine2 = addressParts[1] || "";
+              deliveryCity = customer.city || "";
+              deliveryState = customer.state || "";
+              deliveryCountry = customer.country || "";
+              deliveryPostalCode = customer.postalCode || "";
+            } catch (err) {
+              const isDev = process.env.NODE_ENV === 'development';
+              if (isDev) {
+                console.error("Failed to load customer:", err instanceof Error ? err.message : 'Unknown error');
+              }
+            }
+          }
+          
+          // Load order items with available quantities
+          const orderItems = await Promise.all(
+            items.map(async (item) => {
+              let availableQuantity = 0;
+              if (item.materialId && order.warehouseId) {
+                try {
+                  const inventoryItem = await inventoryApi.getByMaterialAndWarehouse(
+                    item.materialId,
+                    order.warehouseId
+                  );
+                  availableQuantity = inventoryItem
+                    ? parseInt(inventoryItem.availableQuantity) || 0
+                    : 0;
+                } catch (err) {
+                  const isDev = process.env.NODE_ENV === 'development';
+                  if (isDev) {
+                    console.error("Failed to fetch available quantity:", err instanceof Error ? err.message : 'Unknown error');
+                  }
+                }
+              }
+              
+              return {
+                productId: item.materialId,
+                availableQuantity,
+                orderQuantity: item.quantity,
+              };
+            })
+          );
+          
+          setFormData({
+            customerName,
+            customerEmail,
+            customerPhone,
+            deliveryAddressLine1,
+            deliveryAddressLine2,
+            deliveryCity,
+            deliveryState,
+            deliveryCountry,
+            deliveryPostalCode,
+            customCountry: "",
+            warehouseId: order.warehouseId,
+            requiredDeliveryDate: order.expectedDate || "",
+            priority: order.priority || "normal",
+            notes: order.notes || "",
+            items: orderItems,
+          });
+        } catch (err) {
+          const isDev = process.env.NODE_ENV === 'development';
+          if (isDev) {
+            console.error("Failed to load order data:", err instanceof Error ? err.message : 'Unknown error');
+          }
+          showToast.error("Failed to load order data");
+        }
+      };
+      loadOrderData();
+    } else if (!editingOrder && isOpen) {
+      // Reset form when creating new order
+      setFormData({
+        customerName: "",
+        customerEmail: "",
+        customerPhone: "",
+        deliveryAddressLine1: "",
+        deliveryAddressLine2: "",
+        deliveryCity: "",
+        deliveryState: "",
+        deliveryCountry: "",
+        deliveryPostalCode: "",
+        customCountry: "",
+        warehouseId: "",
+        requiredDeliveryDate: "",
+        priority: "normal",
+        notes: "",
+        items: [],
+      });
+      setValidationErrors({});
+      setStep(1);
+    }
+  }, [editingOrder, isOpen]);
+
+  const handleSubmit = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+
+      // Validate required fields with country-specific validation
+      const { validateEmail, validateRequired, validatePhone, validatePostalCode } = await import("@/lib/utils/form-validation");
+      const { getCountryCodeFromName } = await import("@/lib/utils/countries");
+      
+      const errors: Record<string, string> = {};
+      const nameResult = validateRequired(formData.customerName, "Customer Name");
+      if (!nameResult.valid) errors.customerName = nameResult.error || "";
+      
+      const emailResult = validateEmail(formData.customerEmail);
+      if (!emailResult.valid) errors.customerEmail = emailResult.error || "";
+      
+      const countryValue = formData.deliveryCountry === "CUSTOM" ? formData.customCountry : formData.deliveryCountry;
+      const countryCode = getCountryCodeFromName(countryValue);
+      
+      const phoneResult = await validatePhone(formData.customerPhone, countryCode);
+      if (!phoneResult.valid) errors.customerPhone = phoneResult.error || "";
+      
+      const addressResult = validateRequired(formData.deliveryAddressLine1, "Address Line 1");
+      if (!addressResult.valid) errors.deliveryAddressLine1 = addressResult.error || "";
+      
+      const cityResult = validateRequired(formData.deliveryCity, "City");
+      if (!cityResult.valid) errors.deliveryCity = cityResult.error || "";
+      
+      const countryResult = validateRequired(countryValue, "Country");
+      if (!countryResult.valid) errors.deliveryCountry = countryResult.error || "";
+      
+      const postalResult = await validatePostalCode(formData.deliveryPostalCode, countryCode);
+      if (!postalResult.valid) errors.deliveryPostalCode = postalResult.error || "";
+      
+      if (!formData.warehouseId || !formData.requiredDeliveryDate) {
+        setError("Please fill in all required fields.");
+        return;
+      }
+      
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        setError("Please fix the validation errors before submitting.");
+        setStep(1); // Go back to step 1 to show errors
+        return;
+      }
+
+      // Find or create customer
+      let customerId = customers.find((c) => c.name === formData.customerName)?.id;
+      if (!customerId) {
+        // Create new customer
+        const newCustomer = await customersApi.create({
+          name: formData.customerName,
+          email: formData.customerEmail || undefined,
+          phone: formData.customerPhone || undefined,
+          address: formData.deliveryAddressLine1 + (formData.deliveryAddressLine2 ? `\n${formData.deliveryAddressLine2}` : ""),
+          city: formData.deliveryCity,
+          country: formData.deliveryCountry || formData.customCountry,
+          status: "active",
+        });
+        customerId = newCustomer.id;
+      }
+
+      // Validate items
+      if (formData.items.length === 0) {
+        setError("Please add at least one item to the order.");
+        return;
+      }
+
+      // Validate all items have product and quantity
+      const invalidItems = formData.items.filter(
+        item => !item.productId || item.orderQuantity <= 0
+      );
+      if (invalidItems.length > 0) {
+        setError("Please ensure all items have a product selected and quantity greater than 0.");
+        return;
+      }
+
+      // Validate that order quantities don't exceed available stock
+      for (const item of formData.items) {
+        if (item.orderQuantity > item.availableQuantity) {
+          setError(`Order quantity (${item.orderQuantity}) exceeds available stock (${item.availableQuantity}) for one or more items.`);
+          setStep(3); // Go back to items step
+          return;
+        }
+      }
+
+      // Generate order number with OUT- prefix (only for new orders)
+      let orderNumber: string;
+      let orderId: string;
+      
+      if (editingOrder) {
+        // Update existing order
+        orderId = editingOrder.id;
+        orderNumber = editingOrder.orderNumber; // Keep existing order number
+        
+        await ordersApi.update(orderId, {
+          customerId,
+          warehouseId: formData.warehouseId,
+          expectedDate: formData.requiredDeliveryDate,
+          priority: formData.priority,
+          notes: formData.notes || undefined,
+        });
+      } else {
+        // Create new order
+        const timestamp = Date.now();
+        orderNumber = `OUT-${String(timestamp).padStart(15, '0')}`;
+        
+        const createdOrder = await ordersApi.create({
+          orderNumber,
+          orderType: "outbound",
+          customerId,
+          warehouseId: formData.warehouseId,
+          expectedDate: formData.requiredDeliveryDate,
+          priority: formData.priority,
+          notes: formData.notes || undefined,
+          status: "pending",
+        });
+        orderId = createdOrder.id;
+      }
+
+      // Create or update order items
+      const { orderItemsApi } = await import("@/lib/api/orderItems");
+      try {
+        if (editingOrder) {
+          // Delete existing items and create new ones
+          const existingItems = await orderItemsApi.getByOrderId(orderId);
+          await Promise.all(
+            existingItems.map(item => orderItemsApi.delete(item.id))
+          );
+        }
+        
+        await Promise.all(
+          formData.items.map(item =>
+            orderItemsApi.create(orderId, {
+              materialId: item.productId,
+              quantity: item.orderQuantity,
+              locationCode: undefined, // Will be set during picking
+            })
+          )
+        );
+      } catch (itemError) {
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) {
+          console.error("Failed to save order items:", itemError instanceof Error ? itemError.message : 'Unknown error');
+        }
+        setError(editingOrder 
+          ? "Order updated but failed to update items. Please try again."
+          : "Order created but failed to add items. Please edit the order to add items.");
+        // Don't return - order was created/updated, just show warning
+      }
+
+      showToast.success(editingOrder
+        ? `Outbound order updated successfully with ${formData.items.length} item(s)!`
+        : `Outbound order created successfully with ${formData.items.length} item(s)!`);
+      onClose();
+      setStep(1);
+      setFormData({
       customerName: "",
       customerEmail: "",
       customerPhone: "",
-      deliveryAddress: "",
+      deliveryAddressLine1: "",
+      deliveryAddressLine2: "",
       deliveryCity: "",
       deliveryState: "",
       deliveryCountry: "",
       deliveryPostalCode: "",
+      customCountry: "",
       warehouseId: "",
       requiredDeliveryDate: "",
       priority: "normal",
       notes: "",
       items: [],
     });
+    setValidationErrors({});
+    } catch (err) {
+      const isDev = process.env.NODE_ENV === 'development';
+      if (isDev) {
+        console.error("Failed to create outbound order:", err instanceof Error ? err.message : 'Unknown error');
+      }
+      setError("Failed to create order. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -459,52 +967,147 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
       {step === 1 && (
         <div className="space-y-4">
           <h3 className="text-lg font-semibold text-base-content mb-4">Customer Details</h3>
+          
+          {/* Customer Name */}
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Customer Name *</span>
             </label>
             <input
               type="text"
-              className="input input-bordered w-full"
+              className={`input input-bordered w-full ${validationErrors.customerName ? 'input-error' : ''}`}
               value={formData.customerName}
-              onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+              onChange={(e) => {
+                setFormData({ ...formData, customerName: e.target.value });
+                if (validationErrors.customerName) {
+                  setValidationErrors({ ...validationErrors, customerName: "" });
+                }
+              }}
+              onBlur={() => {
+                const result = validateRequired(formData.customerName, "Customer Name");
+                if (!result.valid) {
+                  setValidationErrors({ ...validationErrors, customerName: result.error || "" });
+                }
+              }}
               required
             />
+            {validationErrors.customerName && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.customerName}</span>
+              </label>
+            )}
           </div>
+
+          {/* Customer Email */}
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Customer Email</span>
             </label>
             <input
               type="email"
-              className="input input-bordered w-full"
+              className={`input input-bordered w-full ${validationErrors.customerEmail ? 'input-error' : ''}`}
               value={formData.customerEmail}
-              onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
+              onChange={(e) => {
+                setFormData({ ...formData, customerEmail: e.target.value });
+                if (validationErrors.customerEmail) {
+                  setValidationErrors({ ...validationErrors, customerEmail: "" });
+                }
+              }}
+              onBlur={() => {
+                const result = validateEmail(formData.customerEmail);
+                if (!result.valid) {
+                  setValidationErrors({ ...validationErrors, customerEmail: result.error || "" });
+                }
+              }}
             />
+            {validationErrors.customerEmail && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.customerEmail}</span>
+              </label>
+            )}
           </div>
+
+          {/* Customer Phone */}
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Customer Phone</span>
             </label>
             <input
               type="tel"
-              className="input input-bordered w-full"
+              className={`input input-bordered w-full ${validationErrors.customerPhone ? 'input-error' : ''}`}
               value={formData.customerPhone}
-              onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+              onChange={(e) => {
+                setFormData({ ...formData, customerPhone: e.target.value });
+                if (validationErrors.customerPhone) {
+                  setValidationErrors({ ...validationErrors, customerPhone: "" });
+                }
+              }}
+              onBlur={async () => {
+                const { validatePhone } = await import("@/lib/utils/form-validation");
+                const { getCountryCodeFromName } = await import("@/lib/utils/countries");
+                
+                const countryValue = formData.deliveryCountry === "CUSTOM" ? formData.customCountry : formData.deliveryCountry;
+                const countryCode = getCountryCodeFromName(countryValue);
+                const result = await validatePhone(formData.customerPhone, countryCode);
+                
+                if (!result.valid) {
+                  setValidationErrors({ ...validationErrors, customerPhone: result.error || "" });
+                }
+              }}
+              placeholder="+94 77 123 4567 or 0771234567"
             />
+            {validationErrors.customerPhone && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.customerPhone}</span>
+              </label>
+            )}
           </div>
+
+          {/* Delivery Address - Simplified to 2 lines */}
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Delivery Address *</span>
+              <span className="label-text font-medium">Delivery Address Line 1 *</span>
             </label>
-            <textarea
-              className="textarea textarea-bordered w-full"
-              rows={2}
-              value={formData.deliveryAddress}
-              onChange={(e) => setFormData({ ...formData, deliveryAddress: e.target.value })}
+            <input
+              type="text"
+              className={`input input-bordered w-full ${validationErrors.deliveryAddressLine1 ? 'input-error' : ''}`}
+              value={formData.deliveryAddressLine1}
+              onChange={(e) => {
+                setFormData({ ...formData, deliveryAddressLine1: e.target.value });
+                if (validationErrors.deliveryAddressLine1) {
+                  setValidationErrors({ ...validationErrors, deliveryAddressLine1: "" });
+                }
+              }}
+              onBlur={() => {
+                const result = validateRequired(formData.deliveryAddressLine1, "Address Line 1");
+                if (!result.valid) {
+                  setValidationErrors({ ...validationErrors, deliveryAddressLine1: result.error || "" });
+                }
+              }}
+              placeholder="Street address, building number"
               required
             />
+            {validationErrors.deliveryAddressLine1 && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.deliveryAddressLine1}</span>
+              </label>
+            )}
           </div>
+
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Delivery Address Line 2 (Optional)</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.deliveryAddressLine2}
+              onChange={(e) => setFormData({ ...formData, deliveryAddressLine2: e.target.value })}
+              placeholder="Apartment, suite, unit, building, floor, etc."
+            />
+          </div>
+
+          {/* City, State, Country - Auto-filled or manual entry */}
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
               <label className="label">
@@ -512,11 +1115,27 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
               </label>
               <input
                 type="text"
-                className="input input-bordered w-full"
+                className={`input input-bordered w-full ${validationErrors.deliveryCity ? 'input-error' : ''}`}
                 value={formData.deliveryCity}
-                onChange={(e) => setFormData({ ...formData, deliveryCity: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, deliveryCity: e.target.value });
+                  if (validationErrors.deliveryCity) {
+                    setValidationErrors({ ...validationErrors, deliveryCity: "" });
+                  }
+                }}
+                onBlur={() => {
+                  const result = validateRequired(formData.deliveryCity, "City");
+                  if (!result.valid) {
+                    setValidationErrors({ ...validationErrors, deliveryCity: result.error || "" });
+                  }
+                }}
                 required
               />
+              {validationErrors.deliveryCity && (
+                <label className="label">
+                  <span className="label-text-alt text-error">{validationErrors.deliveryCity}</span>
+                </label>
+              )}
             </div>
             <div className="form-control">
               <label className="label">
@@ -527,43 +1146,143 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
                 className="input input-bordered w-full"
                 value={formData.deliveryState}
                 onChange={(e) => setFormData({ ...formData, deliveryState: e.target.value })}
+                placeholder="Optional"
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Country *</span>
-              </label>
-              <select
-                className="select select-bordered w-full"
-                value={formData.deliveryCountry}
-                onChange={(e) => setFormData({ ...formData, deliveryCountry: e.target.value })}
-                required
-              >
-                <option value="">Select country</option>
-                <option value="US">United States</option>
-                <option value="UK">United Kingdom</option>
-                <option value="CA">Canada</option>
-              </select>
-            </div>
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Postal Code</span>
-              </label>
+
+          {/* Country with custom entry option */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Country *</span>
+            </label>
+            <select
+              className={`select select-bordered w-full ${validationErrors.deliveryCountry ? 'select-error' : ''}`}
+              value={formData.deliveryCountry}
+              onChange={(e) => {
+                setFormData({ 
+                  ...formData, 
+                  deliveryCountry: e.target.value,
+                  customCountry: e.target.value === "CUSTOM" ? formData.customCountry : ""
+                });
+                if (validationErrors.deliveryCountry) {
+                  setValidationErrors({ ...validationErrors, deliveryCountry: "" });
+                }
+              }}
+              required
+            >
+              <option value="">Select country</option>
+              {SORTED_COUNTRIES.map((country) => (
+                <option key={country.code} value={country.name}>
+                  {country.name}
+                </option>
+              ))}
+              <option value="CUSTOM">Other (Enter custom country)</option>
+            </select>
+            {formData.deliveryCountry === "CUSTOM" && (
               <input
                 type="text"
-                className="input input-bordered w-full"
-                value={formData.deliveryPostalCode}
-                onChange={(e) => setFormData({ ...formData, deliveryPostalCode: e.target.value })}
+                className="input input-bordered w-full mt-2"
+                value={formData.customCountry}
+                onChange={(e) => setFormData({ ...formData, customCountry: e.target.value })}
+                placeholder="Enter country name"
+                onBlur={() => {
+                  const result = validateRequired(formData.customCountry, "Country");
+                  if (!result.valid) {
+                    setValidationErrors({ ...validationErrors, deliveryCountry: result.error || "" });
+                  }
+                }}
               />
-            </div>
+            )}
+            {validationErrors.deliveryCountry && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.deliveryCountry}</span>
+              </label>
+            )}
           </div>
+
+          {/* Postal Code */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Postal Code</span>
+            </label>
+            <input
+              type="text"
+              className={`input input-bordered w-full ${validationErrors.deliveryPostalCode ? 'input-error' : ''}`}
+              value={formData.deliveryPostalCode}
+              onChange={(e) => {
+                setFormData({ ...formData, deliveryPostalCode: e.target.value });
+                if (validationErrors.deliveryPostalCode) {
+                  setValidationErrors({ ...validationErrors, deliveryPostalCode: "" });
+                }
+              }}
+              onBlur={async () => {
+                const { validatePostalCode } = await import("@/lib/utils/form-validation");
+                const { getCountryCodeFromName } = await import("@/lib/utils/countries");
+                
+                const countryValue = formData.deliveryCountry === "CUSTOM" ? formData.customCountry : formData.deliveryCountry;
+                const countryCode = getCountryCodeFromName(countryValue);
+                const result = await validatePostalCode(formData.deliveryPostalCode, countryCode);
+                
+                if (!result.valid) {
+                  setValidationErrors({ ...validationErrors, deliveryPostalCode: result.error || "" });
+                }
+              }}
+              placeholder="Optional"
+            />
+            {validationErrors.deliveryPostalCode && (
+              <label className="label">
+                <span className="label-text-alt text-error">{validationErrors.deliveryPostalCode}</span>
+              </label>
+            )}
+          </div>
+
           <div className="flex justify-end gap-3 pt-4">
             <button className="btn btn-ghost" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={() => setStep(2)}>
+            <button 
+              className="btn btn-primary" 
+              onClick={async () => {
+                // Validate before proceeding
+                const { validateEmail, validateRequired, validatePhone, validatePostalCode } = await import("@/lib/utils/form-validation");
+                const { getCountryCodeFromName } = await import("@/lib/utils/countries");
+                
+                const errors: Record<string, string> = {};
+                const nameResult = validateRequired(formData.customerName, "Customer Name");
+                if (!nameResult.valid) errors.customerName = nameResult.error || "";
+                
+                const emailResult = validateEmail(formData.customerEmail);
+                if (!emailResult.valid) errors.customerEmail = emailResult.error || "";
+                
+                const countryValue = formData.deliveryCountry === "CUSTOM" ? formData.customCountry : formData.deliveryCountry;
+                const countryCode = getCountryCodeFromName(countryValue);
+                
+                const phoneResult = await validatePhone(formData.customerPhone, countryCode);
+                if (!phoneResult.valid) errors.customerPhone = phoneResult.error || "";
+                
+                const addressResult = validateRequired(formData.deliveryAddressLine1, "Address Line 1");
+                if (!addressResult.valid) errors.deliveryAddressLine1 = addressResult.error || "";
+                
+                const cityResult = validateRequired(formData.deliveryCity, "City");
+                if (!cityResult.valid) errors.deliveryCity = cityResult.error || "";
+                
+                const countryResult = validateRequired(countryValue, "Country");
+                if (!countryResult.valid) errors.deliveryCountry = countryResult.error || "";
+                
+                const postalResult = await validatePostalCode(formData.deliveryPostalCode, countryCode);
+                if (!postalResult.valid) errors.deliveryPostalCode = postalResult.error || "";
+                
+                if (Object.keys(errors).length > 0) {
+                  setValidationErrors(errors);
+                  showToast.error("Please fix the validation errors before proceeding");
+                  return;
+                }
+                
+                setValidationErrors({});
+                setStep(2);
+              }}
+            >
               Next
             </button>
           </div>
@@ -578,16 +1297,53 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
             <label className="label">
               <span className="label-text font-medium">Warehouse *</span>
             </label>
-            <select
-              className="select select-bordered w-full"
-              value={formData.warehouseId}
-              onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
-              required
-            >
-              <option value="">Select warehouse</option>
-              <option value="wh-1">Warehouse 1</option>
-              <option value="wh-2">Warehouse 2</option>
-            </select>
+              <select
+                className="select select-bordered w-full"
+                value={formData.warehouseId}
+                onChange={async (e) => {
+                  const newWarehouseId = e.target.value;
+                  setFormData({ ...formData, warehouseId: newWarehouseId });
+                  
+                  // Refetch available quantities for all items when warehouse changes
+                  if (newWarehouseId && formData.items.length > 0) {
+                    const newItems = [...formData.items];
+                    const isDev = process.env.NODE_ENV === 'development';
+                    
+                    for (let i = 0; i < newItems.length; i++) {
+                      if (newItems[i].productId) {
+                        try {
+                          // Use combined endpoint to get inventory for material + warehouse
+                          const inventoryItem = await inventoryApi.getByMaterialAndWarehouse(
+                            newItems[i].productId,
+                            newWarehouseId
+                          );
+                          newItems[i].availableQuantity = inventoryItem 
+                            ? parseInt(inventoryItem.availableQuantity) || 0
+                            : 0;
+                          // Reset order quantity if it exceeds new available quantity
+                          if (newItems[i].orderQuantity > newItems[i].availableQuantity) {
+                            newItems[i].orderQuantity = newItems[i].availableQuantity;
+                          }
+                        } catch (err: any) {
+                          if (isDev) {
+                            console.error(`[Outbound Order] Failed to fetch available quantity for item ${i}`);
+                          }
+                          newItems[i].availableQuantity = 0;
+                        }
+                      }
+                    }
+                    setFormData({ ...formData, warehouseId: newWarehouseId, items: newItems });
+                  }
+                }}
+                required
+              >
+                <option value="">Select warehouse</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
           </div>
           <div className="form-control">
             <label className="label">
@@ -633,7 +1389,21 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
             <button className="btn btn-ghost" onClick={() => setStep(1)}>
               Back
             </button>
-            <button className="btn btn-primary" onClick={() => setStep(3)}>
+            <button 
+              className="btn btn-primary" 
+              onClick={() => {
+                if (!formData.warehouseId) {
+                  try {
+                    showToast.error("Please select a warehouse before adding items");
+                  } catch (toastErr) {
+                    console.error("[Outbound Order] Toast error:", toastErr);
+                    alert("Please select a warehouse before adding items");
+                  }
+                  return;
+                }
+                setStep(3);
+              }}
+            >
               Next
             </button>
           </div>
@@ -643,7 +1413,21 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
       {/* Step 3: Add Items */}
       {step === 3 && (
         <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-base-content mb-4">Add Items</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-base-content">Add Items</h3>
+            {formData.warehouseId && (
+              <div className="badge badge-info badge-lg">
+                <span className="material-symbols-outlined text-sm mr-1">warehouse</span>
+                Warehouse: {warehouses.find(w => w.id === formData.warehouseId)?.name || "Unknown"}
+              </div>
+            )}
+          </div>
+          {!formData.warehouseId && (
+            <div className="alert alert-warning">
+              <span className="material-symbols-outlined">warning</span>
+              <span>No warehouse selected. Please go back to Step 2 and select a warehouse.</span>
+            </div>
+          )}
           <div className="space-y-4">
             {formData.items.map((item, idx) => (
               <div key={idx} className="card bg-base-200 p-4 rounded-lg">
@@ -667,19 +1451,76 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
                     <select
                       className="select select-bordered select-sm"
                       value={item.productId}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const newItems = [...formData.items];
                         newItems[idx].productId = e.target.value;
-                        // TODO: Fetch available quantity from API
-                        newItems[idx].availableQuantity = 100;
+                        newItems[idx].orderQuantity = 0; // Reset quantity when product changes
+                        
+                        // Fetch available quantity from inventory API
+                        if (e.target.value && formData.warehouseId) {
+                          try {
+                            const isDev = process.env.NODE_ENV === 'development';
+                            
+                            // Use combined endpoint to get inventory for material + warehouse
+                            const inventoryItem = await inventoryApi.getByMaterialAndWarehouse(
+                              e.target.value,
+                              formData.warehouseId
+                            );
+                            
+                            if (inventoryItem) {
+                              const availableQty = parseInt(inventoryItem.availableQuantity) || 0;
+                              newItems[idx].availableQuantity = availableQty;
+                              
+                              if (availableQty === 0) {
+                                try {
+                                  showToast.warning(`No available stock for this product in selected warehouse`);
+                                } catch (toastErr) {
+                                  if (isDev) console.error("[Outbound Order] Toast error");
+                                }
+                              }
+                            } else {
+                              newItems[idx].availableQuantity = 0;
+                              try {
+                                showToast.warning(`No inventory found for this product in selected warehouse`);
+                              } catch (toastErr) {
+                                if (isDev) console.error("[Outbound Order] Toast error");
+                              }
+                            }
+                          } catch (err: any) {
+                            const isDev = process.env.NODE_ENV === 'development';
+                            if (isDev) {
+                              console.error("[Outbound Order] Failed to fetch available quantity:", err?.message || 'Unknown error');
+                            }
+                            newItems[idx].availableQuantity = 0;
+                            try {
+                              showToast.error(`Failed to fetch available quantity. Please try again.`);
+                            } catch (toastErr) {
+                              if (isDev) console.error("[Outbound Order] Toast error");
+                            }
+                          }
+                        } else if (e.target.value && !formData.warehouseId) {
+                          // Warehouse not selected yet
+                          newItems[idx].availableQuantity = 0;
+                          try {
+                            showToast.warning("Please select a warehouse first to see available quantity");
+                          } catch (toastErr) {
+                            const isDev = process.env.NODE_ENV === 'development';
+                            if (isDev) console.error("[Outbound Order] Toast error");
+                          }
+                        } else {
+                          newItems[idx].availableQuantity = 0;
+                        }
+                        
                         setFormData({ ...formData, items: newItems });
                       }}
                       required
                     >
-                      <option value="">Select product</option>
-                      <option value="prod-1">Wireless Earbuds (Available: 50)</option>
-                      <option value="prod-2">Smart Projector (Available: 30)</option>
-                      <option value="prod-3">Remote Control (Available: 100)</option>
+                      <option value="">Select material</option>
+                      {materials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.description}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="form-control">
@@ -699,18 +1540,44 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
                     </label>
                     <input
                       type="number"
-                      className="input input-bordered input-sm"
+                      className={`input input-bordered input-sm ${
+                        item.orderQuantity > item.availableQuantity ? 'input-error' : ''
+                      }`}
                       value={item.orderQuantity}
                       onChange={(e) => {
                         const newItems = [...formData.items];
                         const qty = parseInt(e.target.value) || 0;
-                        newItems[idx].orderQuantity = Math.min(qty, item.availableQuantity);
+                        
+                        // Block if quantity exceeds available stock
+                        if (qty > item.availableQuantity) {
+                          showToast.error(`Cannot order more than available stock (${item.availableQuantity})`);
+                          newItems[idx].orderQuantity = item.availableQuantity;
+                        } else {
+                          newItems[idx].orderQuantity = qty;
+                        }
+                        
                         setFormData({ ...formData, items: newItems });
+                      }}
+                      onBlur={(e) => {
+                        const newItems = [...formData.items];
+                        const qty = parseInt(e.target.value) || 0;
+                        if (qty > item.availableQuantity) {
+                          showToast.error(`Cannot order more than available stock (${item.availableQuantity})`);
+                          newItems[idx].orderQuantity = item.availableQuantity;
+                          setFormData({ ...formData, items: newItems });
+                        }
                       }}
                       required
                       min="1"
                       max={item.availableQuantity}
                     />
+                    {item.orderQuantity > item.availableQuantity && (
+                      <label className="label">
+                        <span className="label-text-alt text-error">
+                          Available: {item.availableQuantity}. Cannot exceed available stock.
+                        </span>
+                      </label>
+                    )}
                   </div>
                 </div>
               </div>
@@ -755,9 +1622,38 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
               <span className="text-base-content/60">Customer:</span>
               <span className="font-semibold">{formData.customerName}</span>
             </div>
+            {formData.customerEmail && (
+              <div className="flex justify-between">
+                <span className="text-base-content/60">Email:</span>
+                <span className="font-semibold">{formData.customerEmail}</span>
+              </div>
+            )}
+            {formData.customerPhone && (
+              <div className="flex justify-between">
+                <span className="text-base-content/60">Phone:</span>
+                <span className="font-semibold">{formData.customerPhone}</span>
+              </div>
+            )}
+            <div className="flex justify-between items-start">
+              <span className="text-base-content/60">Delivery Address:</span>
+              <div className="text-right">
+                <div className="font-semibold">{formData.deliveryAddressLine1}</div>
+                {formData.deliveryAddressLine2 && (
+                  <div className="font-semibold">{formData.deliveryAddressLine2}</div>
+                )}
+                <div className="text-sm text-base-content/60">
+                  {formData.deliveryCity}
+                  {formData.deliveryState && `, ${formData.deliveryState}`}
+                  {formData.deliveryPostalCode && ` ${formData.deliveryPostalCode}`}
+                </div>
+                <div className="text-sm text-base-content/60">
+                  {formData.deliveryCountry === "CUSTOM" ? formData.customCountry : formData.deliveryCountry}
+                </div>
+              </div>
+            </div>
             <div className="flex justify-between">
               <span className="text-base-content/60">Warehouse:</span>
-              <span className="font-semibold">Warehouse 1</span>
+              <span className="font-semibold">{warehouses.find(w => w.id === formData.warehouseId)?.name || "N/A"}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-base-content/60">Required Delivery:</span>
@@ -782,12 +1678,24 @@ function CreateOutboundOrderModal({ isOpen, onClose }: { isOpen: boolean; onClos
               </div>
             ))}
           </div>
+          {error && (
+            <div className="alert alert-error">
+              <span>{error}</span>
+            </div>
+          )}
           <div className="flex justify-end gap-3 pt-4">
-            <button className="btn btn-ghost" onClick={() => setStep(3)}>
+            <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting}>
               Back
             </button>
-            <button className="btn btn-primary" onClick={handleSubmit}>
-              Create Order
+            <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <span className="loading loading-spinner loading-sm"></span>
+                  Creating...
+                </>
+              ) : (
+                "Create Order"
+              )}
             </button>
           </div>
         </div>

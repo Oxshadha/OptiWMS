@@ -18,6 +18,7 @@ public class User extends BaseEntity {
     private String avatarUrl;
     private String status;
     private String deviceId;
+    private Boolean blindReceivingMode;
     private LocalDateTime lastLoginAt;
 
     // Getters and Setters
@@ -45,6 +46,8 @@ public class User extends BaseEntity {
     public void setStatus(String status) { this.status = status; }
     public String getDeviceId() { return deviceId; }
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
+    public Boolean getBlindReceivingMode() { return blindReceivingMode; }
+    public void setBlindReceivingMode(Boolean blindReceivingMode) { this.blindReceivingMode = blindReceivingMode; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
 }

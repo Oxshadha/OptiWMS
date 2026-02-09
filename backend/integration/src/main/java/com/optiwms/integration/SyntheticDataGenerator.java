@@ -1,11 +1,24 @@
 package com.optiwms.integration;
 
+import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.tasks.TaskService;
+import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.tasks.Task;
+import com.optiwms.infra.orders.OrderEntity;
+import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.*;
+import com.optiwms.infra.orders.OrderItemEntity;
+import com.optiwms.infra.orders.OrderItemRepository;
+import com.optiwms.infra.orders.OrderRepository;
+import com.optiwms.infra.users.UserEntity;
+import com.optiwms.infra.users.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -25,6 +38,27 @@ public class SyntheticDataGenerator {
 
     @Autowired
     private MaterialRepository materialRepository;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderItemRepository orderItemRepository;
+
+    @Autowired
+    private OrderService orderService;
+
+    @Autowired
+    private TaskService taskService;
+
+    @Autowired
+    private com.optiwms.infra.tasks.TaskRepository taskRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private InventoryItemRepository inventoryItemRepository;
 
     private final Random random = new Random();
 
@@ -63,8 +97,13 @@ public class SyntheticDataGenerator {
 
         // Generate Sri Lankan suppliers (40%)
         for (int i = 0; i < sriLankanCount; i++) {
+            String code = "SUP-LKA-" + String.format("%03d", i + 1);
+            // Check if code already exists, if so, add timestamp suffix
+            if (supplierRepository.findByCode(code).isPresent()) {
+                code = "SUP-LKA-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             SupplierEntity supplier = createSupplier(
-                "SUP-LKA-" + String.format("%03d", i + 1),
+                code,
                 "Sri Lanka",
                 "LKA",
                 "LKR",
@@ -77,8 +116,12 @@ public class SyntheticDataGenerator {
 
         // Generate Indian suppliers (20%)
         for (int i = 0; i < indiaCount; i++) {
+            String code = "SUP-IND-" + String.format("%03d", i + 1);
+            if (supplierRepository.findByCode(code).isPresent()) {
+                code = "SUP-IND-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             SupplierEntity supplier = createSupplier(
-                "SUP-IND-" + String.format("%03d", i + 1),
+                code,
                 "India",
                 "IND",
                 "INR",
@@ -91,8 +134,12 @@ public class SyntheticDataGenerator {
 
         // Generate Chinese suppliers (15%)
         for (int i = 0; i < chinaCount; i++) {
+            String code = "SUP-CHN-" + String.format("%03d", i + 1);
+            if (supplierRepository.findByCode(code).isPresent()) {
+                code = "SUP-CHN-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             SupplierEntity supplier = createSupplier(
-                "SUP-CHN-" + String.format("%03d", i + 1),
+                code,
                 "China",
                 "CHN",
                 "CNY",
@@ -106,8 +153,12 @@ public class SyntheticDataGenerator {
         // Generate other countries suppliers (remaining ~25%)
         for (int i = 0; i < othersCount; i++) {
             int countryIndex = i % otherCountries.length;
+            String code = "SUP-" + otherCodes[countryIndex] + "-" + String.format("%03d", i + 1);
+            if (supplierRepository.findByCode(code).isPresent()) {
+                code = "SUP-" + otherCodes[countryIndex] + "-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             SupplierEntity supplier = createSupplier(
-                "SUP-" + otherCodes[countryIndex] + "-" + String.format("%03d", i + 1),
+                code,
                 otherCountries[countryIndex],
                 otherCodes[countryIndex],
                 otherCurrencies[countryIndex],
@@ -178,8 +229,12 @@ public class SyntheticDataGenerator {
         // Generate international couriers (40% of total)
         int internationalCount = (int) (count * 0.4);
         for (int i = 0; i < internationalCount && i < internationalCouriers.length; i++) {
+            String code = "DP-" + internationalCodes[i] + "-" + String.format("%03d", i + 1);
+            if (deliveryPartnerRepository.findByPartnerCode(code).isPresent()) {
+                code = "DP-" + internationalCodes[i] + "-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             DeliveryPartnerEntity partner = new DeliveryPartnerEntity();
-            partner.setPartnerCode("DP-" + internationalCodes[i] + "-" + String.format("%03d", i + 1));
+            partner.setPartnerCode(code);
             partner.setCompanyName(internationalCouriers[i]);
             partner.setContactPerson(generateName("International"));
             partner.setEmail(generateEmail(internationalCouriers[i]));
@@ -205,9 +260,13 @@ public class SyntheticDataGenerator {
         // Generate local Sri Lankan couriers (60% of total)
         int localCount = count - created;
         for (int i = 0; i < localCount; i++) {
+            String code = "DP-LKA-" + String.format("%03d", i + 1);
+            if (deliveryPartnerRepository.findByPartnerCode(code).isPresent()) {
+                code = "DP-LKA-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             DeliveryPartnerEntity partner = new DeliveryPartnerEntity();
             String courierName = localCouriers[i % localCouriers.length];
-            partner.setPartnerCode("DP-LKA-" + String.format("%03d", i + 1));
+            partner.setPartnerCode(code);
             partner.setCompanyName(courierName);
             partner.setContactPerson(generateName("Sri Lanka"));
             partner.setEmail(generateEmail(courierName));
@@ -247,8 +306,12 @@ public class SyntheticDataGenerator {
         // Generate Sri Lankan customers
         String[] sriLankanCities = {"Colombo", "Kandy", "Galle", "Negombo", "Kurunegala", "Jaffna", "Ratnapura"};
         for (int i = 0; i < sriLankanCount; i++) {
+            String code = "CUST-LKA-" + String.format("%04d", i + 1);
+            if (customerRepository.findByCode(code).isPresent()) {
+                code = "CUST-LKA-" + String.format("%04d", i + 1) + "-" + System.currentTimeMillis();
+            }
             CustomerEntity customer = new CustomerEntity();
-            customer.setCode("CUST-LKA-" + String.format("%04d", i + 1));
+            customer.setCode(code);
             customer.setName(generateSriLankanCompanyName(i));
             customer.setEmail(generateEmail(customer.getName()));
             customer.setPhone(generatePhone("Sri Lanka"));
@@ -282,8 +345,12 @@ public class SyntheticDataGenerator {
         
         for (int i = 0; i < foreignCount; i++) {
             int countryIndex = i % foreignCountries.length;
+            String code = "CUST-" + foreignCodes[countryIndex] + "-" + String.format("%03d", i + 1);
+            if (customerRepository.findByCode(code).isPresent()) {
+                code = "CUST-" + foreignCodes[countryIndex] + "-" + String.format("%03d", i + 1) + "-" + System.currentTimeMillis();
+            }
             CustomerEntity customer = new CustomerEntity();
-            customer.setCode("CUST-" + foreignCodes[countryIndex] + "-" + String.format("%03d", i + 1));
+            customer.setCode(code);
             customer.setName(generateCompanyName(foreignCountries[countryIndex], i));
             customer.setEmail(generateEmail(customer.getName()));
             customer.setPhone(generatePhone(foreignCountries[countryIndex]));
@@ -423,6 +490,225 @@ public class SyntheticDataGenerator {
     }
 
     /**
+     * Generate orders (inbound and outbound) with order items
+     */
+    @Transactional
+    public int generateOrders(int inboundCount, int outboundCount) {
+        int created = 0;
+        List<WarehouseEntity> warehouses = warehouseRepository.findAll();
+        List<SupplierEntity> suppliers = supplierRepository.findAll();
+        List<CustomerEntity> customers = customerRepository.findAll();
+        List<MaterialEntity> materials = materialRepository.findAll();
+
+        if (warehouses.isEmpty() || materials.isEmpty()) {
+            throw new RuntimeException("Need warehouses and materials to generate orders");
+        }
+
+        // Generate inbound orders
+        for (int i = 0; i < inboundCount; i++) {
+            if (suppliers.isEmpty()) break;
+            
+            WarehouseEntity warehouse = warehouses.get(random.nextInt(warehouses.size()));
+            SupplierEntity supplier = suppliers.get(random.nextInt(suppliers.size()));
+            
+            String orderNumber = "IN-" + String.format("%06d", i + 1);
+            // Check if order number already exists
+            if (orderRepository.findByOrderNumber(orderNumber).isPresent()) {
+                orderNumber = "IN-" + String.format("%06d", i + 1) + "-" + System.currentTimeMillis();
+            }
+            
+            Order order = new Order();
+            order.setOrderNumber(orderNumber);
+            order.setOrderType("inbound");
+            order.setSupplierId(supplier.getId());
+            order.setWarehouseId(warehouse.getId());
+            order.setStatus(random.nextBoolean() ? "pending" : "received");
+            order.setPriority(random.nextBoolean() ? "normal" : "high");
+            order.setOrderDate(LocalDate.now().minusDays(random.nextInt(30)));
+            order.setExpectedDate(LocalDate.now().plusDays(random.nextInt(7)));
+            order.setTotalAmount(BigDecimal.valueOf(random.nextInt(100000) + 10000));
+            
+            Order createdOrder = orderService.create(order);
+            
+            // Add 1-5 order items per order
+            int itemCount = random.nextInt(5) + 1;
+            for (int j = 0; j < itemCount; j++) {
+                MaterialEntity material = materials.get(random.nextInt(materials.size()));
+                OrderItemEntity item = new OrderItemEntity();
+                item.setOrderId(createdOrder.getId());
+                item.setMaterialId(material.getId());
+                // Convert demand forecast to integer quantity using ceil
+                int qty = (int) Math.ceil(random.nextDouble() * 100 + 10);
+                item.setQuantity(qty);
+                item.setUnitPrice(BigDecimal.valueOf(random.nextDouble() * 1000 + 100));
+                item.setStatus("pending");
+                orderItemRepository.save(item);
+            }
+            
+            created++;
+        }
+
+        // Generate outbound orders
+        for (int i = 0; i < outboundCount; i++) {
+            if (customers.isEmpty()) break;
+            
+            WarehouseEntity warehouse = warehouses.get(random.nextInt(warehouses.size()));
+            CustomerEntity customer = customers.get(random.nextInt(customers.size()));
+            
+            String orderNumber = "OUT-" + String.format("%06d", i + 1);
+            // Check if order number already exists
+            if (orderRepository.findByOrderNumber(orderNumber).isPresent()) {
+                orderNumber = "OUT-" + String.format("%06d", i + 1) + "-" + System.currentTimeMillis();
+            }
+            
+            Order order = new Order();
+            order.setOrderNumber(orderNumber);
+            order.setOrderType("outbound");
+            order.setCustomerId(customer.getId());
+            order.setWarehouseId(warehouse.getId());
+            order.setStatus(random.nextBoolean() ? "pending" : (random.nextBoolean() ? "picking" : "packed"));
+            order.setPriority(random.nextBoolean() ? "normal" : "high");
+            order.setOrderDate(LocalDate.now().minusDays(random.nextInt(30)));
+            order.setExpectedDate(LocalDate.now().plusDays(random.nextInt(7)));
+            order.setTotalAmount(BigDecimal.valueOf(random.nextInt(100000) + 10000));
+            
+            Order createdOrder = orderService.create(order);
+            
+            // Add 1-5 order items per order
+            int itemCount = random.nextInt(5) + 1;
+            for (int j = 0; j < itemCount; j++) {
+                MaterialEntity material = materials.get(random.nextInt(materials.size()));
+                OrderItemEntity item = new OrderItemEntity();
+                item.setOrderId(createdOrder.getId());
+                item.setMaterialId(material.getId());
+                // Convert demand forecast to integer quantity using ceil
+                int qty = (int) Math.ceil(random.nextDouble() * 50 + 5);
+                item.setQuantity(qty);
+                item.setUnitPrice(BigDecimal.valueOf(random.nextDouble() * 1000 + 100));
+                item.setStatus("pending");
+                orderItemRepository.save(item);
+            }
+            
+            created++;
+        }
+
+        return created;
+    }
+
+    /**
+     * Generate tasks (picking, putaway, packing)
+     */
+    @Transactional
+    public int generateTasks(int pickingCount, int putawayCount, int packingCount) {
+        int created = 0;
+        List<WarehouseEntity> warehouses = warehouseRepository.findAll();
+        List<OrderEntity> orders = orderRepository.findAll();
+        List<com.optiwms.infra.users.UserEntity> workers = userRepository.findAll();
+
+        if (warehouses.isEmpty()) {
+            throw new RuntimeException("Need warehouses to generate tasks");
+        }
+
+        // Generate picking tasks
+        for (int i = 0; i < pickingCount; i++) {
+            WarehouseEntity warehouse = warehouses.get(random.nextInt(warehouses.size()));
+            UUID orderId = null;
+            if (!orders.isEmpty()) {
+                OrderEntity order = orders.get(random.nextInt(orders.size()));
+                if ("outbound".equals(order.getOrderType())) {
+                    orderId = order.getId();
+                }
+            }
+            
+            String taskNumber = "PICK-" + String.format("%06d", i + 1);
+            if (taskRepository.findByTaskNumber(taskNumber).isPresent()) {
+                taskNumber = "PICK-" + String.format("%06d", i + 1) + "-" + System.currentTimeMillis();
+            }
+            Task task = new Task();
+            task.setTaskNumber(taskNumber);
+            task.setTaskType("picking");
+            task.setWarehouseId(warehouse.getId());
+            if (!workers.isEmpty() && random.nextBoolean()) {
+                task.setAssignedTo(workers.get(random.nextInt(workers.size())).getId());
+            }
+            task.setPriority(random.nextBoolean() ? "normal" : "high");
+            task.setStatus(random.nextBoolean() ? "pending" : (random.nextBoolean() ? "in_progress" : "completed"));
+            task.setDueDate(LocalDateTime.now().plusDays(random.nextInt(3)));
+            task.setReferenceType("order");
+            task.setReferenceId(orderId);
+            
+            taskService.create(task);
+            created++;
+        }
+
+        // Generate putaway tasks
+        for (int i = 0; i < putawayCount; i++) {
+            WarehouseEntity warehouse = warehouses.get(random.nextInt(warehouses.size()));
+            UUID orderId = null;
+            if (!orders.isEmpty()) {
+                OrderEntity order = orders.get(random.nextInt(orders.size()));
+                if ("inbound".equals(order.getOrderType())) {
+                    orderId = order.getId();
+                }
+            }
+            
+            String taskNumber = "PUT-" + String.format("%06d", i + 1);
+            if (taskRepository.findByTaskNumber(taskNumber).isPresent()) {
+                taskNumber = "PUT-" + String.format("%06d", i + 1) + "-" + System.currentTimeMillis();
+            }
+            Task task = new Task();
+            task.setTaskNumber(taskNumber);
+            task.setTaskType("putaway");
+            task.setWarehouseId(warehouse.getId());
+            if (!workers.isEmpty() && random.nextBoolean()) {
+                task.setAssignedTo(workers.get(random.nextInt(workers.size())).getId());
+            }
+            task.setPriority(random.nextBoolean() ? "normal" : "high");
+            task.setStatus(random.nextBoolean() ? "pending" : (random.nextBoolean() ? "in_progress" : "completed"));
+            task.setDueDate(LocalDateTime.now().plusDays(random.nextInt(3)));
+            task.setReferenceType("order");
+            task.setReferenceId(orderId);
+            
+            taskService.create(task);
+            created++;
+        }
+
+        // Generate packing tasks
+        for (int i = 0; i < packingCount; i++) {
+            WarehouseEntity warehouse = warehouses.get(random.nextInt(warehouses.size()));
+            UUID orderId = null;
+            if (!orders.isEmpty()) {
+                OrderEntity order = orders.get(random.nextInt(orders.size()));
+                if ("outbound".equals(order.getOrderType())) {
+                    orderId = order.getId();
+                }
+            }
+            
+            String taskNumber = "PACK-" + String.format("%06d", i + 1);
+            if (taskRepository.findByTaskNumber(taskNumber).isPresent()) {
+                taskNumber = "PACK-" + String.format("%06d", i + 1) + "-" + System.currentTimeMillis();
+            }
+            Task task = new Task();
+            task.setTaskNumber(taskNumber);
+            task.setTaskType("packing");
+            task.setWarehouseId(warehouse.getId());
+            if (!workers.isEmpty() && random.nextBoolean()) {
+                task.setAssignedTo(workers.get(random.nextInt(workers.size())).getId());
+            }
+            task.setPriority(random.nextBoolean() ? "normal" : "high");
+            task.setStatus(random.nextBoolean() ? "pending" : (random.nextBoolean() ? "in_progress" : "completed"));
+            task.setDueDate(LocalDateTime.now().plusDays(random.nextInt(3)));
+            task.setReferenceType("order");
+            task.setReferenceId(orderId);
+            
+            taskService.create(task);
+            created++;
+        }
+
+        return created;
+    }
+
+    /**
      * Generate all synthetic data
      */
     @Transactional
@@ -431,23 +717,47 @@ public class SyntheticDataGenerator {
         int couriers = generateDeliveryPartners(couriersCount);
         int customers = generateCustomers(customersCount);
 
-        return new GenerationResult(suppliers, couriers, customers);
+        return new GenerationResult(suppliers, couriers, customers, 0, 0);
+    }
+
+    /**
+     * Generate all synthetic data including orders and tasks
+     */
+    @Transactional
+    public GenerationResult generateAllWithOperations(
+            int suppliersCount, int couriersCount, int customersCount,
+            int inboundOrders, int outboundOrders,
+            int pickingTasks, int putawayTasks, int packingTasks) {
+        int suppliers = generateSuppliers(suppliersCount);
+        int couriers = generateDeliveryPartners(couriersCount);
+        int customers = generateCustomers(customersCount);
+        int orders = generateOrders(inboundOrders, outboundOrders);
+        int tasks = generateTasks(pickingTasks, putawayTasks, packingTasks);
+
+        return new GenerationResult(suppliers, couriers, customers, orders, tasks);
     }
 
     public static class GenerationResult {
         private final int suppliersCreated;
         private final int couriersCreated;
         private final int customersCreated;
+        private final int ordersCreated;
+        private final int tasksCreated;
 
-        public GenerationResult(int suppliersCreated, int couriersCreated, int customersCreated) {
+        public GenerationResult(int suppliersCreated, int couriersCreated, int customersCreated, 
+                                int ordersCreated, int tasksCreated) {
             this.suppliersCreated = suppliersCreated;
             this.couriersCreated = couriersCreated;
             this.customersCreated = customersCreated;
+            this.ordersCreated = ordersCreated;
+            this.tasksCreated = tasksCreated;
         }
 
         public int getSuppliersCreated() { return suppliersCreated; }
         public int getCouriersCreated() { return couriersCreated; }
         public int getCustomersCreated() { return customersCreated; }
+        public int getOrdersCreated() { return ordersCreated; }
+        public int getTasksCreated() { return tasksCreated; }
     }
 }
 

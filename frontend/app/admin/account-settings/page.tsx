@@ -1,27 +1,115 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
+import { accountApi, UserProfile } from "@/lib/api/account";
+import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
+import { useAdmin } from "@/contexts/AdminContext";
 
 export default function AccountSettingsPage() {
+  const { admin } = useAdmin();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [formData, setFormData] = useState({
-    firstName: "Henry",
-    lastName: "Kaul",
-    email: "henry.kaul@optiwms.com",
-    phone: "+1-555-0100",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+  });
+  
+  const [passwordData, setPasswordData] = useState({
     currentPassword: "",
     newPassword: "",
     confirmPassword: "",
-    twoFactorEnabled: false,
-    emailNotifications: true,
-    smsNotifications: false,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // TODO: API call to update account settings
-    console.log("Updating account settings:", formData);
+  // Load user profile on mount
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      setLoading(true);
+      const data = await accountApi.getCurrentUser();
+      setProfile(data);
+      setFormData({
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: data.phone || "",
+      });
+    } catch (error) {
+      logger.error("[AccountSettings] Failed to load profile:", error);
+      showToast.error("Failed to load profile");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setSaving(true);
+      await accountApi.updateProfile(formData);
+      showToast.success("Profile updated successfully");
+      await loadProfile(); // Reload to get updated data
+    } catch (error: any) {
+      logger.error("[AccountSettings] Failed to update profile:", error);
+      showToast.error(error.message || "Failed to update profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate passwords match
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      showToast.error("New passwords do not match");
+      return;
+    }
+    
+    // Validate password length
+    if (passwordData.newPassword.length < 6) {
+      showToast.error("Password must be at least 6 characters");
+      return;
+    }
+    
+    try {
+      setChangingPassword(true);
+      await accountApi.changePassword({
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+      });
+      showToast.success("Password changed successfully");
+      
+      // Clear password fields
+      setPasswordData({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    } catch (error: any) {
+      logger.error("[AccountSettings] Failed to change password:", error);
+      showToast.error(error.message || "Failed to change password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  if (loading || !profile) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -46,9 +134,11 @@ export default function AccountSettingsPage() {
                 />
               </div>
               <h2 className="text-2xl font-bold text-base-content">
-                {formData.firstName} {formData.lastName}
+                {profile.firstName && profile.lastName ? `${profile.firstName} ${profile.lastName}` : profile.username}
               </h2>
-              <p className="text-sm text-base-content/60 mt-1">Admin</p>
+              <p className="text-sm text-base-content/60 mt-1 capitalize">
+                {profile.role.replace('_', ' ')}
+              </p>
               <button className="btn btn-sm btn-ghost mt-4">
                 <span className="material-symbols-outlined">camera_alt</span>
                 Change Photo
@@ -62,7 +152,7 @@ export default function AccountSettingsPage() {
           {/* Personal Information */}
           <div className="card bg-base-100 border border-base-300 p-6">
             <h3 className="text-xl font-bold text-base-content mb-6">Personal Information</h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleProfileSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="form-control">
                   <label className="label">
@@ -113,11 +203,22 @@ export default function AccountSettingsPage() {
               </div>
 
               <div className="flex justify-end gap-3 pt-4">
-                <button type="button" className="btn btn-ghost">
+                <button 
+                  type="button" 
+                  className="btn btn-ghost"
+                  onClick={() => setFormData({
+                    firstName: profile.firstName,
+                    lastName: profile.lastName,
+                    email: profile.email,
+                    phone: profile.phone || "",
+                  })}
+                  disabled={saving}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="btn btn-primary">
-                  Save Changes
+                <button type="submit" className="btn btn-primary" disabled={saving}>
+                  {saving ? <span className="loading loading-spinner loading-sm"></span> : null}
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
@@ -126,7 +227,7 @@ export default function AccountSettingsPage() {
           {/* Security Settings */}
           <div className="card bg-base-100 border border-base-300 p-6">
             <h3 className="text-xl font-bold text-base-content mb-6">Security</h3>
-            <div className="space-y-4">
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
               <div className="form-control">
                 <label className="label">
                   <span className="label-text font-medium">Current Password</span>
@@ -134,8 +235,10 @@ export default function AccountSettingsPage() {
                 <input
                   type="password"
                   className="input input-bordered w-full"
-                  value={formData.currentPassword}
-                  onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                  required
+                  disabled={changingPassword}
                 />
               </div>
 
@@ -146,9 +249,15 @@ export default function AccountSettingsPage() {
                 <input
                   type="password"
                   className="input input-bordered w-full"
-                  value={formData.newPassword}
-                  onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
+                  value={passwordData.newPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                  required
+                  minLength={6}
+                  disabled={changingPassword}
                 />
+                <label className="label">
+                  <span className="label-text-alt">Minimum 6 characters</span>
+                </label>
               </div>
 
               <div className="form-control">
@@ -158,64 +267,23 @@ export default function AccountSettingsPage() {
                 <input
                   type="password"
                   className="input input-bordered w-full"
-                  value={formData.confirmPassword}
-                  onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                  value={passwordData.confirmPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                  required
+                  minLength={6}
+                  disabled={changingPassword}
                 />
               </div>
 
-              <div className="form-control">
-                <label className="label cursor-pointer justify-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary"
-                    checked={formData.twoFactorEnabled}
-                    onChange={(e) => setFormData({ ...formData, twoFactorEnabled: e.target.checked })}
-                  />
-                  <span className="label-text">Enable Two-Factor Authentication</span>
-                </label>
-              </div>
-
               <div className="flex justify-end gap-3 pt-4">
-                <button className="btn btn-primary">
-                  Update Password
+                <button type="submit" className="btn btn-primary" disabled={changingPassword}>
+                  {changingPassword ? <span className="loading loading-spinner loading-sm"></span> : null}
+                  {changingPassword ? "Updating..." : "Update Password"}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
 
-          {/* Notification Preferences */}
-          <div className="card bg-base-100 border border-base-300 p-6">
-            <h3 className="text-xl font-bold text-base-content mb-6">Notification Preferences</h3>
-            <div className="space-y-4">
-              <div className="form-control">
-                <label className="label cursor-pointer justify-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary"
-                    checked={formData.emailNotifications}
-                    onChange={(e) => setFormData({ ...formData, emailNotifications: e.target.checked })}
-                  />
-                  <span className="label-text">Email Notifications</span>
-                </label>
-              </div>
-              <div className="form-control">
-                <label className="label cursor-pointer justify-start gap-3">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-primary"
-                    checked={formData.smsNotifications}
-                    onChange={(e) => setFormData({ ...formData, smsNotifications: e.target.checked })}
-                  />
-                  <span className="label-text">SMS Notifications</span>
-                </label>
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button className="btn btn-primary">
-                  Save Preferences
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

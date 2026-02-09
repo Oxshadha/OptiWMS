@@ -1,0 +1,9 @@
+material_code,description,material_type,unit_type,storage_type
+RICE-5KG,Rice 5kg Bag,raw_material,kg,pallet
+SUGAR-1KG,Sugar 1kg,raw_material,kg,pallet
+FLOUR-10KG,Flour 10kg,raw_material,kg,pallet
+TEA-500G,Tea 500g,product,pcs,pallet
+COFFEE-250G,Coffee 250g,product,pcs,pallet
+BOX-SMALL,Small Box,packing_material,pcs,loose
+BOX-LARGE,Large Box,packing_material,pcs,loose
+BAG-PLASTIC,Plastic Bag,packing_material,pcs,loose

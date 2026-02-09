@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
@@ -17,10 +17,29 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { RolePermissions } from "@/components/RolePermissions";
 import { getWorkerAvailabilityDetails } from "@/lib/worker-availability";
-import { useEffect } from "react";
+import { usersApi, User } from "@/lib/api/users";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { tasksApi } from "@/lib/api/tasks-api";
+import { showToast } from "@/lib/utils/toast";
 
-// Mock data - will be replaced with API calls
-const workers = [
+// Display format for workers
+interface WorkerDisplay {
+  id: string;
+  workerId: string;
+  name: string;
+  warehouseName: string;
+  availabilityStatus: "available" | "busy" | "offline";
+  shiftStart: string;
+  shiftEnd: string;
+  tasksToday: number;
+  totalTasksCompleted: number;
+  avgTaskTime: number;
+  lastActive: string;
+  avatar: string;
+  role: WorkerRole;
+}
+
+const mockWorkers: WorkerDisplay[] = [
   {
     id: "worker-1",
     workerId: "e8b5d4",
@@ -77,23 +96,122 @@ const statusConfig = {
 export default function WorkersPage() {
   const { hasPermission, role, admin } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
   const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedWorker, setSelectedWorker] = useState<
-    (typeof workers)[0] | null
-  >(null);
+  const [selectedWorker, setSelectedWorker] = useState<WorkerDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  
+  // API state
+  const [workers, setWorkers] = useState<WorkerDisplay[]>([]);
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  const loadData = async () => {
+    try {
+        setIsLoading(true);
+        setError(null);
+        
+        // Load all users, warehouses, and tasks
+        // We'll filter for worker roles on the frontend
+        const [allUsersData, warehousesData, tasksData] = await Promise.all([
+          usersApi.getAll(), // Get all users
+          warehousesApi.getAll(),
+          tasksApi.getAll(),
+        ]);
+        
+        // Filter for worker roles
+        const workerRoles = [
+          'forklift_operator', 'stacker_operator', 'powered_pallet_truck_operator',
+          'unloading_worker', 'cycle_count_worker', 'picker', 'packer',
+          'shipment_worker', 'returns_worker', 'vehicle_inspector', 'warehouse_safekeeping_worker'
+        ];
+        const usersData = allUsersData.filter(u => workerRoles.includes(u.role?.toLowerCase()));
+        
+        // Create warehouse lookup
+        const warehousesMap = new Map();
+        warehousesData.forEach((w) => {
+          warehousesMap.set(w.id, w.name);
+        });
+        setWarehouses(warehousesMap);
+        
+        // Count tasks per worker
+        const taskCounts = new Map<string, number>();
+        const completedTaskCounts = new Map<string, number>();
+        tasksData.forEach((task) => {
+          if (task.assignedTo) {
+            taskCounts.set(task.assignedTo, (taskCounts.get(task.assignedTo) || 0) + 1);
+            if (task.status === "completed") {
+              completedTaskCounts.set(task.assignedTo, (completedTaskCounts.get(task.assignedTo) || 0) + 1);
+            }
+          }
+        });
+        
+        // Transform to display format
+        const displayWorkers: WorkerDisplay[] = usersData.map((u) => {
+          const warehouseName = u.warehouseId ? warehousesMap.get(u.warehouseId) || "Unknown" : "Unassigned";
+          const tasksToday = taskCounts.get(u.id) || 0;
+          const totalCompleted = completedTaskCounts.get(u.id) || 0;
+          
+          // Map user role to WorkerRole
+          const workerRole: WorkerRole = (u.role?.toLowerCase() || "picker") as WorkerRole;
+          
+          return {
+            id: u.id,
+            workerId: u.employeeId || u.id.slice(0, 6),
+            name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
+            warehouseName,
+            availabilityStatus: u.status === "active" ? "available" : "offline",
+            shiftStart: "08:00", // TODO: Get from user data
+            shiftEnd: "17:00", // TODO: Get from user data
+            tasksToday,
+            totalTasksCompleted: totalCompleted,
+            avgTaskTime: 15.0, // TODO: Calculate from task data
+            lastActive: u.lastLoginAt || "Never",
+            avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
+            role: workerRole,
+          };
+        });
+        
+        setWorkers(displayWorkers);
+      } catch (err) {
+        console.error("Failed to load workers:", err);
+        setError(err instanceof Error ? err.message : "Failed to load workers");
+        setWorkers([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load workers. Please try again.");
+        }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadWorkers', handleReload);
+    return () => {
+      window.removeEventListener('reloadWorkers', handleReload);
+    };
+  }, []);
 
   const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.WORKERS, "delete");
   // Only Admin can assign roles
-  const canAssignRole =
-    role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
+  const canAssignRole = role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
 
   // Filter workers by warehouse for warehouse managers
   const filteredWorkersByWarehouse = isWarehouseManager && assignedWarehouseName
@@ -327,6 +445,13 @@ export default function WorkersPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => window.location.reload()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <input
               type="text"
@@ -397,6 +522,10 @@ export default function WorkersPage() {
       <CreateWorkerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSuccess={() => {
+          // Reload workers list
+          loadData();
+        }}
       />
 
       {/* Worker Detail Modal */}
@@ -437,11 +566,22 @@ export default function WorkersPage() {
             setShowDeleteModal(false);
             setSelectedWorker(null);
           }}
-          onConfirm={() => {
-            // TODO: API call to delete worker
-            console.log("Deleting worker:", selectedWorker.id);
-            setShowDeleteModal(false);
-            setSelectedWorker(null);
+          onConfirm={async () => {
+            if (!selectedWorker) return;
+            
+            try {
+              await usersApi.delete(selectedWorker.id);
+              showToast.success("Worker deleted successfully");
+              setShowDeleteModal(false);
+              setSelectedWorker(null);
+              // Reload data
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('reloadWorkers'));
+              }
+            } catch (err) {
+              console.error("Failed to delete worker:", err);
+              showToast.error(err instanceof Error ? err.message : "Failed to delete worker");
+            }
           }}
           worker={selectedWorker}
         />
@@ -450,7 +590,7 @@ export default function WorkersPage() {
   );
 }
 
-// Worker Detail Modal
+// Worker Detail Modal Component
 function WorkerDetailModal({
   isOpen,
   onClose,
@@ -460,8 +600,8 @@ function WorkerDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  worker: (typeof workers)[0];
-  onEdit?: (worker: (typeof workers)[0]) => void;
+  worker: WorkerDisplay;
+  onEdit?: (worker: WorkerDisplay) => void;
   canEdit?: boolean;
 }) {
   const [availabilityDetails, setAvailabilityDetails] = useState<{
@@ -603,9 +743,11 @@ function WorkerDetailModal({
 function CreateWorkerModal({
   isOpen,
   onClose,
+  onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }) {
   const { hasPermission, role } = useAdmin();
   const canAssignRole =
@@ -625,24 +767,121 @@ function CreateWorkerModal({
     avatar: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  // Load warehouses from API
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      if (!isOpen) return;
+      
+      try {
+        setIsLoadingWarehouses(true);
+        setError(""); // Clear previous errors
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+        console.log("[CreateWorkerModal] Loaded warehouses:", warehousesData.length);
+      } catch (err) {
+        console.error("[CreateWorkerModal] Failed to load warehouses:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
+        setError(errorMessage);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+    
+    loadWarehouses();
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create worker
-    console.log("Creating worker:", formData);
-    onClose();
-    setFormData({
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      workerId: "",
-      warehouseId: "",
-      shiftStart: "",
-      shiftEnd: "",
-      password: "",
-      role: "" as WorkerRole | "",
-      avatar: null,
-    });
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      if (!formData.role) {
+        throw new Error("Role is required");
+      }
+      if (!formData.warehouseId) {
+        throw new Error("Warehouse is required");
+      }
+
+      // Generate username from email or use email as username
+      const username = formData.email.split("@")[0] || formData.email;
+      
+      await usersApi.create({
+        username: username,
+        email: formData.email,
+        password: formData.password,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        employeeId: formData.workerId,
+        role: formData.role,
+        warehouseId: formData.warehouseId,
+        phone: formData.phone || undefined,
+        status: "active",
+      });
+
+      // Reset form
+      setFormData({
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
+        workerId: "",
+        warehouseId: "",
+        shiftStart: "",
+        shiftEnd: "",
+        password: "",
+        role: "" as WorkerRole | "",
+        avatar: null,
+      });
+      
+      // Close modal
+      onClose();
+      
+      // Reload workers list
+      if (onSuccess) {
+        onSuccess();
+      }
+    } catch (err: any) {
+      console.error("Failed to create worker:", err);
+      
+      // Try to extract error message from API response
+      let errorMessage = "Failed to create worker. Please try again.";
+      
+      if (err?.response) {
+        // Handle fetch API error response
+        try {
+          const errorData = await err.response.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use status text
+          errorMessage = `API Error: ${err.response.status} - ${err.response.statusText || errorMessage}`;
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      
+      console.error("Error details:", {
+        message: errorMessage,
+        error: err,
+        formData: {
+          email: formData.email,
+          role: formData.role,
+          warehouseId: formData.warehouseId,
+          workerId: formData.workerId,
+        }
+      });
+      
+      setError(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -735,10 +974,14 @@ function CreateWorkerModal({
                 setFormData({ ...formData, warehouseId: e.target.value })
               }
               required
+              disabled={isLoadingWarehouses}
             >
-              <option value="">Select warehouse</option>
-              <option value="wh-1">Warehouse 1</option>
-              <option value="wh-2">Warehouse 2</option>
+              <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -838,12 +1081,34 @@ function CreateWorkerModal({
           />
         </div>
 
+        {error && (
+          <div className="alert alert-error">
+            <span>{error}</span>
+          </div>
+        )}
+
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button 
+            type="button" 
+            className="btn btn-ghost" 
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Create Worker
+          <button 
+            type="submit" 
+            className="btn btn-primary"
+            disabled={isSubmitting || isLoadingWarehouses}
+          >
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Creating...
+              </>
+            ) : (
+              "Create Worker"
+            )}
           </button>
         </div>
       </form>
@@ -859,11 +1124,15 @@ function EditWorkerModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  worker: (typeof workers)[0];
+  worker: WorkerDisplay;
 }) {
   const { hasPermission, role } = useAdmin();
   const canAssignRole =
     role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "edit");
+
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     firstName: worker.name.split(" ")[0] || "",
@@ -871,7 +1140,7 @@ function EditWorkerModal({
     email: "",
     phone: "",
     workerId: worker.workerId,
-    warehouseId: worker.warehouseName,
+    warehouseId: "",
     shiftStart: worker.shiftStart,
     shiftEnd: worker.shiftEnd,
     password: "",
@@ -879,11 +1148,87 @@ function EditWorkerModal({
     avatar: null as File | null,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Load warehouses and user data when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadData = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        
+        // Load warehouses
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+        console.log("[EditWorkerModal] Loaded warehouses:", warehousesData.length);
+        
+        // Find warehouseId from warehouseName
+        const matchingWarehouse = warehousesData.find(w => w.name === worker.warehouseName);
+        if (matchingWarehouse) {
+          setFormData(prev => ({
+            ...prev,
+            warehouseId: matchingWarehouse.id
+          }));
+        }
+
+        // Load full user data to get email, phone, etc.
+        try {
+          const userData = await usersApi.getById(worker.id);
+          setFormData(prev => ({
+            ...prev,
+            email: userData.email || "",
+            phone: userData.phone || "",
+          }));
+        } catch (err) {
+          console.warn("[EditWorkerModal] Could not load user details:", err);
+        }
+      } catch (err) {
+        console.error("[EditWorkerModal] Failed to load warehouses:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
+        showToast.error(errorMessage);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+
+    loadData();
+  }, [isOpen, worker.id, worker.warehouseName]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update worker
-    console.log("Updating worker:", formData);
-    onClose();
+    
+    try {
+      setIsSubmitting(true);
+      
+      // Update worker
+      await usersApi.update(worker.id, {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        employeeId: formData.workerId,
+        role: formData.role || undefined,
+        warehouseId: formData.warehouseId || undefined,
+      });
+
+      // If warehouse changed, assign it
+      if (formData.warehouseId) {
+        await usersApi.assignWarehouse(worker.id, formData.warehouseId);
+      }
+
+      showToast.success("Worker updated successfully");
+      onClose();
+      
+      // Reload workers list
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadWorkers'));
+      }
+    } catch (err: any) {
+      console.error("[EditWorkerModal] Failed to update worker:", err);
+      const errorMessage = err?.response?.data?.message || err?.message || "Failed to update worker. Please try again.";
+      showToast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -976,10 +1321,14 @@ function EditWorkerModal({
                 setFormData({ ...formData, warehouseId: e.target.value })
               }
               required
+              disabled={isLoadingWarehouses}
             >
-              <option value="">Select warehouse</option>
-              <option value="Warehouse 1">Warehouse 1</option>
-              <option value="Warehouse 2">Warehouse 2</option>
+              <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -1079,11 +1428,18 @@ function EditWorkerModal({
         </div>
 
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Update Worker
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting || isLoadingWarehouses}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Updating...
+              </>
+            ) : (
+              "Update Worker"
+            )}
           </button>
         </div>
       </form>
@@ -1101,7 +1457,7 @@ function DeleteWorkerModal({
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  worker: (typeof workers)[0];
+  worker: WorkerDisplay;
 }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Worker" size="md">

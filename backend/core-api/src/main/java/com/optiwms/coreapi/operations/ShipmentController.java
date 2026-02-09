@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -28,19 +27,27 @@ public class ShipmentController {
             @RequestParam(required = false) String orderId,
             @RequestParam(required = false) String status
     ) {
-        List<Shipment> shipments;
-        if (orderId != null) {
-            shipments = service.findByOrderId(UUID.fromString(orderId));
-        } else if (status != null) {
-            shipments = service.findByStatus(status);
-        } else {
-            shipments = service.listAll();
-        }
+        try {
+            List<Shipment> shipments;
+            if (orderId != null) {
+                shipments = service.findByOrderId(UUID.fromString(orderId));
+            } else if (status != null) {
+                shipments = service.findByStatus(status);
+            } else {
+                shipments = service.listAll();
+            }
 
-        List<ShipmentDto> shipmentDtos = shipments.stream()
-                .map(this::toDto)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(shipmentDtos);
+            List<ShipmentDto> shipmentDtos = shipments.stream()
+                    .map(this::toDto)
+                    .collect(Collectors.toList());
+            return ResponseEntity.ok(shipmentDtos);
+        } catch (Exception e) {
+            System.err.println("Error in ShipmentController.listAll: " + e.getMessage());
+            e.printStackTrace();
+            // Return error response with message for debugging
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(List.of()); // Return empty list instead of null to prevent serialization issues
+        }
     }
 
     @GetMapping("/{id}")
@@ -125,22 +132,28 @@ public class ShipmentController {
     }
 
     private ShipmentDto toDto(Shipment shipment) {
-        return new ShipmentDto(
-                shipment.getId().toString(),
-                shipment.getShipmentNumber(),
-                shipment.getOrderId() != null ? shipment.getOrderId().toString() : null,
-                shipment.getCarrier(),
-                shipment.getTrackingNumber(),
-                shipment.getDestination(),
-                shipment.getWeightKg() != null ? shipment.getWeightKg().toString() : null,
-                shipment.getDriverName(),
-                shipment.getDriverPhone(),
-                shipment.getVehicleNumber(),
-                shipment.getStatus(),
-                shipment.getEta() != null ? shipment.getEta().toString() : null,
-                shipment.getShippedAt() != null ? shipment.getShippedAt().toString() : null,
-                shipment.getDeliveredAt() != null ? shipment.getDeliveredAt().toString() : null
-        );
+        try {
+            return new ShipmentDto(
+                    shipment.getId() != null ? shipment.getId().toString() : null,
+                    shipment.getShipmentNumber() != null ? shipment.getShipmentNumber() : "",
+                    shipment.getOrderId() != null ? shipment.getOrderId().toString() : null,
+                    shipment.getCarrier(),
+                    shipment.getTrackingNumber(),
+                    shipment.getDestination(),
+                    shipment.getWeightKg() != null ? shipment.getWeightKg().toString() : null,
+                    shipment.getDriverName(),
+                    shipment.getDriverPhone(),
+                    shipment.getVehicleNumber(),
+                    shipment.getStatus() != null ? shipment.getStatus() : "label_created",
+                    shipment.getEta() != null ? shipment.getEta().toString() : null,
+                    shipment.getShippedAt() != null ? shipment.getShippedAt().toString() : null,
+                    shipment.getDeliveredAt() != null ? shipment.getDeliveredAt().toString() : null
+            );
+        } catch (Exception e) {
+            System.err.println("Error converting shipment to DTO: " + e.getMessage());
+            e.printStackTrace();
+            throw new RuntimeException("Error converting shipment to DTO: " + e.getMessage(), e);
+        }
     }
 
     public record CreateShipmentRequest(

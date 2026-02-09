@@ -6,6 +6,11 @@ export interface Material {
   description: string;
   unitType?: string;
   storageType?: string;
+  materialType?: string;
+  // ABC/FMS Classification for storage zone assignment
+  abcClass?: string;      // A, B, C (volume-based)
+  fmsClass?: string;      // F, M, S (frequency-based)
+  preferredZone?: string; // A, B, C, D (derived from amalgamated analysis)
 }
 
 export interface ImportResponse {
@@ -15,12 +20,21 @@ export interface ImportResponse {
 }
 
 export const materialsApi = {
-  getAll: async (): Promise<Material[]> => {
-    return apiClient.get<Material[]>('/master/materials');
+  getAll: async (materialType?: string): Promise<Material[]> => {
+    const params = new URLSearchParams();
+    if (materialType) params.append('materialType', materialType);
+    const query = params.toString();
+    return apiClient.get<Material[]>(`/master/materials${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string): Promise<Material> => {
     return apiClient.get<Material>(`/master/materials/${id}`);
+  },
+
+  getByCode: async (materialCode: string): Promise<Material> => {
+    // URL encode the material code to handle special characters
+    const encodedCode = encodeURIComponent(materialCode.trim());
+    return apiClient.get<Material>(`/master/materials/code/${encodedCode}`);
   },
 
   create: async (material: Omit<Material, 'id'>): Promise<Material> => {

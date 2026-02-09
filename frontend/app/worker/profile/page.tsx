@@ -1,12 +1,59 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useWorker } from "@/contexts/WorkerContext";
 import { getRoleDisplayName, getOperationDisplayName } from "@/lib/worker-roles";
+import { analyticsApi } from "@/lib/api/analytics";
+import { logger } from "@/lib/utils/logger";
 
 export default function WorkerProfilePage() {
+  const router = useRouter();
   const { worker, allowedOperations } = useWorker();
+  const [stats, setStats] = useState([
+    { label: "Total Tasks", value: "0", icon: "task" },
+    { label: "Completed", value: "0", icon: "check_circle" },
+    { label: "Success Rate", value: "0%", icon: "trending_up" },
+  ]);
+  const [loading, setLoading] = useState(true);
+
+  // Load worker stats from API
+  useEffect(() => {
+    const loadStats = async () => {
+      if (!worker?.id && !worker?.workerId) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const workerId = worker.workerId || worker.id;
+        const productivityData = await analyticsApi.getWorkerProductivity(workerId);
+
+        if (productivityData.length > 0) {
+          const metrics = productivityData[0];
+          const totalTasks = metrics.tasksCompleted || 0;
+          const completed = totalTasks; // Assuming all tasks in productivity are completed
+          const successRate = metrics.errorRate ? (100 - metrics.errorRate).toFixed(1) : "100.0";
+
+          setStats([
+            { label: "Total Tasks", value: totalTasks.toLocaleString(), icon: "task" },
+            { label: "Completed", value: completed.toLocaleString(), icon: "check_circle" },
+            { label: "Success Rate", value: `${successRate}%`, icon: "trending_up" },
+          ]);
+        }
+      } catch (err) {
+        logger.error("Failed to load worker stats:", err);
+        // Keep default stats on error
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStats();
+  }, [worker]);
 
   if (!worker) {
     return (
@@ -23,7 +70,7 @@ export default function WorkerProfilePage() {
 
   const displayWorker = {
     name: worker.name,
-    id: worker.workerId || worker.id,
+    id: worker.workerId || "N/A", // Use workerId (employeeId), not the UUID
     warehouse: worker.warehouse,
     status: "Online",
     deviceId: worker.deviceId || "N/A",
@@ -32,12 +79,6 @@ export default function WorkerProfilePage() {
     phone: worker.phone || "N/A",
     role: worker.role,
   };
-
-  const stats = [
-    { label: "Total Tasks", value: "1,247", icon: "task" },
-    { label: "Completed", value: "1,189", icon: "check_circle" },
-    { label: "Success Rate", value: "95.3%", icon: "trending_up" },
-  ];
 
   return (
     <div className="p-4 space-y-4">
@@ -67,15 +108,29 @@ export default function WorkerProfilePage() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-3">
-        {stats.map((stat) => (
-          <div key={stat.label} className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
-            <div className="text-2xl mb-2">
-              <span className="material-symbols-outlined text-primary">{stat.icon}</span>
+        {loading ? (
+          <>
+            <div className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
+              <span className="loading loading-spinner loading-md"></span>
             </div>
-            <div className="text-xl font-bold text-base-content">{stat.value}</div>
-            <div className="text-xs text-base-content/60 mt-1">{stat.label}</div>
-          </div>
-        ))}
+            <div className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
+              <span className="loading loading-spinner loading-md"></span>
+            </div>
+            <div className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
+              <span className="loading loading-spinner loading-md"></span>
+            </div>
+          </>
+        ) : (
+          stats.map((stat) => (
+            <div key={stat.label} className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
+              <div className="text-2xl mb-2">
+                <span className="material-symbols-outlined text-primary">{stat.icon}</span>
+              </div>
+              <div className="text-xl font-bold text-base-content">{stat.value}</div>
+              <div className="text-xs text-base-content/60 mt-1">{stat.label}</div>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Personal Information */}
@@ -139,30 +194,42 @@ export default function WorkerProfilePage() {
 
       {/* Actions */}
       <div className="space-y-2">
-        <button className="btn btn-outline w-full">
+        <button 
+          className="btn btn-outline w-full"
+          onClick={() => router.push('/worker/account-settings')}
+        >
           <span className="material-symbols-outlined">edit</span>
           Edit Profile
         </button>
-        <button className="btn btn-outline w-full">
+        <button 
+          className="btn btn-outline w-full"
+          onClick={() => router.push('/worker/app-settings')}
+        >
           <span className="material-symbols-outlined">settings</span>
           Settings
         </button>
-        <Link 
-          href="/worker/login" 
+        <button
           className="btn btn-error w-full"
           onClick={async () => {
-            // Clear worker data on logout
-            const { deleteFromStore, STORES } = await import("@/lib/indexeddb");
             try {
-              await deleteFromStore(STORES.WORKER_DATA, "current_worker");
+              // Clear worker context
+              const { useWorker } = await import("@/contexts/WorkerContext");
+              // Note: We can't use hooks here, so we'll use authApi.logout which handles IndexedDB
+              const { authApi } = await import("@/lib/api/auth");
+              // Clear tokens and IndexedDB
+              await authApi.logout();
+              // Redirect to login
+              window.location.href = "/worker/login";
             } catch (error) {
-              console.error("Error clearing worker data:", error);
+              logger.error("Error during logout:", error);
+              // Still redirect even if logout fails
+              window.location.href = "/worker/login";
             }
           }}
         >
           <span className="material-symbols-outlined">logout</span>
           Logout
-        </Link>
+        </button>
       </div>
     </div>
   );

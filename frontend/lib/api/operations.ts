@@ -1,71 +1,6 @@
 import { apiClient } from './client';
 
-// Stock Transfers
-export interface StockTransfer {
-  id: string;
-  transferNumber: string;
-  transferType: string;
-  materialId: string;
-  sourceWarehouseId: string;
-  sourceLocationCode?: string;
-  destWarehouseId: string;
-  destLocationCode?: string;
-  quantity: string;
-  status: string;
-  notes?: string;
-}
-
-export const stockTransfersApi = {
-  getAll: async (): Promise<StockTransfer[]> => {
-    return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
-  },
-
-  getById: async (id: string): Promise<StockTransfer> => {
-    return apiClient.get<StockTransfer>(`/operations/stock-transfers/${id}`);
-  },
-
-  create: async (transfer: Omit<StockTransfer, 'id'>): Promise<StockTransfer> => {
-    return apiClient.post<StockTransfer>('/operations/stock-transfers', transfer);
-  },
-
-  dispatch: async (id: string, userId: string): Promise<StockTransfer> => {
-    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/dispatch?userId=${userId}`, {});
-  },
-
-  receive: async (id: string, userId: string): Promise<StockTransfer> => {
-    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/receive?userId=${userId}`, {});
-  },
-};
-
-// Cycle Counts
-export interface CycleCount {
-  id: string;
-  countNumber: string;
-  warehouseId: string;
-  locationCode?: string;
-  status: string;
-  variance?: string;
-}
-
-export const cycleCountsApi = {
-  getAll: async (): Promise<CycleCount[]> => {
-    return apiClient.get<CycleCount[]>('/operations/cycle-counts');
-  },
-
-  getById: async (id: string): Promise<CycleCount> => {
-    return apiClient.get<CycleCount>(`/operations/cycle-counts/${id}`);
-  },
-
-  recordCount: async (id: string, materialId: string, countedQuantity: string, countedBy: string): Promise<{ success: boolean; message: string; variance: string }> => {
-    return apiClient.post(`/operations/cycle-counts/${id}/record`, {
-      materialId,
-      countedQuantity,
-      countedBy,
-    });
-  },
-};
-
-// Receiving
+// Receiving Operations
 export interface OrderDetail {
   id: string;
   orderNumber: string;
@@ -74,29 +9,185 @@ export interface OrderDetail {
   warehouseId: string;
 }
 
-export interface ReceivedItem {
+export interface ReceiveItem {
+  materialId: string;
+  quantity: string;
+  locationCode?: string;
+  batchNumber?: string;
+  expiryDate?: string;
+}
+
+export interface ReceiveRequest {
+  orderNumber: string;
+  items: ReceiveItem[];
+  notes?: string;
+  photos?: string[];
+  warehouseId?: string; // Worker's warehouse ID for blind receive
+}
+
+export interface ReceiveResponse {
+  success: boolean;
+  message: string;
+  grnId?: string;
+}
+
+// Picking Operations
+export interface PickedItem {
   materialId: string;
   quantity: string;
   locationCode: string;
 }
 
-export const receivingApi = {
+export interface CompletePickingRequest {
+  items: PickedItem[];
+}
+
+export interface PickingResponse {
+  success: boolean;
+  message: string;
+  taskId?: string;
+}
+
+// Putaway Operations
+export interface CompletePutawayRequest {
+  locationCode: string;
+  lpn?: string;
+  quantity?: number; // Optional - will be determined from order item if not provided
+  materialId?: string; // Optional - will be determined from order item if not provided
+}
+
+export interface PutawayResponse {
+  success: boolean;
+  message: string;
+  taskId?: string;
+}
+
+// Stock Transfer Operations
+export interface StockTransfer {
+  id: string;
+  transferNumber: string;
+  transferType: string;
+  materialId: string;
+  sourceWarehouseId: string;
+  sourceLocationCode: string;
+  destWarehouseId: string;
+  destLocationCode: string;
+  quantity: string;
+  status: string;
+  notes?: string;
+}
+
+export interface CreateStockTransferRequest {
+  transferNumber: string;
+  transferType: string;
+  materialId: string;
+  sourceWarehouseId: string;
+  sourceLocationCode: string;
+  destWarehouseId: string;
+  destLocationCode: string;
+  quantity: string;
+  notes?: string;
+}
+
+// Cycle Count Operations
+export interface CycleCount {
+  id: string;
+  countNumber: string;
+  warehouseId: string;
+  locationCode: string;
+  materialId: string;
+  expectedQuantity: string;
+  countedQuantity: string;
+  status: string;
+}
+
+export const operationsApi = {
+  // Receiving
   getOrderByNumber: async (orderNumber: string): Promise<OrderDetail> => {
     return apiClient.get<OrderDetail>(`/operations/receiving/order/${orderNumber}`);
   },
 
-  receiveOrder: async (orderNumber: string, items: ReceivedItem[]): Promise<{ success: boolean; message: string; orderId: string }> => {
-    return apiClient.post('/operations/receiving/receive', {
+  receive: async (request: ReceiveRequest, workerId?: string): Promise<ReceiveResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<ReceiveResponse>('/operations/receiving/receive', requestWithWorker);
+  },
+
+  blindReceive: async (request: ReceiveRequest, workerId?: string): Promise<ReceiveResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<ReceiveResponse>('/operations/receiving/blind-receive', requestWithWorker);
+  },
+  
+  // Legacy aliases for backward compatibility
+  receiveOrder: async (orderNumber: string, items: ReceiveItem[]): Promise<ReceiveResponse> => {
+    return operationsApi.receive({
+      orderNumber,
+      items,
+    });
+  },
+  
+  blindReceiveOrder: async (orderNumber: string, items: ReceiveItem[]): Promise<ReceiveResponse> => {
+    return operationsApi.blindReceive({
       orderNumber,
       items,
     });
   },
 
-  blindReceive: async (orderNumber: string, items: ReceivedItem[]): Promise<{ success: boolean; message: string; orderId: string }> => {
-    return apiClient.post('/operations/receiving/blind-receive', {
-      orderNumber,
-      items,
-    });
+  // Picking
+  completePicking: async (taskId: string, request: CompletePickingRequest, workerId?: string): Promise<PickingResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<PickingResponse>(`/operations/picking/complete/${taskId}`, requestWithWorker);
+  },
+
+  // Putaway
+  completePutaway: async (taskId: string, request: CompletePutawayRequest): Promise<PutawayResponse> => {
+    return apiClient.post<PutawayResponse>(`/operations/putaway/complete/${taskId}`, request);
+  },
+
+  // Stock Transfer
+  getStockTransfers: async (): Promise<StockTransfer[]> => {
+    return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
+  },
+
+  createStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>('/operations/stock-transfers', request);
+  },
+
+  dispatchStockTransfer: async (id: string, userId: string): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/dispatch?userId=${userId}`, {});
+  },
+
+  receiveStockTransfer: async (id: string, userId: string): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/receive?userId=${userId}`, {});
+  },
+
+  cancelStockTransfer: async (id: string, reason?: string): Promise<StockTransfer> => {
+    return apiClient.put<StockTransfer>(`/operations/stock-transfers/${id}/cancel`, { reason });
+  },
+
+  // Cycle Count
+  getCycleCounts: async (): Promise<CycleCount[]> => {
+    return apiClient.get<CycleCount[]>('/operations/cycle-counts');
+  },
+
+  createCycleCount: async (request: {
+    warehouseId: string;
+    locationCode: string;
+    materialId: string;
+    expectedQuantity: string;
+  }): Promise<CycleCount> => {
+    return apiClient.post<CycleCount>('/operations/cycle-counts', request);
+  },
+
+  updateCycleCount: async (id: string, request: Partial<CycleCount>): Promise<CycleCount> => {
+    return apiClient.put<CycleCount>(`/operations/cycle-counts/${id}`, request);
+  },
+
+  cancelCycleCount: async (id: string, reason: string): Promise<CycleCount> => {
+    return apiClient.put<CycleCount>(`/operations/cycle-counts/${id}/cancel`, { reason });
+  },
+
+  reviewCycleCount: async (id: string, notes?: string): Promise<CycleCount> => {
+    return apiClient.put<CycleCount>(`/operations/cycle-counts/${id}/review`, { notes });
   },
 };
 
@@ -105,74 +196,133 @@ export interface DockDoor {
   id: string;
   doorNumber: string;
   warehouseId: string;
-  status: 'available' | 'occupied' | 'maintenance' | 'reserved';
-  currentAppointmentId?: string;
-  location?: string;
+  location?: string | null;
+  status: string;
+  currentAppointmentId?: string | null;
 }
 
 export interface DockAppointment {
   id: string;
   appointmentNumber: string;
-  dockDoorId: string;
-  dockDoorNumber: string;
+  dockDoorId?: string | null;
+  dockDoorNumber?: string;
   warehouseId: string;
-  inboundOrderId?: string;
-  inboundOrderNumber?: string;
-  supplierName?: string;
-  carrierName?: string;
-  trailerNumber?: string;
+  appointmentType: string;
   scheduledStart: string;
   scheduledEnd: string;
-  actualStart?: string;
-  actualEnd?: string;
-  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
-  notes?: string;
+  actualStart?: string | null;
+  actualEnd?: string | null;
+  inboundOrderId?: string | null;
+  inboundOrderNumber?: string;
+  outboundOrderId?: string | null;
+  supplierId?: string | null;
+  supplierName?: string;
+  carrierName?: string | null;
+  trailerNumber?: string | null;
+  status: string;
+  notes?: string | null;
 }
 
 export interface YardTrailer {
   id: string;
   trailerNumber: string;
-  carrierName: string;
-  inboundOrderId?: string;
+  warehouseId: string;
+  carrierName?: string | null;
+  inboundOrderId?: string | null;
   inboundOrderNumber?: string;
+  supplierId?: string | null;
   supplierName?: string;
-  arrivedAt: string;
-  waitTimeMinutes: number;
-  status: 'waiting' | 'assigned' | 'unloading' | 'completed';
-  assignedDockDoorId?: string;
+  arrivedAt?: string | null;
+  waitTimeMinutes?: number | null;
+  status: string;
+  assignedDockDoorId?: string | null;
   assignedDockDoorNumber?: string;
 }
 
+export interface CreateDockDoorRequest {
+  doorNumber: string;
+  warehouseId: string;
+  location?: string;
+  status?: string;
+}
+
+export interface CreateDockAppointmentRequest {
+  dockDoorId?: string;
+  warehouseId: string;
+  appointmentType: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  inboundOrderId?: string;
+  outboundOrderId?: string;
+  supplierId?: string;
+  carrierName?: string;
+  trailerNumber?: string;
+  notes?: string;
+}
+
+export interface CreateYardTrailerRequest {
+  trailerNumber: string;
+  warehouseId: string;
+  carrierName?: string;
+  inboundOrderId?: string;
+  supplierId?: string;
+}
+
 export const dockManagementApi = {
+  // Dock Doors
   getDockDoors: async (warehouseId?: string): Promise<DockDoor[]> => {
     const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
-    return apiClient.get<DockDoor[]>(`/operations/dock-doors${params}`);
+    return apiClient.get<DockDoor[]>(`/dock-management/doors${params}`);
   },
 
-  getDockAppointments: async (warehouseId?: string, startDate?: string, endDate?: string): Promise<DockAppointment[]> => {
+  getDockDoorById: async (id: string): Promise<DockDoor> => {
+    return apiClient.get<DockDoor>(`/dock-management/doors/${id}`);
+  },
+
+  createDockDoor: async (request: CreateDockDoorRequest): Promise<DockDoor> => {
+    return apiClient.post<DockDoor>('/dock-management/doors', request);
+  },
+
+  updateDockDoor: async (id: string, request: CreateDockDoorRequest): Promise<DockDoor> => {
+    return apiClient.put<DockDoor>(`/dock-management/doors/${id}`, request);
+  },
+
+  // Dock Appointments
+  getDockAppointments: async (warehouseId?: string, status?: string): Promise<DockAppointment[]> => {
     const params = new URLSearchParams();
     if (warehouseId) params.append('warehouseId', warehouseId);
-    if (startDate) params.append('startDate', startDate);
-    if (endDate) params.append('endDate', endDate);
+    if (status) params.append('status', status);
     const query = params.toString() ? `?${params.toString()}` : '';
-    return apiClient.get<DockAppointment[]>(`/operations/dock-appointments${query}`);
+    return apiClient.get<DockAppointment[]>(`/dock-management/appointments${query}`);
   },
 
-  createAppointment: async (appointment: Omit<DockAppointment, 'id' | 'appointmentNumber' | 'status'>): Promise<DockAppointment> => {
-    return apiClient.post<DockAppointment>('/operations/dock-appointments', appointment);
+  getDockAppointmentById: async (id: string): Promise<DockAppointment> => {
+    return apiClient.get<DockAppointment>(`/dock-management/appointments/${id}`);
   },
 
-  updateAppointment: async (id: string, appointment: Partial<DockAppointment>): Promise<DockAppointment> => {
-    return apiClient.put<DockAppointment>(`/operations/dock-appointments/${id}`, appointment);
+  createDockAppointment: async (request: CreateDockAppointmentRequest): Promise<DockAppointment> => {
+    return apiClient.post<DockAppointment>('/dock-management/appointments', request);
   },
 
-  cancelAppointment: async (id: string): Promise<{ success: boolean; message: string }> => {
-    return apiClient.post(`/operations/dock-appointments/${id}/cancel`, {});
+  checkInAppointment: async (id: string): Promise<DockAppointment> => {
+    return apiClient.post<DockAppointment>(`/dock-management/appointments/${id}/check-in`, {});
   },
 
+  checkOutAppointment: async (id: string): Promise<DockAppointment> => {
+    return apiClient.post<DockAppointment>(`/dock-management/appointments/${id}/check-out`, {});
+  },
+
+  // Yard Trailers
   getYardTrailers: async (warehouseId?: string): Promise<YardTrailer[]> => {
     const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
-    return apiClient.get<YardTrailer[]>(`/operations/yard-trailers${params}`);
+    return apiClient.get<YardTrailer[]>(`/dock-management/yard-trailers${params}`);
+  },
+
+  getYardTrailerById: async (id: string): Promise<YardTrailer> => {
+    return apiClient.get<YardTrailer>(`/dock-management/yard-trailers/${id}`);
+  },
+
+  createYardTrailer: async (request: CreateYardTrailerRequest): Promise<YardTrailer> => {
+    return apiClient.post<YardTrailer>('/dock-management/yard-trailers', request);
   },
 };
-

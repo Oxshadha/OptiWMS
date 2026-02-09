@@ -53,7 +53,82 @@ export interface LocationVelocity {
   last30Days: number;
 }
 
+// Dashboard KPIs
+export interface DashboardKPIs {
+  totalOrders: number;
+  ordersThisPeriod: number;
+  totalItems: number;
+  lowStockItems: number;
+  totalTasks: number;
+  completedTasks: number;
+}
+
+// Order Chart Data
+export interface OrderChartData {
+  date: string;
+  count: number;
+}
+
+// Top Product
+export interface TopProduct {
+  materialId: string;
+  materialName: string;
+  quantity: number;
+}
+
+// Inventory Overview
+export interface InventoryOverview {
+  totalItems: number;
+  activeItems: number;
+  lowStockItems: number;
+  outOfStockItems: number;
+  totalValue: number;
+}
+
 export const analyticsApi = {
+  // Dashboard KPIs
+  getDashboardKPIs: async (
+    warehouseId?: string,
+    period?: string
+  ): Promise<DashboardKPIs> => {
+    const params = new URLSearchParams();
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    if (period) params.append('period', period);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<DashboardKPIs>(`/analytics/dashboard/kpis${query}`);
+  },
+
+  // Orders Chart
+  getOrdersChart: async (
+    period: 'daily' | 'weekly' | 'monthly' = 'daily',
+    warehouseId?: string
+  ): Promise<OrderChartData[]> => {
+    const params = new URLSearchParams();
+    params.append('period', period);
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    return apiClient.get<OrderChartData[]>(`/analytics/dashboard/orders-chart?${params.toString()}`);
+  },
+
+  // Top Products
+  getTopProducts: async (
+    limit?: number,
+    warehouseId?: string
+  ): Promise<TopProduct[]> => {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<TopProduct[]>(`/analytics/dashboard/top-products${query}`);
+  },
+
+  // Inventory Overview
+  getInventoryOverview: async (
+    warehouseId?: string
+  ): Promise<InventoryOverview> => {
+    const params = warehouseId ? `?warehouseId=${warehouseId}` : '';
+    return apiClient.get<InventoryOverview>(`/analytics/dashboard/inventory-overview${params}`);
+  },
+
   // Worker Productivity
   getWorkerProductivity: async (
     workerId?: string,
@@ -71,7 +146,7 @@ export const analyticsApi = {
   getWorkerLeaderboard: async (
     period: 'weekly' | 'monthly' = 'weekly'
   ): Promise<LeaderboardEntry[]> => {
-    return apiClient.get<LeaderboardEntry[]>(`/analytics/worker-leaderboard?period=${period}`);
+    return apiClient.get<LeaderboardEntry[]>(`/analytics/leaderboard?period=${period}`);
   },
 
   getDwellTimeAnalysis: async (workerId?: string): Promise<DwellTimeAnalysis[]> => {

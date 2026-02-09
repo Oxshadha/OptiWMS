@@ -1,9 +1,11 @@
 "use client";
+import { useState, useEffect } from "react";
 import { KpiTile } from "@/components/KpiTile";
 import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
+import { analyticsApi, DashboardKPIs, OrderChartData, TopProduct, InventoryOverview } from "@/lib/api/analytics";
 import {
   BarChart,
   Bar,
@@ -19,27 +21,183 @@ import {
   CartesianGrid,
 } from "recharts";
 
-const ordersData = [
-  { day: "25", value: 42 },
-  { day: "26", value: 55 },
-  { day: "27", value: 48 },
-  { day: "28", value: 60 },
-  { day: "29", value: 50 },
-  { day: "30", value: 44 },
-];
-
-const summaryData = [
-  { name: "Completed", value: 72 },
-  { name: "Remaining", value: 28 },
-];
-
 const COLORS = ["#CF0F47", "#E5E7EB"];
 
 export default function DashboardPage() {
+  console.log("[Dashboard] Component mounted");
+  
   const { role, admin } = useAdmin();
+  console.log("[Dashboard] Admin context:", { role, hasAdmin: !!admin });
+  
   const isWarehouseManager = role === "warehouse_manager";
   const isInboundCoordinator = role === "inbound_coordinator";
   const isAdmin = role === "admin";
+
+  const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
+  const [ordersChart, setOrdersChart] = useState<OrderChartData[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [inventoryOverview, setInventoryOverview] = useState<InventoryOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  console.log("[Dashboard] Initial state:", { loading, error, hasToken: !!localStorage.getItem('accessToken') });
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      console.log("[Dashboard] Starting data fetch...");
+      
+      // Wait a bit for auth token to be available
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Check if we have a token
+      const token = localStorage.getItem('accessToken');
+      console.log("[Dashboard] Token check:", token ? "Found" : "Not found");
+      
+      if (!token) {
+        console.error("[Dashboard] No token found, redirecting to login");
+        setError("Not authenticated. Please login.");
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        console.log("[Dashboard] Fetching dashboard data...");
+
+        // Add timeout to prevent hanging
+        const fetchWithTimeout = async <T,>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
+          const timeout = new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+          );
+          return Promise.race([promise, timeout]);
+        };
+
+        // Fetch all dashboard data in parallel with timeout
+        console.log("[Dashboard] Calling analytics APIs...");
+        const [kpisData, ordersChartData, topProductsData, inventoryData] = await Promise.all([
+          fetchWithTimeout(analyticsApi.getDashboardKPIs(undefined, "monthly")).catch(err => {
+            console.error("[Dashboard] KPIs fetch error:", err);
+            return null;
+          }),
+          fetchWithTimeout(analyticsApi.getOrdersChart("daily")).catch(err => {
+            console.error("[Dashboard] Orders chart fetch error:", err);
+            return [];
+          }),
+          fetchWithTimeout(analyticsApi.getTopProducts(4)).catch(err => {
+            console.error("[Dashboard] Top products fetch error:", err);
+            return [];
+          }),
+          fetchWithTimeout(analyticsApi.getInventoryOverview()).catch(err => {
+            console.error("[Dashboard] Inventory overview fetch error:", err);
+            return null;
+          }),
+        ]);
+
+        console.log("[Dashboard] Data fetched:", {
+          kpis: !!kpisData,
+          ordersChart: ordersChartData.length,
+          topProducts: topProductsData.length,
+          inventory: !!inventoryData,
+        });
+
+        setKpis(kpisData);
+        setOrdersChart(ordersChartData);
+        setTopProducts(topProductsData);
+        setInventoryOverview(inventoryData);
+        
+        console.log("[Dashboard] State updated successfully");
+      } catch (err) {
+        console.error("[Dashboard] Failed to fetch dashboard data:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load dashboard data";
+        setError(errorMessage);
+        
+        // If it's an authentication error, redirect to login
+        if (errorMessage.includes('Not authenticated') || errorMessage.includes('Session expired')) {
+          console.error("[Dashboard] Authentication error, redirecting to login");
+          window.location.href = '/admin/login';
+          return;
+        }
+      } finally {
+        console.log("[Dashboard] Setting loading to false");
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  // Timeout fallback to prevent infinite loading
+  useEffect(() => {
+    if (loading) {
+      const timeout = setTimeout(() => {
+        console.warn("[Dashboard] Loading timeout after 15s - clearing loading state");
+        setLoading(false);
+        if (!kpis && !ordersChart.length && !topProducts.length && !inventoryOverview) {
+          setError("Dashboard data failed to load. Please check your connection and try again.");
+        }
+      }, 15000);
+      return () => clearTimeout(timeout);
+    }
+  }, [loading, kpis, ordersChart, topProducts, inventoryOverview]);
+
+  // Transform orders chart data for display
+  const ordersData = ordersChart.map(item => ({
+    day: new Date(item.date).getDate().toString(),
+    value: item.count,
+  }));
+
+  // Calculate summary data from KPIs
+  const summaryData = kpis
+    ? [
+        { name: "Completed", value: kpis.completedTasks },
+        { name: "Remaining", value: kpis.totalTasks - kpis.completedTasks },
+      ]
+    : [
+        { name: "Completed", value: 0 },
+        { name: "Remaining", value: 0 },
+      ];
+
+  const completionPercentage = kpis && kpis.totalTasks > 0
+    ? Math.round((kpis.completedTasks / kpis.totalTasks) * 100)
+    : 0;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <span className="loading loading-spinner loading-lg"></span>
+          <p className="mt-4 text-sm text-base-content/70">Loading dashboard data...</p>
+          <p className="mt-2 text-xs text-base-content/50">This may take a few seconds</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error only if we have no data at all (allow partial data display)
+  if (error && !kpis && !ordersChart.length && !topProducts.length && !inventoryOverview) {
+    return (
+      <div className="alert alert-error m-6">
+        <span className="material-symbols-outlined">error</span>
+        <div className="flex-1">
+          <span>Error loading dashboard: {error}</span>
+          <button 
+            className="btn btn-sm btn-outline ml-4"
+            onClick={() => {
+              setLoading(true);
+              setError(null);
+              window.location.reload();
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+  
+  // Show warning if we have partial data
+  const hasPartialData = (kpis || ordersChart.length > 0 || topProducts.length > 0 || inventoryOverview) && error;
 
   return (
     <div className="space-y-6">
@@ -52,13 +210,9 @@ export default function DashboardPage() {
             happening today.
           </p>
         </div>
-        {/* AI Services Status Indicator */}
+        {/* AI Services Status Indicator - Single functional indicator */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-base-content/60">AI Services:</span>
-          <AIServiceStatus
-            serviceId={AI_SERVICES.DEMAND_FORECASTING}
-            size="sm"
-          />
+          <span className="text-xs text-base-content/60">AI:</span>
           <AIServiceStatus
             serviceId={AI_SERVICES.ANOMALY_DETECTION}
             size="sm"
@@ -77,14 +231,17 @@ export default function DashboardPage() {
               inventory_2
             </span>
           </div>
-          <div className="text-4xl font-bold text-base-content mb-2">156</div>
+          <div className="text-4xl font-bold text-base-content mb-2">
+            {kpis?.ordersThisPeriod ?? 0}
+          </div>
           <div className="text-sm text-base-content/60">
             Orders processed this month
           </div>
           <div className="mt-4 pt-4 border-t border-base-200">
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-success font-semibold">+12.5%</span>
-              <span className="text-base-content/60">vs last month</span>
+              <span className="text-base-content/60">
+                Total: {kpis?.totalOrders ?? 0} orders
+              </span>
             </div>
           </div>
         </div>
@@ -99,24 +256,30 @@ export default function DashboardPage() {
             </span>
           </div>
           <div className="h-40">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={ordersData}>
-                <XAxis
-                  dataKey="day"
-                  tickLine={false}
-                  axisLine={false}
-                  tick={{ fontSize: 12 }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#CF0F47" />
-              </BarChart>
-            </ResponsiveContainer>
+            {ordersData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={ordersData}>
+                  <XAxis
+                    dataKey="day"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12 }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#CF0F47" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-full text-base-content/60 text-sm">
+                No order data available
+              </div>
+            )}
           </div>
         </div>
 
@@ -148,12 +311,12 @@ export default function DashboardPage() {
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
-              <div className="text-success font-semibold text-lg">42%</div>
+              <div className="text-success font-semibold text-lg">{completionPercentage}%</div>
             </div>
           </div>
-          <div className="text-center font-semibold text-lg mt-2">156</div>
+          <div className="text-center font-semibold text-lg mt-2">{kpis?.totalTasks ?? 0}</div>
           <div className="text-center text-sm text-base-content/60">
-            Orders Completed
+            Tasks Total
           </div>
         </div>
       </div>
@@ -175,43 +338,55 @@ export default function DashboardPage() {
                 inventory_2
               </span>
               <div className="text-xs text-success font-semibold mb-1">
-                26% ↑
+                Total Items
               </div>
-              <div className="text-2xl font-bold text-base-content">4,236</div>
+              <div className="text-2xl font-bold text-base-content">
+                {inventoryOverview?.totalItems ?? 0}
+              </div>
               <div className="text-xs text-base-content/60 mt-1">
-                Orders Received
+                Active: {inventoryOverview?.activeItems ?? 0}
+              </div>
+            </div>
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
+                warning
+              </span>
+              <div className="text-xs text-warning font-semibold mb-1">
+                Low Stock
+              </div>
+              <div className="text-2xl font-bold text-base-content">
+                {inventoryOverview?.lowStockItems ?? 0}
+              </div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Items below threshold
               </div>
             </div>
             <div className="text-center p-4 bg-base-200 rounded-lg">
               <span className="material-symbols-outlined text-3xl text-error mb-2 block">
-                local_shipping
-              </span>
-              <div className="text-xs text-error font-semibold mb-1">20% ↓</div>
-              <div className="text-2xl font-bold text-base-content">2,778</div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Orders Shipped
-              </div>
-            </div>
-            <div className="text-center p-4 bg-base-200 rounded-lg">
-              <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
-                assignment_return
-              </span>
-              <div className="text-xs text-error font-semibold mb-1">8% ↓</div>
-              <div className="text-2xl font-bold text-base-content">147</div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Orders Returned
-              </div>
-            </div>
-            <div className="text-center p-4 bg-base-200 rounded-lg">
-              <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
                 cancel
               </span>
-              <div className="text-xs text-success font-semibold mb-1">
-                6% ↑
+              <div className="text-xs text-error font-semibold mb-1">
+                Out of Stock
               </div>
-              <div className="text-2xl font-bold text-base-content">537</div>
+              <div className="text-2xl font-bold text-base-content">
+                {inventoryOverview?.outOfStockItems ?? 0}
+              </div>
               <div className="text-xs text-base-content/60 mt-1">
-                Orders Canceled
+                Items unavailable
+              </div>
+            </div>
+            <div className="text-center p-4 bg-base-200 rounded-lg">
+              <span className="material-symbols-outlined text-3xl text-info mb-2 block">
+                attach_money
+              </span>
+              <div className="text-xs text-info font-semibold mb-1">
+                Total Value
+              </div>
+              <div className="text-2xl font-bold text-base-content">
+                ${(inventoryOverview?.totalValue ?? 0).toLocaleString()}
+              </div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Inventory value
               </div>
             </div>
           </div>
@@ -226,76 +401,45 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined">more_vert</span>
             </button>
           </div>
-          <ul className="space-y-4">
-            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                  <span className="material-symbols-outlined text-primary">
-                    headphones
-                  </span>
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">Wireless Earbuds</div>
-                  <div className="text-xs text-base-content/60">SKU-1001</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-base-content">240</div>
-                <div className="text-xs text-base-content/60">units sold</div>
-              </div>
-            </li>
-            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-info/10 rounded-lg flex items-center justify-center">
-                  <span className="material-symbols-outlined text-info">
-                    tv
-                  </span>
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">Smart Projector</div>
-                  <div className="text-xs text-base-content/60">SKU-1002</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-base-content">198</div>
-                <div className="text-xs text-base-content/60">units sold</div>
-              </div>
-            </li>
-            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-success/10 rounded-lg flex items-center justify-center">
-                  <span className="material-symbols-outlined text-success">
-                    coffee
-                  </span>
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">Smart Mug</div>
-                  <div className="text-xs text-base-content/60">SKU-1003</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-base-content">156</div>
-                <div className="text-xs text-base-content/60">units sold</div>
-              </div>
-            </li>
-            <li className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-warning/10 rounded-lg flex items-center justify-center">
-                  <span className="material-symbols-outlined text-warning">
-                    cooking
-                  </span>
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">Instant Pot</div>
-                  <div className="text-xs text-base-content/60">SKU-1004</div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-bold text-base-content">142</div>
-                <div className="text-xs text-base-content/60">units sold</div>
-              </div>
-            </li>
-          </ul>
+          {topProducts.length > 0 ? (
+            <ul className="space-y-4">
+              {topProducts.map((product, index) => {
+                const colorClasses = [
+                  { bg: "bg-primary/10", text: "text-primary" },
+                  { bg: "bg-info/10", text: "text-info" },
+                  { bg: "bg-success/10", text: "text-success" },
+                  { bg: "bg-warning/10", text: "text-warning" },
+                ];
+                const icons = ["inventory_2", "package", "shopping_cart", "category"];
+                const colorClass = colorClasses[index % colorClasses.length];
+                const icon = icons[index % icons.length];
+                return (
+                  <li key={product.materialId} className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 ${colorClass.bg} rounded-lg flex items-center justify-center`}>
+                        <span className={`material-symbols-outlined ${colorClass.text}`}>
+                          {icon}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-sm">{product.materialName}</div>
+                        <div className="text-xs text-base-content/60">{product.materialId.substring(0, 8)}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-base-content">{product.quantity}</div>
+                      <div className="text-xs text-base-content/60">units</div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="text-center py-8 text-base-content/60">
+              <span className="material-symbols-outlined text-4xl mb-2 block">inventory_2</span>
+              <p>No product data available</p>
+            </div>
+          )}
         </div>
       </div>
 

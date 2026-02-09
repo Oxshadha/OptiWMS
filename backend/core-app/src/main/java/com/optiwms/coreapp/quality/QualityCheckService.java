@@ -1,0 +1,102 @@
+package com.optiwms.coreapp.quality;
+
+import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.infra.quality.QualityCheckEntity;
+import com.optiwms.infra.quality.QualityCheckRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+public class QualityCheckService {
+
+    private final QualityCheckRepository repository;
+
+    public QualityCheckService(QualityCheckRepository repository) {
+        this.repository = repository;
+    }
+
+    public List<QualityCheck> listAll() {
+        return repository.findAll().stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<QualityCheck> findByGrnId(UUID grnId) {
+        return repository.findByGrnId(grnId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<QualityCheck> findByMaterialId(UUID materialId) {
+        return repository.findByMaterialId(materialId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public QualityCheck findById(UUID id) {
+        return repository.findById(id)
+                .map(this::toDomain)
+                .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
+    }
+
+    @Transactional
+    public QualityCheck create(QualityCheck qualityCheck) {
+        QualityCheckEntity entity = toEntity(qualityCheck);
+        entity = repository.save(entity);
+        return toDomain(entity);
+    }
+
+    @Transactional
+    public QualityCheck update(QualityCheck qualityCheck) {
+        QualityCheckEntity entity = repository.findById(qualityCheck.getId())
+                .orElseThrow(() -> new RuntimeException("Quality check not found: " + qualityCheck.getId()));
+        
+        if (qualityCheck.getQtyReceived() != null) entity.setQtyReceived(qualityCheck.getQtyReceived());
+        if (qualityCheck.getQtyPassed() != null) entity.setQtyPassed(qualityCheck.getQtyPassed());
+        if (qualityCheck.getQtyRejected() != null) entity.setQtyRejected(qualityCheck.getQtyRejected());
+        if (qualityCheck.getRejectionReason() != null) entity.setRejectionReason(qualityCheck.getRejectionReason());
+        
+        entity = repository.save(entity);
+        return toDomain(entity);
+    }
+
+    @Transactional
+    public void deleteById(UUID id) {
+        repository.deleteById(id);
+    }
+
+    private QualityCheck toDomain(QualityCheckEntity entity) {
+        QualityCheck check = new QualityCheck();
+        check.setId(entity.getId());
+        check.setGrnId(entity.getGrnId());
+        check.setMaterialId(entity.getMaterialId());
+        check.setQtyReceived(entity.getQtyReceived());
+        check.setQtyPassed(entity.getQtyPassed());
+        check.setQtyRejected(entity.getQtyRejected());
+        check.setRejectionReason(entity.getRejectionReason());
+        check.setCheckedBy(entity.getCheckedBy());
+        check.setCheckDate(entity.getCheckDate());
+        return check;
+    }
+
+    private QualityCheckEntity toEntity(QualityCheck check) {
+        QualityCheckEntity entity = new QualityCheckEntity();
+        if (check.getId() != null) entity.setId(check.getId());
+        entity.setGrnId(check.getGrnId());
+        entity.setMaterialId(check.getMaterialId());
+        entity.setQtyReceived(check.getQtyReceived() != null ? check.getQtyReceived() : BigDecimal.ZERO);
+        entity.setQtyPassed(check.getQtyPassed() != null ? check.getQtyPassed() : BigDecimal.ZERO);
+        entity.setQtyRejected(check.getQtyRejected() != null ? check.getQtyRejected() : BigDecimal.ZERO);
+        entity.setRejectionReason(check.getRejectionReason());
+        entity.setCheckedBy(check.getCheckedBy());
+        entity.setCheckDate(check.getCheckDate() != null ? check.getCheckDate() : OffsetDateTime.now());
+        return entity;
+    }
+}
+

@@ -13,6 +13,7 @@ export interface User {
   avatarUrl?: string;
   status: string;
   deviceId?: string;
+  blindReceivingMode?: boolean;
   lastLoginAt?: string;
 }
 
@@ -34,11 +35,11 @@ export const usersApi = {
     return apiClient.get<User>(`/users/username/${username}`);
   },
 
-  create: async (user: Omit<User, 'id'> & { passwordHash: string }): Promise<User> => {
+  create: async (user: Omit<User, 'id'> & { password: string }): Promise<User> => {
     return apiClient.post<User>('/users', user);
   },
 
-  update: async (id: string, user: Partial<User> & { passwordHash?: string }): Promise<User> => {
+  update: async (id: string, user: Partial<User> & { password?: string }): Promise<User> => {
     return apiClient.put<User>(`/users/${id}`, user);
   },
 
@@ -48,6 +49,14 @@ export const usersApi = {
 
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/users/${id}`);
+  },
+
+  updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean }): Promise<User> => {
+    return apiClient.put<User>(`/users/${id}/preferences`, preferences);
+  },
+
+  assignWarehouse: async (id: string, warehouseId: string): Promise<User> => {
+    return apiClient.put<User>(`/users/${id}/assign-warehouse`, { warehouseId });
   },
 };
 

@@ -5,7 +5,6 @@ import com.optiwms.domain.operations.StockTransfer;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -49,7 +48,8 @@ public class StockTransferController {
             transfer.setSourceLocationCode(request.sourceLocationCode());
             transfer.setDestWarehouseId(UUID.fromString(request.destWarehouseId()));
             transfer.setDestLocationCode(request.destLocationCode());
-            transfer.setQuantity(new BigDecimal(request.quantity()));
+            // Convert string quantity to Integer (actual pallet quantities are integers)
+            transfer.setQuantity(Integer.parseInt(request.quantity()));
             transfer.setNotes(request.notes());
 
             StockTransfer created = service.create(transfer);

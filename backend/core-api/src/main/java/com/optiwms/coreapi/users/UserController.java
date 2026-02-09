@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -64,17 +65,44 @@ public class UserController {
     }
 
     @PostMapping
-    public ResponseEntity<UserDto> create(@RequestBody CreateUserRequest request) {
+    public ResponseEntity<?> create(@RequestBody CreateUserRequest request) {
         try {
+            // Validate required fields
+            if (request.username() == null || request.username().trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Username is required"));
+            }
+            if (request.password() == null || request.password().trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Password is required"));
+            }
+            if (request.role() == null || request.role().trim().isEmpty()) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Role is required"));
+            }
+
             User user = new User();
             user.setUsername(request.username());
             user.setEmail(request.email());
-            user.setPasswordHash(request.passwordHash()); // In production, hash this
+            // Password will be automatically hashed by UserService
+            user.setPasswordHash(request.password()); // UserService will hash this
             user.setEmployeeId(request.employeeId());
             user.setFirstName(request.firstName());
             user.setLastName(request.lastName());
             user.setRole(request.role());
-            user.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
+            
+            // Validate and parse warehouseId
+            if (request.warehouseId() != null && !request.warehouseId().trim().isEmpty()) {
+                try {
+                    user.setWarehouseId(UUID.fromString(request.warehouseId()));
+                } catch (IllegalArgumentException e) {
+                    return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Invalid warehouse ID format: " + request.warehouseId()));
+                }
+            } else {
+                user.setWarehouseId(null);
+            }
+            
             user.setPhone(request.phone());
             user.setAvatarUrl(request.avatarUrl());
             user.setStatus(request.status() != null ? request.status() : "active");
@@ -83,7 +111,12 @@ public class UserController {
             User created = service.create(user);
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            // Return error message in response
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", e.getMessage() != null ? e.getMessage() : "Failed to create user"));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                .body(Map.of("error", "Unexpected error: " + e.getMessage()));
         }
     }
 
@@ -92,7 +125,7 @@ public class UserController {
         try {
             User user = service.findById(id);
             if (request.email() != null) user.setEmail(request.email());
-            if (request.passwordHash() != null) user.setPasswordHash(request.passwordHash());
+            if (request.password() != null) user.setPasswordHash(request.password()); // Will be hashed by UserService
             if (request.firstName() != null) user.setFirstName(request.firstName());
             if (request.lastName() != null) user.setLastName(request.lastName());
             if (request.role() != null) user.setRole(request.role());
@@ -143,6 +176,7 @@ public class UserController {
                 user.getAvatarUrl(),
                 user.getStatus(),
                 user.getDeviceId(),
+                user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false,
                 user.getLastLoginAt() != null ? user.getLastLoginAt().toString() : null
         );
     }
@@ -150,7 +184,7 @@ public class UserController {
     public record CreateUserRequest(
             String username,
             String email,
-            String passwordHash,
+            String password, // Plain password - will be hashed by UserService
             String employeeId,
             String firstName,
             String lastName,
@@ -164,7 +198,7 @@ public class UserController {
 
     public record UpdateUserRequest(
             String email,
-            String passwordHash,
+            String password, // Plain password - will be hashed by UserService if provided
             String firstName,
             String lastName,
             String role,
@@ -174,6 +208,57 @@ public class UserController {
             String status,
             String deviceId
     ) {}
+
+    @PutMapping("/{id}/preferences")
+    public ResponseEntity<UserDto> updatePreferences(
+            @PathVariable UUID id,
+            @RequestBody Map<String, Object> preferences
+    ) {
+        try {
+            User user = service.findById(id);
+            
+            // Update blind receiving mode if provided
+            if (preferences.containsKey("blindReceivingMode")) {
+                Object value = preferences.get("blindReceivingMode");
+                Boolean blindMode = value instanceof Boolean 
+                    ? (Boolean) value 
+                    : Boolean.parseBoolean(value.toString());
+                user.setBlindReceivingMode(blindMode);
+            }
+            
+            User updated = service.update(user);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /**
+     * Assign a user to a warehouse.
+     * Useful for fixing workers who don't have warehouseId set.
+     */
+    @PutMapping("/{id}/assign-warehouse")
+    public ResponseEntity<UserDto> assignWarehouse(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> request
+    ) {
+        try {
+            User user = service.findById(id);
+            String warehouseId = request.get("warehouseId");
+            
+            if (warehouseId == null || warehouseId.trim().isEmpty()) {
+                return ResponseEntity.badRequest().build();
+            }
+            
+            user.setWarehouseId(UUID.fromString(warehouseId));
+            User updated = service.update(user);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
 
     public record UserDto(
             String id,
@@ -188,6 +273,7 @@ public class UserController {
             String avatarUrl,
             String status,
             String deviceId,
+            Boolean blindReceivingMode,
             String lastLoginAt
     ) {}
 }

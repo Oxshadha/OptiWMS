@@ -14,6 +14,8 @@ public class Task extends BaseEntity {
     private String status;
     private LocalDateTime dueDate;
     private LocalDateTime completedAt;
+    private UUID completedBy;
+    private LocalDateTime startedAt;
     private String locationCode;
     private String referenceType;
     private UUID referenceId;
@@ -36,6 +38,10 @@ public class Task extends BaseEntity {
     public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
+    public UUID getCompletedBy() { return completedBy; }
+    public void setCompletedBy(UUID completedBy) { this.completedBy = completedBy; }
+    public LocalDateTime getStartedAt() { return startedAt; }
+    public void setStartedAt(LocalDateTime startedAt) { this.startedAt = startedAt; }
     public String getLocationCode() { return locationCode; }
     public void setLocationCode(String locationCode) { this.locationCode = locationCode; }
     public String getReferenceType() { return referenceType; }

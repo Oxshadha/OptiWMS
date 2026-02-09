@@ -14,6 +14,7 @@ public class DeliveryPartner extends BaseEntity {
     private String address;
     private String city;
     private String country;
+    private String currencyCode; // e.g., "USD", "LKR", "EUR"
     private String serviceAreas; // JSON string
     private BigDecimal rating;
     private BigDecimal costPerDelivery;
@@ -38,6 +39,8 @@ public class DeliveryPartner extends BaseEntity {
     public void setCity(String city) { this.city = city; }
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
+    public String getCurrencyCode() { return currencyCode; }
+    public void setCurrencyCode(String currencyCode) { this.currencyCode = currencyCode; }
     public String getServiceAreas() { return serviceAreas; }
     public void setServiceAreas(String serviceAreas) { this.serviceAreas = serviceAreas; }
     public BigDecimal getRating() { return rating; }

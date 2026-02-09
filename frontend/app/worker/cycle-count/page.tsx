@@ -5,6 +5,18 @@ import { useOffline } from "@/hooks/useOffline";
 import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
 import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
+import { operationsApi, CycleCount } from "@/lib/api/operations";
+import { materialsApi } from "@/lib/api/materials";
+import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+
+interface CycleCountTask {
+  id: string;
+  location: string;
+  sku: string;
+  item: string;
+  expected: number;
+  counted: number;
+}
 
 export default function CycleCountPage() {
   const { isOnline, dbReady } = useOffline();
@@ -15,25 +27,8 @@ export default function CycleCountPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [showLocationScanner, setShowLocationScanner] = useState(false);
   const [showSKUScanner, setShowSKUScanner] = useState(false);
-
-  const cycleCountTasks = [
-    {
-      id: 1,
-      location: "A1",
-      sku: "SKU-1001",
-      item: "Wireless Earbuds",
-      expected: 50,
-      counted: 0,
-    },
-    {
-      id: 2,
-      location: "B3",
-      sku: "SKU-1002",
-      item: "Smart Projector",
-      expected: 56,
-      counted: 0,
-    },
-  ];
+  const [cycleCountTasks, setCycleCountTasks] = useState<CycleCountTask[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const handleScanLocation = () => {
     setShowLocationScanner(true);
@@ -52,6 +47,62 @@ export default function CycleCountPage() {
     setScannedSKU(result);
     setShowSKUScanner(false);
   };
+
+  // Load cycle count tasks from API
+  useEffect(() => {
+    const loadCycleCountTasks = async () => {
+      if (!isOnline) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const counts = await operationsApi.getCycleCounts();
+        // Filter for assigned/pending tasks
+        const activeCounts = counts.filter(c => c.status === "assigned" || c.status === "pending" || c.status === "in_progress");
+        
+        // Fetch material names for each count
+        const tasksWithNames = await Promise.all(
+          activeCounts.map(async (count) => {
+            try {
+              const material = await materialsApi.getById(count.materialId);
+              const display = formatMaterialDisplay(
+                material.materialCode,
+                material.description,
+                material.id
+              );
+              return {
+                id: count.id,
+                location: count.locationCode,
+                sku: display.sku,
+                item: display.name,
+                expected: parseInt(count.expectedQuantity) || 0,
+                counted: parseInt(count.countedQuantity) || 0,
+              };
+            } catch (error) {
+              console.error(`Error fetching material ${count.materialId}:`, error);
+              // Don't show UUID, show user-friendly message
+              return {
+                id: count.id,
+                location: count.locationCode,
+                sku: "N/A",
+                item: "Material details not available",
+                expected: parseInt(count.expectedQuantity) || 0,
+                counted: parseInt(count.countedQuantity) || 0,
+              };
+            }
+          })
+        );
+        setCycleCountTasks(tasksWithNames);
+      } catch (error) {
+        console.error("Error loading cycle count tasks:", error);
+        setCycleCountTasks([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCycleCountTasks();
+  }, [isOnline]);
 
   // Load saved counts on mount
   useEffect(() => {
@@ -278,22 +329,40 @@ export default function CycleCountPage() {
       {/* Active Cycle Count Tasks */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <h3 className="font-bold text-base-content mb-3">Active Tasks</h3>
-        <div className="space-y-2">
-          {cycleCountTasks.map((task) => (
-            <div
-              key={task.id}
-              className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
-            >
-              <div>
-                <div className="font-semibold text-sm text-base-content">
-                  {task.location} • {task.item}
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <span className="loading loading-spinner loading-md"></span>
+          </div>
+        ) : cycleCountTasks.length === 0 ? (
+          <div className="text-center py-8 text-base-content/60">
+            <span className="material-symbols-outlined text-4xl mb-2">inventory_2</span>
+            <p>No active cycle count tasks</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cycleCountTasks.map((task) => (
+              <div
+                key={task.id}
+                className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
+              >
+                <div>
+                  <div className="font-semibold text-sm text-base-content">
+                    {task.item}
+                  </div>
+                  {task.sku && task.sku !== "N/A" && !isUUID(task.sku) && (
+                    <div className="text-xs text-base-content/60">
+                      <span className="font-mono font-semibold text-primary">SKU: {task.sku}</span>
+                    </div>
+                  )}
+                  <div className="text-xs text-base-content/60">
+                    Location: {task.location} • Expected: {task.expected}
+                  </div>
                 </div>
-                <div className="text-xs text-base-content/60">Expected: {task.expected}</div>
+                <span className="material-symbols-outlined text-base-content/40">chevron_right</span>
               </div>
-              <span className="material-symbols-outlined text-base-content/40">chevron_right</span>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* QR Scanners */}

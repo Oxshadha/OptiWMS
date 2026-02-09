@@ -7,10 +7,10 @@ public class OrderItem {
     private UUID id;
     private UUID orderId;
     private UUID materialId;
-    private BigDecimal quantity;
+    private Integer quantity;
     private BigDecimal unitPrice;
-    private BigDecimal pickedQuantity;
-    private BigDecimal packedQuantity;
+    private Integer pickedQuantity;
+    private Integer packedQuantity;
     private String locationCode;
     private String status;
 
@@ -39,11 +39,11 @@ public class OrderItem {
         this.materialId = materialId;
     }
 
-    public BigDecimal getQuantity() {
+    public Integer getQuantity() {
         return quantity;
     }
 
-    public void setQuantity(BigDecimal quantity) {
+    public void setQuantity(Integer quantity) {
         this.quantity = quantity;
     }
 
@@ -55,19 +55,19 @@ public class OrderItem {
         this.unitPrice = unitPrice;
     }
 
-    public BigDecimal getPickedQuantity() {
+    public Integer getPickedQuantity() {
         return pickedQuantity;
     }
 
-    public void setPickedQuantity(BigDecimal pickedQuantity) {
+    public void setPickedQuantity(Integer pickedQuantity) {
         this.pickedQuantity = pickedQuantity;
     }
 
-    public BigDecimal getPackedQuantity() {
+    public Integer getPackedQuantity() {
         return packedQuantity;
     }
 
-    public void setPackedQuantity(BigDecimal packedQuantity) {
+    public void setPackedQuantity(Integer packedQuantity) {
         this.packedQuantity = packedQuantity;
     }
 
