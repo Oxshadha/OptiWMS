@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { sopsApi } from "@/lib/api/sops";
+import { showToast } from "@/lib/utils/toast";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -477,7 +479,10 @@ const statusConfig = {
 };
 
 export default function SOPsPage() {
-  const { hasPermission, role } = useAdmin();
+  const { hasPermission, role, admin } = useAdmin();
+  const [sops, setSops] = useState<SOP[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -496,14 +501,46 @@ export default function SOPsPage() {
   const canEdit = hasPermission(ADMIN_ROUTES.SOPS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.SOPS, "delete");
 
-  const summary = {
-    totalSOPs: mockSOPs.length,
-    activeSOPs: mockSOPs.filter((s) => s.status === "active").length,
-    draftSOPs: mockSOPs.filter((s) => s.status === "draft").length,
-    archivedSOPs: mockSOPs.filter((s) => s.status === "archived").length,
+  const loadSops = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await sopsApi.getAll();
+      setSops(
+        data.map((s) => ({
+          id: s.id,
+          title: s.title,
+          category: s.category as SOPCategory,
+          content: s.content,
+          version: s.version,
+          createdAt: s.createdAt ? s.createdAt.split("T")[0] : "",
+          updatedAt: s.updatedAt ? s.updatedAt.split("T")[0] : "",
+          createdBy: s.createdBy || "System",
+          applicableRoles: s.applicableRoles || [],
+          status: s.status,
+        }))
+      );
+    } catch (err) {
+      console.error("Failed to load SOPs:", err);
+      setError(err instanceof Error ? err.message : "Failed to load SOPs");
+      setSops([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filteredSOPs = mockSOPs.filter((sop) => {
+  useEffect(() => {
+    loadSops();
+  }, []);
+
+  const summary = {
+    totalSOPs: sops.length,
+    activeSOPs: sops.filter((s) => s.status === "active").length,
+    draftSOPs: sops.filter((s) => s.status === "draft").length,
+    archivedSOPs: sops.filter((s) => s.status === "archived").length,
+  };
+
+  const filteredSOPs = sops.filter((sop) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
       !query ||
@@ -785,22 +822,61 @@ ${sop.content}
       <SummaryCards cards={summaryCards} />
 
       {/* SOPs Table */}
-      <DataTable
-        data={filteredSOPs}
-        columns={columns}
-        keyExtractor={(sop) => sop.id}
-        onRowClick={(sop) => {
-          setSelectedSOP(sop);
-          setShowDetailModal(true);
-        }}
-        actions={renderActions}
-        emptyMessage="No SOPs found"
-      />
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : error && sops.length === 0 ? (
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>Error loading SOPs: {error}</span>
+        </div>
+      ) : (
+        <DataTable
+          data={filteredSOPs}
+          columns={columns}
+          keyExtractor={(sop) => sop.id}
+          onRowClick={(sop) => {
+            setSelectedSOP(sop);
+            setShowDetailModal(true);
+          }}
+          actions={renderActions}
+          emptyMessage="No SOPs found"
+        />
+      )}
 
       {/* Create SOP Modal */}
       <CreateSOPModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        createdBy={admin?.name || "System"}
+        onCreate={async (newSop) => {
+          const created = await sopsApi.create({
+            title: newSop.title,
+            category: newSop.category,
+            content: newSop.content,
+            version: newSop.version,
+            status: newSop.status,
+            createdBy: newSop.createdBy,
+            applicableRoles: newSop.applicableRoles,
+          });
+          setSops((prev) => [
+            {
+              id: created.id,
+              title: created.title,
+              category: created.category as SOPCategory,
+              content: created.content,
+              version: created.version,
+              createdAt: created.createdAt ? created.createdAt.split("T")[0] : "",
+              updatedAt: created.updatedAt ? created.updatedAt.split("T")[0] : "",
+              createdBy: created.createdBy || "System",
+              applicableRoles: created.applicableRoles || [],
+              status: created.status,
+            },
+            ...prev,
+          ]);
+          showToast.success("SOP created");
+        }}
       />
 
       {/* Edit SOP Modal */}
@@ -812,6 +888,36 @@ ${sop.content}
             setEditingSOP(null);
           }}
           sop={editingSOP}
+          onUpdate={async (updatedSop) => {
+            const updated = await sopsApi.update(updatedSop.id, {
+              title: updatedSop.title,
+              category: updatedSop.category,
+              content: updatedSop.content,
+              version: updatedSop.version,
+              status: updatedSop.status,
+              createdBy: updatedSop.createdBy,
+              applicableRoles: updatedSop.applicableRoles,
+            });
+            setSops((prev) =>
+              prev.map((s) =>
+                s.id === updated.id
+                  ? {
+                      id: updated.id,
+                      title: updated.title,
+                      category: updated.category as SOPCategory,
+                      content: updated.content,
+                      version: updated.version,
+                      createdAt: updated.createdAt ? updated.createdAt.split("T")[0] : s.createdAt,
+                      updatedAt: updated.updatedAt ? updated.updatedAt.split("T")[0] : s.updatedAt,
+                      createdBy: updated.createdBy || "System",
+                      applicableRoles: updated.applicableRoles || [],
+                      status: updated.status,
+                    }
+                  : s
+              )
+            );
+            showToast.success("SOP updated");
+          }}
         />
       )}
 
@@ -843,8 +949,16 @@ ${sop.content}
             setSelectedSOP(null);
           }}
           onConfirm={() => {
-            // TODO: API call to delete SOP
-            console.log("Deleting SOP:", selectedSOP.id);
+            sopsApi
+              .delete(selectedSOP.id)
+              .then(() => {
+                setSops((prev) => prev.filter((s) => s.id !== selectedSOP.id));
+                showToast.success("SOP deleted");
+              })
+              .catch((err) => {
+                console.error("Failed to delete SOP:", err);
+                showToast.error(err instanceof Error ? err.message : "Failed to delete SOP");
+              });
             setShowDeleteModal(false);
             setSelectedSOP(null);
           }}
@@ -859,9 +973,13 @@ ${sop.content}
 function CreateSOPModal({
   isOpen,
   onClose,
+  createdBy,
+  onCreate,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  createdBy: string;
+  onCreate: (sop: SOP) => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     title: "",
@@ -872,19 +990,36 @@ function CreateSOPModal({
     applicableRoles: [] as string[],
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create SOP
-    console.log("Creating SOP:", formData);
-    onClose();
-    setFormData({
-      title: "",
-      category: "general",
-      content: "",
-      version: "1.0",
-      status: "draft",
-      applicableRoles: [],
-    });
+    const now = new Date().toISOString().split("T")[0];
+    const newSop: SOP = {
+      id: `sop-${Date.now()}`,
+      title: formData.title.trim(),
+      category: formData.category,
+      content: formData.content,
+      version: formData.version.trim(),
+      createdAt: now,
+      updatedAt: now,
+      createdBy,
+      applicableRoles: formData.applicableRoles,
+      status: formData.status,
+    };
+    try {
+      await onCreate(newSop);
+      onClose();
+      setFormData({
+        title: "",
+        category: "general",
+        content: "",
+        version: "1.0",
+        status: "draft",
+        applicableRoles: [],
+      });
+    } catch (err) {
+      console.error("Failed to create SOP:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create SOP");
+    }
   };
 
   return (
@@ -1023,10 +1158,12 @@ function EditSOPModal({
   isOpen,
   onClose,
   sop,
+  onUpdate,
 }: {
   isOpen: boolean;
   onClose: () => void;
   sop: SOP;
+  onUpdate: (sop: SOP) => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     title: sop.title,
@@ -1036,11 +1173,33 @@ function EditSOPModal({
     status: sop.status,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    setFormData({
+      title: sop.title,
+      category: sop.category,
+      content: sop.content,
+      version: sop.version,
+      status: sop.status,
+    });
+  }, [sop]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to update SOP
-    console.log("Updating SOP:", sop.id, formData);
-    onClose();
+    try {
+      await onUpdate({
+        ...sop,
+        title: formData.title.trim(),
+        category: formData.category,
+        content: formData.content,
+        version: formData.version.trim(),
+        status: formData.status,
+        updatedAt: new Date().toISOString().split("T")[0],
+      });
+      onClose();
+    } catch (err) {
+      console.error("Failed to update SOP:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update SOP");
+    }
   };
 
   return (
