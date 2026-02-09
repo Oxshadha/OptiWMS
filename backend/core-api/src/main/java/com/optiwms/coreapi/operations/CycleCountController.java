@@ -1,6 +1,9 @@
 package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.CycleCountService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,94 +32,74 @@ public class CycleCountController {
 
     @GetMapping("/{id}")
     public ResponseEntity<CycleCountDto> getById(@PathVariable UUID id) {
-        try {
-            CycleCountService.CycleCount count = service.findById(id);
-            return ResponseEntity.ok(toDto(count));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        CycleCountService.CycleCount count = service.findById(id);
+        return ResponseEntity.ok(toDto(count));
     }
 
     @PostMapping
-    public ResponseEntity<CycleCountDto> create(@RequestBody CreateCycleCountRequest request) {
-        try {
-            CycleCountService.CycleCount cycleCount = new CycleCountService.CycleCount();
-            cycleCount.setCountNumber(request.countNumber());
-            cycleCount.setWarehouseId(UUID.fromString(request.warehouseId()));
-            cycleCount.setLocationCode(request.locationCode());
-            cycleCount.setScheduledDate(
-                    request.scheduledDate() != null
-                            ? java.time.LocalDate.parse(request.scheduledDate())
-                            : java.time.LocalDate.now()
-            );
-            cycleCount.setStatus(request.status() != null ? request.status() : "scheduled");
-            cycleCount.setNotes(request.notes());
+    public ResponseEntity<CycleCountDto> create(@Valid @RequestBody CreateCycleCountRequest request) {
+        CycleCountService.CycleCount cycleCount = new CycleCountService.CycleCount();
+        cycleCount.setCountNumber(request.countNumber());
+        cycleCount.setWarehouseId(UUID.fromString(request.warehouseId()));
+        cycleCount.setLocationCode(request.locationCode());
+        cycleCount.setScheduledDate(
+                request.scheduledDate() != null
+                        ? java.time.LocalDate.parse(request.scheduledDate())
+                        : java.time.LocalDate.now()
+        );
+        cycleCount.setStatus(request.status() != null ? request.status() : "scheduled");
+        cycleCount.setNotes(request.notes());
 
-            CycleCountService.CycleCount created = service.create(cycleCount);
-            return ResponseEntity.ok(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        CycleCountService.CycleCount created = service.create(cycleCount);
+        return ResponseEntity.ok(toDto(created));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<CycleCountDto> update(
             @PathVariable UUID id,
-            @RequestBody UpdateCycleCountRequest request
+            @Valid @RequestBody UpdateCycleCountRequest request
     ) {
-        try {
-            CycleCountService.CycleCount updated = service.update(
-                    id,
-                    request.scheduledDate() != null ? java.time.LocalDate.parse(request.scheduledDate()) : null,
-                    request.status(),
-                    request.notes()
-            );
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        CycleCountService.CycleCount updated = service.update(
+                id,
+                request.scheduledDate() != null ? java.time.LocalDate.parse(request.scheduledDate()) : null,
+                request.status(),
+                request.notes()
+        );
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/cancel")
     public ResponseEntity<CycleCountDto> cancel(
             @PathVariable UUID id,
-            @RequestBody CancelCycleCountRequest request
+            @Valid @RequestBody CancelCycleCountRequest request
     ) {
-        try {
-            CycleCountService.CycleCount updated = service.update(
-                    id,
-                    null,
-                    "cancelled",
-                    request.reason()
-            );
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        CycleCountService.CycleCount updated = service.update(
+                id,
+                null,
+                "cancelled",
+                request.reason()
+        );
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/review")
     public ResponseEntity<CycleCountDto> review(
             @PathVariable UUID id,
-            @RequestBody ReviewCycleCountRequest request
+            @Valid @RequestBody ReviewCycleCountRequest request
     ) {
-        try {
-            CycleCountService.CycleCount updated = service.update(
-                    id,
-                    null,
-                    null,
-                    request.notes()
-            );
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        CycleCountService.CycleCount updated = service.update(
+                id,
+                null,
+                null,
+                request.notes()
+        );
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PostMapping("/{id}/record")
     public ResponseEntity<CycleCountResultDto> recordCount(
             @PathVariable UUID id,
-            @RequestBody RecordCountRequest request) {
+            @Valid @RequestBody RecordCountRequest request) {
         try {
             var result = service.recordCount(
                     id,
@@ -146,17 +129,25 @@ public class CycleCountController {
         );
     }
 
-    public record RecordCountRequest(String materialId, String countedQuantity, String countedBy) {}
+    public record RecordCountRequest(
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String materialId,
+            @NotBlank @Pattern(regexp = "^\\d+(\\.\\d+)?$") String countedQuantity,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String countedBy
+    ) {}
     public record CreateCycleCountRequest(
-            String countNumber,
-            String warehouseId,
-            String locationCode,
+            @NotBlank String countNumber,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String warehouseId,
+            @NotBlank String locationCode,
             String scheduledDate,
-            String status,
+            @Pattern(regexp = "(?i)scheduled|in_progress|completed|cancelled") String status,
             String notes
     ) {}
-    public record UpdateCycleCountRequest(String scheduledDate, String status, String notes) {}
-    public record CancelCycleCountRequest(String reason) {}
+    public record UpdateCycleCountRequest(
+            String scheduledDate,
+            @Pattern(regexp = "(?i)scheduled|in_progress|completed|cancelled") String status,
+            String notes
+    ) {}
+    public record CancelCycleCountRequest(@NotBlank String reason) {}
     public record ReviewCycleCountRequest(String notes) {}
     public record CycleCountDto(String id, String countNumber, String warehouseId, String locationCode, String status, String variance) {}
     public record CycleCountResultDto(boolean success, String message, String variance) {}
