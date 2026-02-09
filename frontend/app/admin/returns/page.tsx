@@ -18,8 +18,10 @@ import { showToast } from "@/lib/utils/toast";
 interface ReturnDisplay {
   id: string;
   returnNumber: string;
+  originalOrderId: string | null;
   originalOrder: string;
   customerName: string;
+  warehouseId: string | null;
   warehouse: string;
   returnDate: string;
   reason: string;
@@ -34,8 +36,10 @@ const mockReturns: ReturnDisplay[] = [
   {
     id: "RET-1001",
     returnNumber: "RET-1001",
+    originalOrderId: null,
     originalOrder: "SO-1001",
     customerName: "John Doe",
+    warehouseId: null,
     warehouse: "Warehouse 1",
     returnDate: "2025-12-15",
     reason: "Defective",
@@ -48,8 +52,10 @@ const mockReturns: ReturnDisplay[] = [
   {
     id: "RET-1002",
     returnNumber: "RET-1002",
+    originalOrderId: null,
     originalOrder: "SO-1002",
     customerName: "Jane Smith",
+    warehouseId: null,
     warehouse: "Warehouse 1",
     returnDate: "2025-12-14",
     reason: "Customer Request",
@@ -62,8 +68,10 @@ const mockReturns: ReturnDisplay[] = [
   {
     id: "RET-1003",
     returnNumber: "RET-1003",
+    originalOrderId: null,
     originalOrder: "SO-1003",
     customerName: "Bob Johnson",
+    warehouseId: null,
     warehouse: "Warehouse 2",
     returnDate: "2025-12-13",
     reason: "Wrong Item",
@@ -76,8 +84,10 @@ const mockReturns: ReturnDisplay[] = [
   {
     id: "RET-1004",
     returnNumber: "RET-1004",
+    originalOrderId: null,
     originalOrder: "SO-1004",
     customerName: "Alice Brown",
+    warehouseId: null,
     warehouse: "Warehouse 1",
     returnDate: "2025-12-12",
     reason: "Damaged",
@@ -109,6 +119,7 @@ const resolutionConfig = {
 export default function ReturnsPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
   const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -157,8 +168,10 @@ export default function ReturnsPage() {
         return {
           id: r.id,
           returnNumber: r.returnNumber,
+          originalOrderId: r.originalOrderId || null,
           originalOrder: orderNumber,
           customerName,
+          warehouseId: r.warehouseId || null,
           warehouse: warehouseName,
           returnDate: r.returnDate || new Date().toISOString().split("T")[0],
           reason: r.reason || "N/A",
@@ -199,8 +212,8 @@ export default function ReturnsPage() {
   }, []);
 
   // Filter returns by warehouse for warehouse managers
-  const returnsForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? returns.filter((r) => r.warehouse === assignedWarehouseName)
+  const returnsForWarehouse = isWarehouseManager && assignedWarehouseId
+    ? returns.filter((r) => r.warehouseId === assignedWarehouseId)
     : returns;
 
   const filteredReturns = returnsForWarehouse.filter((returnItem) => {
@@ -262,13 +275,13 @@ export default function ReturnsPage() {
   const summaryCards = [
     {
       label: "Total Returns This Month",
-      value: returns.length,
+      value: returnsForWarehouse.length,
       icon: "keyboard_return",
       color: "primary" as const,
     },
     {
       label: "Pending Inspection",
-      value: returns.filter(
+      value: returnsForWarehouse.filter(
         (r) => r.status === "pending" || r.status === "received"
       ).length,
       icon: "pending_actions",
@@ -276,7 +289,7 @@ export default function ReturnsPage() {
     },
     {
       label: "Approved for Restock",
-      value: returns.filter(
+      value: returnsForWarehouse.filter(
         (r) => r.status === "approved" && r.resolution === "refund"
       ).length,
       icon: "check_circle",
@@ -284,7 +297,7 @@ export default function ReturnsPage() {
     },
     {
       label: "Rejected",
-      value: returns.filter((r) => r.status === "rejected").length,
+      value: returnsForWarehouse.filter((r) => r.status === "rejected").length,
       icon: "cancel",
       color: "error" as const,
     },
@@ -311,12 +324,16 @@ export default function ReturnsPage() {
       key: "originalOrder",
       label: "Original Order",
       render: (returnItem: ReturnDisplay) => (
-        <Link
-          href={`/admin/orders/outbound/${returnItem.originalOrder}`}
-          className="text-primary hover:underline"
-        >
-          {returnItem.originalOrder}
-        </Link>
+        returnItem.originalOrderId ? (
+          <Link
+            href={`/admin/orders/outbound/${returnItem.originalOrderId}`}
+            className="text-primary hover:underline"
+          >
+            {returnItem.originalOrder}
+          </Link>
+        ) : (
+          <span>{returnItem.originalOrder}</span>
+        )
       ),
       sortable: true,
     },
@@ -358,6 +375,9 @@ export default function ReturnsPage() {
           resolutionConfig[
             returnItem.resolution as keyof typeof resolutionConfig
           ];
+        if (!resolution) {
+          return <span className="badge badge-outline">{returnItem.resolution}</span>;
+        }
         return (
           <span className={`badge ${resolution.class}`}>
             {resolution.label}
@@ -578,7 +598,7 @@ export default function ReturnsPage() {
 function CreateReturnModal({ onClose }: { onClose: () => void }) {
   const [formData, setFormData] = useState({
     originalOrder: "",
-    warehouse: "",
+    warehouseId: "",
     customerName: "",
     reason: "",
     items: [{ productId: "", quantity: 1 }],
@@ -588,19 +608,16 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(false);
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<any[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [warehousesData, ordersData, customersData] = await Promise.all([
+        const [warehousesData, ordersData] = await Promise.all([
           warehousesApi.getAll(),
           ordersApi.getAllOutbound(),
-          customersApi.getAll(),
         ]);
         setWarehouses(warehousesData);
         setOrders(ordersData);
-        setCustomers(customersData);
       } catch (err) {
         console.error("Failed to load data:", err);
       }
@@ -609,26 +626,15 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
   }, []);
 
   const handleSubmit = async () => {
-    if (!formData.originalOrder || !formData.warehouse || !formData.reason) {
+    if (!formData.originalOrder || !formData.warehouseId || !formData.reason) {
       showToast.error("Please fill in all required fields");
       return;
     }
     
     try {
       setLoading(true);
-      // Resolve order and warehouse IDs
-      const [warehousesData, ordersData] = await Promise.all([
-        warehousesApi.getAll(),
-        ordersApi.getAllOutbound(),
-      ]);
-      
-      const warehouse = warehousesData.find(w => w.name === formData.warehouse);
-      const order = ordersData.find(o => o.orderNumber === formData.originalOrder);
-      
-      if (!warehouse) {
-        showToast.error("Warehouse not found");
-        return;
-      }
+      // Resolve order ID from loaded orders
+      const order = orders.find((o) => o.orderNumber === formData.originalOrder);
       if (!order) {
         showToast.error("Order not found");
         return;
@@ -637,7 +643,7 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
       const createData: Omit<ApiReturn, 'id'> = {
         returnNumber: `RET-${Date.now()}`,
         originalOrderId: order.id,
-        warehouseId: warehouse.id,
+        warehouseId: formData.warehouseId,
         customerId: order.customerId,
         reason: formData.reason,
         status: "pending",
@@ -650,7 +656,7 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
       // Reset form
       setFormData({
         originalOrder: "",
-        warehouse: "",
+        warehouseId: "",
         customerName: "",
         reason: "",
         items: [{ productId: "", quantity: 1 }],
@@ -694,15 +700,15 @@ function CreateReturnModal({ onClose }: { onClose: () => void }) {
           </label>
           <select
             className="select select-bordered w-full"
-            value={formData.warehouse}
+            value={formData.warehouseId}
             onChange={(e) =>
-              setFormData({ ...formData, warehouse: e.target.value })
+              setFormData({ ...formData, warehouseId: e.target.value })
             }
             required
           >
             <option value="">Select Warehouse</option>
             {warehouses.map(wh => (
-              <option key={wh.id} value={wh.name}>{wh.name}</option>
+              <option key={wh.id} value={wh.id}>{wh.name}</option>
             ))}
           </select>
         </div>
@@ -775,9 +781,15 @@ function ReturnDetailModal({
   onClose: () => void;
   returnItem: ReturnDisplay;
 }) {
-  const status = statusConfig[returnItem.status as keyof typeof statusConfig];
+  const status = statusConfig[returnItem.status as keyof typeof statusConfig] || {
+    label: returnItem.status,
+    class: "badge-outline",
+  };
   const resolution = returnItem.resolution
-    ? resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig]
+    ? (resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig] || {
+        label: returnItem.resolution,
+        class: "badge-outline",
+      })
     : null;
 
   return (
@@ -806,12 +818,16 @@ function ReturnDetailModal({
               Original Order
             </label>
             <p>
-              <Link
-                href={`/admin/orders/outbound/${returnItem.originalOrder}`}
-                className="text-primary hover:underline"
-              >
-                {returnItem.originalOrder}
-              </Link>
+              {returnItem.originalOrderId ? (
+                <Link
+                  href={`/admin/orders/outbound/${returnItem.originalOrderId}`}
+                  className="text-primary hover:underline"
+                >
+                  {returnItem.originalOrder}
+                </Link>
+              ) : (
+                <span>{returnItem.originalOrder}</span>
+              )}
             </p>
           </div>
           <div>
