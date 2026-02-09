@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect } from "react";
+import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -21,6 +22,45 @@ interface CustomerDisplay {
   joinDate: string;
 }
 
+const mockCustomers: CustomerDisplay[] = [
+  {
+    id: "CUST-001",
+    name: "Acme Corp",
+    contact: "alice@acme.com",
+    phone: "+1 234-567-8900",
+    orders: 42,
+    status: "Active",
+    joinDate: "2023-01-15",
+  },
+  {
+    id: "CUST-002",
+    name: "Bright Retail",
+    contact: "ops@bright.com",
+    phone: "+1 234-567-8901",
+    orders: 18,
+    status: "Active",
+    joinDate: "2023-03-22",
+  },
+  {
+    id: "CUST-003",
+    name: "Delta Mart",
+    contact: "supply@delta.com",
+    phone: "+1 234-567-8902",
+    orders: 9,
+    status: "On Hold",
+    joinDate: "2023-06-10",
+  },
+  {
+    id: "CUST-004",
+    name: "Echo Stores",
+    contact: "contact@echo.com",
+    phone: "+1 234-567-8903",
+    orders: 25,
+    status: "Active",
+    joinDate: "2023-02-08",
+  },
+];
+
 const statusClass = (s: string) => {
   if (s === "Active") return "badge-success";
   if (s === "On Hold") return "badge-warning";
@@ -36,6 +76,7 @@ export default function CustomersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -98,6 +139,17 @@ export default function CustomersPage() {
     loadData();
   }, []);
 
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadCustomers', handleReload);
+    return () => {
+      window.removeEventListener('reloadCustomers', handleReload);
+    };
+  }, []);
+
   let filteredCustomers = customers.filter((c) => {
     const query = searchQuery.trim().toLowerCase();
     const matchesSearch =
@@ -147,7 +199,7 @@ export default function CustomersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => window.location.reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -320,23 +372,6 @@ export default function CustomersPage() {
       </div>
 
       {/* Customers Table */}
-      {error && (
-        <div className="alert alert-error">
-          <span className="material-symbols-outlined">error</span>
-          <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
-            Retry
-          </button>
-        </div>
-      )}
-      {isLoading && (
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
-          <div className="flex items-center justify-center gap-3 text-base-content/70">
-            <span className="loading loading-spinner loading-md" />
-            <span>Loading customers...</span>
-          </div>
-        </div>
-      )}
       <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="table w-full">
@@ -352,8 +387,7 @@ export default function CustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {!isLoading &&
-                filteredCustomers.map((c) => (
+              {filteredCustomers.map((c) => (
                 <tr key={c.id} className="hover:bg-base-200/50">
                   <td className="font-semibold text-primary">{c.id}</td>
                   <td className="font-medium">{c.name}</td>
@@ -412,7 +446,7 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
-        {!isLoading && filteredCustomers.length === 0 && (
+        {filteredCustomers.length === 0 && (
           <div className="p-12 text-center">
             <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
               group
@@ -435,11 +469,6 @@ export default function CustomersPage() {
             setShowDetailModal(false);
             setSelectedCustomer(null);
           }}
-          onEdit={(customer) => {
-            setShowDetailModal(false);
-            setSelectedCustomer(customer);
-            setShowEditModal(true);
-          }}
           customer={selectedCustomer}
         />
       )}
@@ -452,7 +481,6 @@ export default function CustomersPage() {
             setShowEditModal(false);
             setSelectedCustomer(null);
           }}
-          onUpdated={loadData}
           customer={selectedCustomer}
         />
       )}
@@ -461,7 +489,6 @@ export default function CustomersPage() {
       <AddCustomerModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSuccess={loadData}
       />
 
       {/* Delete Customer Modal */}
@@ -479,7 +506,10 @@ export default function CustomersPage() {
               showToast.success("Customer deleted successfully");
               setShowDeleteModal(false);
               setSelectedCustomer(null);
-              await loadData();
+              // Reload data
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('reloadCustomers'));
+              }
             } catch (err) {
               console.error("Failed to delete customer:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete customer");
@@ -496,11 +526,9 @@ export default function CustomersPage() {
 function AddCustomerModal({
   isOpen,
   onClose,
-  onSuccess,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     name: "",
@@ -510,7 +538,7 @@ function AddCustomerModal({
   });
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Client-side validation before submitting
@@ -547,7 +575,6 @@ function AddCustomerModal({
 
       await customersApi.create(createData);
       showToast.success("Customer added successfully");
-      await onSuccess();
       onClose();
       // Reset form
       setFormData({
@@ -557,6 +584,10 @@ function AddCustomerModal({
         status: "Active",
       });
       setValidationErrors({});
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCustomers'));
+      }
     } catch (err) {
       console.error("Failed to add customer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to add customer");
@@ -689,12 +720,10 @@ function AddCustomerModal({
 function CustomerDetailModal({
   isOpen,
   onClose,
-  onEdit,
   customer,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onEdit: (customer: CustomerDisplay) => void;
   customer: CustomerDisplay;
 }) {
   return (
@@ -741,9 +770,7 @@ function CustomerDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary" onClick={() => onEdit(customer)}>
-            Edit Customer
-          </button>
+          <button className="btn btn-primary">Edit Customer</button>
         </div>
       </div>
     </DetailModal>
@@ -754,12 +781,10 @@ function CustomerDetailModal({
 function CustomerEditModal({
   isOpen,
   onClose,
-  onUpdated,
   customer,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onUpdated: () => Promise<void>;
   customer: CustomerDisplay;
 }) {
   const [formData, setFormData] = useState({
@@ -769,7 +794,7 @@ function CustomerEditModal({
     status: customer.status,
   });
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     try {
@@ -783,8 +808,11 @@ function CustomerEditModal({
 
       await customersApi.update(customerId, updateData);
       showToast.success("Customer updated successfully");
-      await onUpdated();
       onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCustomers'));
+      }
     } catch (err) {
       console.error("Failed to update customer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update customer");

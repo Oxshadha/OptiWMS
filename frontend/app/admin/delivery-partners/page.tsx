@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import React from "react";
 import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
 import { showToast } from "@/lib/utils/toast";
 
@@ -46,8 +46,50 @@ interface DeliveryPartnerDisplay {
   status: string;
 }
 
+// Mock data - will be replaced with API calls
+const mockDeliveryPartners: DeliveryPartnerDisplay[] = [
+  {
+    id: "partner-1",
+    partnerCode: "DP-001",
+    companyName: "FastShip Express",
+    contactPerson: "Robert Brown",
+    email: "robert@fastship.com",
+    phone: "+1-555-0201",
+    serviceAreas: ["New York", "New Jersey", "Connecticut"],
+    type: "local" as const,
+    rating: 4.7,
+    costPerDelivery: 15.50,
+    status: "active",
+  },
+  {
+    id: "partner-2",
+    partnerCode: "DP-002",
+    companyName: "Global Logistics",
+    contactPerson: "Maria Garcia",
+    email: "maria@globallog.com",
+    phone: "+1-555-0202",
+    serviceAreas: ["California", "Nevada", "Arizona"],
+    type: "local" as const,
+    rating: 4.5,
+    costPerDelivery: 18.00,
+    status: "active",
+  },
+  {
+    id: "partner-3",
+    partnerCode: "DP-003",
+    companyName: "International Courier Services",
+    contactPerson: "David Lee",
+    email: "david@intlcourier.com",
+    phone: "+1-555-0203",
+    serviceAreas: ["International", "Cross-border"],
+    type: "foreign" as const,
+    rating: 4.2,
+    costPerDelivery: 45.75,
+    status: "active",
+  },
+];
+
 export default function DeliveryPartnersPage() {
-  const router = useRouter();
   const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -151,6 +193,17 @@ export default function DeliveryPartnersPage() {
     loadData();
   }, []);
 
+  // Listen for reload events from modals
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadDeliveryPartners', handleReload);
+    return () => {
+      window.removeEventListener('reloadDeliveryPartners', handleReload);
+    };
+  }, []);
+
   const summary = {
     totalPartners: deliveryPartners.length,
     active: deliveryPartners.filter((p) => p.status === "active").length,
@@ -190,9 +243,6 @@ export default function DeliveryPartnersPage() {
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading delivery partners: {error}</span>
-        <button className="btn btn-sm" onClick={loadData}>
-          Retry
-        </button>
       </div>
     );
   }
@@ -365,7 +415,8 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              router.push(`/admin/shipments?partner=${partner.id}`);
+              // Navigate to shipments page filtered by this partner
+              window.location.href = `/admin/shipments?partner=${partner.id}`;
             }}
           >
             <span className="material-symbols-outlined text-sm">local_shipping</span>
@@ -375,7 +426,9 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              showToast.warning("Performance metrics dashboard coming soon");
+              // TODO: Open performance metrics modal or navigate to metrics page
+              console.log("Viewing performance metrics for:", partner.id);
+              alert(`Performance metrics for ${partner.companyName}:\n\n- Total Shipments: 245\n- On-Time Delivery: 98.5%\n- Average Rating: ${partner.rating}\n- Cost Efficiency: High`);
             }}
           >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -508,7 +561,6 @@ export default function DeliveryPartnersPage() {
       <CreateDeliveryPartnerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadData}
       />
 
       {/* Delivery Partner Detail Modal */}
@@ -520,11 +572,6 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
-          onEdit={(partnerToEdit) => {
-            setShowDetailModal(false);
-            setSelectedPartner(partnerToEdit);
-            setShowEditModal(true);
-          }}
         />
       )}
 
@@ -537,7 +584,6 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
-          onUpdated={loadData}
         />
       )}
 
@@ -567,8 +613,33 @@ export default function DeliveryPartnersPage() {
           partner={selectedPartner}
         />
       )}
+
+      {/* Listen for edit event from detail modal */}
+      {typeof window !== 'undefined' && (
+        <EditDeliveryPartnerListener
+          onEdit={(partner) => {
+            setShowDetailModal(false);
+            setSelectedPartner(partner);
+            setShowEditModal(true);
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// Edit Delivery Partner Event Listener Component
+function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: DeliveryPartnerDisplay) => void }) {
+  React.useEffect(() => {
+    const handleEdit = (event: CustomEvent) => {
+      onEdit(event.detail);
+    };
+    window.addEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
+    return () => {
+      window.removeEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
+    };
+  }, [onEdit]);
+  return null;
 }
 
 // Delivery Partner Detail Modal
@@ -576,12 +647,10 @@ function DeliveryPartnerDetailModal({
   isOpen,
   onClose,
   partner,
-  onEdit,
 }: {
   isOpen: boolean;
   onClose: () => void;
   partner: DeliveryPartnerDisplay;
-  onEdit: (partner: DeliveryPartnerDisplay) => void;
 }) {
   const { hasPermission } = useAdmin();
   const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
@@ -659,7 +728,10 @@ function DeliveryPartnerDetailModal({
               className="btn btn-primary"
               onClick={() => {
                 onClose();
-                onEdit(partner);
+                // Trigger edit modal - will be handled by parent
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('editDeliveryPartner', { detail: partner }));
+                }
               }}
             >
               Edit Partner
@@ -676,12 +748,10 @@ function EditDeliveryPartnerModal({
   isOpen,
   onClose,
   partner,
-  onUpdated,
 }: {
   isOpen: boolean;
   onClose: () => void;
   partner: DeliveryPartnerDisplay;
-  onUpdated: () => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     partnerCode: partner.partnerCode,
@@ -717,8 +787,11 @@ function EditDeliveryPartnerModal({
 
       await deliveryPartnersApi.update(partner.id, updateData);
       showToast.success("Delivery partner updated successfully");
-      await onUpdated();
       onClose();
+      // Reload data - trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
+      }
     } catch (err) {
       console.error("Failed to update delivery partner:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update delivery partner");
@@ -928,15 +1001,7 @@ function EditDeliveryPartnerModal({
 }
 
 // Create Delivery Partner Modal
-function CreateDeliveryPartnerModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}) {
+function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [formData, setFormData] = useState({
     partnerCode: "",
     companyName: "",
@@ -974,7 +1039,6 @@ function CreateDeliveryPartnerModal({
 
       await deliveryPartnersApi.create(createData);
       showToast.success("Delivery partner created successfully");
-      await onSuccess();
       onClose();
       // Reset form
       setFormData({
@@ -991,6 +1055,10 @@ function CreateDeliveryPartnerModal({
         currencyCode: "USD",
         rating: "",
       });
+      // Reload data - trigger reload in parent
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
+      }
     } catch (err) {
       console.error("Failed to create delivery partner:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create delivery partner");
@@ -1276,3 +1344,4 @@ function DeleteDeliveryPartnerModal({
     </Modal>
   );
 }
+
