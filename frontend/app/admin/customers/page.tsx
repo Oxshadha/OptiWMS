@@ -556,7 +556,7 @@ function AddCustomerModal({
       if (!emailFormatResult.valid) errors.contact = emailFormatResult.error || "";
     }
     
-    const phoneResult = validatePhone(formData.phone);
+    const phoneResult = await validatePhone(formData.phone);
     if (!phoneResult.valid) errors.phone = phoneResult.error || "";
     
     if (Object.keys(errors).length > 0) {
@@ -674,7 +674,7 @@ function AddCustomerModal({
             }}
             onBlur={async () => {
               const { validatePhone } = await import("@/lib/utils/form-validation");
-              const result = validatePhone(formData.phone);
+              const result = await validatePhone(formData.phone);
               if (!result.valid) {
                 setValidationErrors({ ...validationErrors, phone: result.error || "" });
               }

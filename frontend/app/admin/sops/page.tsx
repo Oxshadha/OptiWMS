@@ -19,7 +19,7 @@ export type SOPCategory =
   | "inspection"
   | "general";
 
-export const SOP_CATEGORIES: Record<SOPCategory, string> = {
+const SOP_CATEGORIES: Record<SOPCategory, string> = {
   equipment_operation: "Equipment Operation",
   cycle_count: "Cycle Count",
   warehouse_operations: "Warehouse Operations",

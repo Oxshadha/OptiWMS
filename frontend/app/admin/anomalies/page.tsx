@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
@@ -130,81 +130,94 @@ export default function AnomaliesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
+        anomaliesApi.getAll(),
+        warehousesApi.getAll(),
+        materialsApi.getAll(),
+        usersApi.getAll(),
+      ]);
+
+      // Build maps
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+      
+      const materialsMap = new Map<string, string>();
+      materialsData.forEach((m) =>
+        materialsMap.set(m.id, m.materialCode || m.description || m.id)
+      );
+      
+      const usersMap = new Map<string, string>();
+      usersData.forEach((u) => {
+        const displayName =
+          `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
+          u.username ||
+          u.email ||
+          "Unknown";
+        usersMap.set(u.id, displayName);
+      });
+
+      // Transform API data to display format
+      const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
+        const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
+        const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
+        
+        // Map severity from API to display format
+        let severity: "low" | "medium" | "high" | "critical" = "low";
+        const apiSeverity = (a.severity || "").toUpperCase();
+        if (apiSeverity === "CRITICAL") severity = "critical";
+        else if (apiSeverity === "HIGH") severity = "high";
+        else if (apiSeverity === "MEDIUM") severity = "medium";
+        else severity = "low";
+
+        // Map status from API to display format
+        let displayStatus = a.status || "open";
+        if (displayStatus === "DETECTED") displayStatus = "open";
+        else if (displayStatus === "RESOLVED") displayStatus = "resolved";
+        else if (displayStatus === "REVIEWED") displayStatus = "investigating";
+
+        return {
+          id: a.id,
+          anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
+          anomalyType: a.anomalyType || "unknown",
+          severity,
+          description: a.description || "No description",
+          warehouseName,
+          relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
+          relatedEntityId,
+          detectedBy: a.reviewedBy
+            ? usersMap.get(a.reviewedBy) || "System"
+            : "AI Service",
+          detectedAt: a.reviewedAt || new Date().toISOString(),
+          status: displayStatus,
+          resolvedBy: a.reviewedBy
+            ? usersMap.get(a.reviewedBy) || "System"
+            : null,
+          resolvedAt: a.reviewedAt || null,
+        };
+      });
+
+      setAnomalies(displayAnomalies);
+    } catch (err) {
+      console.error("Failed to load anomalies:", err);
+      setError(err instanceof Error ? err.message : "Failed to load anomalies");
+      setAnomalies([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load anomalies. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Load data from API
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
-          anomaliesApi.getAll(),
-          warehousesApi.getAll(),
-          materialsApi.getAll(),
-          usersApi.getAll(),
-        ]);
-
-        // Build maps
-        const warehousesMap = new Map<string, string>();
-        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-        
-        const materialsMap = new Map<string, string>();
-        materialsData.forEach(m => materialsMap.set(m.id, m.sku || m.code));
-        
-        const usersMap = new Map<string, string>();
-        usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
-
-        // Transform API data to display format
-        const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
-          const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
-          const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
-          
-          // Map severity from API to display format
-          let severity: "low" | "medium" | "high" | "critical" = "low";
-          const apiSeverity = (a.severity || "").toUpperCase();
-          if (apiSeverity === "CRITICAL") severity = "critical";
-          else if (apiSeverity === "HIGH") severity = "high";
-          else if (apiSeverity === "MEDIUM") severity = "medium";
-          else severity = "low";
-
-          // Map status from API to display format
-          let displayStatus = a.status || "open";
-          if (displayStatus === "DETECTED") displayStatus = "open";
-          else if (displayStatus === "RESOLVED") displayStatus = "resolved";
-          else if (displayStatus === "REVIEWED") displayStatus = "investigating";
-
-          return {
-            id: a.id,
-            anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
-            anomalyType: a.anomalyType || "unknown",
-            severity,
-            description: a.description || "No description",
-            warehouseName,
-            relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
-            relatedEntityId,
-            detectedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "System" : "AI Service",
-            detectedAt: a.reviewedAt || new Date().toISOString(),
-            status: displayStatus,
-            resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) : null,
-            resolvedAt: a.reviewedAt || null,
-          };
-        });
-
-        setAnomalies(displayAnomalies);
-      } catch (err) {
-        console.error("Failed to load anomalies:", err);
-        setError(err instanceof Error ? err.message : "Failed to load anomalies");
-        setAnomalies([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load anomalies. Please try again.");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
-  }, []);
+  }, [loadData]);
 
   // Listen for reload events
   useEffect(() => {
@@ -215,7 +228,7 @@ export default function AnomaliesPage() {
     return () => {
       window.removeEventListener('reloadAnomalies', handleReload);
     };
-  }, []);
+  }, [loadData]);
 
   // Filter anomalies by warehouse for warehouse managers
   const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
@@ -669,4 +682,3 @@ function ResolveAnomalyModal({
     </Modal>
   );
 }
-
