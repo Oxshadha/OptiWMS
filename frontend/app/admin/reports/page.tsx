@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { reportsApi, Report } from "@/lib/api/reports";
+import { showToast } from "@/lib/utils/toast";
 
 const reportTypes = ["All", "inbound", "outbound", "inventory", "sales", "analytics", "customer"];
 
@@ -52,22 +53,22 @@ export default function ReportsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
 
-  useEffect(() => {
-    const fetchReports = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const type = activeType !== "All" ? activeType : undefined;
-        const data = await reportsApi.getAllReports(type);
-        setReports(data);
-      } catch (err) {
-        console.error("Failed to fetch reports:", err);
-        setError(err instanceof Error ? err.message : "Failed to load reports");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchReports = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const type = activeType !== "All" ? activeType : undefined;
+      const data = await reportsApi.getAllReports(type);
+      setReports(data);
+    } catch (err) {
+      console.error("Failed to fetch reports:", err);
+      setError(err instanceof Error ? err.message : "Failed to load reports");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchReports();
   }, [activeType]);
 
@@ -82,15 +83,16 @@ export default function ReportsPage() {
     return matchesType && matchesSearch;
   });
 
-  const handleDownload = async (reportId: string, reportName: string) => {
+  const handleDownload = async (reportId: string) => {
     try {
       const filePath = await reportsApi.downloadReport(reportId);
-      // In a real implementation, this would trigger a file download
-      // For now, we show the file path
-      alert(`Report download: ${filePath}\n\nNote: Actual file download will be implemented when file storage is configured.`);
+      showToast.success("Report ready for download");
+      if (typeof window !== "undefined" && filePath) {
+        window.open(filePath, "_blank", "noopener,noreferrer");
+      }
     } catch (err) {
       console.error("Failed to download report:", err);
-      alert("Failed to download report. Please try again.");
+      showToast.error(err instanceof Error ? err.message : "Failed to download report");
     }
   };
 
@@ -201,7 +203,7 @@ export default function ReportsPage() {
                   className="btn btn-primary btn-sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDownload(r.id, r.reportName);
+                    handleDownload(r.id);
                   }}
                 >
                   <span className="material-symbols-outlined">download</span>
@@ -230,6 +232,7 @@ export default function ReportsPage() {
             setSelectedReport(null);
           }}
           report={selectedReport}
+          onDownload={handleDownload}
         />
       )}
 
@@ -237,12 +240,14 @@ export default function ReportsPage() {
       <ScheduleReportModal
         isOpen={showScheduleModal}
         onClose={() => setShowScheduleModal(false)}
+        onScheduled={fetchReports}
       />
 
       {/* Create Custom Report Modal */}
       <CreateCustomReportModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onCreated={fetchReports}
       />
     </div>
   );
@@ -253,21 +258,13 @@ function ReportDetailModal({
   isOpen,
   onClose,
   report,
+  onDownload,
 }: {
   isOpen: boolean;
   onClose: () => void;
   report: Report;
+  onDownload: (reportId: string) => Promise<void>;
 }) {
-  const handleDownload = async () => {
-    try {
-      const filePath = await reportsApi.downloadReport(report.id);
-      alert(`Report download: ${filePath}\n\nNote: Actual file download will be implemented when file storage is configured.`);
-    } catch (err) {
-      console.error("Failed to download report:", err);
-      alert("Failed to download report. Please try again.");
-    }
-  };
-
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.reportName}`} size="lg">
       <div className="space-y-4">
@@ -312,7 +309,7 @@ function ReportDetailModal({
           </button>
           <button 
             className="btn btn-primary"
-            onClick={handleDownload}
+            onClick={() => onDownload(report.id)}
           >
             <span className="material-symbols-outlined">download</span>
             Download Report
@@ -324,7 +321,15 @@ function ReportDetailModal({
 }
 
 // Schedule Report Modal
-function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function ScheduleReportModal({
+  isOpen,
+  onClose,
+  onScheduled,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onScheduled: () => Promise<void>;
+}) {
   const [formData, setFormData] = useState({
     reportType: "",
     frequency: "daily" as "daily" | "weekly" | "monthly",
@@ -344,7 +349,8 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
         emailRecipients: formData.email.split(',').map(e => e.trim()).filter(e => e),
         isActive: true,
       });
-      alert("Report scheduled successfully!");
+      showToast.success("Report scheduled successfully");
+      await onScheduled();
       onClose();
       setFormData({
         reportType: "",
@@ -354,7 +360,7 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
       });
     } catch (err) {
       console.error("Failed to schedule report:", err);
-      alert("Failed to schedule report. Please try again.");
+      showToast.error(err instanceof Error ? err.message : "Failed to schedule report");
     } finally {
       setSubmitting(false);
     }
@@ -449,7 +455,15 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
 }
 
 // Create Custom Report Modal
-function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+function CreateCustomReportModal({
+  isOpen,
+  onClose,
+  onCreated,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onCreated: () => Promise<void>;
+}) {
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -471,7 +485,8 @@ function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose
         description: formData.description || undefined,
         reportConfig: reportConfig,
       });
-      alert("Custom report created successfully!");
+      showToast.success("Custom report created successfully");
+      await onCreated();
       onClose();
       setFormData({
         name: "",
@@ -479,11 +494,9 @@ function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose
         type: "",
         fields: [],
       });
-      // Refresh the reports list
-      window.location.reload();
     } catch (err) {
       console.error("Failed to create custom report:", err);
-      alert("Failed to create custom report. Please try again.");
+      showToast.error(err instanceof Error ? err.message : "Failed to create custom report");
     } finally {
       setSubmitting(false);
     }
