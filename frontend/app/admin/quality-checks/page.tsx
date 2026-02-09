@@ -147,6 +147,9 @@ export default function QualityChecksPage() {
         const checkedBy = qc.checkedBy
           ? usersMap.get(qc.checkedBy) || "Unknown"
           : "Unknown";
+        const approvedBy = qc.approvedBy
+          ? usersMap.get(qc.approvedBy) || "Unknown"
+          : null;
         
         const qtyReceived = parseInt(qc.qtyReceived) || 0;
         const qtyPassed = parseInt(qc.qtyPassed) || 0;
@@ -168,8 +171,8 @@ export default function QualityChecksPage() {
           result,
           checkedByName: checkedBy,
           checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
-          approvedByName: null, // TODO: Add approval tracking when available
-          approvalDate: null,
+          approvedByName: approvedBy,
+          approvalDate: qc.approvedAt ? new Date(qc.approvedAt).toLocaleString() : null,
           warehouseName: "Unknown", // TODO: Get from GRN when available
         };
       });
@@ -396,7 +399,7 @@ export default function QualityChecksPage() {
                 onClick={async () => {
                   if (confirm(`Approve quality check ${check.checkId}?`)) {
                     try {
-                      await qualityChecksApi.update(check.id, { status: "approved" });
+                      await qualityChecksApi.approve(check.id, admin?.id);
                       showToast.success("Quality check approved successfully!");
                       // Reload data
                       if (typeof window !== 'undefined') {
@@ -551,7 +554,7 @@ export default function QualityChecksPage() {
                 className="btn btn-error"
                 onClick={async () => {
                   if (!rejectReason.trim()) {
-                    alert("Please enter a rejection reason");
+                    showToast.warning("Please enter a rejection reason");
                     return;
                   }
                   try {

@@ -80,8 +80,41 @@ public class QualityCheckController {
             if (request.qtyPassed() != null) check.setQtyPassed(new BigDecimal(request.qtyPassed()));
             if (request.qtyRejected() != null) check.setQtyRejected(new BigDecimal(request.qtyRejected()));
             if (request.rejectionReason() != null) check.setRejectionReason(request.rejectionReason());
+            if (request.approvalStatus() != null) check.setApprovalStatus(request.approvalStatus());
+            if (request.approvedBy() != null) check.setApprovedBy(UUID.fromString(request.approvedBy()));
+            if (request.approvedAt() != null) check.setApprovedAt(OffsetDateTime.parse(request.approvedAt()));
 
             QualityCheck updated = service.update(check);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}/approve")
+    public ResponseEntity<QualityCheckDto> approve(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ApproveQualityCheckRequest request
+    ) {
+        try {
+            UUID approvedBy = request != null && request.approvedBy() != null
+                    ? UUID.fromString(request.approvedBy())
+                    : null;
+            QualityCheck updated = service.approve(id, approvedBy);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}/reject")
+    public ResponseEntity<QualityCheckDto> reject(
+            @PathVariable UUID id,
+            @RequestBody RejectQualityCheckRequest request
+    ) {
+        try {
+            UUID rejectedBy = request.rejectedBy() != null ? UUID.fromString(request.rejectedBy()) : null;
+            QualityCheck updated = service.reject(id, request.rejectionReason(), rejectedBy);
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -107,6 +140,9 @@ public class QualityCheckController {
                 check.getQtyPassed() != null ? check.getQtyPassed().toString() : "0",
                 check.getQtyRejected() != null ? check.getQtyRejected().toString() : "0",
                 check.getRejectionReason(),
+                check.getApprovalStatus(),
+                check.getApprovedBy() != null ? check.getApprovedBy().toString() : null,
+                check.getApprovedAt() != null ? check.getApprovedAt().toString() : null,
                 check.getCheckedBy() != null ? check.getCheckedBy().toString() : null,
                 check.getCheckDate() != null ? check.getCheckDate().toString() : null
         );
@@ -126,7 +162,19 @@ public class QualityCheckController {
             String qtyReceived,
             String qtyPassed,
             String qtyRejected,
-            String rejectionReason
+            String rejectionReason,
+            String approvalStatus,
+            String approvedBy,
+            String approvedAt
+    ) {}
+
+    public record ApproveQualityCheckRequest(
+            String approvedBy
+    ) {}
+
+    public record RejectQualityCheckRequest(
+            String rejectionReason,
+            String rejectedBy
     ) {}
 
     public record QualityCheckDto(
@@ -137,8 +185,10 @@ public class QualityCheckController {
             String qtyPassed,
             String qtyRejected,
             String rejectionReason,
+            String approvalStatus,
+            String approvedBy,
+            String approvedAt,
             String checkedBy,
             String checkDate
     ) {}
 }
-

@@ -1,59 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-
-// Mock data - will be replaced with API calls
-const anomalies = [
-  {
-    id: "anom-1",
-    anomalyId: "ANOM-2025-001",
-    anomalyType: "quantity_mismatch",
-    severity: "high",
-    description: "Inventory count discrepancy: Expected 50, Found 45 at location A1",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "product",
-    relatedEntityId: "SKU-1001",
-    detectedBy: "ai_service",
-    detectedAt: "2025-12-15 10:30",
-    status: "open",
-    resolvedBy: null,
-    resolvedAt: null,
-    details: {
-      location: "A-01-01",
-      expectedQuantity: 50,
-      actualQuantity: 45,
-      difference: -5,
-      productName: "Wireless Earbuds",
-      sku: "SKU-1001",
-    },
-  },
-  {
-    id: "anom-2",
-    anomalyId: "ANOM-2025-002",
-    anomalyType: "location_error",
-    severity: "medium",
-    description: "Item scanned at wrong location during picking task",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "task",
-    relatedEntityId: "TASK-452368",
-    detectedBy: "system",
-    detectedAt: "2025-12-15 09:15",
-    status: "investigating",
-    resolvedBy: null,
-    resolvedAt: null,
-    details: {
-      taskNumber: "TASK-452368",
-      expectedLocation: "A-01-01",
-      scannedLocation: "A-01-02",
-      workerName: "John Doe",
-    },
-  },
-];
+import { anomaliesApi, Anomaly } from "@/lib/api/anomalies";
+import { materialsApi } from "@/lib/api/materials";
+import { usersApi } from "@/lib/api/users";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { showToast } from "@/lib/utils/toast";
 
 const severityConfig = {
   low: { label: "Low", class: "badge-outline" },
@@ -69,29 +26,198 @@ const statusConfig = {
   false_positive: { label: "False Positive", class: "badge-outline" },
 };
 
-const detectedByConfig = {
-  system: { label: "System", icon: "computer" },
-  ai_service: { label: "AI Service", icon: "psychology" },
-  worker: { label: "Worker", icon: "person" },
-  manager: { label: "Manager", icon: "admin_panel_settings" },
-};
+interface AnomalyDisplay {
+  id: string;
+  anomalyId: string;
+  anomalyType: string;
+  severity: "low" | "medium" | "high" | "critical";
+  description: string;
+  warehouseName: string;
+  relatedEntityType: string;
+  relatedEntityId: string;
+  detectedBy: string;
+  detectedAt: string;
+  status: "open" | "investigating" | "resolved" | "false_positive";
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  resolutionNotes: string | null;
+}
+
+function mapSeverity(value?: string): "low" | "medium" | "high" | "critical" {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "CRITICAL") return "critical";
+  if (normalized === "HIGH") return "high";
+  if (normalized === "MEDIUM") return "medium";
+  return "low";
+}
+
+function mapStatus(
+  value?: string
+): "open" | "investigating" | "resolved" | "false_positive" {
+  const normalized = (value || "").toUpperCase();
+  if (normalized === "RESOLVED") return "resolved";
+  if (normalized === "REVIEWED") return "investigating";
+  if (normalized === "FALSE_POSITIVE") return "false_positive";
+  return "open";
+}
+
+function toDisplayAnomaly(
+  anomaly: Anomaly,
+  warehouseName?: string,
+  materialCode?: string,
+  reviewerName?: string
+): AnomalyDisplay {
+  const status = mapStatus(anomaly.status);
+  return {
+    id: anomaly.id,
+    anomalyId: `ANOM-${anomaly.id.substring(0, 8).toUpperCase()}`,
+    anomalyType: anomaly.anomalyType || "unknown",
+    severity: mapSeverity(anomaly.severity),
+    description: anomaly.description || "No description",
+    warehouseName: warehouseName || "Unknown",
+    relatedEntityType: anomaly.materialId
+      ? "product"
+      : anomaly.locationId
+        ? "location"
+        : "unknown",
+    relatedEntityId: materialCode || anomaly.locationId || "N/A",
+    detectedBy: reviewerName || "System",
+    detectedAt: anomaly.reviewedAt
+      ? new Date(anomaly.reviewedAt).toLocaleString()
+      : "N/A",
+    status,
+    resolvedBy: status === "resolved" || status === "false_positive" ? reviewerName || "System" : null,
+    resolvedAt:
+      status === "resolved" || status === "false_positive"
+        ? anomaly.reviewedAt
+          ? new Date(anomaly.reviewedAt).toLocaleString()
+          : null
+        : null,
+    resolutionNotes: anomaly.resolutionNotes || null,
+  };
+}
 
 export default function AnomalyDetailPage() {
   const params = useParams();
-  const router = useRouter();
-  const { hasPermission } = useAdmin();
+  const { hasPermission, admin } = useAdmin();
   const anomalyId = params.id as string;
-  const anomaly = anomalies.find((a) => a.id === anomalyId);
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
+
+  const [anomaly, setAnomaly] = useState<AnomalyDisplay | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [markAsFalsePositive, setMarkAsFalsePositive] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  if (!anomaly) {
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const apiAnomaly = await anomaliesApi.getById(anomalyId);
+      const [warehouse, material, reviewer] = await Promise.all([
+        apiAnomaly.warehouseId
+          ? warehousesApi.getById(apiAnomaly.warehouseId).catch(() => null)
+          : Promise.resolve(null),
+        apiAnomaly.materialId
+          ? materialsApi.getById(apiAnomaly.materialId).catch(() => null)
+          : Promise.resolve(null),
+        apiAnomaly.reviewedBy
+          ? usersApi.getById(apiAnomaly.reviewedBy).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+
+      const reviewerName = reviewer
+        ? `${reviewer.firstName || ""} ${reviewer.lastName || ""}`.trim() ||
+          reviewer.username ||
+          reviewer.email ||
+          "System"
+        : "System";
+
+      setAnomaly(
+        toDisplayAnomaly(
+          apiAnomaly,
+          warehouse?.name,
+          material?.materialCode,
+          reviewerName
+        )
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to load anomaly";
+      setError(message);
+      setAnomaly(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (anomalyId) {
+      loadData();
+    }
+  }, [anomalyId]);
+
+  const severity = useMemo(() => {
+    if (!anomaly) return null;
+    return severityConfig[anomaly.severity];
+  }, [anomaly]);
+
+  const status = useMemo(() => {
+    if (!anomaly) return null;
+    return statusConfig[anomaly.status];
+  }, [anomaly]);
+
+  const updateStatus = async (nextStatus: string, notes?: string) => {
+    try {
+      setActionLoading(true);
+      await anomaliesApi.resolve(anomalyId, nextStatus, admin?.id, notes);
+      showToast.success("Anomaly status updated");
+      await loadData();
+      if (nextStatus === "RESOLVED" || nextStatus === "FALSE_POSITIVE") {
+        setShowResolveModal(false);
+        setResolutionNotes("");
+        setMarkAsFalsePositive(false);
+      }
+    } catch (err) {
+      showToast.error(
+        err instanceof Error ? err.message : "Failed to update anomaly status"
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResolve = async () => {
+    if (!resolutionNotes.trim()) {
+      showToast.warning("Please enter resolution notes");
+      return;
+    }
+    await updateStatus(
+      markAsFalsePositive ? "FALSE_POSITIVE" : "RESOLVED",
+      resolutionNotes.trim()
+    );
+  };
+
+  const handleMarkInvestigating = async () => {
+    await updateStatus("REVIEWED");
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error || !anomaly || !severity || !status) {
     return (
       <div className="space-y-6">
         <div className="alert alert-error">
-          <span>Anomaly not found</span>
+          <span>{error || "Anomaly not found"}</span>
           <Link href="/admin/anomalies" className="btn btn-sm">
             Back to Anomalies
           </Link>
@@ -100,30 +226,14 @@ export default function AnomalyDetailPage() {
     );
   }
 
-  const severity = severityConfig[anomaly.severity as keyof typeof severityConfig];
-  const status = statusConfig[anomaly.status as keyof typeof statusConfig];
-  const detector = detectedByConfig[anomaly.detectedBy as keyof typeof detectedByConfig];
-
-  const handleResolve = () => {
-    // TODO: API call to resolve anomaly
-    console.log("Resolving anomaly:", anomalyId, resolutionNotes);
-    alert("Anomaly resolved successfully!");
-    router.push("/admin/anomalies");
-  };
-
-  const handleMarkInvestigating = () => {
-    // TODO: API call to mark as investigating
-    console.log("Marking anomaly as investigating:", anomalyId);
-    alert("Anomaly marked as investigating!");
-    router.push("/admin/anomalies");
-  };
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Link href="/admin/anomalies" className="text-primary hover:underline mb-2 inline-block">
+          <Link
+            href="/admin/anomalies"
+            className="text-primary hover:underline mb-2 inline-block"
+          >
             ← Back to Anomalies
           </Link>
           <h1 className="text-3xl font-bold text-base-content">{anomaly.anomalyId}</h1>
@@ -132,13 +242,20 @@ export default function AnomalyDetailPage() {
         {canEdit && (
           <div className="flex gap-3">
             {anomaly.status === "open" && (
-              <button className="btn btn-warning" onClick={handleMarkInvestigating}>
+              <button
+                className="btn btn-warning"
+                onClick={handleMarkInvestigating}
+                disabled={actionLoading}
+              >
                 <span className="material-symbols-outlined">check</span>
                 Mark as Investigating
               </button>
             )}
             {anomaly.status === "investigating" && (
-              <button className="btn btn-primary" onClick={() => setShowResolveModal(true)}>
+              <button
+                className="btn btn-primary"
+                onClick={() => setShowResolveModal(true)}
+              >
                 <span className="material-symbols-outlined">check_circle</span>
                 Resolve Anomaly
               </button>
@@ -147,7 +264,6 @@ export default function AnomalyDetailPage() {
         )}
       </div>
 
-      {/* Anomaly Information */}
       <div className="card bg-base-100 border border-base-300 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -156,7 +272,9 @@ export default function AnomalyDetailPage() {
           </div>
           <div>
             <label className="text-sm text-base-content/60">Type</label>
-            <p className="font-semibold capitalize">{anomaly.anomalyType.replace("_", " ")}</p>
+            <p className="font-semibold capitalize">
+              {anomaly.anomalyType.replace("_", " ")}
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Severity</label>
@@ -176,10 +294,7 @@ export default function AnomalyDetailPage() {
           </div>
           <div>
             <label className="text-sm text-base-content/60">Detected By</label>
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-sm">{detector.icon}</span>
-              <span>{detector.label}</span>
-            </div>
+            <p className="font-semibold">{anomaly.detectedBy}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Detected At</label>
@@ -189,12 +304,7 @@ export default function AnomalyDetailPage() {
             <label className="text-sm text-base-content/60">Related Entity</label>
             <div>
               <span className="capitalize">{anomaly.relatedEntityType}</span>
-              <Link
-                href={`/admin/${anomaly.relatedEntityType === "product" ? "products" : anomaly.relatedEntityType === "task" ? "tasks" : "workers"}?search=${anomaly.relatedEntityId}`}
-                className="ml-2 text-primary hover:underline"
-              >
-                {anomaly.relatedEntityId}
-              </Link>
+              <span className="ml-2 text-primary">{anomaly.relatedEntityId}</span>
             </div>
           </div>
         </div>
@@ -204,45 +314,32 @@ export default function AnomalyDetailPage() {
           <p className="mt-2">{anomaly.description}</p>
         </div>
 
-        {/* Anomaly Details */}
-        {anomaly.details && (
+        {(anomaly.resolvedBy || anomaly.resolutionNotes) && (
           <div className="mt-6 pt-6 border-t border-base-300">
-            <h3 className="font-semibold mb-4">Details</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.entries(anomaly.details).map(([key, value]) => (
-                <div key={key}>
-                  <label className="text-sm text-base-content/60 capitalize">
-                    {key.replace(/([A-Z])/g, " $1").trim()}
-                  </label>
-                  <p className="font-semibold">{String(value)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {anomaly.resolvedBy && (
-          <div className="mt-6 pt-6 border-t border-base-300">
-            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-base-content/60">Resolved By</label>
-                <p className="font-semibold">{anomaly.resolvedBy}</p>
+                <p className="font-semibold">{anomaly.resolvedBy || "-"}</p>
               </div>
               <div>
                 <label className="text-sm text-base-content/60">Resolved At</label>
-                <p className="font-semibold">{anomaly.resolvedAt}</p>
+                <p className="font-semibold">{anomaly.resolvedAt || "-"}</p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-sm text-base-content/60">Resolution Notes</label>
+                <p className="font-semibold">{anomaly.resolutionNotes || "-"}</p>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Resolve Modal */}
       <Modal
         isOpen={showResolveModal}
         onClose={() => {
           setShowResolveModal(false);
           setResolutionNotes("");
+          setMarkAsFalsePositive(false);
         }}
         title="Resolve Anomaly"
       >
@@ -263,7 +360,12 @@ export default function AnomalyDetailPage() {
           <div className="form-control">
             <label className="label cursor-pointer">
               <span className="label-text">Mark as False Positive</span>
-              <input type="checkbox" className="checkbox" />
+              <input
+                type="checkbox"
+                className="checkbox"
+                checked={markAsFalsePositive}
+                onChange={(e) => setMarkAsFalsePositive(e.target.checked)}
+              />
             </label>
           </div>
           <div className="flex justify-end gap-3 pt-4">
@@ -272,11 +374,17 @@ export default function AnomalyDetailPage() {
               onClick={() => {
                 setShowResolveModal(false);
                 setResolutionNotes("");
+                setMarkAsFalsePositive(false);
               }}
+              disabled={actionLoading}
             >
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={handleResolve}>
+            <button
+              className="btn btn-primary"
+              onClick={handleResolve}
+              disabled={actionLoading}
+            >
               Resolve Anomaly
             </button>
           </div>
@@ -285,4 +393,3 @@ export default function AnomalyDetailPage() {
     </div>
   );
 }
-
