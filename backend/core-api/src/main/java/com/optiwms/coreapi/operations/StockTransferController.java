@@ -2,6 +2,9 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.StockTransferService;
 import com.optiwms.domain.operations.StockTransfer;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,65 +32,45 @@ public class StockTransferController {
 
     @GetMapping("/{id}")
     public ResponseEntity<StockTransferDto> getById(@PathVariable UUID id) {
-        try {
-            StockTransfer transfer = service.findById(id);
-            return ResponseEntity.ok(toDto(transfer));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        StockTransfer transfer = service.findById(id);
+        return ResponseEntity.ok(toDto(transfer));
     }
 
     @PostMapping
-    public ResponseEntity<StockTransferDto> create(@RequestBody CreateStockTransferRequest request) {
-        try {
-            StockTransfer transfer = new StockTransfer();
-            transfer.setTransferNumber(request.transferNumber());
-            transfer.setTransferType(request.transferType());
-            transfer.setMaterialId(UUID.fromString(request.materialId()));
-            transfer.setSourceWarehouseId(UUID.fromString(request.sourceWarehouseId()));
-            transfer.setSourceLocationCode(request.sourceLocationCode());
-            transfer.setDestWarehouseId(UUID.fromString(request.destWarehouseId()));
-            transfer.setDestLocationCode(request.destLocationCode());
-            // Convert string quantity to Integer (actual pallet quantities are integers)
-            transfer.setQuantity(Integer.parseInt(request.quantity()));
-            transfer.setNotes(request.notes());
+    public ResponseEntity<StockTransferDto> create(@Valid @RequestBody CreateStockTransferRequest request) {
+        StockTransfer transfer = new StockTransfer();
+        transfer.setTransferNumber(request.transferNumber());
+        transfer.setTransferType(request.transferType());
+        transfer.setMaterialId(UUID.fromString(request.materialId()));
+        transfer.setSourceWarehouseId(UUID.fromString(request.sourceWarehouseId()));
+        transfer.setSourceLocationCode(request.sourceLocationCode());
+        transfer.setDestWarehouseId(UUID.fromString(request.destWarehouseId()));
+        transfer.setDestLocationCode(request.destLocationCode());
+        // Convert string quantity to Integer (actual pallet quantities are integers)
+        transfer.setQuantity(Integer.parseInt(request.quantity()));
+        transfer.setNotes(request.notes());
 
-            StockTransfer created = service.create(transfer);
-            return ResponseEntity.ok(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        StockTransfer created = service.create(transfer);
+        return ResponseEntity.ok(toDto(created));
     }
 
     @PostMapping("/{id}/dispatch")
     public ResponseEntity<StockTransferDto> dispatch(@PathVariable UUID id, @RequestParam UUID userId) {
-        try {
-            StockTransfer transfer = service.dispatch(id, userId);
-            return ResponseEntity.ok(toDto(transfer));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        StockTransfer transfer = service.dispatch(id, userId);
+        return ResponseEntity.ok(toDto(transfer));
     }
 
     @PostMapping("/{id}/receive")
     public ResponseEntity<StockTransferDto> receive(@PathVariable UUID id, @RequestParam UUID userId) {
-        try {
-            StockTransfer transfer = service.receive(id, userId);
-            return ResponseEntity.ok(toDto(transfer));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        StockTransfer transfer = service.receive(id, userId);
+        return ResponseEntity.ok(toDto(transfer));
     }
 
     @PutMapping("/{id}/cancel")
     public ResponseEntity<StockTransferDto> cancel(@PathVariable UUID id, @RequestBody(required = false) CancelStockTransferRequest request) {
-        try {
-            String reason = request != null ? request.reason() : null;
-            StockTransfer transfer = service.cancel(id, reason);
-            return ResponseEntity.ok(toDto(transfer));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        String reason = request != null ? request.reason() : null;
+        StockTransfer transfer = service.cancel(id, reason);
+        return ResponseEntity.ok(toDto(transfer));
     }
 
     private StockTransferDto toDto(StockTransfer transfer) {
@@ -107,14 +90,14 @@ public class StockTransferController {
     }
 
     public record CreateStockTransferRequest(
-            String transferNumber,
-            String transferType,
-            String materialId,
-            String sourceWarehouseId,
-            String sourceLocationCode,
-            String destWarehouseId,
-            String destLocationCode,
-            String quantity,
+            @NotBlank @Pattern(regexp = "^[A-Za-z0-9._/-]{1,50}$") String transferNumber,
+            @NotBlank @Pattern(regexp = "(?i)inter_warehouse|intra_warehouse|warehouse_transfer|bin_transfer|return_transfer") String transferType,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String materialId,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String sourceWarehouseId,
+            @NotBlank String sourceLocationCode,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String destWarehouseId,
+            @NotBlank String destLocationCode,
+            @NotBlank @Pattern(regexp = "^\\d+$") String quantity,
             String notes
     ) {}
 
