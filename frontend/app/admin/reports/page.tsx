@@ -201,13 +201,16 @@ export default function ReportsPage() {
               <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                 <button 
                   className="btn btn-primary btn-sm"
+                  title={r.filePath ? "Download report" : "Report file is not generated yet"}
+                  disabled={!r.filePath}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (!r.filePath) return;
                     handleDownload(r.id);
                   }}
                 >
                   <span className="material-symbols-outlined">download</span>
-                  <span>Download</span>
+                  <span>{r.filePath ? "Download" : "Not Ready"}</span>
                 </button>
               </div>
             </div>
@@ -309,10 +312,15 @@ function ReportDetailModal({
           </button>
           <button 
             className="btn btn-primary"
-            onClick={() => onDownload(report.id)}
+            title={report.filePath ? "Download report" : "Report file is not generated yet"}
+            disabled={!report.filePath}
+            onClick={() => {
+              if (!report.filePath) return;
+              onDownload(report.id);
+            }}
           >
             <span className="material-symbols-outlined">download</span>
-            Download Report
+            {report.filePath ? "Download Report" : "Report Not Ready"}
           </button>
         </div>
       </div>
