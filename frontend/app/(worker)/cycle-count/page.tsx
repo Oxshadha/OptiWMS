@@ -1,7 +1,5 @@
-"use client";
-
-import CycleCountPage from "../../worker/cycle-count/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <CycleCountPage />;
+  redirect("/worker/cycle-count");
 }

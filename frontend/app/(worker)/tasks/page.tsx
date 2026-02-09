@@ -1,7 +1,5 @@
-"use client";
-
-import WorkerTasksPage from "../../worker/tasks/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <WorkerTasksPage />;
+  redirect("/worker/tasks");
 }

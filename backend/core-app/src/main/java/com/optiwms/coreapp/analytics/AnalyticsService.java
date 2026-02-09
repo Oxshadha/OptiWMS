@@ -278,6 +278,105 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    // Dwell Time Analysis
+    public List<DwellTimeAnalysis> getDwellTimeAnalysis(UUID workerId) {
+        List<TaskEntity> tasks = taskRepository.findAll().stream()
+                .filter(t -> t.getAssignedTo() != null)
+                .filter(t -> workerId == null || workerId.equals(t.getAssignedTo()))
+                .filter(t -> t.getCreatedAt() != null && t.getCompletedAt() != null)
+                .collect(Collectors.toList());
+
+        Map<UUID, List<Long>> dwellByWorker = new HashMap<>();
+        for (TaskEntity task : tasks) {
+            long minutes = ChronoUnit.MINUTES.between(task.getCreatedAt(), task.getCompletedAt());
+            if (minutes < 0) continue;
+            dwellByWorker.computeIfAbsent(task.getAssignedTo(), key -> new ArrayList<>()).add(minutes);
+        }
+
+        List<DwellTimeAnalysis> analyses = new ArrayList<>();
+        for (Map.Entry<UUID, List<Long>> entry : dwellByWorker.entrySet()) {
+            UUID wid = entry.getKey();
+            List<Long> values = entry.getValue();
+            if (values.isEmpty()) continue;
+
+            long total = values.stream().mapToLong(v -> v).sum();
+            double average = (double) total / values.size();
+            long max = values.stream().mapToLong(v -> v).max().orElse(0);
+            long min = values.stream().mapToLong(v -> v).min().orElse(0);
+
+            List<DwellTimeBucket> distribution = List.of(
+                    new DwellTimeBucket("0-15", (int) values.stream().filter(v -> v <= 15).count()),
+                    new DwellTimeBucket("16-30", (int) values.stream().filter(v -> v > 15 && v <= 30).count()),
+                    new DwellTimeBucket("31-60", (int) values.stream().filter(v -> v > 30 && v <= 60).count()),
+                    new DwellTimeBucket("60+", (int) values.stream().filter(v -> v > 60).count())
+            );
+
+            String workerName = userRepository.findById(wid)
+                    .map(u -> u.getFirstName() + " " + u.getLastName())
+                    .orElse("Unknown");
+
+            analyses.add(new DwellTimeAnalysis(wid, workerName, average, max, min, distribution));
+        }
+
+        return analyses;
+    }
+
+    // Location Velocity
+    public List<LocationVelocity> getLocationVelocity(UUID warehouseId, LocalDate startDate, LocalDate endDate) {
+        if (warehouseId == null) return List.of();
+
+        LocalDateTime start = startDate != null ? startDate.atStartOfDay() : LocalDate.now().minusDays(30).atStartOfDay();
+        LocalDateTime end = endDate != null ? endDate.atTime(23, 59, 59) : LocalDateTime.now();
+        LocalDateTime last7 = LocalDate.now().minusDays(7).atStartOfDay();
+        LocalDateTime last30 = LocalDate.now().minusDays(30).atStartOfDay();
+
+        List<TaskEntity> tasks = taskRepository.findByWarehouseId(warehouseId).stream()
+                .filter(t -> t.getLocationCode() != null && !t.getLocationCode().isBlank())
+                .filter(t -> t.getCreatedAt() != null)
+                .filter(t -> !t.getCreatedAt().isBefore(start) && !t.getCreatedAt().isAfter(end))
+                .collect(Collectors.toList());
+
+        Map<String, List<TaskEntity>> byLocation = tasks.stream()
+                .collect(Collectors.groupingBy(TaskEntity::getLocationCode));
+
+        List<LocationVelocity> result = new ArrayList<>();
+        int maxMovements = byLocation.values().stream().mapToInt(List::size).max().orElse(1);
+
+        for (Map.Entry<String, List<TaskEntity>> entry : byLocation.entrySet()) {
+            String locationCode = entry.getKey();
+            List<TaskEntity> locTasks = entry.getValue();
+
+            int pickCount = (int) locTasks.stream().filter(t -> "picking".equalsIgnoreCase(t.getTaskType())).count();
+            int putawayCount = (int) locTasks.stream().filter(t -> "putaway".equalsIgnoreCase(t.getTaskType())).count();
+            int total = locTasks.size();
+            double velocityPct = maxMovements > 0 ? (total * 100.0 / maxMovements) : 0.0;
+
+            int last7Days = (int) locTasks.stream()
+                    .filter(t -> !t.getCreatedAt().isBefore(last7))
+                    .count();
+            int last30Days = (int) locTasks.stream()
+                    .filter(t -> !t.getCreatedAt().isBefore(last30))
+                    .count();
+
+            result.add(new LocationVelocity(
+                    locationCode,
+                    locationCode,
+                    "",
+                    warehouseId,
+                    pickCount,
+                    putawayCount,
+                    total,
+                    velocityPct,
+                    last7Days,
+                    last30Days
+            ));
+        }
+
+        return result.stream()
+                .sorted((a, b) -> Integer.compare(b.totalMovements, a.totalMovements))
+                .collect(Collectors.toList());
+    }
+
     // Helper methods
     private LocalDateTime getStartDateForPeriod(String period) {
         if (period == null) period = "monthly";
@@ -426,5 +525,58 @@ public class AnalyticsService {
             this.accuracy = accuracy;
         }
     }
-}
 
+    public static class DwellTimeAnalysis {
+        public UUID workerId;
+        public String workerName;
+        public Double averageDwellTime;
+        public Long maxDwellTime;
+        public Long minDwellTime;
+        public List<DwellTimeBucket> dwellTimeDistribution;
+
+        public DwellTimeAnalysis(UUID workerId, String workerName, Double averageDwellTime, Long maxDwellTime, Long minDwellTime, List<DwellTimeBucket> dwellTimeDistribution) {
+            this.workerId = workerId;
+            this.workerName = workerName;
+            this.averageDwellTime = averageDwellTime;
+            this.maxDwellTime = maxDwellTime;
+            this.minDwellTime = minDwellTime;
+            this.dwellTimeDistribution = dwellTimeDistribution;
+        }
+    }
+
+    public static class DwellTimeBucket {
+        public String timeRange;
+        public Integer count;
+
+        public DwellTimeBucket(String timeRange, Integer count) {
+            this.timeRange = timeRange;
+            this.count = count;
+        }
+    }
+
+    public static class LocationVelocity {
+        public String locationId;
+        public String locationCode;
+        public String rackId;
+        public UUID warehouseId;
+        public Integer pickCount;
+        public Integer putawayCount;
+        public Integer totalMovements;
+        public Double velocityPercentage;
+        public Integer last7Days;
+        public Integer last30Days;
+
+        public LocationVelocity(String locationId, String locationCode, String rackId, UUID warehouseId, Integer pickCount, Integer putawayCount, Integer totalMovements, Double velocityPercentage, Integer last7Days, Integer last30Days) {
+            this.locationId = locationId;
+            this.locationCode = locationCode;
+            this.rackId = rackId;
+            this.warehouseId = warehouseId;
+            this.pickCount = pickCount;
+            this.putawayCount = putawayCount;
+            this.totalMovements = totalMovements;
+            this.velocityPercentage = velocityPercentage;
+            this.last7Days = last7Days;
+            this.last30Days = last30Days;
+        }
+    }
+}
