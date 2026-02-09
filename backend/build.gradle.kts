@@ -63,6 +63,12 @@ project(":core-api") {
         implementation("org.springframework.boot:spring-boot-starter-security")
         implementation("org.springframework.boot:spring-boot-starter-validation")
         implementation("org.springframework.boot:spring-boot-starter-actuator")
+        // JWT dependencies
+        implementation("io.jsonwebtoken:jjwt-api:0.12.3")
+        implementation("io.jsonwebtoken:jjwt-impl:0.12.3")
+        implementation("io.jsonwebtoken:jjwt-jackson:0.12.3")
+        // Rate limiting
+        implementation("com.github.ben-manes.caffeine:caffeine:3.1.8")
     }
 }
 

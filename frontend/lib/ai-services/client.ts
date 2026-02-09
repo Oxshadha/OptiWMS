@@ -7,7 +7,10 @@
 
 import { AIServiceId, AIServiceStatus } from './registry';
 
-const AI_SERVICES_BASE_URL = process.env.NEXT_PUBLIC_AI_SERVICES_URL || 'http://localhost:8080/ai-services';
+// AI Services Base URL
+// Note: AI services are optional microservices - if not running, health checks will return 'unavailable'
+// This is expected behavior - the core WMS works without AI services
+const AI_SERVICES_BASE_URL = process.env.NEXT_PUBLIC_AI_SERVICES_URL || 'http://localhost:8081/ai-services';
 
 export interface AIRequest {
   serviceId: AIServiceId;
@@ -29,19 +32,28 @@ export interface AIResponse<T = any> {
  */
 export async function checkAIServiceHealth(serviceId: AIServiceId): Promise<AIServiceStatus> {
   try {
+    // AI services are optional - fail gracefully if not available
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+    
     const response = await fetch(`${AI_SERVICES_BASE_URL}/${serviceId}/health`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal, // Abort if timeout
     });
+    
+    clearTimeout(timeoutId);
     
     if (response.ok) {
       return 'available';
     } else {
-      return 'degraded';
+      return 'unavailable';
     }
   } catch (error) {
+    // AI services are optional - silently return unavailable
+    // Don't log errors to console to avoid noise
     return 'unavailable';
   }
 }

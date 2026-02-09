@@ -23,11 +23,11 @@ public class ReceivingController {
         try {
             var order = receivingService.getOrderByNumber(orderNumber);
             return ResponseEntity.ok(new OrderDetailDto(
-                    order.getId(),
+                    order.getId().toString(),
                     order.getOrderNumber(),
                     order.getOrderType(),
                     order.getStatus(),
-                    order.getWarehouseId()
+                    order.getWarehouseId().toString()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -45,7 +45,14 @@ public class ReceivingController {
                     ))
                     .toList();
 
-            var result = receivingService.receiveOrder(request.orderNumber(), receivedItems);
+            var result = receivingService.receiveOrder(
+                    request.orderNumber(), 
+                    receivedItems,
+                    request.notes(),
+                    request.photos(),
+                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
+            );
             return ResponseEntity.ok(new ReceivingResponse(
                     result.success(),
                     result.message(),
@@ -57,17 +64,52 @@ public class ReceivingController {
         }
     }
 
+    @PostMapping("/blind-receive")
+    public ResponseEntity<ReceivingResponse> blindReceive(@RequestBody ReceiveOrderRequest request) {
+        try {
+            // Blind receive is same as regular receive but without order validation
+            List<ReceivingService.ReceivedItem> receivedItems = request.items().stream()
+                    .map(item -> new ReceivingService.ReceivedItem(
+                            UUID.fromString(item.materialId()),
+                            new BigDecimal(item.quantity()),
+                            item.locationCode()
+                    ))
+                    .toList();
+
+            var result = receivingService.blindReceive(
+                    request.orderNumber(), 
+                    receivedItems,
+                    request.notes(),
+                    request.photos(),
+                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
+            );
+            return ResponseEntity.ok(new ReceivingResponse(
+                    result.success(),
+                    result.message(),
+                    result.orderId() != null ? result.orderId().toString() : null
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new ReceivingResponse(false, e.getMessage(), null));
+        }
+    }
+
     public record OrderDetailDto(
-            UUID id,
+            String id,  // Changed to String to match frontend
             String orderNumber,
             String orderType,
             String status,
-            UUID warehouseId
+            String warehouseId  // Changed to String to match frontend
     ) {}
 
     public record ReceiveOrderRequest(
             String orderNumber,
-            List<ReceivedItemDto> items
+            List<ReceivedItemDto> items,
+            String notes,
+            List<String> photos,
+            String warehouseId,  // Worker's warehouse ID for blind receive
+            String workerId      // Worker ID for tracking
     ) {}
 
     public record ReceivedItemDto(

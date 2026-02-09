@@ -1,68 +1,158 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
-import { AdminRole, isValidAdminRole } from "@/lib/admin-roles";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { login, user, isAdmin, refreshAuth } = useAuth();
   const { setAdmin } = useAdmin();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
-    role: "admin" as AdminRole,
-    warehouse: "",
   });
   const [error, setError] = useState("");
 
-  // Mock warehouses list - in production, this would come from API
-  const availableWarehouses = [
-    { id: "warehouse-1", name: "Warehouse 1" },
-    { id: "warehouse-2", name: "Warehouse 2" },
-  ];
+  const [availableWarehouses, setAvailableWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [loadingWarehouses, setLoadingWarehouses] = useState(true);
+
+  // Load warehouses from API
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setLoadingWarehouses(true);
+        const { warehousesApi } = await import("@/lib/api/warehouses");
+        const warehouses = await warehousesApi.getAll();
+        setAvailableWarehouses(warehouses.map(w => ({ id: w.id, name: w.name })));
+      } catch (error) {
+        console.error("Failed to load warehouses:", error);
+        // Fallback to empty array if API fails
+        setAvailableWarehouses([]);
+      } finally {
+        setLoadingWarehouses(false);
+      }
+    };
+    loadWarehouses();
+  }, []);
+
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Redirect if already authenticated as admin
+  useEffect(() => {
+    if (isAdmin && user) {
+      router.replace("/admin/dashboard");
+    }
+  }, [isAdmin, user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setIsLoading(true);
 
-    // TODO: API call for authentication
-    if (formData.email && formData.password) {
-      // Validate role
-      if (!isValidAdminRole(formData.role)) {
-        setError("Invalid role selected");
-        return;
-      }
-
-      // Validate warehouse selection for warehouse managers
-      if (formData.role === "warehouse_manager" && !formData.warehouse) {
-        setError("Please select a warehouse");
-        return;
-      }
-
-      // Mock admin data - in production, this would come from API
-      // For warehouse managers, assign them to the selected warehouse
-      const selectedWarehouse = availableWarehouses.find(w => w.id === formData.warehouse);
-      const mockAdminData = {
-        id: `admin-${formData.email}`,
-        name: formData.email.split("@")[0],
-        email: formData.email,
-        role: formData.role,
-        avatar: "/assets/avatars/Henry Kual.jpg",
-        // Assign warehouse managers to selected warehouse
-        ...(formData.role === "warehouse_manager" && selectedWarehouse && {
-          warehouseId: selectedWarehouse.id,
-          warehouseName: selectedWarehouse.name,
-        }),
-      };
-
-      // Store admin data
-      await setAdmin(mockAdminData);
-
-      router.push("/admin/dashboard");
-    } else {
+    if (!formData.email || !formData.password) {
       setError("Please enter email and password");
+      setIsLoading(false);
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.email)) {
+      setError("Please enter a valid email address");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // Use centralized auth login
+      const result = await login(formData.email, formData.password);
+      
+      if (!result.success) {
+        setError(result.error || "Invalid email or password");
+        setIsLoading(false);
+        return;
+      }
+
+      // Refresh auth state to get updated user info
+      await refreshAuth();
+      
+      // Wait a bit for auth state to update
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Check if user is admin - we need to check the role from the login response
+      // Since we can't access user state immediately, we'll check via API
+      try {
+        const { authApi } = await import("@/lib/api/auth");
+        const userInfo = await authApi.getCurrentUser();
+        // Normalize role (remove ROLE_ prefix if present, like "role_admin" -> "admin")
+        let userRole = userInfo.role?.toLowerCase() || '';
+        if (userRole.startsWith('role_')) {
+          userRole = userRole.substring(5); // Remove "role_" prefix
+        }
+        const adminRoles = ['admin', 'warehouse_manager', 'inbound_coordinator'];
+        
+        if (!userRole || !adminRoles.includes(userRole)) {
+          // Logout the non-admin user
+          const { authApi } = await import("@/lib/api/auth");
+          await authApi.logout();
+          setError(`Access denied. This account (role: ${userRole || 'unknown'}) is not authorized for admin portal.`);
+          setIsLoading(false);
+          return;
+        }
+
+        // Get full user details and update admin context
+        const { usersApi } = await import("@/lib/api/users");
+        const fullUser = await usersApi.getById(userInfo.userId);
+        
+        let warehouseName: string | undefined;
+        if (fullUser.warehouseId) {
+          try {
+            const selectedWarehouse = availableWarehouses.find(w => w.id === fullUser.warehouseId);
+            if (selectedWarehouse) {
+              warehouseName = selectedWarehouse.name;
+            }
+          } catch (err) {
+            console.error("Error fetching warehouse:", err);
+          }
+        }
+
+        const adminData = {
+          id: fullUser.id,
+          name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
+          email: fullUser.email || userInfo.email,
+          role: fullUser.role as any,
+          avatar: fullUser.avatarUrl || "/assets/avatars/Henry Kual.jpg",
+          ...(fullUser.warehouseId && {
+            warehouseId: fullUser.warehouseId,
+            warehouseName: warehouseName,
+          }),
+        };
+        setAdmin(adminData);
+      } catch (apiError) {
+        console.error("Error verifying admin role:", apiError);
+        setError("Failed to verify user role. Please try again.");
+        setIsLoading(false);
+        return;
+      }
+      
+      setIsLoading(false);
+      
+      // Redirect to dashboard
+      router.replace("/admin/dashboard");
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Login failed";
+      // Show user-friendly error messages
+      if (errorMessage.includes("Invalid") || errorMessage.includes("credentials")) {
+        setError("Invalid email or password");
+      } else if (errorMessage.includes("401")) {
+        setError("Invalid email or password");
+      } else {
+        setError("Login failed. Please try again.");
+      }
+      setIsLoading(false);
     }
   };
 
@@ -122,54 +212,48 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text">Role (for testing)</span>
-              </label>
-              <select
-                className="select select-bordered w-full"
-                value={formData.role}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    role: e.target.value as AdminRole,
-                    warehouse: "", // Reset warehouse when role changes
-                  })
-                }
-              >
-                <option value="admin">System Administrator</option>
-                <option value="warehouse_manager">Warehouse Manager</option>
-                <option value="inbound_coordinator">Inbound Coordinator</option>
-              </select>
-            </div>
             {formData.role === "warehouse_manager" && (
               <div className="form-control">
                 <label className="label">
                   <span className="label-text">Select Warehouse *</span>
                 </label>
-                <select
-                  className="select select-bordered w-full"
-                  value={formData.warehouse}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      warehouse: e.target.value,
-                    })
-                  }
-                  required
-                >
-                  <option value="">Choose a warehouse...</option>
-                  {availableWarehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouse.name}
-                    </option>
-                  ))}
-                </select>
+                {loadingWarehouses ? (
+                  <div className="flex items-center gap-2">
+                    <span className="loading loading-spinner loading-sm"></span>
+                    <span className="text-sm text-base-content/60">Loading warehouses...</span>
+                  </div>
+                ) : (
+                  <select
+                    className="select select-bordered w-full"
+                    value={formData.warehouse}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        warehouse: e.target.value,
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Choose a warehouse...</option>
+                    {availableWarehouses.map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
             <div className="form-control mt-6">
-              <button type="submit" className="btn btn-primary w-full">
-                Login
+              <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
+                {isLoading ? (
+                  <>
+                    <span className="loading loading-spinner loading-sm"></span>
+                    Logging in...
+                  </>
+                ) : (
+                  "Login"
+                )}
               </button>
             </div>
           </form>

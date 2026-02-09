@@ -36,6 +36,20 @@ public class TaskService {
         return repository.findByAssignedTo(assignedTo).stream().map(this::toDomain).collect(Collectors.toList());
     }
 
+    public List<Task> findByWarehouseId(UUID warehouseId) {
+        return repository.findByWarehouseId(warehouseId).stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public List<Task> findByTaskTypeAndStatus(String taskType, String status) {
+        return repository.findByTaskTypeAndStatus(taskType, status).stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public List<Task> findByWarehouseAndTypeAndStatus(UUID warehouseId, String taskType, String status) {
+        return repository.findByWarehouseIdAndTaskTypeAndStatus(warehouseId, taskType, status).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Task findById(UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -68,7 +82,39 @@ public class TaskService {
         entity.setStatus(status);
         if ("completed".equals(status)) {
             entity.setCompletedAt(LocalDateTime.now());
+        } else if ("assigned".equals(status) || "in_progress".equals(status)) {
+            // Set started_at when task is first assigned or started
+            if (entity.getStartedAt() == null) {
+                entity.setStartedAt(LocalDateTime.now());
+            }
         }
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public Task updateStatusWithWorker(UUID id, String status, UUID workerId) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setStatus(status);
+        if ("completed".equals(status)) {
+            entity.setCompletedAt(LocalDateTime.now());
+            entity.setCompletedBy(workerId);
+        } else if ("assigned".equals(status) || "in_progress".equals(status)) {
+            if (entity.getStartedAt() == null) {
+                entity.setStartedAt(LocalDateTime.now());
+            }
+        }
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public Task assignTask(UUID id, UUID workerId, String assignedBy) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setAssignedTo(workerId);
+        entity.setStatus("assigned");
         TaskEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -84,6 +130,8 @@ public class TaskService {
         task.setStatus(entity.getStatus());
         task.setDueDate(entity.getDueDate());
         task.setCompletedAt(entity.getCompletedAt());
+        task.setCompletedBy(entity.getCompletedBy());
+        task.setStartedAt(entity.getStartedAt());
         task.setLocationCode(entity.getLocationCode());
         task.setReferenceType(entity.getReferenceType());
         task.setReferenceId(entity.getReferenceId());

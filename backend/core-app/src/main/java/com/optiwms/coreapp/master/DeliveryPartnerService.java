@@ -58,6 +58,7 @@ public class DeliveryPartnerService {
         entity.setAddress(partner.getAddress());
         entity.setCity(partner.getCity());
         entity.setCountry(partner.getCountry());
+        entity.setCurrencyCode(partner.getCurrencyCode());
         entity.setServiceAreas(partner.getServiceAreas());
         entity.setRating(partner.getRating());
         entity.setCostPerDelivery(partner.getCostPerDelivery());
@@ -81,6 +82,7 @@ public class DeliveryPartnerService {
         if (partner.getAddress() != null) entity.setAddress(partner.getAddress());
         if (partner.getCity() != null) entity.setCity(partner.getCity());
         if (partner.getCountry() != null) entity.setCountry(partner.getCountry());
+        if (partner.getCurrencyCode() != null) entity.setCurrencyCode(partner.getCurrencyCode());
         if (partner.getServiceAreas() != null) entity.setServiceAreas(partner.getServiceAreas());
         if (partner.getRating() != null) entity.setRating(partner.getRating());
         if (partner.getCostPerDelivery() != null) entity.setCostPerDelivery(partner.getCostPerDelivery());
@@ -108,6 +110,7 @@ public class DeliveryPartnerService {
         p.setAddress(entity.getAddress());
         p.setCity(entity.getCity());
         p.setCountry(entity.getCountry());
+        p.setCurrencyCode(entity.getCurrencyCode());
         p.setServiceAreas(entity.getServiceAreas());
         p.setRating(entity.getRating());
         p.setCostPerDelivery(entity.getCostPerDelivery());

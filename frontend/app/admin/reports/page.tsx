@@ -1,89 +1,115 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { reportsApi, Report } from "@/lib/api/reports";
 
-const reports = [
-  { 
-    id: 1,
-    name: "Daily Inbound", 
-    desc: "Receipts, putaway, QC", 
-    size: "180 KB",
-    type: "Inbound",
-    lastGenerated: "2025-12-15 10:30 AM",
-    icon: "download"
-  },
-  { 
-    id: 2,
-    name: "Daily Outbound", 
-    desc: "Orders, picks, shipments", 
-    size: "220 KB",
-    type: "Outbound",
-    lastGenerated: "2025-12-15 11:15 AM",
-    icon: "upload"
-  },
-  { 
-    id: 3,
-    name: "Inventory Snapshot", 
-    desc: "Stock by location and SKU", 
-    size: "310 KB",
-    type: "Inventory",
-    lastGenerated: "2025-12-15 09:00 AM",
-    icon: "inventory"
-  },
-  { 
-    id: 4,
-    name: "Sales Report", 
-    desc: "Revenue, orders, customers", 
-    size: "450 KB",
-    type: "Sales",
-    lastGenerated: "2025-12-14 05:00 PM",
-    icon: "payments"
-  },
-  { 
-    id: 5,
-    name: "Warehouse Utilization", 
-    desc: "Space usage and efficiency", 
-    size: "125 KB",
-    type: "Analytics",
-    lastGenerated: "2025-12-15 08:00 AM",
-    icon: "warehouse"
-  },
-  { 
-    id: 6,
-    name: "Customer Activity", 
-    desc: "Orders, returns, engagement", 
-    size: "280 KB",
-    type: "Customer",
-    lastGenerated: "2025-12-14 04:30 PM",
-    icon: "group"
-  },
-];
+const reportTypes = ["All", "inbound", "outbound", "inventory", "sales", "analytics", "customer"];
 
-const reportTypes = ["All", "Inbound", "Outbound", "Inventory", "Sales", "Analytics", "Customer"];
+// Map report types to icons
+const getReportIcon = (type: string): string => {
+  const iconMap: Record<string, string> = {
+    inbound: "download",
+    outbound: "upload",
+    inventory: "inventory",
+    sales: "payments",
+    analytics: "warehouse",
+    customer: "group",
+  };
+  return iconMap[type.toLowerCase()] || "description";
+};
+
+// Format file size
+const formatFileSize = (bytes: number | null): string => {
+  if (!bytes) return "N/A";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// Format date
+const formatDate = (dateString: string | null): string => {
+  if (!dateString) return "Not generated";
+  const date = new Date(dateString);
+  return date.toLocaleString("en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function ReportsPage() {
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeType, setActiveType] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedReport, setSelectedReport] = useState<typeof reports[0] | null>(null);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
+
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const type = activeType !== "All" ? activeType : undefined;
+        const data = await reportsApi.getAllReports(type);
+        setReports(data);
+      } catch (err) {
+        console.error("Failed to fetch reports:", err);
+        setError(err instanceof Error ? err.message : "Failed to load reports");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReports();
+  }, [activeType]);
 
   const filteredReports = reports.filter(r => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesType = activeType === "All" || r.type === activeType;
+    const matchesType = activeType === "All" || r.reportType.toLowerCase() === activeType.toLowerCase();
     const matchesSearch = !query || (
-      r.name.toLowerCase().includes(query) ||
-      r.desc.toLowerCase().includes(query) ||
-      r.type.toLowerCase().includes(query) ||
-      r.size.toLowerCase().includes(query) ||
-      r.lastGenerated.toLowerCase().includes(query) ||
-      r.icon.toLowerCase().includes(query)
+      r.reportName.toLowerCase().includes(query) ||
+      (r.description?.toLowerCase().includes(query) ?? false) ||
+      r.reportType.toLowerCase().includes(query)
     );
     return matchesType && matchesSearch;
   });
+
+  const handleDownload = async (reportId: string, reportName: string) => {
+    try {
+      const filePath = await reportsApi.downloadReport(reportId);
+      // In a real implementation, this would trigger a file download
+      // For now, we show the file path
+      alert(`Report download: ${filePath}\n\nNote: Actual file download will be implemented when file storage is configured.`);
+    } catch (err) {
+      console.error("Failed to download report:", err);
+      alert("Failed to download report. Please try again.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading reports: {error}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -152,37 +178,30 @@ export default function ReportsPage() {
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary text-2xl">{r.icon}</span>
+                <span className="material-symbols-outlined text-primary text-2xl">
+                  {getReportIcon(r.reportType)}
+                </span>
               </div>
               <span 
-                className="badge text-xs whitespace-nowrap" 
+                className="badge text-xs whitespace-nowrap capitalize" 
                 style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
               >
-                {r.type}
+                {r.reportType}
               </span>
             </div>
-            <h3 className="text-lg font-bold text-base-content mb-2">{r.name}</h3>
-            <p className="text-sm text-base-content/60 mb-4">{r.desc}</p>
+            <h3 className="text-lg font-bold text-base-content mb-2">{r.reportName}</h3>
+            <p className="text-sm text-base-content/60 mb-4">{r.description || "No description"}</p>
             <div className="flex items-center justify-between pt-4 border-t border-base-200">
               <div className="text-xs text-base-content/50">
-                <div>Size: {r.size}</div>
-                <div>Last: {r.lastGenerated}</div>
+                <div>Size: {formatFileSize(r.fileSizeBytes)}</div>
+                <div>Last: {formatDate(r.generatedAt)}</div>
               </div>
               <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                 <button 
                   className="btn btn-primary btn-sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    // TODO: Download report - replace with actual API call
-                    console.log("Download report:", r.id);
-                    // Simulate download
-                    const link = document.createElement('a');
-                    link.href = '#'; // Replace with actual report URL
-                    link.download = `${r.name.replace(/\s+/g, '_')}.pdf`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    alert(`Downloading ${r.name}...`);
+                    handleDownload(r.id, r.reportName);
                   }}
                 >
                   <span className="material-symbols-outlined">download</span>
@@ -237,39 +256,55 @@ function ReportDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  report: typeof reports[0];
+  report: Report;
 }) {
+  const handleDownload = async () => {
+    try {
+      const filePath = await reportsApi.downloadReport(report.id);
+      alert(`Report download: ${filePath}\n\nNote: Actual file download will be implemented when file storage is configured.`);
+    } catch (err) {
+      console.error("Failed to download report:", err);
+      alert("Failed to download report. Please try again.");
+    }
+  };
+
   return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.name}`} size="lg">
+    <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.reportName}`} size="lg">
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm text-base-content/60">Report Name</label>
-            <p className="font-semibold">{report.name}</p>
+            <p className="font-semibold">{report.reportName}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Type</label>
             <p>
               <span 
-                className="badge text-xs whitespace-nowrap" 
+                className="badge text-xs whitespace-nowrap capitalize" 
                 style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
               >
-                {report.type}
+                {report.reportType}
               </span>
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Description</label>
-            <p className="font-semibold">{report.desc}</p>
+            <p className="font-semibold">{report.description || "No description"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Size</label>
-            <p className="font-semibold">{report.size}</p>
+            <p className="font-semibold">{formatFileSize(report.fileSizeBytes)}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Last Generated</label>
-            <p className="font-semibold">{report.lastGenerated}</p>
+            <p className="font-semibold">{formatDate(report.generatedAt)}</p>
           </div>
+          {report.filePath && (
+            <div>
+              <label className="text-sm text-base-content/60">File Path</label>
+              <p className="font-semibold text-xs break-all">{report.filePath}</p>
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>
@@ -277,17 +312,7 @@ function ReportDetailModal({
           </button>
           <button 
             className="btn btn-primary"
-            onClick={() => {
-              // TODO: Download report - replace with actual API call
-              console.log("Download report:", report.id);
-              const link = document.createElement('a');
-              link.href = '#'; // Replace with actual report URL
-              link.download = `${report.name.replace(/\s+/g, '_')}.pdf`;
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-              alert(`Downloading ${report.name}...`);
-            }}
+            onClick={handleDownload}
           >
             <span className="material-symbols-outlined">download</span>
             Download Report
@@ -302,23 +327,37 @@ function ReportDetailModal({
 function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [formData, setFormData] = useState({
     reportType: "",
-    frequency: "daily",
+    frequency: "daily" as "daily" | "weekly" | "monthly",
     time: "09:00",
     email: "",
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to schedule report
-    console.log("Scheduling report:", formData);
-    alert("Report scheduled successfully!");
-    onClose();
-    setFormData({
-      reportType: "",
-      frequency: "daily",
-      time: "09:00",
-      email: "",
-    });
+    setSubmitting(true);
+    try {
+      await reportsApi.scheduleReport({
+        reportType: formData.reportType,
+        frequency: formData.frequency,
+        scheduledTime: `${formData.time}:00`,
+        emailRecipients: formData.email.split(',').map(e => e.trim()).filter(e => e),
+        isActive: true,
+      });
+      alert("Report scheduled successfully!");
+      onClose();
+      setFormData({
+        reportType: "",
+        frequency: "daily",
+        time: "09:00",
+        email: "",
+      });
+    } catch (err) {
+      console.error("Failed to schedule report:", err);
+      alert("Failed to schedule report. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -335,12 +374,12 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
             required
           >
             <option value="">Select report type</option>
-            <option value="Daily Inbound">Daily Inbound</option>
-            <option value="Daily Outbound">Daily Outbound</option>
-            <option value="Inventory Snapshot">Inventory Snapshot</option>
-            <option value="Sales Report">Sales Report</option>
-            <option value="Warehouse Utilization">Warehouse Utilization</option>
-            <option value="Customer Activity">Customer Activity</option>
+            <option value="inbound">Inbound</option>
+            <option value="outbound">Outbound</option>
+            <option value="inventory">Inventory</option>
+            <option value="sales">Sales</option>
+            <option value="analytics">Analytics</option>
+            <option value="customer">Customer</option>
           </select>
         </div>
         <div className="form-control">
@@ -373,22 +412,30 @@ function ScheduleReportModal({ isOpen, onClose }: { isOpen: boolean; onClose: ()
         <div className="form-control">
           <label className="label">
             <span className="label-text font-medium">Email Recipients *</span>
+            <span className="label-text-alt">Separate multiple emails with commas</span>
           </label>
           <input
-            type="email"
+            type="text"
             className="input input-bordered w-full"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            placeholder="email@example.com"
+            placeholder="email1@example.com, email2@example.com"
             required
           />
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Schedule Report
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Scheduling...
+              </>
+            ) : (
+              "Schedule Report"
+            )}
           </button>
         </div>
       </form>
@@ -404,19 +451,37 @@ function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose
     type: "",
     fields: [] as string[],
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create custom report
-    console.log("Creating custom report:", formData);
-    alert("Custom report created successfully!");
-    onClose();
-    setFormData({
-      name: "",
-      description: "",
-      type: "",
-      fields: [],
-    });
+    setSubmitting(true);
+    try {
+      const reportConfig = JSON.stringify({
+        fields: formData.fields,
+      });
+      await reportsApi.createCustomReport({
+        reportName: formData.name,
+        reportType: formData.type,
+        description: formData.description || undefined,
+        reportConfig: reportConfig,
+      });
+      alert("Custom report created successfully!");
+      onClose();
+      setFormData({
+        name: "",
+        description: "",
+        type: "",
+        fields: [],
+      });
+      // Refresh the reports list
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to create custom report:", err);
+      alert("Failed to create custom report. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -457,12 +522,12 @@ function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose
             required
           >
             <option value="">Select type</option>
-            <option value="Inbound">Inbound</option>
-            <option value="Outbound">Outbound</option>
-            <option value="Inventory">Inventory</option>
-            <option value="Sales">Sales</option>
-            <option value="Analytics">Analytics</option>
-            <option value="Customer">Customer</option>
+            <option value="inbound">Inbound</option>
+            <option value="outbound">Outbound</option>
+            <option value="inventory">Inventory</option>
+            <option value="sales">Sales</option>
+            <option value="analytics">Analytics</option>
+            <option value="customer">Customer</option>
           </select>
         </div>
         <div className="form-control">
@@ -490,11 +555,18 @@ function CreateCustomReportModal({ isOpen, onClose }: { isOpen: boolean; onClose
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary">
-            Create Report
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Creating...
+              </>
+            ) : (
+              "Create Report"
+            )}
           </button>
         </div>
       </form>

@@ -1,0 +1,97 @@
+version: "3.9"
+
+# Copy this file to docker-compose.yml and set environment variables
+# NEVER commit docker-compose.yml with real passwords!
+
+services:
+  db:
+    image: postgres:16
+    container_name: optiwms-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-optiwms}
+      POSTGRES_USER: ${POSTGRES_USER:-optiwms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-optiwms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - optiwms-network
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: optiwms-backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-optiwms}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-optiwms}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
+      JWT_SECRET: ${JWT_SECRET:-CHANGE_THIS_IN_PRODUCTION}
+      JAVA_OPTS: "-Xmx512m -Xms256m"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../backend:/app
+      - backend_build:/app/build
+    networks:
+      - optiwms-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: optiwms-frontend
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    networks:
+      - optiwms-network
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: optiwms-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@optiwms.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - optiwms-network
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  backend_build:
+  frontend_node_modules:
+  frontend_next:
+
+networks:
+  optiwms-network:
+    driver: bridge

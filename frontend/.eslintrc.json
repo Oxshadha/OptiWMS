@@ -1,0 +1,20 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "rules": {
+    /**
+     * Industry Standard: React Hooks ESLint Rules
+     * 
+     * Rationale:
+     * 1. Official React team plugin (eslint-plugin-react-hooks)
+     * 2. Recommended by React documentation
+     * 3. Prevents common bugs (hooks order violations, missing dependencies)
+     * 4. Used by major companies (Meta, Airbnb, Google)
+     * 5. Catches errors at build time, not runtime
+     * 
+     * Note: Next.js includes these rules in "next/core-web-vitals",
+     * but we explicitly enable them for clarity and to ensure they're active.
+     */
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "warn"
+  }
+}

@@ -20,6 +20,7 @@ out/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*.local
 
 # IDE
 .vscode/
@@ -38,8 +39,23 @@ bin/
 .gradle/
 build/
 target/
+*.iml
 
-# Warehouse folder (exclude completely) - be more specific to avoid matching "warehouses"
+# Backend specific
+backend/core-api/logs/
+backend/core-api/build/
+backend/*/build/
+backend/*/bin/
+backend/*/target/
+backend/.gradle/
+
+# Frontend specific
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/.vercel/
+
+# Warehouse folder (exclude completely)
 **/Warehouse/
 **/*Carpet*/
 **/*Store*/
@@ -48,7 +64,7 @@ target/
 Resources/*
 !Resources/.gitkeep
 
-# Docs folder contents (keep folder, ignore specific files)
+# Docs folder contents (keep folder, ignore files)
 docs/plan.md
 docs/erd.md
 docs/domain.md
@@ -63,20 +79,68 @@ docs/domain.md
 Thumbs.db
 .DS_Store
 
-# Setup/Configuration files (local only)
-GIT_SETUP.md
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
-# Ignore all .md files except README.md and essential guides
-*.md
-!README.md
-!SETUP_GUIDE.md
-!QUICK_START.md
-!GITHUB_PUSH_GUIDE.md
-!PRE_PUSH_CHECKLIST.md
-!FRONTEND_BACKEND_INTEGRATION.md
-!BACKEND_TEST_SUMMARY.md
-!BACKEND_STARTUP_VERIFICATION.md
-!TEAM_DATABASE_ACCESS.md
-!DATABASE_VIEWING_GUIDE.md
-!DOCKER_SETUP_COMPLETE.md
+# Docker volumes
+docker-data/
+db_data/
 
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Synthetic data (can be regenerated)
+synthetic_data/
+backend/synthetic_data/
+
+# Test results
+test-results/
+coverage/
+
+# Local configuration (keep example files)
+application-local.properties
+application-local.yml
+
+# Secrets and keys (NEVER commit!)
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
+.secrets/
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Cursor
+.cursor/

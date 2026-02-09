@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { useRouter } from "next/navigation";
+import { notificationsApi, Notification as ApiNotification } from "@/lib/api/notifications";
 
 // Notification types
 type NotificationType =
@@ -146,12 +147,76 @@ const typeConfig: Record<NotificationType, { label: string; icon: string; color:
 
 export default function NotificationsPage() {
   const router = useRouter();
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const { admin } = useAdmin();
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<NotificationType | "all">("all");
   const [readFilter, setReadFilter] = useState<"all" | "read" | "unread">("all");
+
+  // Load notifications from API
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!admin?.id) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const data = await notificationsApi.getAll(admin.id);
+        // Map API notifications to display format
+        const mappedNotifications: Notification[] = data.map((n: ApiNotification) => ({
+          id: n.id,
+          title: n.title,
+          message: n.message,
+          type: n.notificationType as NotificationType,
+          read: n.read,
+          createdAt: n.createdAt,
+          actionUrl: n.actionUrl,
+          metadata: n.metadata ? JSON.parse(n.metadata) : {},
+        }));
+        setNotifications(mappedNotifications);
+      } catch (error) {
+        console.error("Error loading notifications:", error);
+        setNotifications([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadNotifications();
+  }, [admin?.id]);
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await notificationsApi.markAsRead(id);
+      setNotifications(notifications.map(n => 
+        n.id === id ? { ...n, read: true } : n
+      ));
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!admin?.id) return;
+    try {
+      await notificationsApi.markAllAsRead(admin.id);
+      setNotifications(notifications.map(n => ({ ...n, read: true })));
+    } catch (error) {
+      console.error("Error marking all as read:", error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await notificationsApi.delete(id);
+      setNotifications(notifications.filter(n => n.id !== id));
+    } catch (error) {
+      console.error("Error deleting notification:", error);
+    }
+  };
 
   const summary = {
     total: notifications.length,
@@ -225,10 +290,8 @@ export default function NotificationsPage() {
     });
   };
 
-  const markAsRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+  const markAsRead = async (id: string) => {
+    await handleMarkAsRead(id);
   };
 
   const markAsUnread = (id: string) => {
@@ -387,7 +450,7 @@ export default function NotificationsPage() {
           {summary.unread > 0 && (
             <button
               className="btn btn-sm btn-ghost"
-              onClick={markAllAsRead}
+              onClick={handleMarkAllAsRead}
               title="Mark all as read"
             >
               <span className="material-symbols-outlined">done_all</span>
@@ -470,14 +533,20 @@ export default function NotificationsPage() {
       </div>
 
       {/* Notifications Table */}
-      <DataTable
-        data={filteredNotifications}
-        columns={columns}
-        keyExtractor={(notif) => notif.id}
-        onRowClick={handleNotificationClick}
-        actions={renderActions}
-        emptyMessage="No notifications found"
-      />
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : (
+        <DataTable
+          data={filteredNotifications}
+          columns={columns}
+          keyExtractor={(notif) => notif.id}
+          onRowClick={handleNotificationClick}
+          actions={renderActions}
+          emptyMessage="No notifications found"
+        />
+      )}
 
       {/* Notification Detail Modal */}
       {selectedNotification && (

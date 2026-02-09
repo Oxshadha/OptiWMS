@@ -55,6 +55,30 @@ public class OrderEntity {
     @Column(name = "created_by", columnDefinition = "UUID")
     private UUID createdBy;
 
+    @Column(name = "received_by", columnDefinition = "UUID")
+    private UUID receivedBy;
+
+    @Column(name = "picked_by", columnDefinition = "UUID")
+    private UUID pickedBy;
+
+    @Column(name = "packed_by", columnDefinition = "UUID")
+    private UUID packedBy;
+
+    @Column(name = "shipped_by", columnDefinition = "UUID")
+    private UUID shippedBy;
+
+    @Column(name = "received_at")
+    private LocalDateTime receivedAt;
+
+    @Column(name = "picked_at")
+    private LocalDateTime pickedAt;
+
+    @Column(name = "packed_at")
+    private LocalDateTime packedAt;
+
+    @Column(name = "shipped_at")
+    private LocalDateTime shippedAt;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -195,5 +219,22 @@ public class OrderEntity {
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
     }
+
+    public UUID getReceivedBy() { return receivedBy; }
+    public void setReceivedBy(UUID receivedBy) { this.receivedBy = receivedBy; }
+    public UUID getPickedBy() { return pickedBy; }
+    public void setPickedBy(UUID pickedBy) { this.pickedBy = pickedBy; }
+    public UUID getPackedBy() { return packedBy; }
+    public void setPackedBy(UUID packedBy) { this.packedBy = packedBy; }
+    public UUID getShippedBy() { return shippedBy; }
+    public void setShippedBy(UUID shippedBy) { this.shippedBy = shippedBy; }
+    public LocalDateTime getReceivedAt() { return receivedAt; }
+    public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
+    public LocalDateTime getPickedAt() { return pickedAt; }
+    public void setPickedAt(LocalDateTime pickedAt) { this.pickedAt = pickedAt; }
+    public LocalDateTime getPackedAt() { return packedAt; }
+    public void setPackedAt(LocalDateTime packedAt) { this.packedAt = packedAt; }
+    public LocalDateTime getShippedAt() { return shippedAt; }
+    public void setShippedAt(LocalDateTime shippedAt) { this.shippedAt = shippedAt; }
 }
 

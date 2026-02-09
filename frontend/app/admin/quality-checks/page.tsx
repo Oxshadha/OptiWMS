@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
@@ -8,9 +8,31 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { qualityChecksApi, QualityCheck as ApiQualityCheck } from "@/lib/api/qualityChecks";
+import { materialsApi } from "@/lib/api/materials";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { usersApi } from "@/lib/api/users";
+import { showToast } from "@/lib/utils/toast";
+
+interface QualityCheckDisplay {
+  id: string;
+  checkId: string;
+  inboundOrderNumber: string;
+  productName: string;
+  sku: string;
+  quantityChecked: number;
+  quantityPassed: number;
+  quantityFailed: number;
+  result: "passed" | "failed" | "partial";
+  checkedByName: string;
+  checkDate: string;
+  approvedByName: string | null;
+  approvalDate: string | null;
+  warehouseName: string;
+}
 
 // Mock data - will be replaced with API calls
-const qualityChecks = [
+const mockQualityChecks: QualityCheckDisplay[] = [
   {
     id: "qc-1",
     checkId: "QC-2025-001",
@@ -76,8 +98,95 @@ export default function QualityChecksPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
-  const [selectedCheck, setSelectedCheck] = useState<typeof qualityChecks[0] | null>(null);
+  const [selectedCheck, setSelectedCheck] = useState<QualityCheckDisplay | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+
+  // API state
+  const [qualityChecks, setQualityChecks] = useState<QualityCheckDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [checksData, materialsData, warehousesData, usersData] = await Promise.all([
+        qualityChecksApi.getAll(),
+        materialsApi.getAll(),
+        warehousesApi.getAll(),
+        usersApi.getAll(),
+      ]);
+
+      // Build maps
+      const materialsMap = new Map<string, { name: string; sku: string }>();
+      materialsData.forEach(m => materialsMap.set(m.id, { name: m.name, sku: m.sku || m.code }));
+      
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+      
+      const usersMap = new Map<string, string>();
+      usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
+
+      // Transform API data to display format
+      const displayChecks: QualityCheckDisplay[] = checksData.map((qc, index) => {
+        const material = qc.materialId ? materialsMap.get(qc.materialId) : null;
+        const checkedBy = qc.checkedBy ? usersMap.get(qc.checkedBy) : "Unknown";
+        
+        const qtyReceived = parseInt(qc.qtyReceived) || 0;
+        const qtyPassed = parseInt(qc.qtyPassed) || 0;
+        const qtyRejected = parseInt(qc.qtyRejected) || 0;
+        
+        let result: "passed" | "failed" | "partial" = "partial";
+        if (qtyRejected === 0) result = "passed";
+        else if (qtyPassed === 0) result = "failed";
+
+        return {
+          id: qc.id,
+          checkId: `QC-${qc.id.substring(0, 8).toUpperCase()}`,
+          inboundOrderNumber: qc.grnId ? `GRN-${qc.grnId.substring(0, 8).toUpperCase()}` : "N/A",
+          productName: material?.name || "Unknown",
+          sku: material?.sku || "N/A",
+          quantityChecked: qtyReceived,
+          quantityPassed: qtyPassed,
+          quantityFailed: qtyRejected,
+          result,
+          checkedByName: checkedBy,
+          checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
+          approvedByName: null, // TODO: Add approval tracking when available
+          approvalDate: null,
+          warehouseName: "Unknown", // TODO: Get from GRN when available
+        };
+      });
+
+      setQualityChecks(displayChecks);
+    } catch (err) {
+      console.error("Failed to load quality checks:", err);
+      setError(err instanceof Error ? err.message : "Failed to load quality checks");
+      setQualityChecks([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load quality checks. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadQualityChecks', handleReload);
+    return () => {
+      window.removeEventListener('reloadQualityChecks', handleReload);
+    };
+  }, []);
 
   // Filter quality checks by warehouse for warehouse managers
   const qualityChecksForWarehouse = isWarehouseManager && assignedWarehouseName
@@ -88,7 +197,7 @@ export default function QualityChecksPage() {
     totalChecksThisMonth: qualityChecksForWarehouse.length,
     pendingApproval: qualityChecksForWarehouse.filter((qc) => !qc.approvedByName).length,
     passRate: qualityChecksForWarehouse.length > 0
-      ? (qualityChecksForWarehouse.filter((qc) => qc.result === "passed").length / qualityChecksForWarehouse.length) * 100
+      ? Number(((qualityChecksForWarehouse.filter((qc) => qc.result === "passed").length / qualityChecksForWarehouse.length) * 100).toFixed(2))
       : 0,
     rejectedItems: qualityChecksForWarehouse.reduce((sum, qc) => sum + qc.quantityFailed, 0),
   };
@@ -115,6 +224,23 @@ export default function QualityChecksPage() {
       (statusFilter === "approved" && check.approvedByName);
     return matchesSearch && matchesStatus;
   });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && qualityChecks.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading quality checks: {error}</span>
+      </div>
+    );
+  }
 
   const summaryCards = [
     {
@@ -147,7 +273,7 @@ export default function QualityChecksPage() {
     {
       key: "checkId",
       label: "Check ID",
-      render: (check: typeof qualityChecks[0]) => (
+      render: (check: QualityCheckDisplay) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -164,7 +290,7 @@ export default function QualityChecksPage() {
     {
       key: "inboundOrderNumber",
       label: "Inbound Order",
-      render: (check: typeof qualityChecks[0]) => (
+      render: (check: QualityCheckDisplay) => (
         <Link
           href={`/admin/orders/inbound/${check.inboundOrderNumber}`}
           className="text-primary hover:underline"
@@ -177,7 +303,7 @@ export default function QualityChecksPage() {
     {
       key: "productName",
       label: "Product",
-      render: (check: typeof qualityChecks[0]) => (
+      render: (check: QualityCheckDisplay) => (
         <div>
           <div className="font-medium">{check.productName}</div>
           <div className="text-xs text-base-content/60">{check.sku}</div>
@@ -192,7 +318,7 @@ export default function QualityChecksPage() {
     {
       key: "quantityPassed",
       label: "Qty Passed",
-      render: (check: typeof qualityChecks[0]) => (
+      render: (check: QualityCheckDisplay) => (
         <span className="text-success font-semibold">{check.quantityPassed}</span>
       ),
       sortable: true,
@@ -200,7 +326,7 @@ export default function QualityChecksPage() {
     {
       key: "quantityFailed",
       label: "Qty Failed",
-      render: (check: typeof qualityChecks[0]) => (
+      render: (check: QualityCheckDisplay) => (
         <span className="text-error font-semibold">{check.quantityFailed}</span>
       ),
       sortable: true,
@@ -208,7 +334,7 @@ export default function QualityChecksPage() {
     {
       key: "result",
       label: "Result",
-      render: (check: typeof qualityChecks[0]) => {
+      render: (check: QualityCheckDisplay) => {
         const result = resultConfig[check.result as keyof typeof resultConfig];
         return <span className={`badge ${result.class}`}>{result.label}</span>;
       },
@@ -234,7 +360,7 @@ export default function QualityChecksPage() {
     },
   ];
 
-  const renderActions = (check: typeof qualityChecks[0]) => (
+  const renderActions = (check: QualityCheckDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -253,11 +379,19 @@ export default function QualityChecksPage() {
           <>
             <li>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (confirm(`Approve quality check ${check.checkId}?`)) {
-                    // TODO: API call to approve quality check
-                    console.log("Approving quality check:", check.id);
-                    alert("Quality check approved successfully!");
+                    try {
+                      await qualityChecksApi.update(check.id, { status: "approved" });
+                      showToast.success("Quality check approved successfully!");
+                      // Reload data
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                      }
+                    } catch (err) {
+                      console.error("Failed to approve quality check:", err);
+                      showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
+                    }
                   }
                 }}
               >
@@ -401,17 +535,25 @@ export default function QualityChecksPage() {
               </button>
               <button
                 className="btn btn-error"
-                onClick={() => {
+                onClick={async () => {
                   if (!rejectReason.trim()) {
                     alert("Please enter a rejection reason");
                     return;
                   }
-                  // TODO: API call to reject quality check
-                  console.log("Rejecting quality check:", selectedCheck.id, rejectReason);
-                  alert("Quality check rejected successfully!");
-                  setShowRejectModal(false);
-                  setSelectedCheck(null);
-                  setRejectReason("");
+                  try {
+                    await qualityChecksApi.reject(selectedCheck.id, rejectReason, admin?.id);
+                    showToast.success("Quality check rejected successfully");
+                    setShowRejectModal(false);
+                    setSelectedCheck(null);
+                    setRejectReason("");
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                    }
+                  } catch (err) {
+                    console.error("Failed to reject quality check:", err);
+                    showToast.error(err instanceof Error ? err.message : "Failed to reject quality check");
+                  }
                 }}
               >
                 Reject Quality Check
@@ -434,7 +576,7 @@ function QualityCheckDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  check: typeof qualityChecks[0];
+  check: QualityCheckDisplay;
   canApprove: boolean;
   onReject: () => void;
 }) {
@@ -505,11 +647,19 @@ function QualityCheckDetailModal({
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => {
-                  // TODO: API call to approve quality check
-                  console.log("Approving quality check:", check.id);
-                  alert("Quality check approved successfully!");
-                  onClose();
+                onClick={async () => {
+                  try {
+                    await qualityChecksApi.approve(check.id, admin?.id);
+                    showToast.success("Quality check approved successfully");
+                    onClose();
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                    }
+                  } catch (err) {
+                    console.error("Failed to approve quality check:", err);
+                    showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
+                  }
                 }}
               >
                 Approve Quality Check

@@ -41,6 +41,12 @@ public class TaskEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "completed_by", columnDefinition = "UUID")
+    private UUID completedBy;
+
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
@@ -95,6 +101,10 @@ public class TaskEntity {
     public void setDueDate(LocalDateTime dueDate) { this.dueDate = dueDate; }
     public LocalDateTime getCompletedAt() { return completedAt; }
     public void setCompletedAt(LocalDateTime completedAt) { this.completedAt = completedAt; }
+    public UUID getCompletedBy() { return completedBy; }
+    public void setCompletedBy(UUID completedBy) { this.completedBy = completedBy; }
+    public LocalDateTime getStartedAt() { return startedAt; }
+    public void setStartedAt(LocalDateTime startedAt) { this.startedAt = startedAt; }
     public String getLocationCode() { return locationCode; }
     public void setLocationCode(String locationCode) { this.locationCode = locationCode; }
     public String getReferenceType() { return referenceType; }

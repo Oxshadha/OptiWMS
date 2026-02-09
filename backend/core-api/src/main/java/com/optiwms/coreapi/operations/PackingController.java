@@ -115,7 +115,8 @@ public class PackingController {
             @RequestBody UpdateStatusRequest request
     ) {
         try {
-            PackingRecord updated = service.updateStatus(id, request.status());
+            UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
+            PackingRecord updated = service.updateStatusWithWorker(id, request.status(), workerId);
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -190,7 +191,7 @@ public class PackingController {
             String status
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(String status, String workerId) {}
 
     public record PackingRecordDto(
             String id,

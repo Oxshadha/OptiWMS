@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
 import { warehouseLayoutApi } from "@/lib/api/warehouse-layout";
+import { locationsApi } from "@/lib/api/locations";
 
 interface RackEditModalProps {
   isOpen: boolean;
@@ -37,17 +38,78 @@ export function RackEditModal({
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      const updatedRack = await warehouseLayoutApi.updateRack(warehouseId, rack.id, {
+      
+      console.log("Saving rack:", rack.id, "Status:", status);
+      
+      // Rack ID is in format "area-row-bay" (e.g., "RC-01-004")
+      // We need to find all locations in this rack and update them
+      const parts = rack.id.split('-');
+      if (parts.length < 3) {
+        throw new Error(`Invalid rack ID format: ${rack.id}. Expected format: area-row-bay`);
+      }
+      
+      const area = parts[0];
+      const row = parts[1];
+      const bay = parts[2];
+      
+      console.log("Parsed rack ID:", { area, row, bay });
+      
+      // Get all locations for this warehouse
+      const allLocations = await locationsApi.getByWarehouse(warehouseId);
+      console.log(`Found ${allLocations.length} total locations for warehouse`);
+      
+      // Find all locations that belong to this rack (same area, row, bay)
+      // Normalize row and bay numbers (handle leading zeros)
+      const rackLocations = allLocations.filter((loc) => {
+        const locRow = loc.rowNumber?.padStart(2, '0') || '';
+        const locBay = loc.bayNumber?.padStart(3, '0') || '';
+        const matchRow = locRow === row || locRow === row.padStart(2, '0');
+        const matchBay = locBay === bay || locBay === bay.padStart(3, '0');
+        return loc.area === area && matchRow && matchBay;
+      });
+      
+      console.log(`Found ${rackLocations.length} locations for rack ${rack.id}`);
+      
+      if (rackLocations.length === 0) {
+        console.error("No locations found. Available locations sample:", 
+          allLocations.slice(0, 5).map(l => `${l.area}-${l.rowNumber}-${l.bayNumber}`));
+        throw new Error(`No locations found for rack ${rack.id}. Please check the rack identifier.`);
+      }
+      
+      // Update all locations in this rack with the rack properties
+      const updatePromises = rackLocations.map(async (location) => {
+        try {
+          console.log(`Updating location ${location.id} (${location.locationCode})`);
+          const updateData: any = {};
+          if (status) updateData.rackStatus = status.toString(); // Ensure it's a string
+          if (description.trim()) updateData.description = description.trim();
+          if (notes.trim()) updateData.notes = notes.trim();
+          
+          console.log("Update data:", updateData);
+          return await locationsApi.updateRack(location.id, updateData);
+        } catch (err: any) {
+          console.error(`Failed to update location ${location.id}:`, err);
+          console.error("Error details:", err?.response?.data || err?.message);
+          throw err;
+        }
+      });
+      
+      await Promise.all(updatePromises);
+      console.log("Successfully updated all locations in rack");
+      
+      // Update local rack object
+      const updatedRack: RackUnit = {
+        ...rack,
         status,
         description: description.trim() || undefined,
         notes: notes.trim() || undefined,
-      });
+      };
       onUpdate(updatedRack);
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to update rack:", error);
-      // In production, show error toast
-      alert("Failed to update rack. Please try again.");
+      const errorMessage = error?.message || "Failed to update rack. Please try again.";
+      alert(errorMessage);
     } finally {
       setIsSaving(false);
     }

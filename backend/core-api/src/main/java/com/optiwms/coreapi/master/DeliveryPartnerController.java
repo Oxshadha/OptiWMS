@@ -70,6 +70,7 @@ public class DeliveryPartnerController {
             partner.setAddress(request.address());
             partner.setCity(request.city());
             partner.setCountry(request.country());
+            partner.setCurrencyCode(request.currencyCode());
             partner.setServiceAreas(request.serviceAreas());
             partner.setRating(request.rating() != null ? new BigDecimal(request.rating()) : null);
             partner.setCostPerDelivery(request.costPerDelivery() != null ? new BigDecimal(request.costPerDelivery()) : null);
@@ -95,6 +96,7 @@ public class DeliveryPartnerController {
             if (request.address() != null) partner.setAddress(request.address());
             if (request.city() != null) partner.setCity(request.city());
             if (request.country() != null) partner.setCountry(request.country());
+            if (request.currencyCode() != null) partner.setCurrencyCode(request.currencyCode());
             if (request.serviceAreas() != null) partner.setServiceAreas(request.serviceAreas());
             if (request.rating() != null) partner.setRating(new BigDecimal(request.rating()));
             if (request.costPerDelivery() != null) partner.setCostPerDelivery(new BigDecimal(request.costPerDelivery()));
@@ -130,6 +132,7 @@ public class DeliveryPartnerController {
                 partner.getAddress(),
                 partner.getCity(),
                 partner.getCountry(),
+                partner.getCurrencyCode(),
                 partner.getServiceAreas(),
                 partner.getRating() != null ? partner.getRating().toString() : null,
                 partner.getCostPerDelivery() != null ? partner.getCostPerDelivery().toString() : null,
@@ -148,6 +151,7 @@ public class DeliveryPartnerController {
             String address,
             String city,
             String country,
+            String currencyCode,
             String serviceAreas,
             String rating,
             String costPerDelivery,
@@ -164,6 +168,7 @@ public class DeliveryPartnerController {
             String address,
             String city,
             String country,
+            String currencyCode,
             String serviceAreas,
             String rating,
             String costPerDelivery,
@@ -182,6 +187,7 @@ public class DeliveryPartnerController {
             String address,
             String city,
             String country,
+            String currencyCode,
             String serviceAreas,
             String rating,
             String costPerDelivery,

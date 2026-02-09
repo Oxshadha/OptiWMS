@@ -5,9 +5,13 @@ import { WarehouseLayoutVisualization } from "@/components/WarehouseLayout";
 import { RackElevationView } from "@/components/RackElevationView";
 import { RackEditModal } from "@/components/RackEditModal";
 import { getWarehouseLayout } from "@/lib/utils/warehouse-layout-generator";
-import { RackUnit, LocationBin } from "@/lib/types/warehouse-layout";
+import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/lib/utils/location-to-layout";
+import { RackUnit, LocationBin, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { locationsApi, Location } from "@/lib/api/locations";
 import { useAdmin } from "@/contexts/AdminContext";
+import { LocationCreateModal } from "@/components/LocationCreateModal";
+import { LocationEditModal } from "@/components/LocationEditModal";
 
 export default function WarehousesPage() {
   const { admin, role } = useAdmin();
@@ -22,103 +26,50 @@ export default function WarehousesPage() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(
     null
   );
-  const [layout, setLayout] = useState<ReturnType<
-    typeof getWarehouseLayout
-  > | null>(null);
+  const [layout, setLayout] = useState<WarehouseLayout | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingLayout, setIsLoadingLayout] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingRack, setEditingRack] = useState<RackUnit | null>(null);
+  const [showCreateLocationModal, setShowCreateLocationModal] = useState(false);
+  const [showEditLocationModal, setShowEditLocationModal] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+  const [showVelocity, setShowVelocity] = useState(false);
 
   // Load warehouses on mount
   useEffect(() => {
     const loadWarehouses = async () => {
       try {
         setIsLoading(true);
+        setError(null);
         const data = await warehousesApi.getAll();
         setWarehouses(data);
 
         // Set initial warehouse based on role
+        let initialWarehouseId: string | null = null;
         if (isWarehouseManager && assignedWarehouseId) {
-          // Warehouse manager: only see their assigned warehouse
-          setSelectedWarehouseId(assignedWarehouseId);
-          setLayout(getWarehouseLayout(assignedWarehouseId));
+          initialWarehouseId = assignedWarehouseId;
         } else if (isSystemAdmin && data.length > 0) {
-          // System admin: can see all, default to first
-          setSelectedWarehouseId(data[0].id);
-          setLayout(getWarehouseLayout(data[0].id));
+          initialWarehouseId = data[0].id;
         } else if (data.length > 0) {
-          setSelectedWarehouseId(data[0].id);
-          setLayout(getWarehouseLayout(data[0].id));
+          initialWarehouseId = data[0].id;
+        }
+
+        if (initialWarehouseId) {
+          setSelectedWarehouseId(initialWarehouseId);
+          await loadWarehouseLayout(initialWarehouseId);
         }
       } catch (error) {
         console.error("Failed to load warehouses:", error);
-        // Use sample data as fallback
-        if (isWarehouseManager && assignedWarehouseName === "Warehouse 1") {
+        setError("Failed to load warehouses. Using fallback layout.");
+        // Fallback to mock layout
+        if (isWarehouseManager && assignedWarehouseId) {
+          setSelectedWarehouseId(assignedWarehouseId);
+          setLayout(getWarehouseLayout(assignedWarehouseId));
+        } else {
           setSelectedWarehouseId("warehouse-1");
           setLayout(getWarehouseLayout("warehouse-1"));
-          // Set fallback warehouses for system admin
-          if (isSystemAdmin) {
-            setWarehouses([
-              {
-                id: "warehouse-1",
-                name: "Warehouse 1",
-                code: "WH1",
-                status: "active",
-              } as Warehouse,
-              {
-                id: "warehouse-2",
-                name: "Warehouse 2",
-                code: "WH2",
-                status: "active",
-              } as Warehouse,
-            ]);
-          }
-        } else if (
-          isWarehouseManager &&
-          assignedWarehouseName === "Warehouse 2"
-        ) {
-          setSelectedWarehouseId("warehouse-2");
-          setLayout(getWarehouseLayout("warehouse-2"));
-          // Set fallback warehouses for system admin
-          if (isSystemAdmin) {
-            setWarehouses([
-              {
-                id: "warehouse-1",
-                name: "Warehouse 1",
-                code: "WH1",
-                status: "active",
-              } as Warehouse,
-              {
-                id: "warehouse-2",
-                name: "Warehouse 2",
-                code: "WH2",
-                status: "active",
-              } as Warehouse,
-            ]);
-          }
-        } else {
-          // Default fallback - for system admin, provide both warehouses
-          if (isSystemAdmin) {
-            setWarehouses([
-              {
-                id: "warehouse-1",
-                name: "Warehouse 1",
-                code: "WH1",
-                status: "active",
-              } as Warehouse,
-              {
-                id: "warehouse-2",
-                name: "Warehouse 2",
-                code: "WH2",
-                status: "active",
-              } as Warehouse,
-            ]);
-            setSelectedWarehouseId("warehouse-1");
-            setLayout(getWarehouseLayout("warehouse-1"));
-          } else {
-            setSelectedWarehouseId("warehouse-1");
-            setLayout(getWarehouseLayout("warehouse-1"));
-          }
         }
       } finally {
         setIsLoading(false);
@@ -132,6 +83,50 @@ export default function WarehousesPage() {
     assignedWarehouseName,
     isSystemAdmin,
   ]);
+
+  // Load warehouse layout from API
+  const loadWarehouseLayout = async (warehouseId: string) => {
+    try {
+      setIsLoadingLayout(true);
+      setError(null);
+
+      // Try to get hierarchy first
+      try {
+        const hierarchy = await locationsApi.getHierarchy(warehouseId);
+        const warehouse = warehouses.find((w) => w.id === warehouseId);
+        const layout = await convertLocationHierarchyToLayout(
+          hierarchy,
+          warehouseId,
+          warehouse?.name || `Warehouse ${warehouseId}`
+        );
+        setLayout(layout);
+      } catch (hierarchyError) {
+        // Fallback: get storage-only locations and convert
+        // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
+        console.log("Hierarchy not available, using storage-only locations list");
+        const locations = await locationsApi.getStorageLocationsByWarehouse(warehouseId);
+        if (locations.length > 0) {
+          const warehouse = warehouses.find((w) => w.id === warehouseId);
+          const layout = await convertLocationsToLayout(
+            locations,
+            warehouseId,
+            warehouse?.name || `Warehouse ${warehouseId}`
+          );
+          setLayout(layout);
+        } else {
+          // No locations found, use mock layout
+          console.log("No storage locations found, using mock layout");
+          setLayout(getWarehouseLayout(warehouseId));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load warehouse layout:", error);
+      setError("Failed to load warehouse layout. Using fallback.");
+      setLayout(getWarehouseLayout(warehouseId));
+    } finally {
+      setIsLoadingLayout(false);
+    }
+  };
 
   // Filter warehouses based on role
   const availableWarehouses =
@@ -184,17 +179,28 @@ export default function WarehousesPage() {
     setSelectedRack(null);
   };
 
-  const handleWarehouseChange = (warehouseId: string) => {
+  const handleWarehouseChange = async (warehouseId: string) => {
     setSelectedWarehouseId(warehouseId);
-    setLayout(getWarehouseLayout(warehouseId));
     setSelectedRack(null); // Clear selection when switching warehouses
+    await loadWarehouseLayout(warehouseId);
   };
 
-  if (!layout) {
+  if (isLoading || isLoadingLayout || !layout) {
     return (
       <div className="container mx-auto p-6">
-        <div className="flex items-center justify-center h-64">
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
           <span className="loading loading-spinner loading-lg"></span>
+          <p className="text-base-content/60">Loading warehouse layout...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !layout) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="alert alert-warning">
+          <span>{error}</span>
         </div>
       </div>
     );
@@ -245,9 +251,18 @@ export default function WarehousesPage() {
               : "Interactive visualization of warehouse storage locations"}
           </p>
         </div>
+        <div className="flex gap-3">
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => selectedWarehouseId && loadWarehouseLayout(selectedWarehouseId)}
+            title="Refresh layout"
+            disabled={isLoadingLayout}
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
 
-        {/* Warehouse selector (only for system admin) */}
-        {isSystemAdmin && (
+          {/* Warehouse selector (only for system admin) */}
+          {isSystemAdmin && (
           <div className="form-control w-full max-w-xs">
             <label className="label">
               <span className="label-text font-semibold">Select Warehouse</span>
@@ -269,45 +284,61 @@ export default function WarehousesPage() {
               )}
             </select>
           </div>
-        )}
+          )}
 
-        {/* Warehouse name display for warehouse managers */}
-        {isWarehouseManager && assignedWarehouseName && (
-          <div className="badge badge-lg badge-primary">
-            {assignedWarehouseName}
-          </div>
-        )}
+          {/* Warehouse name display for warehouse managers */}
+          {isWarehouseManager && assignedWarehouseName && (
+            <div className="badge badge-lg badge-primary">
+              {assignedWarehouseName}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Total Racks</div>
-          <div className="text-2xl font-bold text-base-content mt-1">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Total Racks</div>
+            <span className="material-symbols-outlined text-base-content/40">inventory_2</span>
+          </div>
+          <div className="text-3xl font-bold text-base-content">
             {totalRacks}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Total Bins</div>
-          <div className="text-2xl font-bold text-base-content mt-1">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Total Bins</div>
+            <span className="material-symbols-outlined text-base-content/40">category</span>
+          </div>
+          <div className="text-3xl font-bold text-base-content">
             {totalBins}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Occupied</div>
-          <div className="text-2xl font-bold text-success mt-1">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Occupied</div>
+            <span className="material-symbols-outlined text-success">check_circle</span>
+          </div>
+          <div className="text-3xl font-bold text-success">
             {occupiedBins}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Reserved</div>
-          <div className="text-2xl font-bold text-info mt-1">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Reserved</div>
+            <span className="material-symbols-outlined text-info">lock</span>
+          </div>
+          <div className="text-3xl font-bold text-info">
             {reservedBins}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Occupancy Rate</div>
-          <div className="text-2xl font-bold text-base-content mt-1">
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Occupancy Rate</div>
+            <span className="material-symbols-outlined text-base-content/40">percent</span>
+          </div>
+          <div className="text-3xl font-bold text-base-content">
             {occupancyRate.toFixed(1)}%
           </div>
         </div>
@@ -315,172 +346,193 @@ export default function WarehousesPage() {
 
       {/* Rack Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Active Racks</div>
-          <div className="text-2xl font-bold text-success mt-1">
+        <div className="card bg-base-100 border border-success rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Active Racks</div>
+            <span className="material-symbols-outlined text-success">check_circle</span>
+          </div>
+          <div className="text-3xl font-bold text-success">
             {activeRacks}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Maintenance</div>
-          <div className="text-2xl font-bold text-warning mt-1">
+        <div className="card bg-base-100 border border-warning rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Maintenance</div>
+            <span className="material-symbols-outlined text-warning">build</span>
+          </div>
+          <div className="text-3xl font-bold text-warning">
             {maintenanceRacks}
           </div>
         </div>
-        <div className="card-surface p-4">
-          <div className="text-sm text-base-content/70">Out of Service</div>
-          <div className="text-2xl font-bold text-error mt-1">
+        <div className="card bg-base-100 border border-error rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Out of Service</div>
+            <span className="material-symbols-outlined text-error">warning</span>
+          </div>
+          <div className="text-3xl font-bold text-error">
             {outOfServiceRacks}
           </div>
         </div>
       </div>
 
       {/* Warehouse Layout Visualization */}
-      <div className="card-surface p-6">
-        <div className="h-[800px] w-full">
+      <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm relative">
+        {/* Velocity Toggle - positioned outside scrollable area */}
+        <div className="absolute top-2 right-2 z-20">
+          <div className="bg-base-100 rounded-lg shadow-lg border border-base-300 p-2 min-w-[140px]">
+            <label className="label cursor-pointer gap-2 py-1">
+              <span className="label-text text-xs font-semibold whitespace-nowrap">
+                Velocity Heat Map
+              </span>
+              <input
+                type="checkbox"
+                className="toggle toggle-primary toggle-sm"
+                checked={showVelocity}
+                onChange={(e) => setShowVelocity(e.target.checked)}
+              />
+            </label>
+            {showVelocity && (
+              <div className="mt-2 text-xs text-base-content/60 space-y-1 pt-2 border-t border-base-300">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-[#22C55E] flex-shrink-0"></div>
+                  <span className="text-xs">Low (0-20%)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-[#F59E0B] flex-shrink-0"></div>
+                  <span className="text-xs">Medium (20-50%)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-[#DC2626] flex-shrink-0"></div>
+                  <span className="text-xs">High (50-100%)</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="h-[800px] w-full rounded-lg overflow-x-auto overflow-y-auto border border-base-300">
           <WarehouseLayoutVisualization
             layout={layout}
             onRackClick={handleRackClick}
             selectedRackId={selectedRack?.id || null}
+            showVelocity={showVelocity}
+            onVelocityToggle={setShowVelocity}
           />
         </div>
-        <p className="text-xs text-base-content/70 mt-3">
-          {canEditRacks
-            ? "Click on any rack to view details, or right-click to edit status and description"
-            : "Click on any rack to view its side elevation and all vertical levels"}
-        </p>
+        <div className="flex items-start gap-2 mt-4">
+          <span className="material-symbols-outlined text-base-content/60 text-sm mt-0.5">info</span>
+          <p className="text-sm text-base-content/70 leading-relaxed">
+            {canEditRacks
+              ? "Click on any rack to view details, or right-click to edit status and description"
+              : "Click on any rack to view its side elevation and all vertical levels"}
+          </p>
+        </div>
       </div>
 
       {/* Legend - Color Code */}
-      <div className="card-surface p-4">
-        <h3 className="font-semibold mb-3">
-          Legend - Industrial Safety Color Standards
-        </h3>
-        <div className="space-y-4">
+      <div className="card bg-base-100 border border-base-300 rounded-lg p-3 shadow-sm">
+        <div className="space-y-3">
           <div>
-            <h4 className="text-sm font-semibold mb-2 text-base-content/70">
-              Active Rack Occupancy Levels (Light-to-Dark Progression):
+            <h4 className="text-xs font-medium mb-2 text-base-content/70">
+              Active Rack Occupancy Levels:
             </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200">
                 <div
-                  className="w-6 h-6 rounded border-2 border-gray-400 flex-shrink-0"
+                  className="w-8 h-8 rounded border border-gray-400 flex-shrink-0"
                   style={{ backgroundColor: "#F5F5F5" }}
                 ></div>
-                <div className="flex-1">
-                  <span className="font-semibold">Empty (0%)</span>
-                  <p className="text-xs text-base-content/60">
-                    White/Very Light Gray - Available, no items
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Empty (0%)</div>
+                  <div className="text-xs text-base-content/60">White/Gray</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200">
                 <div
-                  className="w-6 h-6 rounded border-2 border-green-600 flex-shrink-0"
+                  className="w-8 h-8 rounded border border-green-600 flex-shrink-0"
                   style={{ backgroundColor: "#22C55E" }}
                 ></div>
-                <div className="flex-1">
-                  <span className="font-semibold">Low (&lt;50%)</span>
-                  <p className="text-xs text-base-content/60">
-                    Green - Go/High availability
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Low (&lt;50%)</div>
+                  <div className="text-xs text-base-content/60">Green</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200">
                 <div
-                  className="w-6 h-6 rounded border-2 border-amber-600 flex-shrink-0"
+                  className="w-8 h-8 rounded border border-amber-600 flex-shrink-0"
                   style={{ backgroundColor: "#F59E0B" }}
                 ></div>
-                <div className="flex-1">
-                  <span className="font-semibold">Medium (50-85%)</span>
-                  <p className="text-xs text-base-content/60">
-                    Yellow/Amber - Cautionary/Transitional
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Medium (50-85%)</div>
+                  <div className="text-xs text-base-content/60">Amber</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200">
                 <div
-                  className="w-6 h-6 rounded border-2 border-indigo-700 flex-shrink-0"
+                  className="w-8 h-8 rounded border border-indigo-700 flex-shrink-0"
                   style={{ backgroundColor: "#1E3A8A" }}
                 ></div>
-                <div className="flex-1">
-                  <span className="font-semibold">High (&gt;85%)</span>
-                  <p className="text-xs text-base-content/60">
-                    Dark Blue/Indigo - Heavy/High density
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">High (&gt;85%)</div>
+                  <div className="text-xs text-base-content/60">Dark Blue</div>
                 </div>
               </div>
             </div>
           </div>
           <div>
-            <h4 className="text-sm font-semibold mb-2 text-base-content/70">
-              Special Status (Industrial Safety Colors):
+            <h4 className="text-xs font-medium mb-2 text-base-content/70">
+              Special Status:
             </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200 border border-blue-600">
                 <div
-                  className="w-6 h-6 rounded border-2 border-blue-600 flex-shrink-0 relative"
+                  className="w-8 h-8 rounded border border-blue-600 flex-shrink-0 flex items-center justify-center"
                   style={{ backgroundColor: "#4A90E2" }}
                 >
-                  <span className="absolute inset-0 flex items-center justify-center text-white text-xs">
-                    🔒
+                  <span className="material-symbols-outlined text-white text-sm">
+                    lock
                   </span>
                 </div>
-                <div className="flex-1">
-                  <span className="font-semibold">Reserved</span>
-                  <p className="text-xs text-base-content/60">
-                    Safety Blue - Set aside/Trustworthy
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Reserved</div>
+                  <div className="text-xs text-base-content/60">Blue</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200 border border-orange-600">
                 <div
-                  className="w-6 h-6 rounded border-2 border-orange-600 flex-shrink-0 relative"
+                  className="w-8 h-8 rounded border border-orange-600 flex-shrink-0 flex items-center justify-center relative"
                   style={{ backgroundColor: "#FF6B35" }}
                 >
-                  <span className="absolute inset-0 flex items-center justify-center text-white text-xs">
-                    🔧
+                  <span className="material-symbols-outlined text-white text-sm">
+                    build
                   </span>
                   <div
-                    className="absolute inset-0"
+                    className="absolute inset-0 rounded opacity-20"
                     style={{
                       backgroundImage:
-                        "repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.1) 2px, rgba(0,0,0,0.1) 4px)",
+                        "repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px)",
                     }}
                   ></div>
                 </div>
-                <div className="flex-1">
-                  <span className="font-semibold">Maintenance</span>
-                  <p className="text-xs text-base-content/60">
-                    Safety Orange - Maintenance warning
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Maintenance</div>
+                  <div className="text-xs text-base-content/60">Orange</div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 p-2 rounded-lg bg-base-200">
+              <div className="flex items-center gap-2 p-2 rounded bg-base-200 border border-red-700">
                 <div
-                  className="w-6 h-6 rounded border-2 border-red-700 flex-shrink-0 relative"
+                  className="w-8 h-8 rounded border border-red-700 flex-shrink-0 flex items-center justify-center"
                   style={{ backgroundColor: "#DC2626" }}
                 >
-                  <span className="absolute inset-0 flex items-center justify-center text-white text-xs">
-                    ⚠
+                  <span className="material-symbols-outlined text-white text-sm">
+                    warning
                   </span>
                 </div>
-                <div className="flex-1">
-                  <span className="font-semibold">Out of Service</span>
-                  <p className="text-xs text-base-content/60">
-                    Safety Red - Stop/Danger
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-base-content">Out of Service</div>
+                  <div className="text-xs text-base-content/60">Red</div>
                 </div>
               </div>
             </div>
-          </div>
-          <div className="pt-2 border-t border-base-300">
-            <p className="text-xs text-base-content/60 italic">
-              <strong>Accessibility Note:</strong> This color scheme avoids
-              red/green for occupancy levels and uses high-contrast colors with
-              secondary visual cues (icons, patterns) to support color-blind
-              users.
-            </p>
           </div>
         </div>
       </div>
@@ -506,6 +558,37 @@ export default function WarehousesPage() {
           rack={editingRack}
           warehouseId={selectedWarehouseId}
           onUpdate={handleRackUpdate}
+        />
+      )}
+
+      {/* Location Create Modal */}
+      {selectedWarehouseId && (
+        <LocationCreateModal
+          isOpen={showCreateLocationModal}
+          onClose={() => setShowCreateLocationModal(false)}
+          warehouseId={selectedWarehouseId}
+          onSuccess={() => {
+            if (selectedWarehouseId) {
+              loadWarehouseLayout(selectedWarehouseId);
+            }
+          }}
+        />
+      )}
+
+      {/* Location Edit Modal */}
+      {editingLocation && (
+        <LocationEditModal
+          isOpen={showEditLocationModal}
+          onClose={() => {
+            setShowEditLocationModal(false);
+            setEditingLocation(null);
+          }}
+          location={editingLocation}
+          onSuccess={() => {
+            if (selectedWarehouseId) {
+              loadWarehouseLayout(selectedWarehouseId);
+            }
+          }}
         />
       )}
     </div>

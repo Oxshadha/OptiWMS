@@ -240,9 +240,9 @@ public class CsvImportService {
             // Continue with default values if parsing fails
         }
 
-        item.setQuantity(BigDecimal.ZERO);
-        item.setAvailableQuantity(BigDecimal.ZERO);
-        item.setReservedQuantity(BigDecimal.ZERO);
+        item.setQuantity(0);
+        item.setAvailableQuantity(0);
+        item.setReservedQuantity(0);
         item.setStatus("active");
 
         return item;

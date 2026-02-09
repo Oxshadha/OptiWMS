@@ -6,7 +6,7 @@
  */
 
 const DB_NAME = "OptiWMS_Worker";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented to trigger database upgrade and create missing stores
 
 // Store names
 export const STORES = {
@@ -39,7 +39,7 @@ export async function initDB(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const database = (event.target as IDBOpenDBRequest).result;
 
-      // Tasks store
+      // Create stores only if they don't exist (preserves existing data)
       if (!database.objectStoreNames.contains(STORES.TASKS)) {
         const taskStore = database.createObjectStore(STORES.TASKS, { keyPath: "id" });
         taskStore.createIndex("status", "status", { unique: false });
@@ -47,13 +47,11 @@ export async function initDB(): Promise<IDBDatabase> {
         taskStore.createIndex("createdAt", "createdAt", { unique: false });
       }
 
-      // Optimal paths store
       if (!database.objectStoreNames.contains(STORES.OPTIMAL_PATHS)) {
         const pathStore = database.createObjectStore(STORES.OPTIMAL_PATHS, { keyPath: "taskId" });
         pathStore.createIndex("calculatedAt", "calculatedAt", { unique: false });
       }
 
-      // Scan records store
       if (!database.objectStoreNames.contains(STORES.SCAN_RECORDS)) {
         const scanStore = database.createObjectStore(STORES.SCAN_RECORDS, { keyPath: "id", autoIncrement: true });
         scanStore.createIndex("taskId", "taskId", { unique: false });
@@ -61,14 +59,12 @@ export async function initDB(): Promise<IDBDatabase> {
         scanStore.createIndex("location", "location", { unique: false });
       }
 
-      // Operation logs store
       if (!database.objectStoreNames.contains(STORES.OPERATION_LOGS)) {
         const logStore = database.createObjectStore(STORES.OPERATION_LOGS, { keyPath: "id", autoIncrement: true });
         logStore.createIndex("timestamp", "timestamp", { unique: false });
         logStore.createIndex("type", "type", { unique: false });
       }
 
-      // Sync queue store
       if (!database.objectStoreNames.contains(STORES.SYNC_QUEUE)) {
         const syncStore = database.createObjectStore(STORES.SYNC_QUEUE, { keyPath: "id", autoIncrement: true });
         syncStore.createIndex("status", "status", { unique: false });
@@ -76,12 +72,11 @@ export async function initDB(): Promise<IDBDatabase> {
         syncStore.createIndex("retryCount", "retryCount", { unique: false });
       }
 
-      // Worker data store
       if (!database.objectStoreNames.contains(STORES.WORKER_DATA)) {
         database.createObjectStore(STORES.WORKER_DATA, { keyPath: "key" });
       }
 
-      // Admin data store
+      // This is the critical one - ensure ADMIN_DATA exists
       if (!database.objectStoreNames.contains(STORES.ADMIN_DATA)) {
         database.createObjectStore(STORES.ADMIN_DATA, { keyPath: "key" });
       }

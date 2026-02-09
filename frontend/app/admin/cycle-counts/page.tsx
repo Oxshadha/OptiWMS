@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
@@ -8,9 +8,30 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
+import { operationsApi, CycleCount as ApiCycleCount } from "@/lib/api/operations";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { showToast } from "@/lib/utils/toast";
+
+interface CycleCountDisplay {
+  id: string;
+  countNumber: string;
+  warehouseName: string;
+  sectionName: string;
+  countType: "scheduled" | "ad_hoc" | "full";
+  scheduledDate: string;
+  actualDate: string | null;
+  status: string;
+  assignedWorkers: string[];
+  assignedBy: string;
+  assignedDate: string;
+  totalLocations: number;
+  countedLocations: number;
+  discrepanciesFound: number;
+  performedBy: string | null;
+}
 
 // Mock data - will be replaced with API calls
-const cycleCounts = [
+const mockCycleCounts: CycleCountDisplay[] = [
   {
     id: "cc-1",
     countNumber: "CC-2025-001",
@@ -85,6 +106,74 @@ export default function CycleCountsPage() {
   const canEdit = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "delete");
   
+  // API state
+  const [cycleCounts, setCycleCounts] = useState<CycleCountDisplay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const [countsData, warehousesData] = await Promise.all([
+          operationsApi.getCycleCounts(),
+          warehousesApi.getAll(),
+        ]);
+
+        // Build warehouses map
+        const warehousesMap = new Map<string, string>();
+        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+
+        // Transform API data to display format
+        // Note: API returns simpler structure, so we'll map what's available
+        const displayCounts: CycleCountDisplay[] = countsData.map((cc) => {
+          const warehouseName = warehousesMap.get(cc.warehouseId) || "Unknown";
+          
+          // Extract section from location code (e.g., "A-01-01" -> "Section A")
+          const sectionMatch = cc.locationCode.match(/^([A-Z])-/);
+          const sectionName = sectionMatch 
+            ? `Section ${sectionMatch[1]} - ${cc.locationCode}`
+            : cc.locationCode;
+
+          return {
+            id: cc.id,
+            countNumber: cc.countNumber,
+            warehouseName,
+            sectionName,
+            countType: "ad_hoc" as const, // Default, API doesn't provide this
+            scheduledDate: new Date().toISOString().split("T")[0], // Default
+            actualDate: null,
+            status: cc.status || "scheduled",
+            assignedWorkers: [], // TODO: Get from tasks when available
+            assignedBy: "System", // Default
+            assignedDate: new Date().toISOString(),
+            totalLocations: 1, // Default, API doesn't provide this
+            countedLocations: 0, // Default
+            discrepanciesFound: cc.expectedQuantity && cc.countedQuantity
+              ? Math.abs(parseInt(cc.expectedQuantity) - parseInt(cc.countedQuantity))
+              : 0,
+            performedBy: null,
+          };
+        });
+
+        setCycleCounts(displayCounts);
+      } catch (err) {
+        console.error("Failed to load cycle counts:", err);
+        setError(err instanceof Error ? err.message : "Failed to load cycle counts");
+        setCycleCounts([]);
+        if (err instanceof Error && !err.message.includes("Not authenticated")) {
+          showToast.error("Failed to load cycle counts. Please try again.");
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
   // Filter cycle counts by warehouse for warehouse managers
   const cycleCountsForWarehouse = isWarehouseManager && assignedWarehouseName
     ? cycleCounts.filter((cc) => cc.warehouseName === assignedWarehouseName)
@@ -95,7 +184,7 @@ export default function CycleCountsPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [selectedCount, setSelectedCount] = useState<typeof cycleCounts[0] | null>(null);
+  const [selectedCount, setSelectedCount] = useState<CycleCountDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -105,6 +194,23 @@ export default function CycleCountsPage() {
     completedThisWeek: cycleCountsForWarehouse.filter((cc) => cc.status === "completed").length,
     discrepanciesFound: cycleCountsForWarehouse.reduce((sum, cc) => sum + cc.discrepanciesFound, 0),
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error && cycleCounts.length === 0) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading cycle counts: {error}</span>
+      </div>
+    );
+  }
 
   const filteredCounts = cycleCountsForWarehouse.filter((count) => {
     const query = searchQuery.trim().toLowerCase();
@@ -159,7 +265,7 @@ export default function CycleCountsPage() {
     {
       key: "countNumber",
       label: "Count Number",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCountDisplay) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -181,12 +287,12 @@ export default function CycleCountsPage() {
     {
       key: "sectionName",
       label: "Section",
-      render: (count: typeof cycleCounts[0]) => count.sectionName || "Full Warehouse",
+      render: (count: CycleCountDisplay) => count.sectionName || "Full Warehouse",
     },
     {
       key: "countType",
       label: "Count Type",
-      render: (count: typeof cycleCounts[0]) => {
+      render: (count: CycleCountDisplay) => {
         const type = countTypeConfig[count.countType as keyof typeof countTypeConfig];
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (type.class === "badge-outline" || !type.class) {
@@ -217,7 +323,7 @@ export default function CycleCountsPage() {
     {
       key: "status",
       label: "Status",
-      render: (count: typeof cycleCounts[0]) => {
+      render: (count: CycleCountDisplay) => {
         const status = statusConfig[count.status as keyof typeof statusConfig];
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (status.class === "badge-outline") {
@@ -237,7 +343,7 @@ export default function CycleCountsPage() {
     {
       key: "progress",
       label: "Progress",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCountDisplay) => (
         <div className="flex items-center gap-2">
           <span className="text-sm">{count.countedLocations}/{count.totalLocations}</span>
           <div className="w-16 bg-base-300 rounded-full h-2">
@@ -254,7 +360,7 @@ export default function CycleCountsPage() {
     {
       key: "discrepanciesFound",
       label: "Discrepancies",
-      render: (count: typeof cycleCounts[0]) => (
+      render: (count: CycleCountDisplay) => (
         <span className={count.discrepanciesFound > 0 ? "text-warning font-semibold" : ""}>
           {count.discrepanciesFound}
         </span>
@@ -263,7 +369,7 @@ export default function CycleCountsPage() {
     },
   ];
 
-  const renderActions = (count: typeof cycleCounts[0]) => (
+  const renderActions = (count: CycleCountDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -385,6 +491,9 @@ export default function CycleCountsPage() {
               </li>
               <li>
                 <button onClick={() => setStatusFilter("completed")}>Completed</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
               </li>
             </ul>
           </div>
@@ -544,22 +653,23 @@ export default function CycleCountsPage() {
               </button>
               <button
                 className="btn btn-primary"
-                onClick={() => {
-                  // TODO: API call to review discrepancies
-                  console.log("Reviewing discrepancies:", selectedCount.id);
-                  // Show browser notification
-                  if ("Notification" in window) {
-                    Notification.requestPermission().then((permission) => {
-                      if (permission === "granted") {
-                        new Notification("Discrepancies Reviewed", {
-                          body: `Discrepancies for ${selectedCount.countNumber} have been reviewed`,
-                        });
-                      }
-                    });
+                onClick={async () => {
+                  if (!selectedCount) return;
+                  
+                  try {
+                    const notes = (document.querySelector('textarea[placeholder*="notes"]') as HTMLTextAreaElement)?.value || "";
+                    await operationsApi.reviewCycleCount(selectedCount.id, notes);
+                    showToast.success("Discrepancies reviewed successfully");
+                    setShowReviewModal(false);
+                    setSelectedCount(null);
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadCycleCounts'));
+                    }
+                  } catch (err) {
+                    console.error("Failed to review discrepancies:", err);
+                    showToast.error(err instanceof Error ? err.message : "Failed to review discrepancies");
                   }
-                  alert("Discrepancies reviewed successfully!");
-                  setShowReviewModal(false);
-                  setSelectedCount(null);
                 }}
               >
                 Review & Approve
@@ -609,22 +719,30 @@ export default function CycleCountsPage() {
               </button>
               <button
                 className="btn btn-error"
-                onClick={() => {
-                  // TODO: API call to cancel count
-                  console.log("Cancelling cycle count:", selectedCount.id);
-                  // Show browser notification
-                  if ("Notification" in window) {
-                    Notification.requestPermission().then((permission) => {
-                      if (permission === "granted") {
-                        new Notification("Cycle Count Cancelled", {
-                          body: `Cycle count ${selectedCount.countNumber} has been cancelled`,
-                        });
-                      }
-                    });
+                onClick={async () => {
+                  if (!selectedCount) return;
+                  
+                  const reasonInput = document.querySelector('textarea[placeholder*="cancellation"]') as HTMLTextAreaElement;
+                  const reason = reasonInput?.value?.trim();
+                  
+                  if (!reason) {
+                    showToast.error("Please provide a cancellation reason");
+                    return;
                   }
-                  alert("Cycle count cancelled successfully!");
-                  setShowCancelModal(false);
-                  setSelectedCount(null);
+                  
+                  try {
+                    await operationsApi.cancelCycleCount(selectedCount.id, reason);
+                    showToast.success("Cycle count cancelled successfully");
+                    setShowCancelModal(false);
+                    setSelectedCount(null);
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadCycleCounts'));
+                    }
+                  } catch (err) {
+                    console.error("Failed to cancel cycle count:", err);
+                    showToast.error(err instanceof Error ? err.message : "Failed to cancel cycle count");
+                  }
                 }}
               >
                 Cancel Count
@@ -645,7 +763,7 @@ function CycleCountDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  count: typeof cycleCounts[0];
+  count: CycleCountDisplay;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Cycle Count: ${count.countNumber}`} size="lg">
@@ -776,11 +894,71 @@ function ScheduleCycleCountModal({ isOpen, onClose }: { isOpen: boolean; onClose
     notes: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load warehouses:", err);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+    if (isOpen) {
+      loadWarehouses();
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to schedule cycle count
-    console.log("Scheduling cycle count:", formData);
-    onClose();
+    
+    try {
+      // For now, we'll create a cycle count entry
+      // Note: The API structure might need adjustment based on backend
+      // This is a simplified version - you may need to create multiple cycle counts for full warehouse
+      if (formData.countType === "full") {
+        // For full warehouse, you might need to create counts for all locations
+        // For now, we'll show a message that this needs backend support
+        showToast.error("Full warehouse cycle count requires backend support for bulk creation");
+        return;
+      }
+      
+      // For section-based counts, create a single entry
+      // Note: You'll need locationCode and materialId - these should come from the section
+      // This is a placeholder - adjust based on your actual data structure
+      await operationsApi.createCycleCount({
+        warehouseId: formData.warehouseId,
+        locationCode: formData.sectionId || "A-01-01", // Default location
+        materialId: "", // This might need to be handled differently
+        expectedQuantity: "0", // Will be set when actual count happens
+      });
+      
+      showToast.success("Cycle count scheduled successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        warehouseId: "",
+        countType: "full",
+        sectionId: "",
+        scheduledDate: "",
+        assignmentMethod: "automatic",
+        workers: [],
+        recurrence: "none",
+        notes: "",
+      });
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCycleCounts'));
+      }
+    } catch (err) {
+      console.error("Failed to schedule cycle count:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to schedule cycle count");
+    }
   };
 
   return (
@@ -795,10 +973,12 @@ function ScheduleCycleCountModal({ isOpen, onClose }: { isOpen: boolean; onClose
             value={formData.warehouseId}
             onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
             required
+            disabled={isLoadingWarehouses}
           >
-            <option value="">Select warehouse</option>
-            <option value="wh-1">Warehouse 1</option>
-            <option value="wh-2">Warehouse 2</option>
+            <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
+            {warehouses.map(wh => (
+              <option key={wh.id} value={wh.id}>{wh.name}</option>
+            ))}
           </select>
         </div>
 
@@ -978,11 +1158,58 @@ function CreateAdHocCountModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
     notes: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load warehouses:", err);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+    if (isOpen) {
+      loadWarehouses();
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: API call to create ad-hoc count
-    console.log("Creating ad-hoc count:", formData);
-    onClose();
+    
+    try {
+      // Create ad-hoc cycle count
+      await operationsApi.createCycleCount({
+        warehouseId: formData.warehouseId,
+        locationCode: formData.sectionId || "A-01-01", // Default location
+        materialId: "", // This might need to be handled differently
+        expectedQuantity: "0", // Will be set when actual count happens
+      });
+      
+      showToast.success("Ad-hoc cycle count created successfully");
+      onClose();
+      // Reset form
+      setFormData({
+        warehouseId: "",
+        countType: "section",
+        sectionId: "",
+        startNow: false,
+        assignmentMethod: "automatic",
+        workers: [],
+        notes: "",
+      });
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadCycleCounts'));
+      }
+    } catch (err) {
+      console.error("Failed to create ad-hoc cycle count:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create ad-hoc cycle count");
+    }
   };
 
   return (
@@ -997,10 +1224,12 @@ function CreateAdHocCountModal({ isOpen, onClose }: { isOpen: boolean; onClose: 
             value={formData.warehouseId}
             onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
             required
+            disabled={isLoadingWarehouses}
           >
-            <option value="">Select warehouse</option>
-            <option value="wh-1">Warehouse 1</option>
-            <option value="wh-2">Warehouse 2</option>
+            <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
+            {warehouses.map(wh => (
+              <option key={wh.id} value={wh.id}>{wh.name}</option>
+            ))}
           </select>
         </div>
 
@@ -1160,7 +1389,7 @@ function EditScheduleModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  count: typeof cycleCounts[0];
+  count: CycleCountDisplay;
 }) {
   const [formData, setFormData] = useState({
     scheduledDate: count.scheduledDate || "",

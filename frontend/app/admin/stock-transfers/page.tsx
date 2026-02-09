@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
+import { operationsApi, StockTransfer as ApiStockTransfer } from "@/lib/api/operations";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { materialsApi } from "@/lib/api/materials";
+import { showToast } from "@/lib/utils/toast";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -97,17 +101,94 @@ export default function StockTransfersPage() {
   );
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
 
+  // API state
+  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [warehousesMap, setWarehousesMap] = useState<Map<string, string>>(new Map());
+  const [materialsMap, setMaterialsMap] = useState<Map<string, { name: string; sku: string }>>(new Map());
+
+  // Load data from API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch all data in parallel
+        const [transfersData, warehousesData, materialsData] = await Promise.all([
+          operationsApi.getStockTransfers(),
+          warehousesApi.getAll(),
+          materialsApi.getAll(),
+        ]);
+
+        // Build warehouses map
+        const whMap = new Map<string, string>();
+        warehousesData.forEach(wh => whMap.set(wh.id, wh.name));
+        setWarehousesMap(whMap);
+
+        // Build materials map
+        const matMap = new Map<string, { name: string; sku: string }>();
+        materialsData.forEach(mat => matMap.set(mat.id, { name: mat.name, sku: mat.sku || mat.code }));
+        setMaterialsMap(matMap);
+
+        // Transform API data to display format
+        const displayTransfers: StockTransfer[] = transfersData.map((t) => {
+          const material = matMap.get(t.materialId) || { name: "Unknown", sku: "N/A" };
+          const sourceWarehouse = whMap.get(t.sourceWarehouseId);
+          const destWarehouse = whMap.get(t.destWarehouseId);
+          const isIntraWarehouse = t.transferType === "intra_warehouse" || t.sourceWarehouseId === t.destWarehouseId;
+
+          return {
+            id: t.id,
+            transferNumber: t.transferNumber,
+            transferType: (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse") as TransferType,
+            sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
+            sourceLocationCode: t.sourceLocationCode,
+            destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
+            destLocationCode: t.destLocationCode,
+            itemSku: material.sku,
+            itemName: material.name,
+            quantity: parseInt(t.quantity) || 0,
+            status: (t.status as TransferStatus) || "draft",
+            notes: t.notes,
+            createdAt: new Date().toISOString(), // TODO: Get from API when available
+          };
+        });
+
+        setTransfers(displayTransfers);
+      } catch (err) {
+        console.error("Failed to load stock transfers:", err);
+        setError(err instanceof Error ? err.message : "Failed to load stock transfers");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadStockTransfers', handleReload);
+    return () => {
+      window.removeEventListener('reloadStockTransfers', handleReload);
+    };
+  }, []);
+
   // Filter stock transfers by warehouse for warehouse managers
-  // Show transfers where source or destination warehouse matches assigned warehouse
   const transfersForWarehouse =
     isWarehouseManager && assignedWarehouseName
-      ? mockTransfers.filter(
+      ? transfers.filter(
           (t) =>
             t.sourceWarehouse === assignedWarehouseName ||
             t.destWarehouse === assignedWarehouseName ||
             (!t.sourceWarehouse && !t.destWarehouse) // Intra-warehouse transfers
         )
-      : mockTransfers;
+      : transfers;
 
   const filteredTransfers = transfersForWarehouse.filter((transfer) => {
     const matchesSearch =
@@ -130,29 +211,54 @@ export default function StockTransfersPage() {
     return matchesSearch && matchesStatus && matchesType;
   });
 
-  const totalTransfers = mockTransfers.length;
-  const inTransit = mockTransfers.filter(
+  const totalTransfers = transfers.length;
+  const inTransit = transfers.filter(
     (t) => t.status === "in_transit"
   ).length;
-  const received = mockTransfers.filter((t) => t.status === "received").length;
-  const pending = mockTransfers.filter((t) => t.status === "draft").length;
+  const received = transfers.filter((t) => t.status === "received").length;
+  const pending = transfers.filter((t) => t.status === "draft").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
     setShowDetailModal(true);
   };
 
-  const handleCancelTransfer = (transfer: StockTransfer) => {
+  const handleCancelTransfer = async (transfer: StockTransfer) => {
     if (
       confirm(
         `Are you sure you want to cancel transfer ${transfer.transferNumber}?`
       )
     ) {
-      // TODO: API call to cancel transfer
-      console.log("Cancelling transfer:", transfer.id);
-      alert("Transfer cancelled successfully!");
+      try {
+        await operationsApi.cancelStockTransfer(transfer.id);
+        showToast.success("Transfer cancelled successfully");
+        // Reload data
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reloadStockTransfers'));
+        }
+      } catch (err) {
+        console.error("Failed to cancel transfer:", err);
+        showToast.error(err instanceof Error ? err.message : "Failed to cancel transfer");
+      }
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="alert alert-error">
+        <span className="material-symbols-outlined">error</span>
+        <span>Error loading stock transfers: {error}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
