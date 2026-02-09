@@ -5,12 +5,14 @@ import Link from "next/link";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
-import { ordersApi, Order } from "@/lib/api/orders";
+import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { orderItemsApi } from "@/lib/api/orderItems";
 import { showToast } from "@/lib/utils/toast";
+import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
+import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
 
 // Display format for inbound orders
 interface InboundOrderDisplay {
@@ -66,15 +68,8 @@ export default function InboundOrdersPage() {
         ]);
 
         // Create lookup maps
-        const suppliersMap = new Map();
-        suppliersData.forEach((s) => {
-          suppliersMap.set(s.id, s.name);
-        });
-
-        const warehousesMap = new Map();
-        warehousesData.forEach((w) => {
-          warehousesMap.set(w.id, w.name);
-        });
+        const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
+        const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
 
         setSuppliers(suppliersMap);
         setWarehouses(warehousesMap);
@@ -108,16 +103,12 @@ export default function InboundOrdersPage() {
 
         // Transform orders to display format
         const displayOrders: InboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, receivedItems }) => {
-          const supplierName = order.supplierId ? suppliersMap.get(order.supplierId) || "Unknown Supplier" : "N/A";
-          const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
+          const supplierName = order.supplierId
+            ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
+            : "N/A";
+          const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
           
-          // Map backend status to frontend status
-          let status = order.status;
-          if (status === "pending") status = "ordered";
-          if (status === "shipped") status = "in_transit";
-          if (status === "delivered") status = "arrived";
-          if (status === "processing") status = "receiving";
-          if (status === "fulfilled") status = "completed";
+          const status = mapInboundOrderStatus(order.status);
 
           return {
             id: order.id,
@@ -1087,4 +1078,3 @@ function CreateInboundOrderModal({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

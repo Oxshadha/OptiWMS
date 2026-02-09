@@ -10,6 +10,8 @@ import { customersApi } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
+import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
+import { mapPackingStatus } from "@/lib/utils/status-mappers";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -127,25 +129,19 @@ export default function PackingPage() {
         warehousesApi.getAll(),
       ]);
       
-      const customersMap = new Map<string, string>();
-      customersData.forEach((c) => {
-        customersMap.set(c.id, c.name);
-      });
+      const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
+      const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
 
-      const warehousesMap = new Map<string, string>();
-      warehousesData.forEach((w) => {
-        warehousesMap.set(w.id, w.name);
-      });
-
-      const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
-      ordersData.forEach(o => {
-        const customerName = o.customerId ? customersMap.get(o.customerId) || "Unknown" : "Unknown";
-        const warehouseName = warehousesMap.get(o.warehouseId) || "Unknown";
-        ordersMap.set(o.id, {
-          customerName,
-          warehouseName,
-        });
-      });
+      const ordersMap = buildLookupMap(
+        ordersData,
+        (o) => o.id,
+        (o) => ({
+          customerName: o.customerId
+            ? getLookupValue(customersMap, o.customerId, "Unknown")
+            : "Unknown",
+          warehouseName: getLookupValue(warehousesMap, o.warehouseId, "Unknown"),
+        }),
+      );
 
       // Transform API data to display format
       const displayRecords: PackingRecord[] = recordsData.map((r) => {
@@ -164,12 +160,7 @@ export default function PackingPage() {
           }
         }
 
-        // Map status from API to display format
-        let displayStatus: PackingStatus = "pending";
-        if (r.status === "in_progress") displayStatus = "in_progress";
-        else if (r.status === "packed") displayStatus = "packed";
-        else if (r.status === "shipped") displayStatus = "shipped";
-        else displayStatus = "pending";
+        const displayStatus = mapPackingStatus(r.status);
 
         return {
           id: r.id,
