@@ -12,5 +12,5 @@ public interface ShipmentRepository extends JpaRepository<ShipmentEntity, UUID> 
     Optional<ShipmentEntity> findByShipmentNumber(String shipmentNumber);
     List<ShipmentEntity> findByOrderId(UUID orderId);
     List<ShipmentEntity> findByStatus(String status);
+    List<ShipmentEntity> findByCarrierIgnoreCase(String carrier);
 }
-
