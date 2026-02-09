@@ -12,6 +12,7 @@
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+const MONITORING_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
 // Sensitive data patterns to filter out
 const SENSITIVE_PATTERNS = [
@@ -75,7 +76,7 @@ function sendToMonitoring(level: string, message: string, ...args: any[]) {
 
   try {
     const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
-    void fetch('/api/monitoring/logs', {
+    void fetch(`${MONITORING_API_BASE}/monitoring/logs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -4,6 +4,8 @@ import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
+import com.optiwms.infra.master.NonMovingItemEntity;
+import com.optiwms.infra.master.NonMovingItemRepository;
 import com.optiwms.infra.master.WarehouseRepository;
 import com.optiwms.infra.planning.SupplyPlanEntity;
 import com.optiwms.infra.planning.SupplyPlanRepository;
@@ -20,6 +22,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -37,6 +43,9 @@ public class CsvDataImporter {
 
     @Autowired
     private SupplyPlanRepository supplyPlanRepository;
+
+    @Autowired
+    private NonMovingItemRepository nonMovingItemRepository;
 
 
     /**
@@ -406,14 +415,137 @@ public class CsvDataImporter {
         return bd != null ? bd.intValue() : null;
     }
 
+    private int findHeaderIndex(List<String> headers, String... candidates) {
+        for (int i = 0; i < headers.size(); i++) {
+            String normalized = headers.get(i).toLowerCase().replace("_", " ").trim();
+            for (String candidate : candidates) {
+                if (normalized.contains(candidate)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    private String getValue(List<String> values, int index) {
+        if (index < 0 || index >= values.size()) {
+            return "";
+        }
+        return values.get(index);
+    }
+
+    private Integer parseInteger(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private LocalDate parseDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        List<DateTimeFormatter> formatters = List.of(
+                DateTimeFormatter.ISO_LOCAL_DATE,
+                DateTimeFormatter.ofPattern("M/d/yyyy"),
+                DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+                DateTimeFormatter.ofPattern("d/M/yyyy"),
+                DateTimeFormatter.ofPattern("dd/MM/yyyy")
+        );
+
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return LocalDate.parse(value.trim(), formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Import non-moving items
      */
     @Transactional
     public int importNonMovingItems(String csvPath, UUID warehouseId) throws IOException {
-        // TODO: Implement non-moving items import
-        // This would create records in non_moving_items table
-        return 0;
+        Path path = Paths.get(csvPath);
+        int flagged = 0;
+
+        if (!warehouseRepository.existsById(warehouseId)) {
+            throw new RuntimeException("Warehouse not found: " + warehouseId);
+        }
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(path.toFile()))) {
+            String headerLine = reader.readLine();
+            if (headerLine == null) {
+                return 0;
+            }
+
+            List<String> headers = parseCsvLine(headerLine);
+            int materialCodeIndex = findHeaderIndex(headers, "material code", "material_code", "material");
+            if (materialCodeIndex < 0) {
+                materialCodeIndex = 0;
+            }
+            int descriptionIndex = findHeaderIndex(headers, "description", "item description");
+            int lastMovementDateIndex = findHeaderIndex(headers, "last movement date", "last_movement_date", "movement date");
+            int daysSinceIndex = findHeaderIndex(headers, "days since last movement", "days_since_last_movement", "days since");
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+
+                List<String> values = parseCsvLine(line);
+                String materialCode = getValue(values, materialCodeIndex).trim();
+                if (materialCode.isEmpty()) {
+                    continue;
+                }
+
+                MaterialEntity material = materialRepository.findByMaterialCode(materialCode).orElseGet(() -> {
+                    MaterialEntity created = new MaterialEntity();
+                    created.setMaterialCode(materialCode);
+                    created.setDescription(getValue(values, descriptionIndex).trim());
+                    created.setMaterialType("raw_material");
+                    created.setStorageType("pallet");
+                    created.setRequiresPallet(true);
+                    return materialRepository.save(created);
+                });
+
+                LocalDate lastMovementDate = parseDate(getValue(values, lastMovementDateIndex));
+                Integer daysSinceLastMovement = parseInteger(getValue(values, daysSinceIndex));
+                if (daysSinceLastMovement == null && lastMovementDate != null) {
+                    daysSinceLastMovement = (int) ChronoUnit.DAYS.between(lastMovementDate, LocalDate.now());
+                }
+
+                NonMovingItemEntity nonMovingItem = nonMovingItemRepository
+                        .findByMaterialIdAndWarehouseId(material.getId(), warehouseId)
+                        .orElseGet(NonMovingItemEntity::new);
+                nonMovingItem.setMaterialId(material.getId());
+                nonMovingItem.setWarehouseId(warehouseId);
+                nonMovingItem.setLastMovementDate(lastMovementDate);
+                nonMovingItem.setDaysSinceLastMovement(daysSinceLastMovement);
+                nonMovingItemRepository.save(nonMovingItem);
+
+                List<InventoryItemEntity> inventoryItems = inventoryItemRepository
+                        .findByMaterialIdAndWarehouseId(material.getId(), warehouseId);
+                for (InventoryItemEntity item : inventoryItems) {
+                    item.setStatus("non_moving");
+                    inventoryItemRepository.save(item);
+                }
+
+                flagged++;
+            }
+        }
+
+        System.out.println("Non-moving items imported: " + flagged);
+        return flagged;
     }
 
     /**
@@ -514,4 +646,3 @@ public class CsvDataImporter {
         }
     }
 }
-
