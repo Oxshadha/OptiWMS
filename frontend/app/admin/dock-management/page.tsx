@@ -284,13 +284,13 @@ export default function DockManagementPage() {
     setFormErrors({});
   };
 
-  // Handle inbound order selection
   const handleInboundOrderSelect = (orderId: string) => {
-    // TODO: Fetch order details from API
-    // For now, just set the order ID
+    const selectedOrder = inboundOrderOptions.find((order) => order.id === orderId);
     setAppointmentForm((prev) => ({
       ...prev,
       inboundOrderId: orderId,
+      inboundOrderNumber: selectedOrder?.orderNumber || "",
+      supplierName: selectedOrder?.supplierName || prev.supplierName,
     }));
   };
 
@@ -379,7 +379,7 @@ export default function DockManagementPage() {
         scheduledEnd: new Date(appointmentForm.scheduledEnd).toISOString(),
         inboundOrderId: appointmentForm.inboundOrderId || undefined,
         outboundOrderId: undefined,
-        supplierId: undefined, // TODO: Get from order if available
+        supplierId: undefined,
         carrierName: appointmentForm.carrierName,
         trailerNumber: appointmentForm.trailerNumber,
         notes: appointmentForm.notes || undefined,

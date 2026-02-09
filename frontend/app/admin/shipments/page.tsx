@@ -864,7 +864,6 @@ function ShipmentDetailModal({
           <button 
             className="btn btn-primary"
             onClick={() => {
-              // TODO: Print manifest - replace with actual print functionality
               console.log("Printing manifest for:", shipment.id);
               const printWindow = window.open('', '_blank');
               if (printWindow) {
