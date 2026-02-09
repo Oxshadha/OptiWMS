@@ -288,13 +288,55 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = (record: PackingRecord) => {
-    // TODO: Print shipping label
-    alert(`Printing label for ${record.orderNumber}...`);
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      showToast.error("Unable to open print window");
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head><title>Shipping Label - ${record.orderNumber}</title></head>
+        <body>
+          <h1>Shipping Label</h1>
+          <p><strong>Order:</strong> ${record.orderNumber}</p>
+          <p><strong>Customer:</strong> ${record.customer}</p>
+          <p><strong>Tracking:</strong> ${record.trackingNumber || "N/A"}</p>
+          <p><strong>Packaging:</strong> ${record.packagingType || "N/A"}</p>
+          <p><strong>Weight (kg):</strong> ${record.chargeableWeight || record.actualWeight || 0}</p>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   const handlePrintSlip = (record: PackingRecord) => {
-    // TODO: Print packing slip
-    alert(`Printing slip for ${record.orderNumber}...`);
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      showToast.error("Unable to open print window");
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head><title>Packing Slip - ${record.orderNumber}</title></head>
+        <body>
+          <h1>Packing Slip</h1>
+          <p><strong>Order:</strong> ${record.orderNumber}</p>
+          <p><strong>Customer:</strong> ${record.customer}</p>
+          <p><strong>Status:</strong> ${record.status}</p>
+          <p><strong>Packer:</strong> ${record.packerName || "Unassigned"}</p>
+          <p><strong>Actual Weight (kg):</strong> ${record.actualWeight || 0}</p>
+          <p><strong>Dimensional Weight (kg):</strong> ${record.dimensionalWeight || 0}</p>
+          <p><strong>Chargeable Weight (kg):</strong> ${record.chargeableWeight || 0}</p>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   return (

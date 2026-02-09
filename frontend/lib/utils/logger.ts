@@ -61,7 +61,8 @@ function sanitizeMessage(message: any): any {
  * Send error to monitoring service (implement based on your service)
  */
 function sendToMonitoring(level: string, message: string, ...args: any[]) {
-  // TODO: Implement error reporting service integration
+  // NOT_IMPLEMENTED: Monitoring sink endpoint/provider is not configured in this project yet.
+  // Integrate your monitoring provider here (Sentry/Datadog/custom API) when available.
   // Examples:
   // - Sentry: Sentry.captureException(new Error(message));
   // - Datadog: DD_LOGS.logger.error(message, ...args);

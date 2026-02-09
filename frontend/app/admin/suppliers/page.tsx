@@ -363,8 +363,10 @@ export default function SuppliersPage() {
           <li>
             <button
               onClick={() => {
-                // TODO: Handle PO approval
-                console.log("Approving PO for supplier:", supplier.id);
+                // NOT_IMPLEMENTED: Dedicated PO approval endpoint is not available yet.
+                // Navigate to inbound orders filtered by supplier for manual approval workflow.
+                showToast.warning("Open inbound orders to approve supplier purchase orders");
+                window.location.href = `/admin/orders/inbound?supplier=${supplier.id}`;
               }}
             >
               <span className="material-symbols-outlined text-sm">

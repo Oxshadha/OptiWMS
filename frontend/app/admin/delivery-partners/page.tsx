@@ -426,9 +426,8 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              // TODO: Open performance metrics modal or navigate to metrics page
-              console.log("Viewing performance metrics for:", partner.id);
-              alert(`Performance metrics for ${partner.companyName}:\n\n- Total Shipments: 245\n- On-Time Delivery: 98.5%\n- Average Rating: ${partner.rating}\n- Cost Efficiency: High`);
+              // NOT_IMPLEMENTED: Delivery partner metrics endpoint/page is not available yet.
+              showToast.warning("Partner metrics dashboard is not implemented yet");
             }}
           >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -1344,4 +1343,3 @@ function DeleteDeliveryPartnerModal({
     </Modal>
   );
 }
-

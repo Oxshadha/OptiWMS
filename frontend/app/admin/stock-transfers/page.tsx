@@ -228,6 +228,35 @@ export default function StockTransfersPage() {
     setShowDetailModal(true);
   };
 
+  const printTransferSlip = (transfer: StockTransfer) => {
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      showToast.error("Unable to open print window");
+      return;
+    }
+
+    printWindow.document.write(`
+      <html>
+        <head><title>Transfer Slip - ${transfer.transferNumber}</title></head>
+        <body>
+          <h1>Stock Transfer Slip</h1>
+          <p><strong>Transfer Number:</strong> ${transfer.transferNumber}</p>
+          <p><strong>Type:</strong> ${transfer.transferType}</p>
+          <p><strong>Status:</strong> ${transfer.status}</p>
+          <p><strong>Source:</strong> ${transfer.sourceWarehouse || "N/A"} / ${transfer.sourceLocationCode}</p>
+          <p><strong>Destination:</strong> ${transfer.destWarehouse || "N/A"} / ${transfer.destLocationCode}</p>
+          <p><strong>Item:</strong> ${transfer.itemSku} - ${transfer.itemName}</p>
+          <p><strong>Quantity:</strong> ${transfer.quantity}</p>
+          <p><strong>Notes:</strong> ${transfer.notes || "N/A"}</p>
+          <p><strong>Created:</strong> ${new Date(transfer.createdAt).toLocaleString()}</p>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
   const handleCancelTransfer = async (transfer: StockTransfer) => {
     if (
       confirm(
@@ -515,12 +544,7 @@ export default function StockTransfersPage() {
                         <li>
                           <button
                             onClick={() => {
-                              // TODO: Implement print functionality
-                              window.print();
-                              console.log(
-                                "Printing transfer slip:",
-                                transfer.transferNumber
-                              );
+                              printTransferSlip(transfer);
                             }}
                           >
                             <span className="material-symbols-outlined text-sm">
@@ -675,12 +699,7 @@ export default function StockTransfersPage() {
               <button
                 className="btn btn-primary flex-1"
                 onClick={() => {
-                  // TODO: Implement print functionality
-                  window.print();
-                  console.log(
-                    "Printing transfer slip:",
-                    selectedTransfer.transferNumber
-                  );
+                  printTransferSlip(selectedTransfer);
                 }}
               >
                 <span className="material-symbols-outlined">print</span>

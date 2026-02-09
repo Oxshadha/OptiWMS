@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { addToSyncQueue, saveScanRecord } from "@/lib/indexeddb";
 
 export default function ReturnsPage() {
   const [selectedReturn, setSelectedReturn] = useState<any>(null);
@@ -94,9 +95,27 @@ export default function ReturnsPage() {
         receivedAt: new Date().toISOString(),
         status: "received",
       };
-      
-      // TODO: Save to IndexedDB and sync queue
-      console.log("Processing return:", returnData);
+
+      await Promise.all(
+        scannedProducts.map((product) =>
+          saveScanRecord({
+            taskId: selectedReturn?.id || selectedReturn?.returnNumber || "return",
+            location: "returns",
+            sku: product.sku,
+            qty: product.qty,
+          })
+        )
+      );
+
+      await addToSyncQueue({
+        type: "operation",
+        action: "create",
+        data: {
+          operationType: "return",
+          action: "receive",
+          ...returnData,
+        },
+      });
       
       // Show success message
       alert("Return processed successfully! Items have been received and will be inspected.");

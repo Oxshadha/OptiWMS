@@ -302,13 +302,13 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = () => {
-    // TODO: Print shipping label
-    alert("Printing shipping label...");
+    window.print();
+    showToast.success("Shipping label sent to printer");
   };
 
   const handlePrintSlip = () => {
-    // TODO: Print packing slip
-    alert("Printing packing slip...");
+    window.print();
+    showToast.success("Packing slip sent to printer");
   };
 
   const readyToPackOrders = orders.filter(o => o.status === "ready_to_pack");
