@@ -4,6 +4,7 @@ export interface QualityCheck {
   id: string;
   grnId?: string;
   materialId?: string;
+  status?: string;
   qtyReceived: string;
   qtyPassed: string;
   qtyRejected: string;
@@ -48,4 +49,3 @@ export const qualityChecksApi = {
     });
   },
 };
-

@@ -5,8 +5,10 @@ export interface Order {
   orderNumber: string;
   orderType: string;
   customerId?: string;
+  customerName?: string;
   supplierId?: string;
   warehouseId: string;
+  warehouseName?: string;
   status: string;
   priority: string;
   orderDate?: string;
@@ -77,4 +79,3 @@ export const ordersApi = {
     return apiClient.get<Order[]>(`/orders/warehouse/${warehouseId}/needs-receiving`);
   },
 };
-

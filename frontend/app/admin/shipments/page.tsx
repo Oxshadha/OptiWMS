@@ -619,8 +619,9 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
       const partner = deliveryPartners.find(p => p.id === formData.deliveryPartner);
       
       // Create a shipment for each selected order
-      const shipmentPromises = formData.selectedOrders.map(orderId =>
+      const shipmentPromises = formData.selectedOrders.map((orderId, index) =>
         shipmentsApi.create({
+          shipmentNumber: `SHP-${Date.now()}-${index + 1}`,
           orderId,
           carrier: partner?.companyName || partner?.partnerCode || formData.deliveryPartner,
           driverName: formData.driverName,
@@ -826,7 +827,7 @@ function ShipmentDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  shipment: typeof shipments[0];
+  shipment: ShipmentDisplay;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Shipment: ${shipment.id}`} size="lg">

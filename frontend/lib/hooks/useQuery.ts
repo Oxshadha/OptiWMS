@@ -56,15 +56,13 @@ export function useMaterials() {
         return data;
       } catch (error) {
         console.error("[useMaterials] Error fetching materials:", error);
+        const message = error instanceof Error ? error.message : "Unknown error";
+        showToast.error(`Failed to load materials: ${message}`);
         throw error;
       }
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: 2,
-    onError: (error: any) => {
-      console.error("[useMaterials] Failed to fetch materials:", error);
-      showToast.error(`Failed to load materials: ${error.message || "Unknown error"}`);
-    },
   });
 }
 
@@ -130,7 +128,7 @@ export function useDeleteMaterial() {
 export function useWarehouses() {
   return useQuery({
     queryKey: queryKeys.warehouses.all,
-    queryFn: warehousesApi.getAll,
+    queryFn: () => warehousesApi.getAll(),
   });
 }
 
@@ -147,7 +145,7 @@ export function useWarehouse(id: string) {
 export function useInventory() {
   return useQuery({
     queryKey: queryKeys.inventory.all,
-    queryFn: inventoryApi.getAll,
+    queryFn: () => inventoryApi.getAll(),
   });
 }
 
@@ -164,7 +162,7 @@ export function useInventoryByWarehouse(warehouseId: string) {
 export function useCustomers() {
   return useQuery({
     queryKey: queryKeys.customers.all,
-    queryFn: customersApi.getAll,
+    queryFn: () => customersApi.getAll(),
   });
 }
 
@@ -188,7 +186,7 @@ export function useCreateCustomer() {
 export function useSuppliers() {
   return useQuery({
     queryKey: queryKeys.suppliers.all,
-    queryFn: suppliersApi.getAll,
+    queryFn: () => suppliersApi.getAll(),
   });
 }
 
@@ -197,7 +195,7 @@ export function useSuppliers() {
 export function useUsers() {
   return useQuery({
     queryKey: queryKeys.users.all,
-    queryFn: usersApi.getAll,
+    queryFn: () => usersApi.getAll(),
   });
 }
 
@@ -232,12 +230,12 @@ export function usePrefetch() {
     prefetchMaterials: () => 
       queryClient.prefetchQuery({
         queryKey: queryKeys.materials.all,
-        queryFn: materialsApi.getAll,
+        queryFn: () => materialsApi.getAll(),
       }),
     prefetchWarehouses: () =>
       queryClient.prefetchQuery({
         queryKey: queryKeys.warehouses.all,
-        queryFn: warehousesApi.getAll,
+        queryFn: () => warehousesApi.getAll(),
       }),
   };
 }
