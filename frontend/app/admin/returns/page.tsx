@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { DataTable } from "@/components/DataTable";
@@ -32,6 +33,73 @@ interface ReturnDisplay {
   inspectedBy: string | null;
 }
 
+const mockReturns: ReturnDisplay[] = [
+  {
+    id: "RET-1001",
+    returnNumber: "RET-1001",
+    originalOrderId: null,
+    originalOrder: "SO-1001",
+    customerName: "John Doe",
+    warehouseId: null,
+    warehouse: "Warehouse 1",
+    returnDate: "2025-12-15",
+    reason: "Defective",
+    totalItems: 2,
+    status: "pending",
+    resolution: null,
+    receivedBy: null,
+    inspectedBy: null,
+  },
+  {
+    id: "RET-1002",
+    returnNumber: "RET-1002",
+    originalOrderId: null,
+    originalOrder: "SO-1002",
+    customerName: "Jane Smith",
+    warehouseId: null,
+    warehouse: "Warehouse 1",
+    returnDate: "2025-12-14",
+    reason: "Customer Request",
+    totalItems: 1,
+    status: "received",
+    resolution: null,
+    receivedBy: "Worker-001",
+    inspectedBy: null,
+  },
+  {
+    id: "RET-1003",
+    returnNumber: "RET-1003",
+    originalOrderId: null,
+    originalOrder: "SO-1003",
+    customerName: "Bob Johnson",
+    warehouseId: null,
+    warehouse: "Warehouse 2",
+    returnDate: "2025-12-13",
+    reason: "Wrong Item",
+    totalItems: 1,
+    status: "inspecting",
+    resolution: null,
+    receivedBy: "Worker-002",
+    inspectedBy: "Manager-001",
+  },
+  {
+    id: "RET-1004",
+    returnNumber: "RET-1004",
+    originalOrderId: null,
+    originalOrder: "SO-1004",
+    customerName: "Alice Brown",
+    warehouseId: null,
+    warehouse: "Warehouse 1",
+    returnDate: "2025-12-12",
+    reason: "Damaged",
+    totalItems: 3,
+    status: "approved",
+    resolution: "refund",
+    receivedBy: "Worker-001",
+    inspectedBy: "Manager-001",
+  },
+];
+
 const statusConfig = {
   pending: { label: "Pending", class: "badge-warning" },
   received: { label: "Received", class: "badge-info" },
@@ -53,6 +121,7 @@ export default function ReturnsPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseId = admin?.warehouseId;
+  const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showInspectModal, setShowInspectModal] = useState(false);
@@ -131,6 +200,17 @@ export default function ReturnsPage() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadReturns', handleReload);
+    return () => {
+      window.removeEventListener('reloadReturns', handleReload);
+    };
   }, []);
 
   // Filter returns by warehouse for warehouse managers
@@ -345,7 +425,10 @@ export default function ReturnsPage() {
                   try {
                     await returnsApi.approve(returnItem.id, admin?.id);
                     showToast.success(`Return ${returnItem.returnNumber} approved successfully`);
-                    await loadData();
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadReturns'));
+                    }
                   } catch (err) {
                     console.error("Failed to approve return:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to approve return");
@@ -470,7 +553,7 @@ export default function ReturnsPage() {
 
       {/* Create Return Modal */}
       {showCreateModal && (
-        <CreateReturnModal onClose={() => setShowCreateModal(false)} onSuccess={loadData} />
+        <CreateReturnModal onClose={() => setShowCreateModal(false)} />
       )}
 
       {/* Return Detail Modal */}
@@ -493,7 +576,6 @@ export default function ReturnsPage() {
             setShowInspectModal(false);
             setSelectedReturn(null);
           }}
-          onSuccess={loadData}
           returnItem={selectedReturn}
         />
       )}
@@ -506,7 +588,6 @@ export default function ReturnsPage() {
             setShowAssignWorkerModal(false);
             setSelectedReturn(null);
           }}
-          onSuccess={loadData}
           returnItem={selectedReturn}
         />
       )}
@@ -515,13 +596,7 @@ export default function ReturnsPage() {
 }
 
 // Create Return Modal
-function CreateReturnModal({
-  onClose,
-  onSuccess,
-}: {
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}) {
+function CreateReturnModal({ onClose }: { onClose: () => void }) {
   const [formData, setFormData] = useState({
     originalOrder: "",
     warehouseId: "",
@@ -578,7 +653,6 @@ function CreateReturnModal({
 
       await returnsApi.create(createData);
       showToast.success("Return created successfully");
-      await onSuccess();
       onClose();
       // Reset form
       setFormData({
@@ -589,6 +663,10 @@ function CreateReturnModal({
         items: [{ productId: "", quantity: 1 }],
         notes: "",
       });
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
     } catch (err) {
       console.error("Failed to create return:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create return");
@@ -816,12 +894,10 @@ function ReturnDetailModal({
 function InspectReturnModal({
   isOpen,
   onClose,
-  onSuccess,
   returnItem,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => Promise<void>;
   returnItem: ReturnDisplay;
 }) {
   const [inspectionData, setInspectionData] = useState({
@@ -855,8 +931,11 @@ function InspectReturnModal({
         inspectedBy: admin?.id,
       });
       showToast.success("Inspection submitted successfully");
-      await onSuccess();
       onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
     } catch (err) {
       console.error("Failed to submit inspection:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to submit inspection");
@@ -1062,12 +1141,10 @@ function InspectReturnModal({
 function AssignWorkerModal({
   isOpen,
   onClose,
-  onSuccess,
   returnItem,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => Promise<void>;
   returnItem: ReturnDisplay;
 }) {
   // Mock workers list - in production, this would come from API
@@ -1122,8 +1199,11 @@ function AssignWorkerModal({
     try {
       await returnsApi.assignWorker(returnItem.id, selectedWorkerId);
       showToast.success(`${selectedWorker.name} assigned to return ${returnItem.returnNumber}`);
-      await onSuccess();
       onClose();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadReturns'));
+      }
     } catch (err) {
       console.error("Failed to assign worker:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to assign worker");

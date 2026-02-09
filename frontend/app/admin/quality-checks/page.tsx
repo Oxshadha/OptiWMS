@@ -8,7 +8,7 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { qualityChecksApi } from "@/lib/api/qualityChecks";
+import { qualityChecksApi, QualityCheck as ApiQualityCheck } from "@/lib/api/qualityChecks";
 import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
@@ -30,6 +30,58 @@ interface QualityCheckDisplay {
   approvalDate: string | null;
   warehouseName: string;
 }
+
+// Mock data - will be replaced with API calls
+const mockQualityChecks: QualityCheckDisplay[] = [
+  {
+    id: "qc-1",
+    checkId: "QC-2025-001",
+    inboundOrderNumber: "PO-452368",
+    productName: "Wireless Earbuds",
+    sku: "SKU-1001",
+    quantityChecked: 50,
+    quantityPassed: 48,
+    quantityFailed: 2,
+    result: "partial",
+    checkedByName: "John Doe",
+    checkDate: "2025-12-15 10:30",
+    approvedByName: null,
+    approvalDate: null,
+    warehouseName: "Warehouse 1",
+  },
+  {
+    id: "qc-2",
+    checkId: "QC-2025-002",
+    inboundOrderNumber: "PO-452369",
+    productName: "Smart Projector",
+    sku: "SKU-1002",
+    quantityChecked: 30,
+    quantityPassed: 30,
+    quantityFailed: 0,
+    result: "passed",
+    checkedByName: "Jane Smith",
+    checkDate: "2025-12-15 11:00",
+    approvedByName: "Manager A",
+    approvalDate: "2025-12-15 11:15",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    id: "qc-3",
+    checkId: "QC-2025-003",
+    inboundOrderNumber: "PO-452370",
+    productName: "Remote Control",
+    sku: "SKU-2001",
+    quantityChecked: 100,
+    quantityPassed: 95,
+    quantityFailed: 5,
+    result: "partial",
+    checkedByName: "Mike Johnson",
+    checkDate: "2025-12-15 09:00",
+    approvedByName: null,
+    approvalDate: null,
+    warehouseName: "Warehouse 2",
+  },
+];
 
 const resultConfig = {
   passed: { label: "Passed", class: "badge-success" },
@@ -140,6 +192,17 @@ export default function QualityChecksPage() {
 
   useEffect(() => {
     loadData();
+  }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadQualityChecks', handleReload);
+    return () => {
+      window.removeEventListener('reloadQualityChecks', handleReload);
+    };
   }, []);
 
   // Filter quality checks by warehouse for warehouse managers
@@ -338,7 +401,10 @@ export default function QualityChecksPage() {
                     try {
                       await qualityChecksApi.approve(check.id, admin?.id);
                       showToast.success("Quality check approved successfully!");
-                      await loadData();
+                      // Reload data
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                      }
                     } catch (err) {
                       console.error("Failed to approve quality check:", err);
                       showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
@@ -434,8 +500,6 @@ export default function QualityChecksPage() {
             setSelectedCheck(null);
           }}
           check={selectedCheck}
-          adminId={admin?.id}
-          onRefresh={loadData}
           canApprove={canApprove}
           onReject={() => {
             setShowDetailModal(false);
@@ -496,10 +560,13 @@ export default function QualityChecksPage() {
                   try {
                     await qualityChecksApi.reject(selectedCheck.id, rejectReason, admin?.id);
                     showToast.success("Quality check rejected successfully");
-                    await loadData();
                     setShowRejectModal(false);
                     setSelectedCheck(null);
                     setRejectReason("");
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                    }
                   } catch (err) {
                     console.error("Failed to reject quality check:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to reject quality check");
@@ -521,16 +588,12 @@ function QualityCheckDetailModal({
   isOpen,
   onClose,
   check,
-  adminId,
-  onRefresh,
   canApprove,
   onReject,
 }: {
   isOpen: boolean;
   onClose: () => void;
   check: QualityCheckDisplay;
-  adminId?: string;
-  onRefresh: () => Promise<void>;
   canApprove: boolean;
   onReject: () => void;
 }) {
@@ -603,10 +666,13 @@ function QualityCheckDetailModal({
                 className="btn btn-primary"
                 onClick={async () => {
                   try {
-                    await qualityChecksApi.approve(check.id, adminId);
+                    await qualityChecksApi.approve(check.id);
                     showToast.success("Quality check approved successfully");
-                    await onRefresh();
                     onClose();
+                    // Reload data
+                    if (typeof window !== 'undefined') {
+                      window.dispatchEvent(new CustomEvent('reloadQualityChecks'));
+                    }
                   } catch (err) {
                     console.error("Failed to approve quality check:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
