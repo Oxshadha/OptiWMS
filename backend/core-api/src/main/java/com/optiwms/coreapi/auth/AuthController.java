@@ -183,37 +183,32 @@ public class AuthController {
             return ResponseEntity.status(401).build();
         }
 
-        try {
-            String username = authentication.getName();
-            Optional<UserEntity> userEntity = userRepository.findByUsername(username);
-            if (userEntity.isEmpty()) {
-                userEntity = userRepository.findByEmail(username);
-            }
-
-            if (userEntity.isEmpty()) {
-                return ResponseEntity.status(401).build();
-            }
-
-            UserEntity user = userEntity.get();
-            
-            // Update blind receiving mode if provided
-            if (preferences.containsKey("blindReceivingMode")) {
-                Object value = preferences.get("blindReceivingMode");
-                Boolean blindMode = value instanceof Boolean 
-                    ? (Boolean) value 
-                    : Boolean.parseBoolean(value.toString());
-                user.setBlindReceivingMode(blindMode);
-                userRepository.save(user);
-            }
-            
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("success", false, "error", e.getMessage()));
+        String username = authentication.getName();
+        Optional<UserEntity> userEntity = userRepository.findByUsername(username);
+        if (userEntity.isEmpty()) {
+            userEntity = userRepository.findByEmail(username);
         }
+
+        if (userEntity.isEmpty()) {
+            return ResponseEntity.status(401).build();
+        }
+
+        UserEntity user = userEntity.get();
+
+        // Update blind receiving mode if provided
+        if (preferences.containsKey("blindReceivingMode")) {
+            Object value = preferences.get("blindReceivingMode");
+            Boolean blindMode = value instanceof Boolean
+                ? (Boolean) value
+                : Boolean.parseBoolean(value.toString());
+            user.setBlindReceivingMode(blindMode);
+            userRepository.save(user);
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false
+        ));
     }
 
     /**
@@ -230,59 +225,54 @@ public class AuthController {
                 .body(Map.of("success", false, "error", "Unauthorized"));
         }
 
-        try {
-            String username = authentication.getName();
-            Optional<UserEntity> userEntity = userRepository.findByUsername(username);
-            if (userEntity.isEmpty()) {
-                userEntity = userRepository.findByEmail(username);
-            }
-
-            if (userEntity.isEmpty()) {
-                return ResponseEntity.status(401)
-                    .body(Map.of("success", false, "error", "User not found"));
-            }
-
-            UserEntity user = userEntity.get();
-            
-            // Update only if provided
-            if (request.firstName() != null && !request.firstName().trim().isEmpty()) {
-                user.setFirstName(request.firstName().trim());
-            }
-            if (request.lastName() != null && !request.lastName().trim().isEmpty()) {
-                user.setLastName(request.lastName().trim());
-            }
-            if (request.email() != null && !request.email().trim().isEmpty()) {
-                // Check if email is already taken by another user
-                Optional<UserEntity> existingEmail = userRepository.findByEmail(request.email().trim());
-                if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
-                    return ResponseEntity.badRequest()
-                        .body(Map.of("success", false, "error", "Email is already in use"));
-                }
-                user.setEmail(request.email().trim());
-            }
-            if (request.phone() != null) {
-                user.setPhone(request.phone().trim());
-            }
-            
-            userRepository.save(user);
-            
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Profile updated successfully",
-                "user", Map.of(
-                    "id", user.getId().toString(),
-                    "username", user.getUsername(),
-                    "email", user.getEmail() != null ? user.getEmail() : "",
-                    "firstName", user.getFirstName() != null ? user.getFirstName() : "",
-                    "lastName", user.getLastName() != null ? user.getLastName() : "",
-                    "phone", user.getPhone() != null ? user.getPhone() : "",
-                    "role", user.getRole()
-                )
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("success", false, "error", e.getMessage()));
+        String username = authentication.getName();
+        Optional<UserEntity> userEntity = userRepository.findByUsername(username);
+        if (userEntity.isEmpty()) {
+            userEntity = userRepository.findByEmail(username);
         }
+
+        if (userEntity.isEmpty()) {
+            return ResponseEntity.status(401)
+                .body(Map.of("success", false, "error", "User not found"));
+        }
+
+        UserEntity user = userEntity.get();
+
+        // Update only if provided
+        if (request.firstName() != null && !request.firstName().trim().isEmpty()) {
+            user.setFirstName(request.firstName().trim());
+        }
+        if (request.lastName() != null && !request.lastName().trim().isEmpty()) {
+            user.setLastName(request.lastName().trim());
+        }
+        if (request.email() != null && !request.email().trim().isEmpty()) {
+            // Check if email is already taken by another user
+            Optional<UserEntity> existingEmail = userRepository.findByEmail(request.email().trim());
+            if (existingEmail.isPresent() && !existingEmail.get().getId().equals(user.getId())) {
+                return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "error", "Email is already in use"));
+            }
+            user.setEmail(request.email().trim());
+        }
+        if (request.phone() != null) {
+            user.setPhone(request.phone().trim());
+        }
+
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Profile updated successfully",
+            "user", Map.of(
+                "id", user.getId().toString(),
+                "username", user.getUsername(),
+                "email", user.getEmail() != null ? user.getEmail() : "",
+                "firstName", user.getFirstName() != null ? user.getFirstName() : "",
+                "lastName", user.getLastName() != null ? user.getLastName() : "",
+                "phone", user.getPhone() != null ? user.getPhone() : "",
+                "role", user.getRole()
+            )
+        ));
     }
 
     /**
@@ -300,53 +290,34 @@ public class AuthController {
                 .body(Map.of("success", false, "error", "Unauthorized"));
         }
 
-        try {
-            // Validate request
-            if (request.currentPassword() == null || request.currentPassword().trim().isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "error", "Current password is required"));
-            }
-            if (request.newPassword() == null || request.newPassword().trim().isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "error", "New password is required"));
-            }
-            if (request.newPassword().length() < 6) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "error", "New password must be at least 6 characters"));
-            }
-
-            String username = authentication.getName();
-            Optional<UserEntity> userEntity = userRepository.findByUsername(username);
-            if (userEntity.isEmpty()) {
-                userEntity = userRepository.findByEmail(username);
-            }
-
-            if (userEntity.isEmpty()) {
-                return ResponseEntity.status(401)
-                    .body(Map.of("success", false, "error", "User not found"));
-            }
-
-            UserEntity user = userEntity.get();
-            
-            // Verify current password
-            if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-                return ResponseEntity.status(400)
-                    .body(Map.of("success", false, "error", "Current password is incorrect"));
-            }
-            
-            // Hash and set new password
-            String hashedPassword = passwordEncoder.encode(request.newPassword());
-            user.setPasswordHash(hashedPassword);
-            userRepository.save(user);
-            
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Password changed successfully"
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                .body(Map.of("success", false, "error", e.getMessage()));
+        String username = authentication.getName();
+        Optional<UserEntity> userEntity = userRepository.findByUsername(username);
+        if (userEntity.isEmpty()) {
+            userEntity = userRepository.findByEmail(username);
         }
+
+        if (userEntity.isEmpty()) {
+            return ResponseEntity.status(401)
+                .body(Map.of("success", false, "error", "User not found"));
+        }
+
+        UserEntity user = userEntity.get();
+
+        // Verify current password
+        if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+            return ResponseEntity.status(400)
+                .body(Map.of("success", false, "error", "Current password is incorrect"));
+        }
+
+        // Hash and set new password
+        String hashedPassword = passwordEncoder.encode(request.newPassword());
+        user.setPasswordHash(hashedPassword);
+        userRepository.save(user);
+
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Password changed successfully"
+        ));
     }
 
     public record LoginRequest(
