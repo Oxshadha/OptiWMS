@@ -35,4 +35,13 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
-
+optiwms:
+  seed:
+    default-admin:
+      # DEV defaults for easy local login:
+      # username=admin, email=admin@optiwms.com, password=admin123
+      # PRODUCTION: set SEED_DEFAULT_ADMIN=false and provide no default password.
+      enabled: ${SEED_DEFAULT_ADMIN:true}
+      username: ${SEED_DEFAULT_ADMIN_USERNAME:admin}
+      email: ${SEED_DEFAULT_ADMIN_EMAIL:admin@optiwms.com}
+      password: ${SEED_DEFAULT_ADMIN_PASSWORD:admin123}
