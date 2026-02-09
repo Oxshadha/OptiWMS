@@ -6,6 +6,7 @@ import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
 import { ordersApi } from "@/lib/api/orders";
+import { customersApi } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
@@ -119,15 +120,30 @@ export default function PackingPage() {
     try {
       setLoading(true);
       setError(null);
-      const recordsData = await packingApi.getAll();
+      const [recordsData, ordersData, customersData, warehousesData] = await Promise.all([
+        packingApi.getAll(),
+        ordersApi.getAllOutbound(),
+        customersApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
       
-      // Fetch orders to get customer names
-      const ordersData = await ordersApi.getAllOutbound();
+      const customersMap = new Map<string, string>();
+      customersData.forEach((c) => {
+        customersMap.set(c.id, c.name);
+      });
+
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach((w) => {
+        warehousesMap.set(w.id, w.name);
+      });
+
       const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
       ordersData.forEach(o => {
+        const customerName = o.customerId ? customersMap.get(o.customerId) || "Unknown" : "Unknown";
+        const warehouseName = warehousesMap.get(o.warehouseId) || "Unknown";
         ordersMap.set(o.id, {
-          customerName: o.customerName || "Unknown",
-          warehouseName: o.warehouseName || "Unknown",
+          customerName,
+          warehouseName,
         });
       });
 
@@ -774,4 +790,3 @@ export default function PackingPage() {
     </div>
   );
 }
-
