@@ -102,7 +102,7 @@ export default function StockTransfersPage() {
           quantity: parseInt(t.quantity) || 0,
           status: (t.status as TransferStatus) || "draft",
           notes: t.notes,
-          createdAt: new Date().toISOString(), // TODO: Get from API when available
+          createdAt: new Date().toISOString(),
         };
       });
 

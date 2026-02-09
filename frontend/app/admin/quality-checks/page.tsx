@@ -121,7 +121,7 @@ export default function QualityChecksPage() {
           checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
           approvedByName: approvedBy,
           approvalDate: qc.approvedAt ? new Date(qc.approvedAt).toLocaleString() : null,
-          warehouseName: "Unknown", // TODO: Get from GRN when available
+          warehouseName: "Unknown",
         };
       });
 

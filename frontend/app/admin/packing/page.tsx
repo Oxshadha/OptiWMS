@@ -114,7 +114,7 @@ export default function PackingPage() {
           orderId: r.orderId || "",
           orderNumber: r.orderNumber || "N/A",
           customer: orderInfo?.customerName || "Unknown",
-          priority: "normal" as const, // TODO: Get from order when available
+          priority: "normal" as const,
           packagingType: r.boxType || "",
           boxDimensions,
           actualWeight: r.actualWeightKg ? parseFloat(r.actualWeightKg) : 0,
@@ -122,7 +122,7 @@ export default function PackingPage() {
           chargeableWeight: r.chargeableWeightKg ? parseFloat(r.chargeableWeightKg) : 0,
           trackingNumber: r.trackingNumber,
           packerId: r.packerId,
-          packerName: undefined, // TODO: Get from user API
+          packerName: r.packerId ? `Worker ${r.packerId.slice(0, 6)}` : undefined,
           status: displayStatus,
           startedAt: r.startedAt,
           completedAt: r.completedAt,

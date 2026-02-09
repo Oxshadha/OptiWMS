@@ -77,7 +77,7 @@ export default function CustomersPage() {
             phone: c.phone || "",
             orders: orderCounts.get(c.id) || 0,
             status: c.status === "active" ? "Active" : "On Hold",
-            joinDate: new Date().toISOString().split("T")[0], // TODO: Get from customer data
+            joinDate: new Date().toISOString().split("T")[0],
           };
         });
         

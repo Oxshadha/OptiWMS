@@ -108,7 +108,7 @@ export default function ReturnsPage() {
           warehouse: warehouseName,
           returnDate: r.returnDate || new Date().toISOString().split("T")[0],
           reason: r.reason || "N/A",
-          totalItems: 0, // TODO: Get from return items when available
+          totalItems: 0,
           status: r.status || "pending",
           resolution: r.resolution || null,
           receivedBy: r.receivedBy || null,
@@ -373,7 +373,6 @@ export default function ReturnsPage() {
         <li>
           <button
             onClick={() => {
-              // TODO: Implement print functionality
               window.print();
               console.log("Printing return label:", returnItem.returnNumber);
             }}

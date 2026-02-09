@@ -1,6 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { showToast } from "@/lib/utils/toast";
+
+const DASHBOARD_SETTINGS_STORAGE_KEY = "optiwms.dashboardSettings";
 
 export default function DashboardSettingsPage() {
   const [settings, setSettings] = useState({
@@ -16,9 +19,25 @@ export default function DashboardSettingsPage() {
     language: "en",
   });
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DASHBOARD_SETTINGS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setSettings((prev) => ({ ...prev, ...parsed }));
+    } catch (error) {
+      console.error("Failed to load dashboard settings:", error);
+    }
+  }, []);
+
   const handleSave = () => {
-    // TODO: API call to save dashboard settings
-    console.log("Saving dashboard settings:", settings);
+    try {
+      localStorage.setItem(DASHBOARD_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      showToast.success("Dashboard settings saved");
+    } catch (error) {
+      console.error("Failed to save dashboard settings:", error);
+      showToast.error("Failed to save dashboard settings");
+    }
   };
 
   return (
@@ -194,4 +213,3 @@ export default function DashboardSettingsPage() {
     </div>
   );
 }
-

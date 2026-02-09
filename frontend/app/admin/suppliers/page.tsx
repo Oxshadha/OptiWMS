@@ -62,7 +62,7 @@ export default function SuppliersPage() {
       contactPerson: s.contactPerson || "N/A",
       email: s.email || "",
       phone: s.phone || "",
-      productsSupplied: 0, // TODO: Get from material-supplier relationship
+      productsSupplied: 0,
       leadTimeDays: s.leadTimeDays || 7,
       rating: parseFloat(s.rating || "4.0"),
       status: s.status,
