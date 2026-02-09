@@ -1,7 +1,5 @@
-"use client";
-
-import ReceivingPage from "../../worker/receiving/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <ReceivingPage />;
+  redirect("/worker/receiving");
 }

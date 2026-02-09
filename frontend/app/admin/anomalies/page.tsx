@@ -300,7 +300,12 @@ export default function AnomaliesPage() {
       key: "detectedBy",
       label: "Detected By",
       render: (anomaly: typeof anomalies[0]) => {
-        const detector = detectedByConfig[anomaly.detectedBy as keyof typeof detectedByConfig];
+        const normalizedKey = (anomaly.detectedBy || "")
+          .toLowerCase()
+          .replace(/\s+/g, "_");
+        const detector =
+          detectedByConfig[normalizedKey as keyof typeof detectedByConfig] ||
+          { label: anomaly.detectedBy || "System", icon: "person" };
         return (
           <div className="flex items-center gap-1">
             <span className="material-symbols-outlined text-sm">{detector.icon}</span>

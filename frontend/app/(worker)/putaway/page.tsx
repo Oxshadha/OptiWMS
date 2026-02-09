@@ -1,7 +1,5 @@
-"use client";
-
-import PutawayPage from "../../worker/putaway/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <PutawayPage />;
+  redirect("/worker/putaway");
 }

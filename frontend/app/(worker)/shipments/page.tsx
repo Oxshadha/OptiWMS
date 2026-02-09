@@ -1,7 +1,5 @@
-"use client";
-
-import ShipmentsPage from "../../worker/shipments/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <ShipmentsPage />;
+  redirect("/worker/shipments");
 }

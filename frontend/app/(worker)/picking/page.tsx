@@ -1,7 +1,5 @@
-"use client";
-
-import PickingPage from "../../worker/picking/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <PickingPage />;
+  redirect("/worker/picking");
 }

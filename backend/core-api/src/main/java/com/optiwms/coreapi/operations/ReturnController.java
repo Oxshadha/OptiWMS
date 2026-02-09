@@ -110,6 +110,49 @@ public class ReturnController {
         }
     }
 
+    @PutMapping("/{id}/approve")
+    public ResponseEntity<ReturnDto> approve(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ApproveReturnRequest request
+    ) {
+        try {
+            UUID approvedBy = request != null && request.approvedBy() != null
+                    ? UUID.fromString(request.approvedBy())
+                    : null;
+            ReturnRecord updated = service.approve(id, approvedBy);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}/inspection")
+    public ResponseEntity<ReturnDto> submitInspection(
+            @PathVariable UUID id,
+            @RequestBody InspectionRequest request
+    ) {
+        try {
+            UUID inspectedBy = request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null;
+            ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PutMapping("/{id}/assign")
+    public ResponseEntity<ReturnDto> assignWorker(
+            @PathVariable UUID id,
+            @RequestBody AssignWorkerRequest request
+    ) {
+        try {
+            ReturnRecord updated = service.assignWorker(id, UUID.fromString(request.workerId()));
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         try {
@@ -159,6 +202,16 @@ public class ReturnController {
 
     public record UpdateStatusRequest(String status) {}
 
+    public record ApproveReturnRequest(String approvedBy) {}
+
+    public record InspectionRequest(
+            String overallResolution,
+            String notes,
+            String inspectedBy
+    ) {}
+
+    public record AssignWorkerRequest(String workerId) {}
+
     public record ReturnDto(
             String id,
             String returnNumber,
@@ -173,4 +226,3 @@ public class ReturnController {
             String inspectedBy
     ) {}
 }
-

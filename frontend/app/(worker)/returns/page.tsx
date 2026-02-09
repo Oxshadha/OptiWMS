@@ -1,7 +1,5 @@
-"use client";
-
-import ReturnsPage from "../../worker/returns/page";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <ReturnsPage />;
+  redirect("/worker/returns");
 }
