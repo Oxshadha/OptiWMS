@@ -2,7 +2,7 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import AdminLayout from "../(admin)/layout";
+import AdminShellLayout from "@/components/AdminShellLayout";
 import { AdminProvider } from "@/contexts/AdminContext";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminProvider>
-      <AdminLayout>{children}</AdminLayout>
+      <AdminShellLayout>{children}</AdminShellLayout>
     </AdminProvider>
   );
 }
