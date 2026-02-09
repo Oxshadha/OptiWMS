@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.time.LocalDateTime;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,6 +36,38 @@ public class OrderService {
         return repository.findByStatus(status).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public int approveInboundPurchaseOrdersBySupplier(UUID supplierId, UUID approvedBy, String approvalNote) {
+        List<OrderEntity> pendingInboundOrders = repository
+                .findByOrderTypeAndSupplierIdAndStatus("inbound", supplierId, "pending");
+
+        if (pendingInboundOrders.isEmpty()) {
+            return 0;
+        }
+
+        String notePrefix = String.format(
+                "PO approved at %s%s",
+                LocalDateTime.now(),
+                approvedBy != null ? " by " + approvedBy : ""
+        );
+        String note = (approvalNote != null && !approvalNote.trim().isEmpty())
+                ? notePrefix + " - " + approvalNote.trim()
+                : notePrefix;
+
+        pendingInboundOrders.forEach(order -> {
+            order.setStatus("shipped"); // Inbound display maps shipped -> in_transit
+            String existingNotes = order.getNotes();
+            if (existingNotes == null || existingNotes.isBlank()) {
+                order.setNotes(note);
+            } else {
+                order.setNotes(existingNotes + "\n" + note);
+            }
+        });
+
+        repository.saveAll(pendingInboundOrders);
+        return pendingInboundOrders.size();
     }
 
     public Order findById(java.util.UUID id) {
@@ -175,4 +209,3 @@ public class OrderService {
         return order;
     }
 }
-

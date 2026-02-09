@@ -292,6 +292,36 @@ public class OrderController {
         }
     }
 
+    @PostMapping("/suppliers/{supplierId}/approve-purchase-orders")
+    public ResponseEntity<ApprovePurchaseOrdersResponse> approvePurchaseOrders(
+            @PathVariable UUID supplierId,
+            @RequestBody(required = false) ApprovePurchaseOrdersRequest request
+    ) {
+        try {
+            UUID approvedBy = null;
+            String note = null;
+            if (request != null) {
+                approvedBy = request.approvedBy() != null && !request.approvedBy().isBlank()
+                        ? UUID.fromString(request.approvedBy())
+                        : null;
+                note = request.note();
+            }
+
+            int approvedCount = orderService.approveInboundPurchaseOrdersBySupplier(supplierId, approvedBy, note);
+            return ResponseEntity.ok(new ApprovePurchaseOrdersResponse(
+                    supplierId.toString(),
+                    approvedCount,
+                    String.format("Approved %d pending inbound purchase order(s)", approvedCount)
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ApprovePurchaseOrdersResponse(
+                    supplierId.toString(),
+                    0,
+                    e.getMessage()
+            ));
+        }
+    }
+
     private OrderDto toDto(Order order) {
         return new OrderDto(
                 order.getId().toString(),
@@ -332,6 +362,11 @@ public class OrderController {
             String totalAmount
     ) {}
 
+    public record ApprovePurchaseOrdersRequest(
+            String approvedBy,
+            String note
+    ) {}
+
     public record OrderDto(
             String id,
             String orderNumber,
@@ -348,5 +383,10 @@ public class OrderController {
     ) {}
 
     public record CreateTasksResponse(boolean success, String message, int tasksCreated) {}
-}
 
+    public record ApprovePurchaseOrdersResponse(
+            String supplierId,
+            Integer approvedCount,
+            String message
+    ) {}
+}

@@ -14,5 +14,5 @@ public interface OrderRepository extends JpaRepository<OrderEntity, UUID> {
     List<OrderEntity> findByWarehouseId(UUID warehouseId);
     List<OrderEntity> findByStatus(String status);
     List<OrderEntity> findByOrderTypeAndStatus(String orderType, String status);
+    List<OrderEntity> findByOrderTypeAndSupplierIdAndStatus(String orderType, UUID supplierId, String status);
 }
-
