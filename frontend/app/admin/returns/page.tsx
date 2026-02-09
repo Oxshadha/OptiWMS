@@ -14,6 +14,7 @@ import { warehousesApi } from "@/lib/api/warehouses";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
+import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 
 interface ReturnDisplay {
   id: string;
@@ -150,20 +151,21 @@ export default function ReturnsPage() {
       ]);
 
       // Build maps
-      const warehousesMap = new Map<string, string>();
-      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-      
-      const customersMap = new Map<string, string>();
-      customersData.forEach(c => customersMap.set(c.id, c.name));
-      
-      const ordersMap = new Map<string, string>();
-      ordersData.forEach(o => ordersMap.set(o.id, o.orderNumber));
+      const warehousesMap = buildLookupMap(warehousesData, (wh) => wh.id, (wh) => wh.name);
+      const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
+      const ordersMap = buildLookupMap(ordersData, (o) => o.id, (o) => o.orderNumber);
 
       // Transform API data to display format
       const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
-        const warehouseName = r.warehouseId ? warehousesMap.get(r.warehouseId) || "Unknown" : "Unknown";
-        const customerName = r.customerId ? customersMap.get(r.customerId) || "Unknown" : "Unknown";
-        const orderNumber = r.originalOrderId ? ordersMap.get(r.originalOrderId) || r.originalOrderId : "N/A";
+        const warehouseName = r.warehouseId
+          ? getLookupValue(warehousesMap, r.warehouseId, "Unknown")
+          : "Unknown";
+        const customerName = r.customerId
+          ? getLookupValue(customersMap, r.customerId, "Unknown")
+          : "Unknown";
+        const orderNumber = r.originalOrderId
+          ? getLookupValue(ordersMap, r.originalOrderId, r.originalOrderId)
+          : "N/A";
 
         return {
           id: r.id,

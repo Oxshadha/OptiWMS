@@ -8,11 +8,13 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi, Customer } from "@/lib/api/customers";
-import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { customersApi } from "@/lib/api/customers";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { inventoryApi } from "@/lib/api/inventory";
 import { showToast } from "@/lib/utils/toast";
+import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
+import { mapOutboundOrderStatus } from "@/lib/utils/status-mappers";
 import clsx from "clsx";
 import { SORTED_COUNTRIES, getCountryByName } from "@/lib/utils/countries";
 import { validateEmail, validateRequired } from "@/lib/utils/form-validation";
@@ -81,15 +83,8 @@ export default function OutboundOrdersPage() {
         ]);
 
         // Create lookup maps
-        const customersMap = new Map();
-        customersData.forEach((c) => {
-          customersMap.set(c.id, c.name);
-        });
-
-        const warehousesMap = new Map();
-        warehousesData.forEach((w) => {
-          warehousesMap.set(w.id, w.name);
-        });
+        const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
+        const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
 
         setCustomers(customersMap);
         setWarehouses(warehousesMap);
@@ -127,18 +122,12 @@ export default function OutboundOrdersPage() {
 
         // Transform orders to display format
         const displayOrders: OutboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, pickedItems }) => {
-          const customerName = order.customerId ? customersMap.get(order.customerId) || "Unknown Customer" : "N/A";
-          const warehouseName = warehousesMap.get(order.warehouseId) || "Unknown Warehouse";
+          const customerName = order.customerId
+            ? getLookupValue(customersMap, order.customerId, "Unknown Customer")
+            : "N/A";
+          const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
           
-          // Map backend status to frontend status
-          let status = order.status;
-          if (status === "pending") status = "pending";
-          if (status === "processing") status = "picking";
-          if (status === "picked") status = "picked";
-          if (status === "packing") status = "packing";
-          if (status === "ready") status = "ready_to_ship";
-          if (status === "shipped") status = "shipped";
-          if (status === "delivered") status = "delivered";
+          const status = mapOutboundOrderStatus(order.status);
 
           return {
             id: order.id,
