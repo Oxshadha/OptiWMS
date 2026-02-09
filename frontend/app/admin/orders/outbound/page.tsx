@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -53,7 +52,6 @@ const priorityConfig = {
 };
 
 export default function OutboundOrdersPage() {
-  const router = useRouter();
   const { hasPermission } = useAdmin();
   const canCreate = hasPermission(ADMIN_ROUTES.ORDERS, "create");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -65,14 +63,17 @@ export default function OutboundOrdersPage() {
   
   // API state
   const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
+  const [customers, setCustomers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
         // Load orders, customers, and warehouses in parallel
         const [ordersData, customersData, warehousesData] = await Promise.all([
@@ -85,73 +86,75 @@ export default function OutboundOrdersPage() {
         const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
         const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
 
-      // Fetch order items for all orders in parallel
-      const ordersWithItems = await Promise.all(
-        ordersData.map(async (order) => {
-          try {
-            const { orderItemsApi } = await import("@/lib/api/orderItems");
-            const orderItems = await orderItemsApi.getByOrderId(order.id);
-            const totalItems = orderItems.length;
-            // Calculate picked items (items with pickedQuantity > 0)
-            const pickedItems = orderItems.filter(
-              item => item.pickedQuantity > 0
-            ).length;
-            
-            return {
-              order,
-              totalItems,
-              pickedItems,
-            };
-          } catch (err) {
-            const isDev = process.env.NODE_ENV === 'development';
-            if (isDev) {
-              console.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
+        setCustomers(customersMap);
+        setWarehouses(warehousesMap);
+
+        // Fetch order items for all orders in parallel
+        const ordersWithItems = await Promise.all(
+          ordersData.map(async (order) => {
+            try {
+              const { orderItemsApi } = await import("@/lib/api/orderItems");
+              const orderItems = await orderItemsApi.getByOrderId(order.id);
+              const totalItems = orderItems.length;
+              // Calculate picked items (items with pickedQuantity > 0)
+              const pickedItems = orderItems.filter(
+                item => item.pickedQuantity > 0
+              ).length;
+              
+              return {
+                order,
+                totalItems,
+                pickedItems,
+              };
+            } catch (err) {
+              const isDev = process.env.NODE_ENV === 'development';
+              if (isDev) {
+                console.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
+              }
+              return {
+                order,
+                totalItems: 0,
+                pickedItems: 0,
+              };
             }
-            return {
-              order,
-              totalItems: 0,
-              pickedItems: 0,
-            };
-          }
-        })
-      );
+          })
+        );
 
-      // Transform orders to display format
-      const displayOrders: OutboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, pickedItems }) => {
-        const customerName = order.customerId
-          ? getLookupValue(customersMap, order.customerId, "Unknown Customer")
-          : "N/A";
-        const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
-        
-        const status = mapOutboundOrderStatus(order.status);
+        // Transform orders to display format
+        const displayOrders: OutboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, pickedItems }) => {
+          const customerName = order.customerId
+            ? getLookupValue(customersMap, order.customerId, "Unknown Customer")
+            : "N/A";
+          const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
+          
+          const status = mapOutboundOrderStatus(order.status);
 
-        return {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          customerName,
-          warehouseName,
-          orderDate: order.orderDate || new Date().toISOString().split("T")[0],
-          requiredDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
-          priority: order.priority || "normal",
-          status,
-          totalItems,
-          pickedItems,
-        };
-      });
+          return {
+            id: order.id,
+            orderNumber: order.orderNumber,
+            customerName,
+            warehouseName,
+            orderDate: order.orderDate || new Date().toISOString().split("T")[0],
+            requiredDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
+            priority: order.priority || "normal",
+            status,
+            totalItems,
+            pickedItems,
+          };
+        });
 
-      setOrders(displayOrders);
-    } catch (err) {
-      const isDev = process.env.NODE_ENV === 'development';
-      if (isDev) {
-        console.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
+        setOrders(displayOrders);
+      } catch (err) {
+        const isDev = process.env.NODE_ENV === 'development';
+        if (isDev) {
+          console.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
+        }
+        setError("Failed to load outbound orders. Please try again.");
+      } finally {
+        setIsLoading(false);
       }
-      setError("Failed to load outbound orders. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
     loadData();
   }, []);
 
@@ -224,7 +227,7 @@ export default function OutboundOrdersPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => loadData()}>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
             Retry
           </button>
         </div>
@@ -388,7 +391,7 @@ export default function OutboundOrdersPage() {
           </li>
         )}
         <li>
-          <button onClick={() => showToast.warning(`Printing order ${order.orderNumber}...`)}>
+          <button onClick={() => window.print()}>
             <span className="material-symbols-outlined text-sm">print</span>
             Print/Export
           </button>
@@ -404,7 +407,8 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.cancel(order.id);
                       showToast.success("Order cancelled successfully");
-                      await loadData();
+                      // Reload orders
+                      window.location.reload();
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
@@ -428,7 +432,8 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.delete(order.id);
                       showToast.success("Order deleted successfully");
-                      await loadData();
+                      // Reload orders
+                      window.location.reload();
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
@@ -460,7 +465,7 @@ export default function OutboundOrdersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => window.location.reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -539,7 +544,7 @@ export default function OutboundOrdersPage() {
         columns={columns}
         keyExtractor={(order) => order.id}
         onRowClick={(order) => {
-          router.push(`/admin/orders/outbound/${order.id}`);
+          window.location.href = `/admin/orders/outbound/${order.id}`;
         }}
         actions={renderActions}
         emptyMessage="No orders found"
@@ -549,7 +554,6 @@ export default function OutboundOrdersPage() {
       <CreateOutboundOrderModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSaved={loadData}
       />
       
       {/* Edit Outbound Order Modal */}
@@ -560,7 +564,6 @@ export default function OutboundOrdersPage() {
             setShowEditModal(false);
             setEditingOrder(null);
           }}
-          onSaved={loadData}
           editingOrder={editingOrder}
         />
       )}
@@ -572,12 +575,10 @@ export default function OutboundOrdersPage() {
 function CreateOutboundOrderModal({ 
   isOpen, 
   onClose,
-  onSaved,
   editingOrder 
 }: { 
   isOpen: boolean; 
   onClose: () => void;
-  onSaved: () => Promise<void>;
   editingOrder?: OutboundOrderDisplay | null;
 }) {
   const [step, setStep] = useState(1);
@@ -912,7 +913,6 @@ function CreateOutboundOrderModal({
       showToast.success(editingOrder
         ? `Outbound order updated successfully with ${formData.items.length} item(s)!`
         : `Outbound order created successfully with ${formData.items.length} item(s)!`);
-      await onSaved();
       onClose();
       setStep(1);
       setFormData({

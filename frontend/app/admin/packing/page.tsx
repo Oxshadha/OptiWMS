@@ -36,6 +36,59 @@ interface PackingRecord {
   warehouseName?: string;
 }
 
+const mockPackingRecords: PackingRecord[] = [
+  {
+    id: "pk-1",
+    orderId: "ord-1",
+    orderNumber: "ORD-2025-001",
+    customer: "John Smith",
+    priority: "express",
+    packagingType: "medium",
+    boxDimensions: { length: 30, width: 25, height: 20 },
+    actualWeight: 2.5,
+    dimensionalWeight: 3.75,
+    chargeableWeight: 3.75,
+    trackingNumber: "TRK-123456789",
+    packerName: "Alice Johnson",
+    status: "packed",
+    startedAt: "2025-12-15T10:00:00",
+    completedAt: "2025-12-15T10:25:00",
+    createdAt: "2025-12-15T09:45:00",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    id: "pk-2",
+    orderId: "ord-2",
+    orderNumber: "ORD-2025-002",
+    customer: "Jane Doe",
+    priority: "normal",
+    packagingType: "small",
+    boxDimensions: { length: 20, width: 15, height: 10 },
+    actualWeight: 1.2,
+    dimensionalWeight: 0.6,
+    chargeableWeight: 1.2,
+    packerName: "Bob Williams",
+    status: "in_progress",
+    startedAt: "2025-12-16T08:30:00",
+    createdAt: "2025-12-16T08:00:00",
+    warehouseName: "Warehouse 1",
+  },
+  {
+    id: "pk-3",
+    orderId: "ord-3",
+    orderNumber: "ORD-2025-003",
+    customer: "Mike Brown",
+    priority: "normal",
+    status: "pending",
+    packagingType: "",
+    actualWeight: 0,
+    dimensionalWeight: 0,
+    chargeableWeight: 0,
+    createdAt: "2025-12-16T09:00:00",
+    warehouseName: "Warehouse 2",
+  },
+];
+
 const statusClass = (status: PackingStatus) => {
   if (status === "shipped") return "badge-success";
   if (status === "packed") return "badge-info";
@@ -145,6 +198,17 @@ export default function PackingPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadPacking', handleReload);
+    return () => {
+      window.removeEventListener('reloadPacking', handleReload);
+    };
+  }, []);
   
   // Load workers - MUST be before early returns
   useEffect(() => {
@@ -213,7 +277,10 @@ export default function PackingPage() {
       showToast.success("Packer assigned successfully");
       setShowAssignModal(false);
       setSelectedRecordForAssign(null);
-      await loadData();
+      // Reload data
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadPacking'));
+      }
     } catch (err) {
       console.error("Failed to assign packer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to assign packer");
@@ -221,11 +288,13 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = (record: PackingRecord) => {
-    showToast.warning(`Printing label for ${record.orderNumber}...`);
+    // TODO: Print shipping label
+    alert(`Printing label for ${record.orderNumber}...`);
   };
 
   const handlePrintSlip = (record: PackingRecord) => {
-    showToast.warning(`Printing slip for ${record.orderNumber}...`);
+    // TODO: Print packing slip
+    alert(`Printing slip for ${record.orderNumber}...`);
   };
 
   return (

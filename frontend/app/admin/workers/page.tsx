@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
@@ -39,6 +39,54 @@ interface WorkerDisplay {
   role: WorkerRole;
 }
 
+const mockWorkers: WorkerDisplay[] = [
+  {
+    id: "worker-1",
+    workerId: "e8b5d4",
+    name: "John Doe",
+    warehouseName: "Warehouse 1",
+    availabilityStatus: "available",
+    shiftStart: "08:00",
+    shiftEnd: "17:00",
+    tasksToday: 12,
+    totalTasksCompleted: 245,
+    avgTaskTime: 15.5,
+    lastActive: "2 minutes ago",
+    avatar: "/assets/avatars/Jhon Doe.jpg",
+    role: "picker" as WorkerRole,
+  },
+  {
+    id: "worker-2",
+    workerId: "a3f7b2",
+    name: "Jane Smith",
+    warehouseName: "Warehouse 1",
+    availabilityStatus: "busy",
+    shiftStart: "09:00",
+    shiftEnd: "18:00",
+    tasksToday: 8,
+    totalTasksCompleted: 189,
+    avgTaskTime: 18.2,
+    lastActive: "5 minutes ago",
+    avatar: "/assets/avatars/placeholder.svg",
+    role: "packer" as WorkerRole,
+  },
+  {
+    id: "worker-3",
+    workerId: "c9e1d6",
+    name: "Mike Johnson",
+    warehouseName: "Warehouse 2",
+    availabilityStatus: "offline",
+    shiftStart: "08:00",
+    shiftEnd: "17:00",
+    tasksToday: 0,
+    totalTasksCompleted: 156,
+    avgTaskTime: 20.1,
+    lastActive: "2 hours ago",
+    avatar: "/assets/avatars/placeholder.svg",
+    role: "forklift_operator" as WorkerRole,
+  },
+];
+
 const statusConfig = {
   available: { label: "Available", class: "badge-success" },
   busy: { label: "Busy", class: "badge-warning" },
@@ -48,6 +96,7 @@ const statusConfig = {
 export default function WorkersPage() {
   const { hasPermission, role, admin } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
+  const assignedWarehouseId = admin?.warehouseId;
   const assignedWarehouseName = admin?.warehouseName;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -59,6 +108,7 @@ export default function WorkersPage() {
   
   // API state
   const [workers, setWorkers] = useState<WorkerDisplay[]>([]);
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,10 +135,11 @@ export default function WorkersPage() {
         const usersData = allUsersData.filter(u => workerRoles.includes(u.role?.toLowerCase()));
         
         // Create warehouse lookup
-        const warehousesMap = new Map<string, string>();
+        const warehousesMap = new Map();
         warehousesData.forEach((w) => {
           warehousesMap.set(w.id, w.name);
         });
+        setWarehouses(warehousesMap);
         
         // Count tasks per worker
         const taskCounts = new Map<string, number>();
@@ -145,9 +196,23 @@ export default function WorkersPage() {
     loadData();
   }, []);
 
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener('reloadWorkers', handleReload);
+    return () => {
+      window.removeEventListener('reloadWorkers', handleReload);
+    };
+  }, []);
+
   const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.WORKERS, "delete");
+  // Only Admin can assign roles
+  const canAssignRole = role === "admin" && hasPermission(ADMIN_ROUTES.WORKERS, "create");
+
   // Filter workers by warehouse for warehouse managers
   const filteredWorkersByWarehouse = isWarehouseManager && assignedWarehouseName
     ? workers.filter((w) => w.warehouseName === assignedWarehouseName)
@@ -382,7 +447,7 @@ export default function WorkersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => window.location.reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -441,42 +506,26 @@ export default function WorkersPage() {
       <SummaryCards cards={summaryCards} />
 
       {/* Workers Table */}
-      {error && (
-        <div className="alert alert-error">
-          <span className="material-symbols-outlined">error</span>
-          <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
-            Retry
-          </button>
-        </div>
-      )}
-      {isLoading && (
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
-          <div className="flex items-center justify-center gap-3 text-base-content/70">
-            <span className="loading loading-spinner loading-md" />
-            <span>Loading workers...</span>
-          </div>
-        </div>
-      )}
-      {!isLoading && (
-        <DataTable
-          data={filteredWorkers}
-          columns={columns}
-          keyExtractor={(worker) => worker.id}
-          onRowClick={(worker) => {
-            setSelectedWorker(worker);
-            setShowDetailModal(true);
-          }}
-          actions={renderActions}
-          emptyMessage="No workers found"
-        />
-      )}
+      <DataTable
+        data={filteredWorkers}
+        columns={columns}
+        keyExtractor={(worker) => worker.id}
+        onRowClick={(worker) => {
+          setSelectedWorker(worker);
+          setShowDetailModal(true);
+        }}
+        actions={renderActions}
+        emptyMessage="No workers found"
+      />
 
       {/* Create Worker Modal */}
       <CreateWorkerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadData}
+        onSuccess={() => {
+          // Reload workers list
+          loadData();
+        }}
       />
 
       {/* Worker Detail Modal */}
@@ -505,7 +554,6 @@ export default function WorkersPage() {
             setShowEditModal(false);
             setSelectedWorker(null);
           }}
-          onUpdated={loadData}
           worker={selectedWorker}
         />
       )}
@@ -526,7 +574,10 @@ export default function WorkersPage() {
               showToast.success("Worker deleted successfully");
               setShowDeleteModal(false);
               setSelectedWorker(null);
-              await loadData();
+              // Reload data
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('reloadWorkers'));
+              }
             } catch (err) {
               console.error("Failed to delete worker:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete worker");
@@ -696,7 +747,7 @@ function CreateWorkerModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => Promise<void>;
+  onSuccess?: () => void;
 }) {
   const { hasPermission, role } = useAdmin();
   const canAssignRole =
@@ -731,6 +782,7 @@ function CreateWorkerModal({
         setError(""); // Clear previous errors
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData);
+        console.log("[CreateWorkerModal] Loaded warehouses:", warehousesData.length);
       } catch (err) {
         console.error("[CreateWorkerModal] Failed to load warehouses:", err);
         const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
@@ -743,7 +795,7 @@ function CreateWorkerModal({
     loadWarehouses();
   }, [isOpen]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError("");
@@ -792,7 +844,7 @@ function CreateWorkerModal({
       
       // Reload workers list
       if (onSuccess) {
-        await onSuccess();
+        onSuccess();
       }
     } catch (err: any) {
       console.error("Failed to create worker:", err);
@@ -1068,12 +1120,10 @@ function CreateWorkerModal({
 function EditWorkerModal({
   isOpen,
   onClose,
-  onUpdated,
   worker,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onUpdated: () => Promise<void>;
   worker: WorkerDisplay;
 }) {
   const { hasPermission, role } = useAdmin();
@@ -1109,6 +1159,8 @@ function EditWorkerModal({
         // Load warehouses
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData);
+        console.log("[EditWorkerModal] Loaded warehouses:", warehousesData.length);
+        
         // Find warehouseId from warehouseName
         const matchingWarehouse = warehousesData.find(w => w.name === worker.warehouseName);
         if (matchingWarehouse) {
@@ -1141,7 +1193,7 @@ function EditWorkerModal({
     loadData();
   }, [isOpen, worker.id, worker.warehouseName]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     try {
@@ -1164,8 +1216,12 @@ function EditWorkerModal({
       }
 
       showToast.success("Worker updated successfully");
-      await onUpdated();
       onClose();
+      
+      // Reload workers list
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('reloadWorkers'));
+      }
     } catch (err: any) {
       console.error("[EditWorkerModal] Failed to update worker:", err);
       const errorMessage = err?.response?.data?.message || err?.message || "Failed to update worker. Please try again.";

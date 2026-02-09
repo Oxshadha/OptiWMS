@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
@@ -93,14 +93,17 @@ export default function TasksPage() {
   
   // API state
   const [tasks, setTasks] = useState<TaskDisplay[]>([]);
+  const [users, setUsers] = useState<Map<string, string>>(new Map());
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load data from API
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
         // Load tasks, users, and warehouses in parallel
         const [tasksData, usersData, warehousesData] = await Promise.all([
@@ -120,51 +123,53 @@ export default function TasksPage() {
           warehousesMap.set(w.id, w.name);
         });
 
-      // Transform tasks to display format
-      const displayTasks: TaskDisplay[] = tasksData.map((task) => {
-        const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
-        const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
-        
-        // Map backend status to frontend status
-        let status = task.status;
-        if (status === "in_progress") status = "in_progress";
-        if (status === "completed") status = "completed";
-        if (status === "cancelled") status = "cancelled";
+        setUsers(usersMap);
+        setWarehouses(warehousesMap);
 
-        // Calculate duration if completed
-        let duration: number | null = null;
-        if (task.completedAt && task.dueDate) {
-          const start = new Date(task.dueDate);
-          const end = new Date(task.completedAt);
-          duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
-        }
+        // Transform tasks to display format
+        const displayTasks: TaskDisplay[] = tasksData.map((task) => {
+          const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
+          const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
+          
+          // Map backend status to frontend status
+          let status = task.status;
+          if (status === "in_progress") status = "in_progress";
+          if (status === "completed") status = "completed";
+          if (status === "cancelled") status = "cancelled";
 
-        return {
-          id: task.id,
-          taskNumber: task.taskNumber,
-          taskType: task.taskType,
-          workerName,
-          warehouseId: task.warehouseId,
-          warehouseName,
-          priority: task.priority || "normal",
-          status,
-          assignedDate: task.dueDate || new Date().toISOString(),
-          startedAt: task.dueDate || null,
-          completedAt: task.completedAt || null,
-          duration,
-        };
-      });
+          // Calculate duration if completed
+          let duration: number | null = null;
+          if (task.completedAt && task.dueDate) {
+            const start = new Date(task.dueDate);
+            const end = new Date(task.completedAt);
+            duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
+          }
 
-      setTasks(displayTasks);
-    } catch (err) {
-      console.error("Failed to load tasks:", err);
-      setError("Failed to load tasks. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+          return {
+            id: task.id,
+            taskNumber: task.taskNumber,
+            taskType: task.taskType,
+            workerName,
+            warehouseId: task.warehouseId,
+            warehouseName,
+            priority: task.priority || "normal",
+            status,
+            assignedDate: task.dueDate || new Date().toISOString(),
+            startedAt: task.dueDate || null,
+            completedAt: task.completedAt || null,
+            duration,
+          };
+        });
 
-  useEffect(() => {
+        setTasks(displayTasks);
+      } catch (err) {
+        console.error("Failed to load tasks:", err);
+        setError("Failed to load tasks. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
     loadData();
   }, []);
 
@@ -244,7 +249,7 @@ export default function TasksPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => loadData()}>
+          <button className="btn btn-sm" onClick={() => window.location.reload()}>
             Retry
           </button>
         </div>
@@ -511,7 +516,6 @@ export default function TasksPage() {
       <CreateTaskModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onCreated={loadData}
       />
 
       {/* Task Detail Modal */}
@@ -649,11 +653,9 @@ function TaskDetailModal({
 function CreateTaskModal({
   isOpen,
   onClose,
-  onCreated,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
     taskType: "",
@@ -786,7 +788,7 @@ function CreateTaskModal({
     workers,
   ]);
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Validate if manual assignment
@@ -834,8 +836,9 @@ function CreateTaskModal({
         referenceType: formData.relatedOrderId ? "order" : undefined,
       });
 
-      await onCreated();
       onClose();
+      // Reload page to refresh task list
+      window.location.reload();
     } catch (err) {
       console.error("Failed to create task:", err);
       setValidationError("Failed to create task. Please try again.");
