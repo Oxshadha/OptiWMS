@@ -32,6 +32,43 @@ interface AdminDisplay {
   status: string;
 }
 
+// Mock data - will be replaced with API calls
+const mockAdmins = [
+  {
+    id: "admin-1",
+    name: "Henry Kaul",
+    email: "henry.kaul@optiwms.com",
+    role: "admin" as AdminRole,
+    warehouseName: "All Warehouses",
+    lastLogin: "2 hours ago",
+    avatar: "/assets/avatars/Henry Kual.jpg",
+    createdAt: "2024-01-15",
+    status: "active",
+  },
+  {
+    id: "admin-2",
+    name: "John Manager",
+    email: "john.manager@optiwms.com",
+    role: "warehouse_manager" as AdminRole,
+    warehouseName: "Warehouse 1",
+    lastLogin: "5 minutes ago",
+    avatar: "/assets/avatars/placeholder.svg",
+    createdAt: "2024-03-20",
+    status: "active",
+  },
+  {
+    id: "admin-3",
+    name: "Jane Supervisor",
+    email: "jane.supervisor@optiwms.com",
+    role: "warehouse_manager" as AdminRole,
+    warehouseName: "Warehouse 2",
+    lastLogin: "1 day ago",
+    avatar: "/assets/avatars/placeholder.svg",
+    createdAt: "2024-05-10",
+    status: "active",
+  },
+];
+
 const statusConfig = {
   active: { label: "Active", class: "badge-success" },
   inactive: { label: "Inactive", class: "badge-error" },
@@ -39,14 +76,13 @@ const statusConfig = {
 };
 
 export default function AdminsPage() {
-  const { hasPermission } = useAdmin();
+  const { hasPermission, role } = useAdmin();
   const searchParams = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [admins, setAdmins] = useState<AdminDisplay[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState(() => {
@@ -58,49 +94,58 @@ export default function AdminsPage() {
   const loadAdmins = useCallback(async () => {
     try {
       setLoading(true);
-      setError(null);
       // Fetch all users with admin roles
       const adminRoles = ["admin", "warehouse_manager", "inbound_coordinator"];
-      const [roleUsers, warehouses] = await Promise.all([
-        Promise.all(adminRoles.map((adminRole) => usersApi.getAll(adminRole))),
-        warehousesApi.getAll(),
-      ]);
-      const dedupedUsers: User[] = Array.from(
-        new Map(roleUsers.flat().map((u) => [u.id, u])).values()
+      const allUsers: User[] = [];
+      
+      for (const adminRole of adminRoles) {
+        try {
+          const users = await usersApi.getAll(adminRole);
+          allUsers.push(...users);
+        } catch (error) {
+          console.error(`Error fetching users with role ${adminRole}:`, error);
+        }
+      }
+      
+      // Map users to admin display format
+      const adminsWithWarehouses = await Promise.all(
+        allUsers.map(async (user) => {
+          let warehouseName = "All Warehouses";
+          if (user.warehouseId) {
+            try {
+              const warehouse = await warehousesApi.getById(user.warehouseId);
+              warehouseName = warehouse.name || "Unknown Warehouse";
+            } catch (error) {
+              console.error(`Error fetching warehouse ${user.warehouseId}:`, error);
+            }
+          }
+          
+          // Format last login
+          const lastLogin = user.lastLoginAt 
+            ? new Date(user.lastLoginAt).toLocaleString()
+            : "Never";
+          
+          // Format created date
+          const createdAt = user.id ? "2024-01-01" : "Unknown"; // User entity might not have createdAt
+          
+          return {
+            id: user.id,
+            name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "Unknown",
+            email: user.email || "",
+            role: (user.role as AdminRole) || "warehouse_manager",
+            warehouseName: warehouseName,
+            lastLogin: lastLogin,
+            avatar: user.avatarUrl,
+            createdAt: createdAt,
+            status: user.status || "active",
+          };
+        })
       );
-      const warehouseMap = new Map<string, string>();
-      warehouses.forEach((wh) => warehouseMap.set(wh.id, wh.name));
-
-      const adminsWithWarehouses: AdminDisplay[] = dedupedUsers.map((user) => {
-        const warehouseName = user.warehouseId
-          ? warehouseMap.get(user.warehouseId) || "Unknown Warehouse"
-          : "All Warehouses";
-        const lastLogin = user.lastLoginAt
-          ? new Date(user.lastLoginAt).toLocaleString()
-          : "Never";
-
-        return {
-          id: user.id,
-          name:
-            `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-            user.username ||
-            "Unknown",
-          email: user.email || "",
-          role: (user.role as AdminRole) || "warehouse_manager",
-          warehouseName,
-          lastLogin,
-          avatar: user.avatarUrl,
-          createdAt: "-",
-          status: user.status || "active",
-        };
-      });
       
       setAdmins(adminsWithWarehouses);
     } catch (error) {
       console.error("Error loading admins:", error);
-      setError(error instanceof Error ? error.message : "Failed to load managers");
       setAdmins([]);
-      showToast.error("Failed to load managers");
     } finally {
       setLoading(false);
     }
@@ -109,6 +154,17 @@ export default function AdminsPage() {
   // Load admins from API on mount
   useEffect(() => {
     loadAdmins();
+  }, [loadAdmins]);
+
+  // Listen for reload events
+  useEffect(() => {
+    const handleReload = () => {
+      loadAdmins();
+    };
+    window.addEventListener('reloadAdmins', handleReload);
+    return () => {
+      window.removeEventListener('reloadAdmins', handleReload);
+    };
   }, [loadAdmins]);
 
   useEffect(() => {
@@ -261,7 +317,10 @@ export default function AdminsPage() {
         showToast.success("Admin deleted successfully");
         setShowDeleteModal(false);
         setSelectedAdmin(null);
-        await loadAdmins();
+        // Reload data
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('reloadAdmins'));
+        }
       } catch (err) {
         console.error("Failed to delete admin:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to delete admin");
@@ -296,8 +355,9 @@ export default function AdminsPage() {
           <li>
             <button
               onClick={() => {
-                setSelectedAdmin(admin);
-                setShowDetailModal(true);
+                // Edit functionality - could open an edit modal similar to workers
+                // For now, show a message that this feature needs implementation
+                showToast.error("Edit manager functionality coming soon");
               }}
             >
               <span className="material-symbols-outlined text-sm">edit</span>
@@ -399,14 +459,6 @@ export default function AdminsPage() {
       {loading ? (
         <div className="flex items-center justify-center py-12">
           <span className="loading loading-spinner loading-lg"></span>
-        </div>
-      ) : error ? (
-        <div className="alert alert-error">
-          <span className="material-symbols-outlined">error</span>
-          <span>{error}</span>
-          <button className="btn btn-sm" onClick={loadAdmins}>
-            Retry
-          </button>
         </div>
       ) : (
         <DataTable
@@ -547,7 +599,7 @@ function CreateAdminModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void | Promise<void>;
+  onSuccess?: () => void;
 }) {
   const [formData, setFormData] = useState({
     firstName: "",
@@ -617,7 +669,7 @@ function CreateAdminModal({
       
       // Reload admins list (instead of full page reload)
       if (onSuccess) {
-        await onSuccess();
+        onSuccess();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create admin");

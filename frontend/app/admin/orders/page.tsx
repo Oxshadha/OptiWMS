@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { SummaryCards } from "@/components/SummaryCards";
 
 export default function OrdersPage() {
-  const router = useRouter();
   const summary = {
     inboundOrders: 145,
     outboundOrders: 245,
@@ -20,7 +18,7 @@ export default function OrdersPage() {
       icon: "input",
       color: "primary" as const,
       onClick: () => {
-        router.push("/admin/orders/inbound");
+        window.location.href = "/admin/orders/inbound";
       },
     },
     {
@@ -29,7 +27,7 @@ export default function OrdersPage() {
       icon: "shopping_cart",
       color: "info" as const,
       onClick: () => {
-        router.push("/admin/orders/outbound");
+        window.location.href = "/admin/orders/outbound";
       },
     },
     {
