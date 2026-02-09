@@ -2,6 +2,10 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.domain.operations.ReturnRecord;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -46,121 +50,89 @@ public class ReturnController {
 
     @GetMapping("/{id}")
     public ResponseEntity<ReturnDto> getById(@PathVariable UUID id) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            return ResponseEntity.ok(toDto(returnRecord));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        ReturnRecord returnRecord = service.findById(id);
+        return ResponseEntity.ok(toDto(returnRecord));
     }
 
     @PostMapping
-    public ResponseEntity<ReturnDto> create(@RequestBody CreateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = new ReturnRecord();
-            returnRecord.setReturnNumber(request.returnNumber());
-            returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
-            returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
-            returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
-            if (request.returnDate() != null && !request.returnDate().isEmpty()) {
-                returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
-            } else {
-                returnRecord.setReturnDate(LocalDate.now());
-            }
-            returnRecord.setReason(request.reason());
-            returnRecord.setStatus(request.status() != null ? request.status() : "pending");
-            returnRecord.setResolution(request.resolution());
-            returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
-            returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
-
-            ReturnRecord created = service.create(returnRecord);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+    public ResponseEntity<ReturnDto> create(@Valid @RequestBody CreateReturnRequest request) {
+        ReturnRecord returnRecord = new ReturnRecord();
+        returnRecord.setReturnNumber(request.returnNumber());
+        returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
+        returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
+        returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
+        if (request.returnDate() != null && !request.returnDate().isEmpty()) {
+            returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
+        } else {
+            returnRecord.setReturnDate(LocalDate.now());
         }
+        returnRecord.setReason(request.reason());
+        returnRecord.setStatus(request.status() != null ? request.status() : "pending");
+        returnRecord.setResolution(request.resolution());
+        returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
+        returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
+
+        ReturnRecord created = service.create(returnRecord);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ReturnDto> update(@PathVariable UUID id, @RequestBody UpdateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            if (request.reason() != null) returnRecord.setReason(request.reason());
-            if (request.resolution() != null) returnRecord.setResolution(request.resolution());
-            if (request.status() != null) returnRecord.setStatus(request.status());
-            if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
-            if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
+    public ResponseEntity<ReturnDto> update(@PathVariable UUID id, @Valid @RequestBody UpdateReturnRequest request) {
+        ReturnRecord returnRecord = service.findById(id);
+        if (request.reason() != null) returnRecord.setReason(request.reason());
+        if (request.resolution() != null) returnRecord.setResolution(request.resolution());
+        if (request.status() != null) returnRecord.setStatus(request.status());
+        if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
+        if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
 
-            ReturnRecord updated = service.update(returnRecord);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.update(returnRecord);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/status")
     public ResponseEntity<ReturnDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @Valid @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            ReturnRecord updated = service.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.updateStatus(id, request.status());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/approve")
     public ResponseEntity<ReturnDto> approve(
             @PathVariable UUID id,
-            @RequestBody(required = false) ApproveReturnRequest request
+            @Valid @RequestBody(required = false) ApproveReturnRequest request
     ) {
-        try {
-            UUID approvedBy = request != null && request.approvedBy() != null
-                    ? UUID.fromString(request.approvedBy())
-                    : null;
-            ReturnRecord updated = service.approve(id, approvedBy);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        UUID approvedBy = request != null && request.approvedBy() != null
+                ? UUID.fromString(request.approvedBy())
+                : null;
+        ReturnRecord updated = service.approve(id, approvedBy);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/inspection")
     public ResponseEntity<ReturnDto> submitInspection(
             @PathVariable UUID id,
-            @RequestBody InspectionRequest request
+            @Valid @RequestBody InspectionRequest request
     ) {
-        try {
-            UUID inspectedBy = request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null;
-            ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        UUID inspectedBy = request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null;
+        ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/assign")
     public ResponseEntity<ReturnDto> assignWorker(
             @PathVariable UUID id,
-            @RequestBody AssignWorkerRequest request
+            @Valid @RequestBody AssignWorkerRequest request
     ) {
-        try {
-            ReturnRecord updated = service.assignWorker(id, UUID.fromString(request.workerId()));
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.assignWorker(id, UUID.fromString(request.workerId()));
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            service.deleteById(id);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private ReturnDto toDto(ReturnRecord returnRecord) {
@@ -180,37 +152,37 @@ public class ReturnController {
     }
 
     public record CreateReturnRequest(
-            String returnNumber,
-            String originalOrderId,
-            String customerId,
-            String warehouseId,
-            String returnDate,
-            String reason,
-            String status,
+            @NotBlank @Size(max = 50) String returnNumber,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String originalOrderId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String customerId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String warehouseId,
+            @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}$") String returnDate,
+            @NotBlank String reason,
+            @Pattern(regexp = "^[A-Za-z_]+$") String status,
             String resolution,
-            String receivedBy,
-            String inspectedBy
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String receivedBy,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String inspectedBy
     ) {}
 
     public record UpdateReturnRequest(
             String reason,
             String resolution,
-            String status,
-            String receivedBy,
-            String inspectedBy
+            @Pattern(regexp = "^[A-Za-z_]+$") String status,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String receivedBy,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String inspectedBy
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(@NotBlank @Pattern(regexp = "^[A-Za-z_]+$") String status) {}
 
-    public record ApproveReturnRequest(String approvedBy) {}
+    public record ApproveReturnRequest(@Pattern(regexp = "^[0-9a-fA-F-]{36}$") String approvedBy) {}
 
     public record InspectionRequest(
             String overallResolution,
             String notes,
-            String inspectedBy
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String inspectedBy
     ) {}
 
-    public record AssignWorkerRequest(String workerId) {}
+    public record AssignWorkerRequest(@NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String workerId) {}
 
     public record ReturnDto(
             String id,

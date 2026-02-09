@@ -4,6 +4,10 @@ import com.optiwms.coreapp.users.UserService;
 import com.optiwms.domain.users.User;
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -34,7 +38,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         try {
             String loginIdentifier = request.username(); // Can be username, email, or employee ID
             
@@ -109,7 +113,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<RefreshResponse> refresh(@RequestBody RefreshRequest request) {
+    public ResponseEntity<RefreshResponse> refresh(@Valid @RequestBody RefreshRequest request) {
         try {
             String refreshToken = request.refreshToken();
             String username = tokenProvider.getUsernameFromToken(refreshToken);
@@ -219,7 +223,7 @@ public class AuthController {
     @PutMapping("/me/profile")
     public ResponseEntity<Map<String, Object>> updateProfile(
             Authentication authentication,
-            @RequestBody UpdateProfileRequest request
+            @Valid @RequestBody UpdateProfileRequest request
     ) {
         if (authentication == null || !authentication.isAuthenticated()) {
             return ResponseEntity.status(401)
@@ -289,7 +293,7 @@ public class AuthController {
     @PutMapping("/me/password")
     public ResponseEntity<Map<String, Object>> changePassword(
             Authentication authentication,
-            @RequestBody ChangePasswordRequest request
+            @Valid @RequestBody ChangePasswordRequest request
     ) {
         if (authentication == null || !authentication.isAuthenticated()) {
             return ResponseEntity.status(401)
@@ -345,7 +349,10 @@ public class AuthController {
         }
     }
 
-    public record LoginRequest(String username, String password) {}
+    public record LoginRequest(
+            @NotBlank @Size(max = 100) String username,
+            @NotBlank @Size(max = 100) String password
+    ) {}
     
     public record LoginResponse(
             boolean success,
@@ -360,7 +367,7 @@ public class AuthController {
             String refreshToken
     ) {}
 
-    public record RefreshRequest(String refreshToken) {}
+    public record RefreshRequest(@NotBlank String refreshToken) {}
 
     public record RefreshResponse(
             boolean success,
@@ -379,14 +386,14 @@ public class AuthController {
     ) {}
 
     public record UpdateProfileRequest(
-            String firstName,
-            String lastName,
-            String email,
-            String phone
+            @Size(max = 100) String firstName,
+            @Size(max = 100) String lastName,
+            @Email @Size(max = 200) String email,
+            @Size(max = 50) String phone
     ) {}
 
     public record ChangePasswordRequest(
-            String currentPassword,
-            String newPassword
+            @NotBlank @Size(max = 100) String currentPassword,
+            @NotBlank @Size(min = 6, max = 100) String newPassword
     ) {}
 }
