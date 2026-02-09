@@ -2,6 +2,8 @@ package com.optiwms.coreapp.operations;
 
 import com.optiwms.infra.cyclecount.CycleCountScheduleEntity;
 import com.optiwms.infra.cyclecount.CycleCountScheduleRepository;
+import com.optiwms.infra.users.UserEntity;
+import com.optiwms.infra.users.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -9,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -20,14 +24,18 @@ import java.util.UUID;
 public class ScheduledCycleCountService {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduledCycleCountService.class);
+    private static final int DEFAULT_AUTO_ASSIGN_WORKERS = 3;
 
     private final CycleCountScheduleRepository scheduleRepository;
     private final CycleCountService cycleCountService;
+    private final UserRepository userRepository;
 
     public ScheduledCycleCountService(CycleCountScheduleRepository scheduleRepository,
-                                      CycleCountService cycleCountService) {
+                                      CycleCountService cycleCountService,
+                                      UserRepository userRepository) {
         this.scheduleRepository = scheduleRepository;
         this.cycleCountService = cycleCountService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -83,10 +91,14 @@ public class ScheduledCycleCountService {
         cycleCount.setNotes(String.format("Auto-created from %s schedule (ID: %s)", 
             schedule.getFrequency(), schedule.getId()));
 
-        // TODO: Auto-assign workers if enabled (requires worker repository integration)
         if (Boolean.TRUE.equals(schedule.getAutoAssignWorkers())) {
-            // Future: Query available workers and assign
-            log.info("[Scheduler] Auto-assign workers is enabled but not yet implemented");
+            UUID[] assignedWorkers = resolveAutoAssignedWorkers(schedule.getWarehouseId());
+            if (assignedWorkers.length > 0) {
+                cycleCount.setAssignedWorkers(assignedWorkers);
+                log.info("[Scheduler] Auto-assigned {} worker(s) for cycle count {}", assignedWorkers.length, countNumber);
+            } else {
+                log.warn("[Scheduler] Auto-assign enabled but no eligible workers found for warehouse {}", schedule.getWarehouseId());
+            }
         }
 
         cycleCountService.create(cycleCount);
@@ -138,6 +150,18 @@ public class ScheduledCycleCountService {
                 yield current.plusDays(90);
             }
         };
+    }
+
+    private UUID[] resolveAutoAssignedWorkers(UUID warehouseId) {
+        List<String> eligibleRoles = List.of("worker", "picker", "packer", "putaway", "receiver");
+
+        return userRepository.findByWarehouseId(warehouseId).stream()
+            .filter(user -> user.getRole() != null && eligibleRoles.contains(user.getRole().toLowerCase(Locale.ROOT)))
+            .filter(user -> user.getStatus() == null || "active".equalsIgnoreCase(user.getStatus()))
+            .sorted(Comparator.comparing(UserEntity::getUsername, Comparator.nullsLast(String::compareToIgnoreCase)))
+            .limit(DEFAULT_AUTO_ASSIGN_WORKERS)
+            .map(UserEntity::getId)
+            .toArray(UUID[]::new);
     }
 
     // === Manual API methods for schedule management ===
