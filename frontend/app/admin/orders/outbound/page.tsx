@@ -7,7 +7,7 @@ import { Modal, StepIndicator } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { ordersApi, Order } from "@/lib/api/orders";
+import { ordersApi } from "@/lib/api/orders";
 import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
@@ -679,9 +679,10 @@ function CreateOutboundOrderModal({
               deliveryAddressLine1 = addressParts[0] || "";
               deliveryAddressLine2 = addressParts[1] || "";
               deliveryCity = customer.city || "";
-              deliveryState = customer.state || "";
               deliveryCountry = customer.country || "";
-              deliveryPostalCode = customer.postalCode || "";
+              // Backend customer contract currently has no state/postalCode fields.
+              deliveryState = "";
+              deliveryPostalCode = "";
             } catch (err) {
               const isDev = process.env.NODE_ENV === 'development';
               if (isDev) {
@@ -1703,4 +1704,3 @@ function CreateOutboundOrderModal({
     </Modal>
   );
 }
-

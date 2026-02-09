@@ -5,10 +5,8 @@ export interface Order {
   orderNumber: string;
   orderType: string;
   customerId?: string;
-  customerName?: string;
   supplierId?: string;
   warehouseId: string;
-  warehouseName?: string;
   status: string;
   priority: string;
   orderDate?: string;

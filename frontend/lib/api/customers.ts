@@ -8,9 +8,7 @@ export interface Customer {
   phone?: string;
   address?: string;
   city?: string;
-  state?: string;
   country?: string;
-  postalCode?: string;
   status: string;
 }
 
