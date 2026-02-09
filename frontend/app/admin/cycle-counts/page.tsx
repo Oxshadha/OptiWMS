@@ -30,61 +30,6 @@ interface CycleCountDisplay {
   performedBy: string | null;
 }
 
-// Mock data - will be replaced with API calls
-const mockCycleCounts: CycleCountDisplay[] = [
-  {
-    id: "cc-1",
-    countNumber: "CC-2025-001",
-    warehouseName: "Warehouse 1",
-    sectionName: "Section A - Electronics",
-    countType: "scheduled",
-    scheduledDate: "2025-12-20",
-    actualDate: null,
-    status: "scheduled",
-    assignedWorkers: ["John Doe", "Jane Smith"],
-    assignedBy: "Manager A",
-    assignedDate: "2025-12-15 09:00",
-    totalLocations: 120,
-    countedLocations: 0,
-    discrepanciesFound: 0,
-    performedBy: null,
-  },
-  {
-    id: "cc-2",
-    countNumber: "CC-2025-002",
-    warehouseName: "Warehouse 1",
-    sectionName: "Full Warehouse",
-    countType: "full",
-    scheduledDate: "2025-12-18",
-    actualDate: "2025-12-18",
-    status: "completed",
-    assignedWorkers: ["Mike Johnson", "Sarah Lee"],
-    assignedBy: "Manager B",
-    assignedDate: "2025-12-17 10:00",
-    totalLocations: 480,
-    countedLocations: 480,
-    discrepanciesFound: 12,
-    performedBy: "Mike Johnson, Sarah Lee",
-  },
-  {
-    id: "cc-3",
-    countNumber: "CC-2025-003",
-    warehouseName: "Warehouse 2",
-    sectionName: "Section B - Appliances",
-    countType: "ad_hoc",
-    scheduledDate: "2025-12-15",
-    actualDate: "2025-12-15",
-    status: "in_progress",
-    assignedWorkers: ["John Doe"],
-    assignedBy: "Manager C",
-    assignedDate: "2025-12-14 14:00",
-    totalLocations: 80,
-    countedLocations: 45,
-    discrepanciesFound: 3,
-    performedBy: "John Doe",
-  },
-];
-
 const countTypeConfig = {
   scheduled: { label: "Scheduled", class: "badge-info" },
   ad_hoc: { label: "Ad-Hoc", class: "badge-warning" },
