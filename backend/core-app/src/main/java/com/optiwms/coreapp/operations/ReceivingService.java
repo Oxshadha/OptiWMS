@@ -247,18 +247,51 @@ public class ReceivingService {
         // Only validate if max weight is configured
         if (material.getMaxPalletWeightKg() != null && material.getMaxPalletWeightKg().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal maxWeight = material.getMaxPalletWeightKg();
-            
-            // Check if received quantity exceeds max weight
-            if (quantity.compareTo(maxWeight) > 0) {
+            BigDecimal effectiveWeight = calculateEffectiveWeightKg(quantity, material);
+
+            // Check if effective weight exceeds max pallet limit
+            if (effectiveWeight.compareTo(maxWeight) > 0) {
                 throw new RuntimeException(String.format(
                     "Weight limit exceeded for material %s: %.2f kg > %.2f kg (max). " +
                     "As per SOP, raw materials are limited to 1500kg and packing materials to 1000kg per pallet.",
                     material.getMaterialCode(),
-                    quantity.doubleValue(),
+                    effectiveWeight.doubleValue(),
                     maxWeight.doubleValue()
                 ));
             }
         }
+    }
+
+    private BigDecimal calculateEffectiveWeightKg(BigDecimal quantity, Material material) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // For weight-based receiving units (kg/g), quantity itself represents weight.
+        if (isWeightBasedUnit(material.getUnitType())) {
+            return quantity;
+        }
+
+        // For piece/box/pallet style units, compute weight = quantity * unit weight when available.
+        if (material.getWeightKg() != null && material.getWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            return quantity.multiply(material.getWeightKg());
+        }
+
+        // Fallback for legacy records where unit weight is not configured.
+        return quantity;
+    }
+
+    private boolean isWeightBasedUnit(String unitType) {
+        if (unitType == null) {
+            return false;
+        }
+        String normalized = unitType.trim().toLowerCase();
+        return "kg".equals(normalized)
+                || "kilogram".equals(normalized)
+                || "kilograms".equals(normalized)
+                || "g".equals(normalized)
+                || "gram".equals(normalized)
+                || "grams".equals(normalized);
     }
     
     private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {

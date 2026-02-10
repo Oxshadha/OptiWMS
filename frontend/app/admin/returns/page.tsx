@@ -33,6 +33,7 @@ export default function ReturnsPage() {
   const [selectedReturn, setSelectedReturn] = useState<ReturnDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [flowFilter, setFlowFilter] = useState<"all" | "inbound" | "outbound">("all");
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
@@ -75,6 +76,8 @@ export default function ReturnsPage() {
           : null;
         const orderNumber = orderInfo?.orderNumber || r.originalOrderId || "N/A";
         const orderType = orderInfo?.orderType || null;
+        const returnFlow =
+          orderType === "inbound" || orderType === "outbound" ? orderType : "unknown";
 
         return {
           id: r.id,
@@ -82,6 +85,7 @@ export default function ReturnsPage() {
           originalOrderId: r.originalOrderId || null,
           originalOrder: orderNumber,
           originalOrderType: orderType,
+          returnFlow,
           customerName,
           warehouseId: r.warehouseId || null,
           warehouse: warehouseName,
@@ -138,7 +142,10 @@ export default function ReturnsPage() {
       returnItem.id.toLowerCase().includes(query);
     const matchesStatus =
       statusFilter === "all" || returnItem.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesFlow =
+      flowFilter === "all" ||
+      returnItem.returnFlow === flowFilter;
+    return matchesSearch && matchesStatus && matchesFlow;
   });
 
   const handleRowClick = (returnItem: ReturnDisplay) => {
@@ -181,26 +188,24 @@ export default function ReturnsPage() {
       color: "primary" as const,
     },
     {
+      label: "Inbound Returns",
+      value: returnsForWarehouse.filter((r) => r.returnFlow === "inbound").length,
+      icon: "move_to_inbox",
+      color: "info" as const,
+    },
+    {
+      label: "Outbound Returns",
+      value: returnsForWarehouse.filter((r) => r.returnFlow === "outbound").length,
+      icon: "outbox",
+      color: "success" as const,
+    },
+    {
       label: "Pending Inspection",
       value: returnsForWarehouse.filter(
         (r) => r.status === "pending" || r.status === "received"
       ).length,
       icon: "pending_actions",
       color: "warning" as const,
-    },
-    {
-      label: "Approved for Restock",
-      value: returnsForWarehouse.filter(
-        (r) => r.status === "approved" && r.resolution === "refund"
-      ).length,
-      icon: "check_circle",
-      color: "success" as const,
-    },
-    {
-      label: "Rejected",
-      value: returnsForWarehouse.filter((r) => r.status === "rejected").length,
-      icon: "cancel",
-      color: "error" as const,
     },
   ];
 
@@ -218,6 +223,28 @@ export default function ReturnsPage() {
         >
           {returnItem.returnNumber}
         </button>
+      ),
+      sortable: true,
+    },
+    {
+      key: "returnFlow",
+      label: "Flow",
+      render: (returnItem: ReturnDisplay) => (
+        <span
+          className={`badge ${
+            returnItem.returnFlow === "inbound"
+              ? "badge-info"
+              : returnItem.returnFlow === "outbound"
+                ? "badge-secondary"
+                : "badge-outline"
+          }`}
+        >
+          {returnItem.returnFlow === "inbound"
+            ? "Inbound"
+            : returnItem.returnFlow === "outbound"
+              ? "Outbound"
+              : "Unknown"}
+        </span>
       ),
       sortable: true,
     },
@@ -442,6 +469,27 @@ export default function ReturnsPage() {
 
       {/* Summary Cards */}
       <SummaryCards cards={summaryCards} columns={4} />
+
+      <div className="flex gap-2">
+        <button
+          className={`btn btn-sm ${flowFilter === "all" ? "btn-primary" : "btn-outline"}`}
+          onClick={() => setFlowFilter("all")}
+        >
+          All
+        </button>
+        <button
+          className={`btn btn-sm ${flowFilter === "inbound" ? "btn-primary" : "btn-outline"}`}
+          onClick={() => setFlowFilter("inbound")}
+        >
+          Inbound
+        </button>
+        <button
+          className={`btn btn-sm ${flowFilter === "outbound" ? "btn-primary" : "btn-outline"}`}
+          onClick={() => setFlowFilter("outbound")}
+        >
+          Outbound
+        </button>
+      </div>
 
       {/* Returns Table */}
       <DataTable
