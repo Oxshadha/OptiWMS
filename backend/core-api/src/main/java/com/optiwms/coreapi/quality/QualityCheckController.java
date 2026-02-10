@@ -25,11 +25,14 @@ public class QualityCheckController {
     @GetMapping
     public ResponseEntity<List<QualityCheckDto>> listAll(
             @RequestParam(required = false) String grnId,
+            @RequestParam(required = false) String orderId,
             @RequestParam(required = false) String materialId
     ) {
         List<QualityCheck> checks;
         if (grnId != null) {
             checks = service.findByGrnId(UUID.fromString(grnId));
+        } else if (orderId != null) {
+            checks = service.findByOrderId(UUID.fromString(orderId));
         } else if (materialId != null) {
             checks = service.findByMaterialId(UUID.fromString(materialId));
         } else {

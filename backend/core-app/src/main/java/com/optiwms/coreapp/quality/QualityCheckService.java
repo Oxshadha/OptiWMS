@@ -2,6 +2,7 @@ package com.optiwms.coreapp.quality;
 
 import com.optiwms.coreapp.operations.PutawayTaskService;
 import com.optiwms.coreapp.operations.ReturnService;
+import com.optiwms.coreapp.operations.GrnService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.quality.QualityCheck;
 import com.optiwms.domain.operations.ReturnRecord;
@@ -24,16 +25,19 @@ public class QualityCheckService {
     private final OrderService orderService;
     private final PutawayTaskService putawayTaskService;
     private final ReturnService returnService;
+    private final GrnService grnService;
 
     public QualityCheckService(
             QualityCheckRepository repository,
             OrderService orderService,
             PutawayTaskService putawayTaskService,
-            ReturnService returnService) {
+            ReturnService returnService,
+            GrnService grnService) {
         this.repository = repository;
         this.orderService = orderService;
         this.putawayTaskService = putawayTaskService;
         this.returnService = returnService;
+        this.grnService = grnService;
     }
 
     public List<QualityCheck> listAll() {
@@ -44,6 +48,13 @@ public class QualityCheckService {
 
     public List<QualityCheck> findByGrnId(UUID grnId) {
         return repository.findByGrnId(grnId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<QualityCheck> findByOrderId(UUID orderId) {
+        return grnService.findByOrderId(orderId).stream()
+                .flatMap(grn -> repository.findByGrnId(grn.getId()).stream())
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -95,15 +106,20 @@ public class QualityCheckService {
         entity = repository.save(entity);
 
         if (entity.getGrnId() != null) {
-            UUID orderId = entity.getGrnId();
-            List<QualityCheckEntity> allChecks = repository.findByGrnId(orderId);
+            UUID grnId = entity.getGrnId();
+            List<QualityCheckEntity> allChecks = repository.findByGrnId(grnId);
             boolean allApproved = !allChecks.isEmpty()
                     && allChecks.stream().allMatch(check -> "APPROVED".equalsIgnoreCase(check.getApprovalStatus()));
 
             if (allApproved) {
+                UUID orderId = grnService.findById(grnId).getPoId();
+                if (orderId == null) {
+                    return toDomain(entity);
+                }
                 var order = orderService.findById(orderId);
                 orderService.updateStatus(orderId, "quality_approved");
                 putawayTaskService.createPutawayTasksForReceivedOrder(orderId, order.getWarehouseId());
+                grnService.updateStatus(grnId, "COMPLETED");
             }
         }
 
@@ -121,7 +137,11 @@ public class QualityCheckService {
         entity = repository.save(entity);
 
         if (entity.getGrnId() != null) {
-            UUID orderId = entity.getGrnId();
+            UUID grnId = entity.getGrnId();
+            UUID orderId = grnService.findById(grnId).getPoId();
+            if (orderId == null) {
+                return toDomain(entity);
+            }
             var order = orderService.findById(orderId);
             orderService.updateStatus(orderId, "quality_rejected");
 
@@ -150,6 +170,7 @@ public class QualityCheckService {
             }
 
             orderService.updateStatus(orderId, "return_initiated");
+            grnService.updateStatus(grnId, "REJECTED");
         }
 
         return toDomain(entity);

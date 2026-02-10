@@ -32,6 +32,7 @@ public class ReceivingService {
     private final WarehouseService warehouseService;
     private final PutawayTaskService putawayTaskService;
     private final QualityCheckService qualityCheckService;
+    private final GrnService grnService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -40,7 +41,8 @@ public class ReceivingService {
                            MaterialService materialService,
                            WarehouseService warehouseService,
                            PutawayTaskService putawayTaskService,
-                           QualityCheckService qualityCheckService) {
+                           QualityCheckService qualityCheckService,
+                           GrnService grnService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -49,6 +51,7 @@ public class ReceivingService {
         this.warehouseService = warehouseService;
         this.putawayTaskService = putawayTaskService;
         this.qualityCheckService = qualityCheckService;
+        this.grnService = grnService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -105,8 +108,9 @@ public class ReceivingService {
             orderService.updateWorkerRecord(order.getId(), workerId, "received");
         }
 
-        // Create quality checks for received items. Putaway is gated by quality approval.
-        createPendingQualityChecks(order.getId(), receivedItems, workerId);
+        // Create/find GRN for this inbound receipt and attach quality checks to GRN.
+        UUID grnId = grnService.getOrCreateForOrder(order, workerId, notes);
+        createPendingQualityChecks(grnId, receivedItems, workerId);
 
         // Move fully received orders into quality queue.
         Order refreshedOrder = orderService.findById(order.getId());
@@ -212,14 +216,14 @@ public class ReceivingService {
         return new ReceivingResult(true, "Items received successfully (blind receive)", orderId);
     }
 
-    private void createPendingQualityChecks(UUID orderId, List<ReceivedItem> receivedItems, UUID checkedBy) {
+    private void createPendingQualityChecks(UUID grnId, List<ReceivedItem> receivedItems, UUID checkedBy) {
         for (ReceivedItem receivedItem : receivedItems) {
             if (receivedItem.quantity() == null || receivedItem.quantity().compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
 
             QualityCheck qualityCheck = new QualityCheck();
-            qualityCheck.setGrnId(orderId);
+            qualityCheck.setGrnId(grnId);
             qualityCheck.setMaterialId(receivedItem.materialId());
             qualityCheck.setQtyReceived(receivedItem.quantity());
             qualityCheck.setQtyPassed(BigDecimal.ZERO);
@@ -275,13 +279,27 @@ public class ReceivingService {
             inventoryItem = existing.get(0);
         }
 
-        inventoryItem.setLocationCode(locationCode != null ? locationCode : inventoryItem.getLocationCode());
+        String normalizedLocation = normalizeLocationCode(locationCode);
+        if (normalizedLocation != null) {
+            inventoryItem.setLocationCode(normalizedLocation);
+        } else if (existing.isEmpty()) {
+            // Keep new inventory rows nullable when receiving has no confirmed location yet.
+            inventoryItem.setLocationCode(null);
+        }
         Integer newQuantity = (inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0) + qtyInteger;
         inventoryItem.setQuantity(newQuantity);
         inventoryItem.setAvailableQuantity(newQuantity);
         inventoryItem.setStatus("active");
 
         inventoryService.createOrUpdate(inventoryItem);
+    }
+
+    private String normalizeLocationCode(String locationCode) {
+        if (locationCode == null) {
+            return null;
+        }
+        String trimmed = locationCode.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     public record ReceivedItem(UUID materialId, BigDecimal quantity, String locationCode) {}
