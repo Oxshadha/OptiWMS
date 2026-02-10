@@ -11,13 +11,14 @@ import { orderItemsApi, OrderItem } from "@/lib/api/orderItems";
 import { materialsApi } from "@/lib/api/materials";
 import { useWorker } from "@/contexts/WorkerContext";
 import { authApi } from "@/lib/api/auth";
-import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { logger } from "@/lib/utils/logger";
+import { ReceivingItemCard } from "./components/ReceivingItemCard";
+import { ReceivingQuickActions } from "./components/ReceivingQuickActions";
 
 export default function ReceivingPage() {
   const { worker } = useWorker();
   const [scannedValue, setScannedValue] = useState("");
-  const [receivedQty, setReceivedQty] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
   const [blindMode, setBlindMode] = useState(false);
   const [loadingPreference, setLoadingPreference] = useState(true);
@@ -32,7 +33,6 @@ export default function ReceivingPage() {
   }>>([]);
   const [orderDetails, setOrderDetails] = useState<any>(null);
   const [loadingOrder, setLoadingOrder] = useState(false);
-  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [notes, setNotes] = useState<string>("");
@@ -143,10 +143,8 @@ export default function ReceivingPage() {
             }]);
           } else {
             showToast.error("Order found but has no items. Enable Blind Receiving Mode to receive unknown items.");
-            setItems([]);
+          setItems([]);
           }
-          setSelectedItemIndex(0);
-          setReceivedQty(0);
           return;
         }
         
@@ -184,8 +182,6 @@ export default function ReceivingPage() {
         );
         
         setItems(itemsWithDetails);
-        setSelectedItemIndex(0);
-        setReceivedQty(0);
       } catch (error: any) {
         logger.error("[Receiving] Failed to load order details:", error);
         const errorMessage = error?.message || "Failed to load order. Please check the PO/ASN number.";
@@ -236,7 +232,6 @@ export default function ReceivingPage() {
       };
       return updated;
     });
-    setReceivedQty(Math.max(0, quantity));
   };
 
   const handleConfirm = async () => {
@@ -386,10 +381,8 @@ export default function ReceivingPage() {
 
       // Reset form after successful receipt
       setScannedValue("");
-      setReceivedQty(0);
       setItems([]);
       setOrderDetails(null);
-      setSelectedItemIndex(0);
       setNotes("");
       setPhotos([]);
     } catch (error: any) {
@@ -456,200 +449,91 @@ export default function ReceivingPage() {
       {/* Item Details */}
       {items.length > 0 ? (
         items.map((item, index) => (
-          <div key={item.id || index} className="bg-base-100 rounded-xl p-4 border border-base-300 space-y-4">
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="font-bold text-lg text-base-content mb-1">
-                  {item.name || "Unknown Item"}
-                </div>
-                {item.sku && item.sku !== "N/A" && !isUUID(item.sku) ? (
-                  <div className="text-sm text-base-content/60">
-                    <span className="font-mono font-semibold text-primary">SKU: {item.sku}</span>
-                    {item.name && item.name !== item.sku && item.name !== "Unknown Item" && item.name !== "Material details not available" && (
-                      <span className="ml-2 text-base-content/40">• {item.name}</span>
-                    )}
-                  </div>
-                ) : !item.materialId || item.materialId === "" ? (
-                  <div className="text-sm text-warning">
-                    SKU: Not set - Please enter Material Code
-                  </div>
-                ) : (
-                  <div className="text-sm text-base-content/60">
-                    <span className="font-mono font-semibold text-primary">SKU: {item.sku || "N/A"}</span>
-                  </div>
-                )}
-              </div>
-              {!blindMode && (
-                <div className="text-right">
-                  <div className="text-xs text-base-content/60">Expected</div>
-                  <div className="font-bold text-base-content">{item.expected}</div>
-                </div>
-              )}
-            </div>
+          <ReceivingItemCard
+            key={item.id || index}
+            item={item}
+            index={index}
+            blindMode={blindMode}
+            onChangeQty={updateItemQuantity}
+            onBlindSkuChange={(itemIndex, value) => {
+              setItems((prev) => {
+                const updated = [...prev];
+                updated[itemIndex] = {
+                  ...updated[itemIndex],
+                  sku: value,
+                };
+                return updated;
+              });
 
-            {/* Quantity Control */}
-            <div className="bg-base-200 rounded-lg p-4">
-              <div className="text-sm text-base-content/60 mb-3">Received Quantity</div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => updateItemQuantity(index, item.received - 1)}
-                  className="btn btn-circle btn-outline btn-sm"
-                >
-                  <span className="material-symbols-outlined">remove</span>
-                </button>
-                <div className="flex-1 text-center">
-                  <input
-                    type="number"
-                    className={`input input-bordered w-full text-center text-2xl font-bold ${
-                      !blindMode && item.received > item.expected ? "input-warning" : ""
-                    }`}
-                    value={item.received}
-                    onChange={(e) => {
-                      const qty = Math.max(0, parseInt(e.target.value) || 0);
-                      updateItemQuantity(index, qty);
-                    }}
-                    min="0"
-                    required
-                  />
-                </div>
-                <button
-                  onClick={() => updateItemQuantity(index, item.received + 1)}
-                  className="btn btn-circle btn-outline btn-sm"
-                >
-                  <span className="material-symbols-outlined">add</span>
-                </button>
-              </div>
-              {!blindMode && (
-                <div className="text-center mt-3">
-                  <div className={`text-xs ${
-                    item.expected - item.received > 0
-                      ? "text-base-content/60"
-                      : item.received > item.expected
-                      ? "text-warning font-semibold"
-                      : "text-success font-semibold"
-                  }`}>
-                    {item.expected - item.received > 0
-                      ? `${item.expected - item.received} remaining`
-                      : item.received > item.expected
-                      ? `${item.received - item.expected} over expected`
-                      : "Complete"}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* SKU Input for Blind Mode */}
-            {blindMode && (!item.materialId || item.materialId === "") && (
-              <div className="bg-warning/10 border border-warning/20 rounded-lg p-3">
-                <label className="label">
-                  <span className="label-text text-sm font-semibold">SKU / Material Code *</span>
-                  <span className="label-text-alt text-xs text-base-content/60">
-                    Enter code like: 100036, MAT-12345, or PROD-001
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  className="input input-bordered w-full font-mono"
-                  placeholder="Enter Material Code (e.g., 100036)"
-                  value={item.sku || ""}
-                  onChange={async (e) => {
-                    const newValue = e.target.value;
-                    // Update SKU immediately for display
-                    setItems(prev => {
+              const trimmedValue = value.trim();
+              if (trimmedValue.length >= 1) {
+                setTimeout(async () => {
+                  try {
+                    logger.debug(`[Receiving] Looking up material code: ${trimmedValue}`);
+                    const material = await materialsApi.getByCode(trimmedValue);
+                    const display = formatMaterialDisplay(
+                      material.materialCode,
+                      material.description,
+                      material.id
+                    );
+                    setItems((prev) => {
                       const updated = [...prev];
-                      updated[index] = {
-                        ...updated[index],
-                        sku: newValue,
-                        // Don't set materialId yet - will lookup when user finishes typing
+                      updated[itemIndex] = {
+                        ...updated[itemIndex],
+                        sku: display.sku,
+                        materialId: material.id,
+                        name: display.name,
                       };
                       return updated;
                     });
-
-                    // Lookup material by code when user stops typing (debounced)
-                    // Use debounce to avoid too many API calls
-                    const trimmedValue = newValue.trim();
-                    if (trimmedValue.length >= 1) {
-                      // Clear any existing timeout
-                      const timeoutId = setTimeout(async () => {
-                        try {
-                          logger.debug(`[Receiving] Looking up material code: ${trimmedValue}`);
-                          const material = await materialsApi.getByCode(trimmedValue);
-                          logger.debug(`[Receiving] Material found:`, material);
-                          // Found material - set the UUID
-                          const display = formatMaterialDisplay(
-                            material.materialCode,
-                            material.description,
-                            material.id
-                          );
-                          setItems(prev => {
-                            const updated = [...prev];
-                            updated[index] = {
-                              ...updated[index],
-                              sku: display.sku,
-                              materialId: material.id,
-                              name: display.name,
-                            };
-                            return updated;
-                          });
-                          showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
-                        } catch (err: any) {
-                          // Material not found - that's OK for blind receiving
-                          logger.error(`[Receiving] Material lookup failed for code: ${trimmedValue}`, err);
-                          // Only show error if user has typed a reasonable length code
-                          if (trimmedValue.length >= 3) {
-                            // Don't show toast on every keystroke, only log
-                            logger.warn(`[Receiving] Material not found for: ${trimmedValue}. Error:`, err?.message || err);
-                          }
-                        }
-                      }, 500); // 500ms debounce
-                      
-                      // Store timeout ID to clear if needed (would need ref management for production)
+                    showToast.success(
+                      `Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ""}`
+                    );
+                  } catch (err: any) {
+                    logger.error(`[Receiving] Material lookup failed for code: ${trimmedValue}`, err);
+                    if (trimmedValue.length >= 3) {
+                      logger.warn(
+                        `[Receiving] Material not found for: ${trimmedValue}. Error:`,
+                        err?.message || err
+                      );
                     }
-                  }}
-                  onKeyDown={(e) => {
-                    // Prevent any interference with input
-                    e.stopPropagation();
-                  }}
-                  onBlur={async (e) => {
-                    // Final lookup when user leaves the field
-                    const skuValue = e.target.value.trim();
-                    if (skuValue && (!item.materialId || item.materialId === "")) {
-                      try {
-                        const material = await materialsApi.getByCode(skuValue);
-                        const display = formatMaterialDisplay(
-                          material.materialCode,
-                          material.description,
-                          material.id
-                        );
-                        setItems(prev => {
-                          const updated = [...prev];
-                          updated[index] = {
-                            ...updated[index],
-                            sku: display.sku,
-                            materialId: material.id,
-                            name: display.name,
-                          };
-                          return updated;
-                        });
-                        showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
-                      } catch (err: any) {
-                        // Material not found - user will need to enter valid SKU
-                        logger.error(`Material lookup failed for: ${skuValue}`, err);
-                        showToast.error(`Material not found for code: "${skuValue}". Please check the SKU or verify it exists in Materials.`);
-                      }
-                    }
-                  }}
-                  autoComplete="off"
-                  required
-                />
-                {item.sku && !item.materialId && (
-                  <div className="text-xs text-warning mt-1">
-                    Material lookup pending... Enter a valid Material Code
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                  }
+                }, 500);
+              }
+            }}
+            onBlindSkuBlur={async (itemIndex, value) => {
+              const skuValue = value.trim();
+              const currentItem = items[itemIndex];
+              if (skuValue && currentItem && (!currentItem.materialId || currentItem.materialId === "")) {
+                try {
+                  const material = await materialsApi.getByCode(skuValue);
+                  const display = formatMaterialDisplay(
+                    material.materialCode,
+                    material.description,
+                    material.id
+                  );
+                  setItems((prev) => {
+                    const updated = [...prev];
+                    updated[itemIndex] = {
+                      ...updated[itemIndex],
+                      sku: display.sku,
+                      materialId: material.id,
+                      name: display.name,
+                    };
+                    return updated;
+                  });
+                  showToast.success(
+                    `Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ""}`
+                  );
+                } catch (err: any) {
+                  logger.error(`Material lookup failed for: ${skuValue}`, err);
+                  showToast.error(
+                    `Material not found for code: "${skuValue}". Please check the SKU or verify it exists in Materials.`
+                  );
+                }
+              }
+            }}
+          />
         ))
       ) : scannedValue && !loadingOrder ? (
         <div className="bg-base-100 rounded-xl p-4 border border-base-300 text-center">
@@ -671,50 +555,13 @@ export default function ReceivingPage() {
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <h3 className="font-bold text-base-content mb-3">Quick Actions</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <button 
-            onClick={() => setShowPhotoModal(true)}
-            className="btn btn-outline btn-sm"
-          >
-            <span className="material-symbols-outlined">photo_camera</span>
-            Take Photo
-          </button>
-          <button 
-            onClick={() => setShowNoteModal(true)}
-            className="btn btn-outline btn-sm"
-          >
-            <span className="material-symbols-outlined">note_add</span>
-            Add Note
-          </button>
-        </div>
-        {notes && (
-          <div className="mt-3 p-3 bg-base-200 rounded-lg">
-            <div className="text-xs text-base-content/60 mb-1">Note:</div>
-            <div className="text-sm text-base-content">{notes}</div>
-          </div>
-        )}
-        {photos.length > 0 && (
-          <div className="mt-3">
-            <div className="text-xs text-base-content/60 mb-2">Photos ({photos.length}):</div>
-            <div className="grid grid-cols-3 gap-2">
-              {photos.map((photo, idx) => (
-                <div key={idx} className="relative">
-                  <img src={photo} alt={`Photo ${idx + 1}`} className="w-full h-20 object-cover rounded-lg" />
-                  <button
-                    onClick={() => setPhotos(photos.filter((_, i) => i !== idx))}
-                    className="absolute top-1 right-1 btn btn-circle btn-xs btn-error"
-                  >
-                    <span className="material-symbols-outlined text-xs">close</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <ReceivingQuickActions
+        notes={notes}
+        photos={photos}
+        onOpenPhotoModal={() => setShowPhotoModal(true)}
+        onOpenNoteModal={() => setShowNoteModal(true)}
+        onRemovePhoto={(index) => setPhotos((prev) => prev.filter((_, i) => i !== index))}
+      />
 
       {/* Photo Capture Modal */}
       {showPhotoModal && (
