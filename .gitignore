@@ -150,3 +150,5 @@ Desktop.ini
 
 # Cursor
 .cursor/
+
+backend/.gradle-local/

@@ -21,6 +21,7 @@ export function CreateReturnModal({
   onSuccess: () => Promise<void>;
 }) {
   const [formData, setFormData] = useState({
+    orderType: "inbound",
     originalOrder: "",
     warehouseId: "",
     customerName: "",
@@ -36,12 +37,13 @@ export function CreateReturnModal({
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [warehousesData, ordersData] = await Promise.all([
+        const [warehousesData, inboundOrders, outboundOrders] = await Promise.all([
           warehousesApi.getAll(),
+          ordersApi.getAllInbound(),
           ordersApi.getAllOutbound(),
         ]);
         setWarehouses(warehousesData);
-        setOrders(ordersData);
+        setOrders([...inboundOrders, ...outboundOrders]);
       } catch (err) {
         logger.error("Failed to load data:", err);
       }
@@ -78,6 +80,7 @@ export function CreateReturnModal({
       await onSuccess();
       onClose();
       setFormData({
+        orderType: "inbound",
         originalOrder: "",
         warehouseId: "",
         customerName: "",
@@ -98,18 +101,45 @@ export function CreateReturnModal({
       <div className="p-6 space-y-4">
         <div className="form-control">
           <label className="label">
+            <span className="label-text font-medium">Return Flow *</span>
+          </label>
+          <select
+            className="select select-bordered w-full"
+            value={formData.orderType}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                orderType: e.target.value,
+                originalOrder: "",
+              })
+            }
+            required
+          >
+            <option value="inbound">Inbound Return</option>
+            <option value="outbound">Outbound Return</option>
+          </select>
+        </div>
+        <div className="form-control">
+          <label className="label">
             <span className="label-text font-medium">Original Order Number *</span>
           </label>
-          <input
-            type="text"
-            className="input input-bordered w-full"
-            placeholder="Enter order number"
+          <select
+            className="select select-bordered w-full"
             value={formData.originalOrder}
             onChange={(e) =>
               setFormData({ ...formData, originalOrder: e.target.value })
             }
             required
-          />
+          >
+            <option value="">Select Order</option>
+            {orders
+              .filter((order) => order.orderType === formData.orderType)
+              .map((order) => (
+                <option key={order.id} value={order.orderNumber}>
+                  {order.orderNumber}
+                </option>
+              ))}
+          </select>
         </div>
         <div className="form-control">
           <label className="label">
@@ -230,7 +260,11 @@ export function ReturnDetailModal({
             <p>
               {returnItem.originalOrderId ? (
                 <Link
-                  href={`/admin/orders/outbound/${returnItem.originalOrderId}`}
+                  href={
+                    returnItem.originalOrderType === "outbound"
+                      ? `/admin/orders/outbound/${returnItem.originalOrderId}`
+                      : `/admin/orders/inbound`
+                  }
                   className="text-primary hover:underline"
                 >
                   {returnItem.originalOrder}

@@ -4,6 +4,7 @@ export interface ReturnDisplay {
   originalOrderId: string | null;
   originalOrder: string;
   originalOrderType?: string | null;
+  returnFlow: "inbound" | "outbound" | "unknown";
   customerName: string;
   warehouseId: string | null;
   warehouse: string;
