@@ -79,6 +79,17 @@ public class StockTransferController {
         }
     }
 
+    @PutMapping("/{id}/cancel")
+    public ResponseEntity<StockTransferDto> cancel(@PathVariable UUID id, @RequestBody(required = false) CancelStockTransferRequest request) {
+        try {
+            String reason = request != null ? request.reason() : null;
+            StockTransfer transfer = service.cancel(id, reason);
+            return ResponseEntity.ok(toDto(transfer));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     private StockTransferDto toDto(StockTransfer transfer) {
         return new StockTransferDto(
                 transfer.getId().toString(),
@@ -107,6 +118,10 @@ public class StockTransferController {
             String notes
     ) {}
 
+    public record CancelStockTransferRequest(
+            String reason
+    ) {}
+
     public record StockTransferDto(
             String id,
             String transferNumber,
@@ -121,4 +136,3 @@ public class StockTransferController {
             String notes
     ) {}
 }
-

@@ -126,6 +126,44 @@ public class StockTransferService {
         return toDomain(saved);
     }
 
+    @Transactional
+    public StockTransfer cancel(UUID id, String reason) {
+        StockTransferEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + id));
+
+        String currentStatus = entity.getStatus();
+        if (!"draft".equals(currentStatus) && !"in_transit".equals(currentStatus)) {
+            throw new RuntimeException("Only draft or in-transit transfers can be canceled");
+        }
+
+        // If transfer was dispatched, restore source available inventory.
+        if ("in_transit".equals(currentStatus)) {
+            List<InventoryItem> sourceInventory = inventoryService.findByMaterialAndWarehouse(
+                    entity.getMaterialId(), entity.getSourceWarehouseId());
+
+            if (sourceInventory.isEmpty()) {
+                throw new RuntimeException("Source inventory not found for cancel operation");
+            }
+
+            InventoryItem sourceItem = sourceInventory.get(0);
+            sourceItem.setAvailableQuantity(
+                    (sourceItem.getAvailableQuantity() != null ? sourceItem.getAvailableQuantity() : 0)
+                            + entity.getQuantity()
+            );
+            inventoryService.createOrUpdate(sourceItem);
+        }
+
+        entity.setStatus("canceled");
+        if (reason != null && !reason.isBlank()) {
+            String existingNotes = entity.getNotes() != null ? entity.getNotes() : "";
+            String separator = existingNotes.isBlank() ? "" : "\n";
+            entity.setNotes(existingNotes + separator + "Cancel reason: " + reason.trim());
+        }
+
+        StockTransferEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
     private StockTransfer toDomain(StockTransferEntity entity) {
         StockTransfer transfer = new StockTransfer();
         transfer.setId(entity.getId());
@@ -146,4 +184,3 @@ public class StockTransferService {
         return transfer;
     }
 }
-
