@@ -1,11 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
 import { KpiTile } from "@/components/KpiTile";
 import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
-import { analyticsApi, DashboardKPIs, OrderChartData, TopProduct, InventoryOverview } from "@/lib/api/analytics";
+import { useDashboardData } from "./useDashboardData";
+import { logger } from "@/lib/utils/logger";
 import {
   BarChart,
   Bar,
@@ -24,122 +24,26 @@ import {
 const COLORS = ["#CF0F47", "#E5E7EB"];
 
 export default function DashboardPage() {
-  console.log("[Dashboard] Component mounted");
+  logger.debug("[Dashboard] Component mounted");
   
   const { role, admin } = useAdmin();
-  console.log("[Dashboard] Admin context:", { role, hasAdmin: !!admin });
+  logger.debug("[Dashboard] Admin context:", { role, hasAdmin: !!admin });
   
   const isWarehouseManager = role === "warehouse_manager";
   const isInboundCoordinator = role === "inbound_coordinator";
   const isAdmin = role === "admin";
 
-  const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
-  const [ordersChart, setOrdersChart] = useState<OrderChartData[]>([]);
-  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
-  const [inventoryOverview, setInventoryOverview] = useState<InventoryOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    kpis,
+    ordersChart,
+    topProducts,
+    inventoryOverview,
+    loading,
+    error,
+    reload,
+  } = useDashboardData();
   
-  console.log("[Dashboard] Initial state:", { loading, error, hasToken: !!localStorage.getItem('accessToken') });
-
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      console.log("[Dashboard] Starting data fetch...");
-      
-      // Wait a bit for auth token to be available
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Check if we have a token
-      const token = localStorage.getItem('accessToken');
-      console.log("[Dashboard] Token check:", token ? "Found" : "Not found");
-      
-      if (!token) {
-        console.error("[Dashboard] No token found, redirecting to login");
-        setError("Not authenticated. Please login.");
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        console.log("[Dashboard] Fetching dashboard data...");
-
-        // Add timeout to prevent hanging
-        const fetchWithTimeout = async <T,>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
-          const timeout = new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-          );
-          return Promise.race([promise, timeout]);
-        };
-
-        // Fetch all dashboard data in parallel with timeout
-        console.log("[Dashboard] Calling analytics APIs...");
-        const [kpisData, ordersChartData, topProductsData, inventoryData] = await Promise.all([
-          fetchWithTimeout(analyticsApi.getDashboardKPIs(undefined, "monthly")).catch(err => {
-            console.error("[Dashboard] KPIs fetch error:", err);
-            return null;
-          }),
-          fetchWithTimeout(analyticsApi.getOrdersChart("daily")).catch(err => {
-            console.error("[Dashboard] Orders chart fetch error:", err);
-            return [];
-          }),
-          fetchWithTimeout(analyticsApi.getTopProducts(4)).catch(err => {
-            console.error("[Dashboard] Top products fetch error:", err);
-            return [];
-          }),
-          fetchWithTimeout(analyticsApi.getInventoryOverview()).catch(err => {
-            console.error("[Dashboard] Inventory overview fetch error:", err);
-            return null;
-          }),
-        ]);
-
-        console.log("[Dashboard] Data fetched:", {
-          kpis: !!kpisData,
-          ordersChart: ordersChartData.length,
-          topProducts: topProductsData.length,
-          inventory: !!inventoryData,
-        });
-
-        setKpis(kpisData);
-        setOrdersChart(ordersChartData);
-        setTopProducts(topProductsData);
-        setInventoryOverview(inventoryData);
-        
-        console.log("[Dashboard] State updated successfully");
-      } catch (err) {
-        console.error("[Dashboard] Failed to fetch dashboard data:", err);
-        const errorMessage = err instanceof Error ? err.message : "Failed to load dashboard data";
-        setError(errorMessage);
-        
-        // If it's an authentication error, redirect to login
-        if (errorMessage.includes('Not authenticated') || errorMessage.includes('Session expired')) {
-          console.error("[Dashboard] Authentication error, redirecting to login");
-          window.location.href = '/admin/login';
-          return;
-        }
-      } finally {
-        console.log("[Dashboard] Setting loading to false");
-        setLoading(false);
-      }
-    };
-
-    fetchDashboardData();
-  }, []);
-
-  // Timeout fallback to prevent infinite loading
-  useEffect(() => {
-    if (loading) {
-      const timeout = setTimeout(() => {
-        console.warn("[Dashboard] Loading timeout after 15s - clearing loading state");
-        setLoading(false);
-        if (!kpis && !ordersChart.length && !topProducts.length && !inventoryOverview) {
-          setError("Dashboard data failed to load. Please check your connection and try again.");
-        }
-      }, 15000);
-      return () => clearTimeout(timeout);
-    }
-  }, [loading, kpis, ordersChart, topProducts, inventoryOverview]);
+  logger.debug("[Dashboard] Initial state:", { loading, error, hasToken: !!localStorage.getItem('accessToken') });
 
   // Transform orders chart data for display
   const ordersData = ordersChart.map(item => ({
@@ -184,9 +88,7 @@ export default function DashboardPage() {
           <button 
             className="btn btn-sm btn-outline ml-4"
             onClick={() => {
-              setLoading(true);
-              setError(null);
-              window.location.reload();
+              reload();
             }}
           >
             Retry
