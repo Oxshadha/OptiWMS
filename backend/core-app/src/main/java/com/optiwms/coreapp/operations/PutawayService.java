@@ -55,13 +55,31 @@ public class PutawayService {
         // Get material ID from task reference (if task references an order item)
         UUID actualMaterialId = materialId;
         Integer actualQuantity = quantity;
-        
+        UUID orderIdForStatusUpdate = null;
+
+        if (task.getReferenceId() != null && "order_item".equals(task.getReferenceType())) {
+            OrderItemEntity orderItem = orderItemRepository.findById(task.getReferenceId())
+                    .orElseThrow(() -> new RuntimeException("Order item not found for putaway task"));
+            orderIdForStatusUpdate = orderItem.getOrderId();
+            var order = orderService.findById(orderIdForStatusUpdate);
+            if (!"quality_approved".equals(order.getStatus()) && !"putaway_in_progress".equals(order.getStatus())) {
+                throw new RuntimeException("Order is not quality approved for putaway");
+            }
+            if (actualMaterialId == null) {
+                actualMaterialId = orderItem.getMaterialId();
+            }
+            if (actualQuantity == null || actualQuantity <= 0) {
+                actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+            }
+        }
+
         if (actualMaterialId == null && task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
             // Try to get material from order item
             List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(task.getReferenceId());
             if (!orderItems.isEmpty()) {
                 OrderItemEntity orderItem = orderItems.get(0);
                 actualMaterialId = orderItem.getMaterialId();
+                orderIdForStatusUpdate = orderItem.getOrderId();
                 // Use pickedQuantity (received quantity) for putaway, not ordered quantity
                 // pickedQuantity stores the actual received quantity for inbound orders
                 actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
@@ -97,8 +115,8 @@ public class PutawayService {
         taskService.updateStatus(taskId, "completed");
 
         // CRITICAL: Check if all items in the order are put away and update order status
-        if (task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
-            checkAndUpdateOrderStatusAfterPutaway(task.getReferenceId());
+        if (orderIdForStatusUpdate != null) {
+            checkAndUpdateOrderStatusAfterPutaway(orderIdForStatusUpdate);
         }
 
         return new PutawayResult(true, "Putaway completed successfully. Material assigned to location: " + finalLocationCode, taskId);
@@ -160,9 +178,13 @@ public class PutawayService {
         if (allPutAway) {
             // Update order status to "put_away" or "ready_for_picking"
             orderStatusService.updateStatusAfterPutaway(orderId);
+        } else {
+            com.optiwms.domain.orders.Order order = orderService.findById(orderId);
+            if ("quality_approved".equals(order.getStatus())) {
+                orderService.updateStatus(orderId, "putaway_in_progress");
+            }
         }
     }
 
     public record PutawayResult(boolean success, String message, UUID taskId) {}
 }
-

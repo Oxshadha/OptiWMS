@@ -1,12 +1,17 @@
 package com.optiwms.coreapp.quality;
 
+import com.optiwms.coreapp.operations.PutawayTaskService;
+import com.optiwms.coreapp.operations.ReturnService;
+import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.domain.operations.ReturnRecord;
 import com.optiwms.infra.quality.QualityCheckEntity;
 import com.optiwms.infra.quality.QualityCheckRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -16,9 +21,19 @@ import java.util.stream.Collectors;
 public class QualityCheckService {
 
     private final QualityCheckRepository repository;
+    private final OrderService orderService;
+    private final PutawayTaskService putawayTaskService;
+    private final ReturnService returnService;
 
-    public QualityCheckService(QualityCheckRepository repository) {
+    public QualityCheckService(
+            QualityCheckRepository repository,
+            OrderService orderService,
+            PutawayTaskService putawayTaskService,
+            ReturnService returnService) {
         this.repository = repository;
+        this.orderService = orderService;
+        this.putawayTaskService = putawayTaskService;
+        this.returnService = returnService;
     }
 
     public List<QualityCheck> listAll() {
@@ -78,6 +93,20 @@ public class QualityCheckService {
         entity.setApprovedAt(OffsetDateTime.now());
         entity.setRejectionReason(null);
         entity = repository.save(entity);
+
+        if (entity.getGrnId() != null) {
+            UUID orderId = entity.getGrnId();
+            List<QualityCheckEntity> allChecks = repository.findByGrnId(orderId);
+            boolean allApproved = !allChecks.isEmpty()
+                    && allChecks.stream().allMatch(check -> "APPROVED".equalsIgnoreCase(check.getApprovalStatus()));
+
+            if (allApproved) {
+                var order = orderService.findById(orderId);
+                orderService.updateStatus(orderId, "quality_approved");
+                putawayTaskService.createPutawayTasksForReceivedOrder(orderId, order.getWarehouseId());
+            }
+        }
+
         return toDomain(entity);
     }
 
@@ -90,6 +119,39 @@ public class QualityCheckService {
         entity.setApprovedAt(OffsetDateTime.now());
         entity.setRejectionReason(rejectionReason);
         entity = repository.save(entity);
+
+        if (entity.getGrnId() != null) {
+            UUID orderId = entity.getGrnId();
+            var order = orderService.findById(orderId);
+            orderService.updateStatus(orderId, "quality_rejected");
+
+            List<ReturnRecord> existingReturns = returnService.findByOrderId(orderId);
+            boolean hasOpenReturn = existingReturns.stream().anyMatch(ret -> {
+                String status = ret.getStatus();
+                return status == null
+                        || (!"completed".equalsIgnoreCase(status)
+                        && !"closed".equalsIgnoreCase(status)
+                        && !"cancelled".equalsIgnoreCase(status));
+            });
+
+            if (!hasOpenReturn) {
+                ReturnRecord returnRecord = new ReturnRecord();
+                returnRecord.setReturnNumber("RET-AUTO-" + System.currentTimeMillis());
+                returnRecord.setOriginalOrderId(orderId);
+                returnRecord.setCustomerId(order.getCustomerId());
+                returnRecord.setWarehouseId(order.getWarehouseId());
+                returnRecord.setReturnDate(LocalDate.now());
+                returnRecord.setReason(
+                        "Auto-created from quality rejection"
+                                + (rejectionReason != null && !rejectionReason.isBlank() ? ": " + rejectionReason : "")
+                );
+                returnRecord.setStatus("pending");
+                returnService.create(returnRecord);
+            }
+
+            orderService.updateStatus(orderId, "return_initiated");
+        }
+
         return toDomain(entity);
     }
 
