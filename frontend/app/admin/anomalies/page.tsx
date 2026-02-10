@@ -12,6 +12,7 @@ import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface AnomalyDisplay {
   id: string;
@@ -139,7 +140,7 @@ export default function AnomaliesPage() {
 
       setAnomalies(displayAnomalies);
     } catch (err) {
-      console.error("Failed to load anomalies:", err);
+      logger.error("Failed to load anomalies:", err);
       setError(err instanceof Error ? err.message : "Failed to load anomalies");
       setAnomalies([]);
       if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -528,7 +529,7 @@ function ResolveAnomalyModal({
       onClose();
       setFormData({ resolutionNotes: "", actionsTaken: "" });
     } catch (err) {
-      console.error("Failed to resolve anomaly:", err);
+      logger.error("Failed to resolve anomaly:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to resolve anomaly");
     }
   };

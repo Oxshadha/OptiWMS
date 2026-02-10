@@ -9,6 +9,7 @@ import { operationsApi } from "@/lib/api/operations";
 import { tasksApi } from "@/lib/api/tasks-api";
 import { showToast } from "@/lib/utils/toast";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 interface Pick {
   id: string;
@@ -94,11 +95,11 @@ export default function PickingPage() {
                     sku = display.sku;
                     itemName = display.name;
                   } catch (err) {
-                    console.warn("Could not fetch material details:", err);
+                    logger.warn("Could not fetch material details:", err);
                   }
                 }
               } catch (err) {
-                console.warn("Could not fetch order items:", err);
+                logger.warn("Could not fetch order items:", err);
               }
             }
             
@@ -147,7 +148,7 @@ export default function PickingPage() {
         
         setPicks(transformedPicks);
       } catch (error) {
-        console.error("Failed to load picking tasks:", error);
+        logger.error("Failed to load picking tasks:", error);
         showToast.error("Failed to load picking tasks");
         // Fallback to empty array
         setPicks([]);
@@ -177,7 +178,7 @@ export default function PickingPage() {
       const records = await getScanRecordsByTask("picking");
       setSavedPicks(records);
     } catch (error) {
-      console.error("Error loading saved picks:", error);
+      logger.error("Error loading saved picks:", error);
     }
   };
 
@@ -322,7 +323,7 @@ export default function PickingPage() {
         setSaveStatus("idle");
       }, 1500);
     } catch (error) {
-      console.error("Error saving pick:", error);
+      logger.error("Error saving pick:", error);
       setSaveStatus("error");
       showToast.error("Failed to save pick. Please try again.");
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -370,11 +371,11 @@ export default function PickingPage() {
                   sku = display.sku;
                   itemName = display.name;
                 } catch (err) {
-                  console.warn("Could not fetch material details:", err);
+                  logger.warn("Could not fetch material details:", err);
                 }
               }
             } catch (err) {
-              console.warn("Could not fetch order items:", err);
+              logger.warn("Could not fetch order items:", err);
             }
           }
           
@@ -408,7 +409,7 @@ export default function PickingPage() {
       setPicks(transformedPicks);
       showToast.success("Tasks refreshed!");
     } catch (error) {
-      console.error("Failed to refresh tasks:", error);
+      logger.error("Failed to refresh tasks:", error);
       showToast.error("Failed to refresh tasks");
     } finally {
       setIsLoading(false);

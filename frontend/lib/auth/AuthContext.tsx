@@ -13,6 +13,7 @@ import { authApi } from "@/lib/api/auth";
 import { usersApi } from "@/lib/api/users";
 import { AdminRole, isValidAdminRole } from "@/lib/admin-roles";
 import { WorkerRole, isValidWorkerRole } from "@/lib/worker-roles";
+import { logger } from "@/lib/utils/logger";
 
 export type UserRole = AdminRole | WorkerRole | null;
 
@@ -61,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'accessToken') {
-        console.log('[AuthContext] Token changed in another tab');
+        logger.debug('[AuthContext] Token changed in another tab');
         if (e.newValue) {
           loadAuthState();
         } else {
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const handleTokenChange = () => {
-      console.log('[AuthContext] Token change detected (same tab)');
+      logger.debug('[AuthContext] Token change detected (same tab)');
       loadAuthState();
     };
 
@@ -90,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       const token = authApi.getAccessToken();
       if (!token) {
-        console.log('[AuthContext] No token found');
+        logger.debug('[AuthContext] No token found');
         setUser(null);
         setIsLoading(false);
         return;
@@ -99,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Fetch current user from API
       try {
         const userInfo = await authApi.getCurrentUser();
-        console.log('[AuthContext] Fetched user info:', userInfo);
+        logger.debug('[AuthContext] Fetched user info:', userInfo);
 
         // Fetch full user details
         const fullUser = await usersApi.getById(userInfo.userId);
@@ -114,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const isWorkerRole = WORKER_ROLES.includes(normalizedRole);
 
         if (!isAdminRole && !isWorkerRole) {
-          console.warn('[AuthContext] Unknown role:', userInfo.role);
+          logger.warn('[AuthContext] Unknown role:', userInfo.role);
           setUser(null);
           setIsLoading(false);
           return;
@@ -128,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const warehouse = await warehousesApi.getById(fullUser.warehouseId);
             warehouseName = warehouse.name;
           } catch (err) {
-            console.error('[AuthContext] Error fetching warehouse:', err);
+            logger.error('[AuthContext] Error fetching warehouse:', err);
           }
         }
 
@@ -146,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setUser(authUser);
       } catch (error) {
-        console.error('[AuthContext] Error loading auth state:', error);
+        logger.error('[AuthContext] Error loading auth state:', error);
         // Token might be invalid
         if (error instanceof Error && error.message.includes('401')) {
           // Clear invalid token
@@ -155,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       }
     } catch (error) {
-      console.error('[AuthContext] Error in loadAuthState:', error);
+      logger.error('[AuthContext] Error in loadAuthState:', error);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -188,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await authApi.logout();
       setUser(null);
     } catch (error) {
-      console.error('[AuthContext] Error during logout:', error);
+      logger.error('[AuthContext] Error during logout:', error);
       // Clear state anyway
       setUser(null);
     }

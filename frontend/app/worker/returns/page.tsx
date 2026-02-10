@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
+import { logger } from "@/lib/utils/logger";
 
 export default function ReturnsPage() {
   const [selectedReturn, setSelectedReturn] = useState<any>(null);
@@ -96,7 +97,7 @@ export default function ReturnsPage() {
       };
       
       // TODO: Save to IndexedDB and sync queue
-      console.log("Processing return:", returnData);
+      logger.debug("Processing return:", returnData);
       
       // Show success message
       alert("Return processed successfully! Items have been received and will be inspected.");
@@ -106,7 +107,7 @@ export default function ReturnsPage() {
       setScannedProducts([]);
       setScannedReturnId("");
     } catch (error) {
-      console.error("Error processing return:", error);
+      logger.error("Error processing return:", error);
       alert("Error processing return. Please try again.");
     }
   };

@@ -14,6 +14,7 @@ import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
+import { logger } from "@/lib/utils/logger";
 
 interface ReturnDisplay {
   id: string;
@@ -118,7 +119,7 @@ export default function ReturnsPage() {
 
       setReturns(displayReturns);
     } catch (err) {
-      console.error("Failed to load returns:", err);
+      logger.error("Failed to load returns:", err);
       setError(err instanceof Error ? err.message : "Failed to load returns");
       setReturns([]);
       if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -347,7 +348,7 @@ export default function ReturnsPage() {
                     showToast.success(`Return ${returnItem.returnNumber} approved successfully`);
                     await loadData();
                   } catch (err) {
-                    console.error("Failed to approve return:", err);
+                    logger.error("Failed to approve return:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to approve return");
                   }
                 }
@@ -375,7 +376,7 @@ export default function ReturnsPage() {
             onClick={() => {
               // TODO: Implement print functionality
               window.print();
-              console.log("Printing return label:", returnItem.returnNumber);
+              logger.debug("Printing return label:", returnItem.returnNumber);
             }}
           >
             <span className="material-symbols-outlined text-sm">print</span>
@@ -546,7 +547,7 @@ function CreateReturnModal({
         setWarehouses(warehousesData);
         setOrders(ordersData);
       } catch (err) {
-        console.error("Failed to load data:", err);
+        logger.error("Failed to load data:", err);
       }
     };
     loadData();
@@ -591,7 +592,7 @@ function CreateReturnModal({
         notes: "",
       });
     } catch (err) {
-      console.error("Failed to create return:", err);
+      logger.error("Failed to create return:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create return");
     } finally {
       setLoading(false);
@@ -859,7 +860,7 @@ function InspectReturnModal({
       await onSuccess();
       onClose();
     } catch (err) {
-      console.error("Failed to submit inspection:", err);
+      logger.error("Failed to submit inspection:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to submit inspection");
     }
   };
@@ -1126,7 +1127,7 @@ function AssignWorkerModal({
       await onSuccess();
       onClose();
     } catch (err) {
-      console.error("Failed to assign worker:", err);
+      logger.error("Failed to assign worker:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to assign worker");
     }
   };

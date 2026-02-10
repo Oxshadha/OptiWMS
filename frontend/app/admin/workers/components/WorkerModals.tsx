@@ -18,6 +18,7 @@ import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { WorkerDisplay, statusConfig } from "../types";
+import { logger } from "@/lib/utils/logger";
 
 // Worker Detail Modal Component
 export function WorkerDetailModal({
@@ -212,7 +213,7 @@ export function CreateWorkerModal({
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData);
       } catch (err) {
-        console.error("[CreateWorkerModal] Failed to load warehouses:", err);
+        logger.error("[CreateWorkerModal] Failed to load warehouses:", err);
         const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
         setError(errorMessage);
       } finally {
@@ -275,7 +276,7 @@ export function CreateWorkerModal({
         await onSuccess();
       }
     } catch (err: any) {
-      console.error("Failed to create worker:", err);
+      logger.error("Failed to create worker:", err);
       
       // Try to extract error message from API response
       let errorMessage = "Failed to create worker. Please try again.";
@@ -295,7 +296,7 @@ export function CreateWorkerModal({
         errorMessage = err;
       }
       
-      console.error("Error details:", {
+      logger.error("Error details:", {
         message: errorMessage,
         error: err,
         formData: {
@@ -607,10 +608,10 @@ export function EditWorkerModal({
             phone: userData.phone || "",
           }));
         } catch (err) {
-          console.warn("[EditWorkerModal] Could not load user details:", err);
+          logger.warn("[EditWorkerModal] Could not load user details:", err);
         }
       } catch (err) {
-        console.error("[EditWorkerModal] Failed to load warehouses:", err);
+        logger.error("[EditWorkerModal] Failed to load warehouses:", err);
         const errorMessage = err instanceof Error ? err.message : "Failed to load warehouses. Please try again.";
         showToast.error(errorMessage);
       } finally {
@@ -647,7 +648,7 @@ export function EditWorkerModal({
       await onUpdated();
       onClose();
     } catch (err: any) {
-      console.error("[EditWorkerModal] Failed to update worker:", err);
+      logger.error("[EditWorkerModal] Failed to update worker:", err);
       const errorMessage = err?.response?.data?.message || err?.message || "Failed to update worker. Please try again.";
       showToast.error(errorMessage);
     } finally {

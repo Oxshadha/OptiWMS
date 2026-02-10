@@ -17,6 +17,7 @@ import { WorkerRole } from "@/lib/worker-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
 import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { logger } from "@/lib/utils/logger";
 
 // Display format for tasks
 interface TaskDisplay {
@@ -157,7 +158,7 @@ export default function TasksPage() {
 
       setTasks(displayTasks);
     } catch (err) {
-      console.error("Failed to load tasks:", err);
+      logger.error("Failed to load tasks:", err);
       setError("Failed to load tasks. Please try again.");
     } finally {
       setIsLoading(false);
@@ -716,13 +717,13 @@ function CreateTaskModal({
               allWorkers.push(worker);
             });
           } catch (error) {
-            console.error(`Error fetching workers with role ${role}:`, error);
+            logger.error(`Error fetching workers with role ${role}:`, error);
           }
         }
         
         setWorkers(allWorkers);
       } catch (error) {
-        console.error("Error loading workers:", error);
+        logger.error("Error loading workers:", error);
         setWorkers([]);
       } finally {
         setIsLoadingWorkers(false);
@@ -837,7 +838,7 @@ function CreateTaskModal({
       await onCreated();
       onClose();
     } catch (err) {
-      console.error("Failed to create task:", err);
+      logger.error("Failed to create task:", err);
       setValidationError("Failed to create task. Please try again.");
     } finally {
       setIsSubmitting(false);

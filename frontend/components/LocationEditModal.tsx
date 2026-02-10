@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { locationsApi, Location, UpdateLocationRequest } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface LocationEditModalProps {
   isOpen: boolean;
@@ -56,7 +57,7 @@ export function LocationEditModal({
       onSuccess?.();
       onClose();
     } catch (error) {
-      console.error("Failed to update location:", error);
+      logger.error("Failed to update location:", error);
       showToast.error("Failed to update location. Please try again.");
     } finally {
       setIsSubmitting(false);

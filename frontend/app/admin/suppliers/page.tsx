@@ -10,6 +10,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 // Display format for suppliers
 interface SupplierDisplay {
@@ -81,7 +82,7 @@ export default function SuppliersPage() {
       
       setSuppliers(displaySuppliers);
     } catch (err) {
-      console.error("Failed to load suppliers:", err);
+      logger.error("Failed to load suppliers:", err);
       setError(err instanceof Error ? err.message : "Failed to load suppliers");
       setSuppliers([]);
       showToast.error("Failed to load suppliers. Please try again.");
@@ -535,7 +536,7 @@ export default function SuppliersPage() {
               setSelectedSupplier(null);
               await loadData();
             } catch (err) {
-              console.error("Failed to delete supplier:", err);
+              logger.error("Failed to delete supplier:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete supplier");
             }
           }}
@@ -696,7 +697,7 @@ function EditSupplierModal({
       await onUpdated();
       onClose();
     } catch (err) {
-      console.error("Failed to update supplier:", err);
+      logger.error("Failed to update supplier:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update supplier");
     }
   };
@@ -923,7 +924,7 @@ function CreateSupplierModal({
         rating: "",
       });
     } catch (err) {
-      console.error("Failed to create supplier:", err);
+      logger.error("Failed to create supplier:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create supplier");
     }
   };

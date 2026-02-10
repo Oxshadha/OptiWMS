@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { logger } from "@/lib/utils/logger";
 
 export interface InventoryItem {
   id: string;
@@ -52,11 +53,11 @@ export const inventoryApi = {
       // Validate UUIDs
       const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (!uuidRegex.test(materialId)) {
-        if (isDev) console.error(`[Inventory API] Invalid materialId format`);
+        if (isDev) logger.error(`[Inventory API] Invalid materialId format`);
         throw new Error('Invalid material ID format');
       }
       if (!uuidRegex.test(warehouseId)) {
-        if (isDev) console.error(`[Inventory API] Invalid warehouseId format`);
+        if (isDev) logger.error(`[Inventory API] Invalid warehouseId format`);
         throw new Error('Invalid warehouse ID format');
       }
       
@@ -71,7 +72,7 @@ export const inventoryApi = {
     } catch (error: any) {
       // Only log errors in development, and without sensitive data
       if (isDev) {
-        console.error(`[Inventory API] Error fetching inventory:`, error?.message || 'Unknown error');
+        logger.error(`[Inventory API] Error fetching inventory:`, error?.message || 'Unknown error');
       }
       throw error;
     }
@@ -159,4 +160,3 @@ export const inventoryApi = {
     return apiClient.post<{ itemsUpdated: number; message: string }>(`/inventory/calculate/${inventoryId}`, {});
   },
 };
-

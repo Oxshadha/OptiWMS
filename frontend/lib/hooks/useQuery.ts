@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Custom React Query hooks for OptiWMS
  * Provides type-safe, cached data fetching with automatic refetch
@@ -46,16 +47,16 @@ export function useMaterials() {
   return useQuery({
     queryKey: queryKeys.materials.all,
     queryFn: async () => {
-      console.log("[useMaterials] Fetching materials from API...");
+      logger.debug("[useMaterials] Fetching materials from API...");
       try {
         const data = await materialsApi.getAll();
-        console.log("[useMaterials] Received materials:", data?.length || 0, "items");
+        logger.debug("[useMaterials] Received materials:", data?.length || 0, "items");
         if (data && data.length > 0) {
-          console.log("[useMaterials] First material:", data[0]);
+          logger.debug("[useMaterials] First material:", data[0]);
         }
         return data;
       } catch (error) {
-        console.error("[useMaterials] Error fetching materials:", error);
+        logger.error("[useMaterials] Error fetching materials:", error);
         const message = error instanceof Error ? error.message : "Unknown error";
         showToast.error(`Failed to load materials: ${message}`);
         throw error;

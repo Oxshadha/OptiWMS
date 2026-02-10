@@ -18,6 +18,7 @@ import {
 import { getFromStore, updateInStore, STORES, initDB } from "@/lib/indexeddb";
 import { authApi } from "@/lib/api/auth";
 import { usersApi } from "@/lib/api/users";
+import { logger } from "@/lib/utils/logger";
 
 export interface AdminData {
   id: string;
@@ -61,13 +62,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     const handleStorageChange = (e: StorageEvent) => {
       // Storage event only fires in OTHER tabs, not the current one
       if (e.key === 'accessToken') {
-        console.log('[AdminContext] Token changed in another tab, reloading admin data');
+        logger.debug('[AdminContext] Token changed in another tab, reloading admin data');
         if (e.newValue) {
           // New token set - reload admin data (will validate role)
           loadAdminFromStorage();
         } else {
           // Token removed - clear admin state
-          console.log('[AdminContext] Token removed in another tab, clearing admin state');
+          logger.debug('[AdminContext] Token removed in another tab, clearing admin state');
           setAdminState(null);
         }
       }
@@ -75,7 +76,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 
     // Also listen for custom events from the same tab (when login happens in current tab)
     const handleTokenChange = () => {
-      console.log('[AdminContext] Token change detected (same tab), reloading admin data');
+      logger.debug('[AdminContext] Token change detected (same tab), reloading admin data');
       loadAdminFromStorage();
     };
 
@@ -101,15 +102,15 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     if (pathname?.startsWith("/admin")) {
       if (!admin && hasToken) {
         // We have a token but no admin data - try loading from storage/API
-        console.log("[AdminContext] Has token but no admin - reloading from storage/API");
+        logger.debug("[AdminContext] Has token but no admin - reloading from storage/API");
         loadAdminFromStorage();
       } else if (!admin && !hasToken && isLoading) {
         // No token and no admin - ensure loading is false
-        console.log("[AdminContext] No token and no admin - setting loading to false");
+        logger.debug("[AdminContext] No token and no admin - setting loading to false");
         setIsLoading(false);
       } else if (admin && isLoading) {
         // We have admin but still loading - set to false
-        console.log("[AdminContext] Has admin but still loading - setting to false");
+        logger.debug("[AdminContext] Has admin but still loading - setting to false");
         setIsLoading(false);
       }
     }
@@ -117,15 +118,15 @@ export function AdminProvider({ children }: { children: ReactNode }) {
 
   const loadAdminFromStorage = async () => {
     try {
-      console.log("[AdminContext] Starting loadAdminFromStorage");
+      logger.debug("[AdminContext] Starting loadAdminFromStorage");
       
       // Check if we have a token - if yes, we're authenticated even without IndexedDB
       const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('accessToken');
-      console.log("[AdminContext] Has token:", hasToken);
+      logger.debug("[AdminContext] Has token:", hasToken);
       
       // If we have admin state already, don't reload
       if (admin) {
-        console.log("[AdminContext] Admin already in state, skipping load");
+        logger.debug("[AdminContext] Admin already in state, skipping load");
         setIsLoading(false);
         return;
       }
@@ -133,9 +134,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
       // Ensure IndexedDB is initialized
       try {
         await initDB();
-        console.log("[AdminContext] IndexedDB initialized");
+        logger.debug("[AdminContext] IndexedDB initialized");
       } catch (dbError) {
-        console.error("[AdminContext] IndexedDB init error:", dbError);
+        logger.error("[AdminContext] IndexedDB init error:", dbError);
         // Continue anyway - we can work without IndexedDB if we have a token
       }
       
@@ -145,7 +146,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           ADMIN_DATA_KEY
         );
         if (stored) {
-          console.log("[AdminContext] Loaded admin from storage:", {
+          logger.debug("[AdminContext] Loaded admin from storage:", {
             role: stored.role,
             name: stored.name,
           });
@@ -156,16 +157,16 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           return;
         }
       } catch (storeError) {
-        console.error("[AdminContext] Error reading from store:", storeError);
+        logger.error("[AdminContext] Error reading from store:", storeError);
         // Continue - IndexedDB might not be available
       }
       
       // If we have a token but no stored admin, fetch from API
       if (hasToken) {
-        console.log("[AdminContext] Has token but no stored admin - fetching from API");
+        logger.debug("[AdminContext] Has token but no stored admin - fetching from API");
         try {
           const userInfo = await authApi.getCurrentUser();
-          console.log("[AdminContext] Fetched user info from API:", userInfo);
+          logger.debug("[AdminContext] Fetched user info from API:", userInfo);
           
           // Check if user is an admin role (include inbound_coordinator)
           const adminRoles = ['admin', 'warehouse_manager', 'inbound_coordinator'];
@@ -195,7 +196,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
                 const warehouse = await warehousesApi.getById(adminData.warehouseId);
                 adminData.warehouseName = warehouse.name;
               } catch (err) {
-                console.error("[AdminContext] Error fetching warehouse:", err);
+                logger.error("[AdminContext] Error fetching warehouse:", err);
               }
             }
             
@@ -208,17 +209,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
                 ...adminData,
               });
             } catch (err) {
-              console.error("[AdminContext] Error saving to IndexedDB:", err);
+              logger.error("[AdminContext] Error saving to IndexedDB:", err);
             }
           } else {
-            console.log("[AdminContext] User is not an admin role:", userInfo.role);
-            console.log("[AdminContext] User is a worker - they should access /worker routes, not /admin routes");
+            logger.debug("[AdminContext] User is not an admin role:", userInfo.role);
+            logger.debug("[AdminContext] User is a worker - they should access /worker routes, not /admin routes");
             setAdminState(null);
             // Don't clear tokens - user is authenticated, just not an admin
             // They should be redirected to worker dashboard by the layout
           }
         } catch (apiError) {
-          console.error("[AdminContext] Error fetching user from API:", apiError);
+          logger.error("[AdminContext] Error fetching user from API:", apiError);
           // Token might be invalid - clear it
           if (typeof window !== 'undefined') {
             localStorage.removeItem('accessToken');
@@ -227,27 +228,27 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           setAdminState(null);
         }
       } else {
-        console.log("[AdminContext] No token found - not authenticated");
+        logger.debug("[AdminContext] No token found - not authenticated");
         setAdminState(null);
       }
     } catch (error) {
-      console.error("[AdminContext] Error loading admin from storage:", error);
+      logger.error("[AdminContext] Error loading admin from storage:", error);
       setAdminState(null);
     } finally {
-      console.log("[AdminContext] Setting isLoading to false");
+      logger.debug("[AdminContext] Setting isLoading to false");
       setIsLoading(false);
     }
   };
 
   const setAdmin = async (newAdmin: AdminData | null) => {
-    console.log("[AdminContext] setAdmin called:", { hasAdmin: !!newAdmin, role: newAdmin?.role });
+    logger.debug("[AdminContext] setAdmin called:", { hasAdmin: !!newAdmin, role: newAdmin?.role });
     
     // Update state immediately (don't wait for IndexedDB)
     setAdminState(newAdmin);
     
     // CRITICAL: Set loading to false when admin is set
     if (newAdmin) {
-      console.log("[AdminContext] Setting isLoading to false (admin set)");
+      logger.debug("[AdminContext] Setting isLoading to false (admin set)");
       setIsLoading(false);
     }
     
@@ -268,7 +269,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
             warehouseName: newAdmin.warehouseName,
           });
         } catch (error) {
-          console.error("Error saving admin to storage:", error);
+          logger.error("Error saving admin to storage:", error);
           // Don't block login if IndexedDB fails - data is already in context
         }
       })();
@@ -279,7 +280,7 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           const { deleteFromStore } = await import("@/lib/indexeddb");
           await deleteFromStore(STORES.ADMIN_DATA, ADMIN_DATA_KEY);
         } catch (error) {
-          console.error("Error clearing admin from storage:", error);
+          logger.error("Error clearing admin from storage:", error);
         }
       })();
     }

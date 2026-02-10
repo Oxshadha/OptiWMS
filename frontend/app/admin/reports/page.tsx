@@ -5,6 +5,7 @@ import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { reportsApi, Report } from "@/lib/api/reports";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 const reportTypes = ["All", "inbound", "outbound", "inventory", "sales", "analytics", "customer"];
 
@@ -61,7 +62,7 @@ export default function ReportsPage() {
       const data = await reportsApi.getAllReports(type);
       setReports(data);
     } catch (err) {
-      console.error("Failed to fetch reports:", err);
+      logger.error("Failed to fetch reports:", err);
       setError(err instanceof Error ? err.message : "Failed to load reports");
     } finally {
       setLoading(false);
@@ -91,7 +92,7 @@ export default function ReportsPage() {
         window.open(filePath, "_blank", "noopener,noreferrer");
       }
     } catch (err) {
-      console.error("Failed to download report:", err);
+      logger.error("Failed to download report:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to download report");
     }
   };
@@ -359,7 +360,7 @@ function ScheduleReportModal({
         email: "",
       });
     } catch (err) {
-      console.error("Failed to schedule report:", err);
+      logger.error("Failed to schedule report:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to schedule report");
     } finally {
       setSubmitting(false);
@@ -495,7 +496,7 @@ function CreateCustomReportModal({
         fields: [],
       });
     } catch (err) {
-      console.error("Failed to create custom report:", err);
+      logger.error("Failed to create custom report:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create custom report");
     } finally {
       setSubmitting(false);

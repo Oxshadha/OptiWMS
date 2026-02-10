@@ -11,6 +11,7 @@ import { showToast } from "@/lib/utils/toast";
 import { SORTED_COUNTRIES, getCountryByName } from "@/lib/utils/countries";
 import { validateEmail, validateRequired } from "@/lib/utils/form-validation";
 import { OutboundOrderDisplay } from "../types";
+import { logger } from "@/lib/utils/logger";
 
 // Multi-step Create Outbound Order Modal
 export function CreateOutboundOrderModal({ 
@@ -72,7 +73,7 @@ export function CreateOutboundOrderModal({
       } catch (err) {
         const isDev = process.env.NODE_ENV === 'development';
         if (isDev) {
-          console.error("Failed to load data:", err instanceof Error ? err.message : 'Unknown error');
+          logger.error("Failed to load data:", err instanceof Error ? err.message : 'Unknown error');
         }
       }
     };
@@ -118,7 +119,7 @@ export function CreateOutboundOrderModal({
             } catch (err) {
               const isDev = process.env.NODE_ENV === 'development';
               if (isDev) {
-                console.error("Failed to load customer:", err instanceof Error ? err.message : 'Unknown error');
+                logger.error("Failed to load customer:", err instanceof Error ? err.message : 'Unknown error');
               }
             }
           }
@@ -139,7 +140,7 @@ export function CreateOutboundOrderModal({
                 } catch (err) {
                   const isDev = process.env.NODE_ENV === 'development';
                   if (isDev) {
-                    console.error("Failed to fetch available quantity:", err instanceof Error ? err.message : 'Unknown error');
+                    logger.error("Failed to fetch available quantity:", err instanceof Error ? err.message : 'Unknown error');
                   }
                 }
               }
@@ -172,7 +173,7 @@ export function CreateOutboundOrderModal({
         } catch (err) {
           const isDev = process.env.NODE_ENV === 'development';
           if (isDev) {
-            console.error("Failed to load order data:", err instanceof Error ? err.message : 'Unknown error');
+            logger.error("Failed to load order data:", err instanceof Error ? err.message : 'Unknown error');
           }
           showToast.error("Failed to load order data");
         }
@@ -345,7 +346,7 @@ export function CreateOutboundOrderModal({
       } catch (itemError) {
         const isDev = process.env.NODE_ENV === 'development';
         if (isDev) {
-          console.error("Failed to save order items:", itemError instanceof Error ? itemError.message : 'Unknown error');
+          logger.error("Failed to save order items:", itemError instanceof Error ? itemError.message : 'Unknown error');
         }
         setError(editingOrder 
           ? "Order updated but failed to update items. Please try again."
@@ -380,7 +381,7 @@ export function CreateOutboundOrderModal({
     } catch (err) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
-        console.error("Failed to create outbound order:", err instanceof Error ? err.message : 'Unknown error');
+        logger.error("Failed to create outbound order:", err instanceof Error ? err.message : 'Unknown error');
       }
       setError("Failed to create order. Please try again.");
     } finally {
@@ -760,7 +761,7 @@ export function CreateOutboundOrderModal({
                           }
                         } catch (err: any) {
                           if (isDev) {
-                            console.error(`[Outbound Order] Failed to fetch available quantity for item ${i}`);
+                            logger.error(`[Outbound Order] Failed to fetch available quantity for item ${i}`);
                           }
                           newItems[i].availableQuantity = 0;
                         }
@@ -830,7 +831,7 @@ export function CreateOutboundOrderModal({
                   try {
                     showToast.error("Please select a warehouse before adding items");
                   } catch (toastErr) {
-                    console.error("[Outbound Order] Toast error:", toastErr);
+                    logger.error("[Outbound Order] Toast error:", toastErr);
                     alert("Please select a warehouse before adding items");
                   }
                   return;
@@ -909,7 +910,7 @@ export function CreateOutboundOrderModal({
                                 try {
                                   showToast.warning(`No available stock for this product in selected warehouse`);
                                 } catch (toastErr) {
-                                  if (isDev) console.error("[Outbound Order] Toast error");
+                                  if (isDev) logger.error("[Outbound Order] Toast error");
                                 }
                               }
                             } else {
@@ -917,19 +918,19 @@ export function CreateOutboundOrderModal({
                               try {
                                 showToast.warning(`No inventory found for this product in selected warehouse`);
                               } catch (toastErr) {
-                                if (isDev) console.error("[Outbound Order] Toast error");
+                                if (isDev) logger.error("[Outbound Order] Toast error");
                               }
                             }
                           } catch (err: any) {
                             const isDev = process.env.NODE_ENV === 'development';
                             if (isDev) {
-                              console.error("[Outbound Order] Failed to fetch available quantity:", err?.message || 'Unknown error');
+                              logger.error("[Outbound Order] Failed to fetch available quantity:", err?.message || 'Unknown error');
                             }
                             newItems[idx].availableQuantity = 0;
                             try {
                               showToast.error(`Failed to fetch available quantity. Please try again.`);
                             } catch (toastErr) {
-                              if (isDev) console.error("[Outbound Order] Toast error");
+                              if (isDev) logger.error("[Outbound Order] Toast error");
                             }
                           }
                         } else if (e.target.value && !formData.warehouseId) {
@@ -939,7 +940,7 @@ export function CreateOutboundOrderModal({
                             showToast.warning("Please select a warehouse first to see available quantity");
                           } catch (toastErr) {
                             const isDev = process.env.NODE_ENV === 'development';
-                            if (isDev) console.error("[Outbound Order] Toast error");
+                            if (isDev) logger.error("[Outbound Order] Toast error");
                           }
                         } else {
                           newItems[idx].availableQuantity = 0;

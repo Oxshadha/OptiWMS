@@ -22,6 +22,7 @@ import {
   EditWorkerModal,
   WorkerDetailModal,
 } from "./components/WorkerModals";
+import { logger } from "@/lib/utils/logger";
 
 export default function WorkersPage() {
   const { hasPermission, role, admin } = useAdmin();
@@ -108,7 +109,7 @@ export default function WorkersPage() {
         
         setWorkers(displayWorkers);
       } catch (err) {
-        console.error("Failed to load workers:", err);
+        logger.error("Failed to load workers:", err);
         setError(err instanceof Error ? err.message : "Failed to load workers");
         setWorkers([]);
         if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -506,7 +507,7 @@ export default function WorkersPage() {
               setSelectedWorker(null);
               await loadData();
             } catch (err) {
-              console.error("Failed to delete worker:", err);
+              logger.error("Failed to delete worker:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete worker");
             }
           }}

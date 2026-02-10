@@ -1,4 +1,4 @@
-import { logger } from '@/lib/utils/logger';
+import { logger } from "@/lib/utils/logger";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 

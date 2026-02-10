@@ -7,6 +7,7 @@ import { useWorker } from "@/contexts/WorkerContext";
 import { useOffline } from "@/hooks/useOffline";
 import { showToast } from "@/lib/utils/toast";
 import { QRScanner } from "@/components/QRScanner";
+import { logger } from "@/lib/utils/logger";
 
 const priorityColors = {
   high: "bg-error/10 text-error border-error/20",
@@ -48,7 +49,7 @@ export default function WorkerTasksPage() {
         );
         setTasks(activeTasks);
       } catch (error) {
-        console.error("Failed to load tasks:", error);
+        logger.error("Failed to load tasks:", error);
         showToast.error("Failed to load tasks");
       } finally {
         setLoading(false);
@@ -117,7 +118,7 @@ export default function WorkerTasksPage() {
         setTasks(activeTasks);
         showToast.success("Tasks refreshed");
       } catch (error) {
-        console.error("Failed to refresh tasks:", error);
+        logger.error("Failed to refresh tasks:", error);
         showToast.error("Failed to refresh tasks");
       } finally {
         setLoading(false);

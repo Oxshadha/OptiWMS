@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Convert Location API data to WarehouseLayout format
  * SIMPLIFIED: Only shows STORAGE locations (receiving, packing, shipping areas are hidden)
@@ -187,7 +188,7 @@ export async function convertLocationHierarchyToLayout(
       }
     });
   } catch (error) {
-    console.error('Failed to fetch materials for SKU mapping:', error);
+    logger.error('Failed to fetch materials for SKU mapping:', error);
   }
   
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();
@@ -286,7 +287,7 @@ export async function convertLocationsToLayout(
       }
     });
   } catch (error) {
-    console.error('Failed to fetch materials for SKU mapping:', error);
+    logger.error('Failed to fetch materials for SKU mapping:', error);
   }
   
   const inventoryMap = new Map<string, { quantity: number; sku: string }>();

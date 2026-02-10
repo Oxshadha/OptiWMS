@@ -12,6 +12,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { packingApi } from "@/lib/api/packing";
 import { showToast } from "@/lib/utils/toast";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 interface OrderItem {
   id: string;
@@ -92,7 +93,7 @@ export default function PackingPage() {
                   const customer = await customersApi.getById(apiOrder.customerId);
                   customerName = customer.name || customer.code || "Unknown";
                 } catch (error) {
-                  console.error(`Error fetching customer ${apiOrder.customerId}:`, error);
+                  logger.error(`Error fetching customer ${apiOrder.customerId}:`, error);
                 }
               }
 
@@ -119,7 +120,7 @@ export default function PackingPage() {
                         verified: false,
                       };
                     } catch (error) {
-                      console.error(`Error fetching material ${item.materialId}:`, error);
+                      logger.error(`Error fetching material ${item.materialId}:`, error);
                       // Don't show UUID, show user-friendly message
                       return {
                         id: item.id,
@@ -133,7 +134,7 @@ export default function PackingPage() {
                   })
                 );
               } catch (error) {
-                console.error(`Error fetching order items for ${apiOrder.id}:`, error);
+                logger.error(`Error fetching order items for ${apiOrder.id}:`, error);
                 // Fallback to empty items
                 items = [];
               }
@@ -147,7 +148,7 @@ export default function PackingPage() {
                 items,
               };
             } catch (error) {
-              console.error(`Error processing order ${apiOrder.id}:`, error);
+              logger.error(`Error processing order ${apiOrder.id}:`, error);
               return null;
             }
           })
@@ -157,7 +158,7 @@ export default function PackingPage() {
         const validOrders = ordersWithDetails.filter((o): o is NonNullable<typeof o> => o !== null);
         setOrders(validOrders);
       } catch (error) {
-        console.error("Error loading orders:", error);
+        logger.error("Error loading orders:", error);
         setOrders([]);
       } finally {
         setLoading(false);

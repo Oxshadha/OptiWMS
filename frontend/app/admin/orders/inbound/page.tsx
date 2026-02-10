@@ -13,6 +13,7 @@ import { orderItemsApi } from "@/lib/api/orderItems";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
+import { logger } from "@/lib/utils/logger";
 
 // Display format for inbound orders
 interface InboundOrderDisplay {
@@ -85,7 +86,7 @@ export default function InboundOrdersPage() {
               receivedItems,
             };
           } catch (err) {
-            console.warn(`Failed to load items for order ${order.orderNumber}:`, err);
+            logger.warn(`Failed to load items for order ${order.orderNumber}:`, err);
             return {
               order,
               totalItems: 0,
@@ -119,7 +120,7 @@ export default function InboundOrdersPage() {
 
       setOrders(displayOrders);
     } catch (err) {
-      console.error("Failed to load inbound orders:", err);
+      logger.error("Failed to load inbound orders:", err);
       setError("Failed to load inbound orders. Please try again.");
     } finally {
       setIsLoading(false);
@@ -413,7 +414,7 @@ export default function InboundOrdersPage() {
                                       showToast.success("Order cancelled successfully");
                                       await loadData();
                                     } catch (err) {
-                                      console.error("Failed to cancel order:", err);
+                                      logger.error("Failed to cancel order:", err);
                                       showToast.error("Failed to cancel order. Please try again.");
                                     }
                                   }
@@ -577,7 +578,7 @@ function EditInboundOrderModal({
       await onSaved();
       onClose();
     } catch (error) {
-      console.error("Failed to update order:", error);
+      logger.error("Failed to update order:", error);
       showToast.error("Failed to update order. Please try again.");
     } finally {
       setIsSubmitting(false);
@@ -674,7 +675,7 @@ function CreateInboundOrderModal({
         setWarehouses(warehousesData);
         setMaterials(materialsData);
       } catch (err) {
-        console.error("Failed to load data:", err);
+        logger.error("Failed to load data:", err);
       }
     };
     loadData();
@@ -742,7 +743,7 @@ function CreateInboundOrderModal({
           )
         );
       } catch (itemError) {
-        console.error("Failed to create order items:", itemError);
+        logger.error("Failed to create order items:", itemError);
         setError("Order created but failed to add items. Please edit the order to add items.");
         // Don't return - order was created, just show warning
       }
@@ -751,7 +752,7 @@ function CreateInboundOrderModal({
       await onSaved();
       onClose();
     } catch (err) {
-      console.error("Failed to create inbound order:", err);
+      logger.error("Failed to create inbound order:", err);
       setError("Failed to create order. Please try again.");
     } finally {
       setIsSubmitting(false);

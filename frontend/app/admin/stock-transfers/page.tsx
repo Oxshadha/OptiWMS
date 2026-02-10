@@ -7,6 +7,7 @@ import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -108,7 +109,7 @@ export default function StockTransfersPage() {
 
       setTransfers(displayTransfers);
     } catch (err) {
-      console.error("Failed to load stock transfers:", err);
+      logger.error("Failed to load stock transfers:", err);
       setError(err instanceof Error ? err.message : "Failed to load stock transfers");
     } finally {
       setLoading(false);
@@ -175,7 +176,7 @@ export default function StockTransfersPage() {
         showToast.success("Transfer cancelled successfully");
         await loadData();
       } catch (err) {
-        console.error("Failed to cancel transfer:", err);
+        logger.error("Failed to cancel transfer:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to cancel transfer");
       }
     }

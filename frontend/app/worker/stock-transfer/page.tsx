@@ -7,6 +7,7 @@ import { LocationPicker } from "@/components/LocationPicker";
 import { QRScanner } from "@/components/QRScanner";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { operationsApi } from "@/lib/api/operations";
+import { logger } from "@/lib/utils/logger";
 
 type TransferType = "intra_warehouse" | "inter_warehouse";
 type TransferStatus = "draft" | "in_transit" | "received" | "cancelled";
@@ -57,7 +58,7 @@ export default function StockTransferPage() {
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData.map(wh => ({ id: wh.id, name: wh.name })));
       } catch (error) {
-        console.error("Error loading warehouses:", error);
+        logger.error("Error loading warehouses:", error);
         setWarehouses([]);
       } finally {
         setLoading(false);

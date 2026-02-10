@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal } from "./Modal";
 import { AIServiceId } from "@/lib/ai-services/registry";
 import { aiFeedbackAPI } from "@/lib/ai-services/client";
+import { logger } from "@/lib/utils/logger";
 
 interface AIFeedbackModalProps {
   isOpen: boolean;
@@ -60,7 +61,7 @@ export function AIFeedbackModal({
       onFeedbackSubmitted?.();
       handleClose();
     } catch (error) {
-      console.error("Error submitting feedback:", error);
+      logger.error("Error submitting feedback:", error);
       alert("Error submitting feedback. Please try again.");
     } finally {
       setIsSubmitting(false);
