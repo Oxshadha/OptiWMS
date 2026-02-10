@@ -6,6 +6,10 @@ import org.springframework.stereotype.Component;
 /**
  * Creates default admin user if no users exist in the system
  * This allows initial login when the system is first set up
+ *
+ * PRODUCTION NOTE:
+ * - This component should be disabled for production deployments.
+ * - Default credentials are for local/dev bootstrap only.
  */
 @Component
 public class DefaultUserSeeder implements CommandLineRunner {
@@ -22,4 +26,3 @@ public class DefaultUserSeeder implements CommandLineRunner {
         userSeederService.ensureDefaultAdminExists();
     }
 }
-

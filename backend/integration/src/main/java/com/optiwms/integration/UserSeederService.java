@@ -13,6 +13,11 @@ import java.util.UUID;
 /**
  * Service to ensure default admin user exists
  * Can be called manually or on application startup
+ *
+ * PRODUCTION NOTE:
+ * - Hardcoded bootstrap credentials are development-only.
+ * - In production, disable default-user seeding and provision users through
+ *   secure admin onboarding/identity management.
  */
 @Service
 public class UserSeederService {
@@ -27,6 +32,7 @@ public class UserSeederService {
 
     @Transactional
     public void ensureDefaultAdminExists() {
+        // DEV/TEST bootstrap account. Do not rely on this in production.
         // Check if admin user exists by username or email
         Optional<UserEntity> existingAdmin = userRepository.findByUsername("admin");
         if (existingAdmin.isEmpty()) {
@@ -34,7 +40,7 @@ public class UserSeederService {
         }
 
         if (existingAdmin.isEmpty()) {
-            System.out.println("Creating default admin user...");
+            System.out.println("Creating default admin user (development bootstrap)...");
             
             UserEntity admin = new UserEntity();
             admin.setId(UUID.randomUUID());
@@ -49,7 +55,7 @@ public class UserSeederService {
             admin.setUpdatedAt(OffsetDateTime.now());
             
             userRepository.save(admin);
-            System.out.println("Default admin user created:");
+            System.out.println("Default admin user created (dev/test only):");
             System.out.println("   Email: admin@optiwms.com");
             System.out.println("   Password: admin123");
         } else {
@@ -59,4 +65,3 @@ public class UserSeederService {
         }
     }
 }
-
