@@ -51,13 +51,16 @@ export default function ReturnsPage() {
         returnsApi.getAll(),
         warehousesApi.getAll(),
         customersApi.getAll(),
-        ordersApi.getAllOutbound(),
+        ordersApi.getAll(),
       ]);
 
       // Build maps
       const warehousesMap = buildLookupMap(warehousesData, (wh) => wh.id, (wh) => wh.name);
       const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
-      const ordersMap = buildLookupMap(ordersData, (o) => o.id, (o) => o.orderNumber);
+      const ordersMap = buildLookupMap(ordersData, (o) => o.id, (o) => ({
+        orderNumber: o.orderNumber,
+        orderType: o.orderType,
+      }));
 
       // Transform API data to display format
       const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
@@ -67,15 +70,18 @@ export default function ReturnsPage() {
         const customerName = r.customerId
           ? getLookupValue(customersMap, r.customerId, "Unknown")
           : "Unknown";
-        const orderNumber = r.originalOrderId
-          ? getLookupValue(ordersMap, r.originalOrderId, r.originalOrderId)
-          : "N/A";
+        const orderInfo = r.originalOrderId
+          ? getLookupValue(ordersMap, r.originalOrderId, null)
+          : null;
+        const orderNumber = orderInfo?.orderNumber || r.originalOrderId || "N/A";
+        const orderType = orderInfo?.orderType || null;
 
         return {
           id: r.id,
           returnNumber: r.returnNumber,
           originalOrderId: r.originalOrderId || null,
           originalOrder: orderNumber,
+          originalOrderType: orderType,
           customerName,
           warehouseId: r.warehouseId || null,
           warehouse: warehouseName,
@@ -221,7 +227,11 @@ export default function ReturnsPage() {
       render: (returnItem: ReturnDisplay) => (
         returnItem.originalOrderId ? (
           <Link
-            href={`/admin/orders/outbound/${returnItem.originalOrderId}`}
+            href={
+              returnItem.originalOrderType === "outbound"
+                ? `/admin/orders/outbound/${returnItem.originalOrderId}`
+                : `/admin/orders/inbound`
+            }
             className="text-primary hover:underline"
           >
             {returnItem.originalOrder}
@@ -487,4 +497,3 @@ export default function ReturnsPage() {
     </div>
   );
 }
-

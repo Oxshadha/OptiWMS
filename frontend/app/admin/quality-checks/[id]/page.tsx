@@ -45,11 +45,16 @@ function toDisplayCheck(
   const qtyChecked = parseInt(check.qtyReceived || "0", 10) || 0;
   const qtyPassed = parseInt(check.qtyPassed || "0", 10) || 0;
   const qtyFailed = parseInt(check.qtyRejected || "0", 10) || 0;
+  const approvalStatus = (check.approvalStatus || "").toUpperCase();
 
   let result: "passed" | "failed" | "partial" = "partial";
-  if (qtyFailed === 0) {
+  if (approvalStatus === "APPROVED") {
     result = "passed";
-  } else if (qtyPassed === 0) {
+  } else if (approvalStatus === "REJECTED") {
+    result = "failed";
+  } else if (qtyFailed === 0 && qtyPassed > 0) {
+    result = "passed";
+  } else if (qtyPassed === 0 && qtyFailed > 0) {
     result = "failed";
   }
 
