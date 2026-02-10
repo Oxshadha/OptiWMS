@@ -68,11 +68,16 @@ export default function QualityChecksPage() {
         const qtyReceived = parseInt(qualityCheck.qtyReceived) || 0;
         const qtyPassed = parseInt(qualityCheck.qtyPassed) || 0;
         const qtyRejected = parseInt(qualityCheck.qtyRejected) || 0;
+        const approvalStatus = (qualityCheck.approvalStatus || "").toUpperCase();
 
         let result: QualityCheckDisplay["result"] = "partial";
-        if (qtyRejected === 0) {
+        if (approvalStatus === "APPROVED") {
           result = "passed";
-        } else if (qtyPassed === 0) {
+        } else if (approvalStatus === "REJECTED") {
+          result = "failed";
+        } else if (qtyRejected === 0 && qtyPassed > 0) {
+          result = "passed";
+        } else if (qtyPassed === 0 && qtyRejected > 0) {
           result = "failed";
         }
 

@@ -3,6 +3,7 @@ export interface ReturnDisplay {
   returnNumber: string;
   originalOrderId: string | null;
   originalOrder: string;
+  originalOrderType?: string | null;
   customerName: string;
   warehouseId: string | null;
   warehouse: string;

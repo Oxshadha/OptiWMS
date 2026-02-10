@@ -103,6 +103,10 @@ public class QualityCheckService {
         entity.setApprovedBy(approvedBy);
         entity.setApprovedAt(OffsetDateTime.now());
         entity.setRejectionReason(null);
+        if (entity.getQtyPassed() == null || entity.getQtyPassed().compareTo(BigDecimal.ZERO) <= 0) {
+            entity.setQtyPassed(entity.getQtyReceived() != null ? entity.getQtyReceived() : BigDecimal.ZERO);
+        }
+        entity.setQtyRejected(BigDecimal.ZERO);
         entity = repository.save(entity);
 
         if (entity.getGrnId() != null) {
@@ -134,6 +138,10 @@ public class QualityCheckService {
         entity.setApprovedBy(reviewedBy);
         entity.setApprovedAt(OffsetDateTime.now());
         entity.setRejectionReason(rejectionReason);
+        if (entity.getQtyRejected() == null || entity.getQtyRejected().compareTo(BigDecimal.ZERO) <= 0) {
+            entity.setQtyRejected(entity.getQtyReceived() != null ? entity.getQtyReceived() : BigDecimal.ZERO);
+        }
+        entity.setQtyPassed(BigDecimal.ZERO);
         entity = repository.save(entity);
 
         if (entity.getGrnId() != null) {
