@@ -46,55 +46,43 @@ public class ReturnController {
 
     @GetMapping("/{id}")
     public ResponseEntity<ReturnDto> getById(@PathVariable UUID id) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            return ResponseEntity.ok(toDto(returnRecord));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        ReturnRecord returnRecord = service.findById(id);
+        return ResponseEntity.ok(toDto(returnRecord));
     }
 
     @PostMapping
     public ResponseEntity<ReturnDto> create(@RequestBody CreateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = new ReturnRecord();
-            returnRecord.setReturnNumber(request.returnNumber());
-            returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
-            returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
-            returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
-            if (request.returnDate() != null && !request.returnDate().isEmpty()) {
-                returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
-            } else {
-                returnRecord.setReturnDate(LocalDate.now());
-            }
-            returnRecord.setReason(request.reason());
-            returnRecord.setStatus(request.status() != null ? request.status() : "pending");
-            returnRecord.setResolution(request.resolution());
-            returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
-            returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
-
-            ReturnRecord created = service.create(returnRecord);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        ReturnRecord returnRecord = new ReturnRecord();
+        returnRecord.setReturnNumber(request.returnNumber());
+        returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
+        returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
+        returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
+        if (request.returnDate() != null && !request.returnDate().isEmpty()) {
+            returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
+        } else {
+            returnRecord.setReturnDate(LocalDate.now());
         }
+        returnRecord.setReason(request.reason());
+        returnRecord.setStatus(request.status() != null ? request.status() : "pending");
+        returnRecord.setResolution(request.resolution());
+        returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
+        returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
+
+        ReturnRecord created = service.create(returnRecord);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<ReturnDto> update(@PathVariable UUID id, @RequestBody UpdateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            if (request.reason() != null) returnRecord.setReason(request.reason());
-            if (request.resolution() != null) returnRecord.setResolution(request.resolution());
-            if (request.status() != null) returnRecord.setStatus(request.status());
-            if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
-            if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
+        ReturnRecord returnRecord = service.findById(id);
+        if (request.reason() != null) returnRecord.setReason(request.reason());
+        if (request.resolution() != null) returnRecord.setResolution(request.resolution());
+        if (request.status() != null) returnRecord.setStatus(request.status());
+        if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
+        if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
 
-            ReturnRecord updated = service.update(returnRecord);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.update(returnRecord);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/status")
@@ -102,22 +90,14 @@ public class ReturnController {
             @PathVariable UUID id,
             @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            ReturnRecord updated = service.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.updateStatus(id, request.status());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            service.deleteById(id);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private ReturnDto toDto(ReturnRecord returnRecord) {
@@ -173,4 +153,3 @@ public class ReturnController {
             String inspectedBy
     ) {}
 }
-

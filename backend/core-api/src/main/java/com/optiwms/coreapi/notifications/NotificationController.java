@@ -23,88 +23,60 @@ public class NotificationController {
 
     @GetMapping
     public ResponseEntity<List<NotificationDto>> getAll(
-            @RequestParam(required = false) String userId,
+            @RequestParam String userId,
             @RequestParam(required = false) Boolean read
     ) {
-        try {
-            List<Notification> notifications;
-            if (userId != null) {
-                if (read != null) {
-                    notifications = service.findByUserIdAndRead(UUID.fromString(userId), read);
-                } else {
-                    notifications = service.findByUserId(UUID.fromString(userId));
-                }
-            } else {
-                return ResponseEntity.badRequest().build();
-            }
-
-            List<NotificationDto> dtos = notifications.stream()
-                    .map(this::toDto)
-                    .collect(Collectors.toList());
-            return ResponseEntity.ok(dtos);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
+        List<Notification> notifications;
+        if (read != null) {
+            notifications = service.findByUserIdAndRead(UUID.fromString(userId), read);
+        } else {
+            notifications = service.findByUserId(UUID.fromString(userId));
         }
+
+        List<NotificationDto> dtos = notifications.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 
     @GetMapping("/unread-count")
     public ResponseEntity<UnreadCountDto> getUnreadCount(@RequestParam String userId) {
-        try {
-            Long count = service.countUnreadByUserId(UUID.fromString(userId));
-            return ResponseEntity.ok(new UnreadCountDto(count));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Long count = service.countUnreadByUserId(UUID.fromString(userId));
+        return ResponseEntity.ok(new UnreadCountDto(count));
     }
 
     @PostMapping
     public ResponseEntity<NotificationDto> create(@RequestBody CreateNotificationRequest request) {
-        try {
-            Notification notification = new Notification();
-            notification.setUserId(request.userId() != null ? UUID.fromString(request.userId()) : null);
-            notification.setTitle(request.title());
-            notification.setMessage(request.message());
-            notification.setNotificationType(request.notificationType());
-            notification.setActionUrl(request.actionUrl());
-            notification.setMetadata(request.metadata());
-            notification.setRead(false);
-            notification.setCreatedAt(OffsetDateTime.now());
+        Notification notification = new Notification();
+        notification.setUserId(request.userId() != null ? UUID.fromString(request.userId()) : null);
+        notification.setTitle(request.title());
+        notification.setMessage(request.message());
+        notification.setNotificationType(request.notificationType());
+        notification.setActionUrl(request.actionUrl());
+        notification.setMetadata(request.metadata());
+        notification.setRead(false);
+        notification.setCreatedAt(OffsetDateTime.now());
 
-            Notification created = service.create(notification);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Notification created = service.create(notification);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}/read")
     public ResponseEntity<NotificationDto> markAsRead(@PathVariable UUID id) {
-        try {
-            Notification notification = service.markAsRead(id);
-            return ResponseEntity.ok(toDto(notification));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        Notification notification = service.markAsRead(id);
+        return ResponseEntity.ok(toDto(notification));
     }
 
     @PutMapping("/mark-all-read")
     public ResponseEntity<Void> markAllAsRead(@RequestParam String userId) {
-        try {
-            service.markAllAsRead(UUID.fromString(userId));
-            return ResponseEntity.ok().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.markAllAsRead(UUID.fromString(userId));
+        return ResponseEntity.ok().build();
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            service.delete(id);
-            return ResponseEntity.noContent().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
     private NotificationDto toDto(Notification notification) {
@@ -144,4 +116,3 @@ public class NotificationController {
 
     public record UnreadCountDto(Long count) {}
 }
-

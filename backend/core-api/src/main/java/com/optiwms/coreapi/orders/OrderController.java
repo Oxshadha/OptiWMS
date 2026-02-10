@@ -56,22 +56,14 @@ public class OrderController {
 
     @GetMapping("/{id}")
     public ResponseEntity<OrderDto> getById(@PathVariable UUID id) {
-        try {
-            Order order = orderService.findById(id);
-            return ResponseEntity.ok(toDto(order));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        Order order = orderService.findById(id);
+        return ResponseEntity.ok(toDto(order));
     }
 
     @GetMapping("/number/{orderNumber}")
     public ResponseEntity<OrderDto> getByOrderNumber(@PathVariable String orderNumber) {
-        try {
-            Order order = orderService.findByOrderNumber(orderNumber);
-            return ResponseEntity.ok(toDto(order));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        Order order = orderService.findByOrderNumber(orderNumber);
+        return ResponseEntity.ok(toDto(order));
     }
 
     /**
@@ -80,15 +72,11 @@ public class OrderController {
      */
     @GetMapping("/warehouse/{warehouseId}/needs-putaway")
     public ResponseEntity<List<OrderDto>> getOrdersNeedingPutaway(@PathVariable UUID warehouseId) {
-        try {
-            List<Order> orders = orderStatusService.getOrdersNeedingPutaway(warehouseId);
-            List<OrderDto> orderDtos = orders.stream()
-                    .map(this::toDto)
-                    .collect(Collectors.toList());
-            return ResponseEntity.ok(orderDtos);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        List<Order> orders = orderStatusService.getOrdersNeedingPutaway(warehouseId);
+        List<OrderDto> orderDtos = orders.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(orderDtos);
     }
 
     /**
@@ -97,64 +85,55 @@ public class OrderController {
      */
     @GetMapping("/warehouse/{warehouseId}/needs-receiving")
     public ResponseEntity<List<OrderDto>> getOrdersNeedingReceiving(@PathVariable UUID warehouseId) {
-        try {
-            List<Order> orders = orderService.findByType("inbound").stream()
-                    .filter(order -> warehouseId.equals(order.getWarehouseId()))
-                    .filter(order -> "pending".equals(order.getStatus()) || "partially_received".equals(order.getStatus()))
-                    .collect(Collectors.toList());
-            List<OrderDto> orderDtos = orders.stream()
-                    .map(this::toDto)
-                    .collect(Collectors.toList());
-            return ResponseEntity.ok(orderDtos);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        List<Order> orders = orderService.findByType("inbound").stream()
+                .filter(order -> warehouseId.equals(order.getWarehouseId()))
+                .filter(order -> "pending".equals(order.getStatus()) || "partially_received".equals(order.getStatus()))
+                .collect(Collectors.toList());
+        List<OrderDto> orderDtos = orders.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(orderDtos);
     }
 
     @PostMapping
     public ResponseEntity<OrderDto> create(@RequestBody CreateOrderRequest request) {
-        try {
-            Order order = new Order();
-            order.setOrderNumber(request.orderNumber());
-            order.setOrderType(request.orderType());
-            order.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
-            order.setSupplierId(request.supplierId() != null ? UUID.fromString(request.supplierId()) : null);
-            order.setWarehouseId(UUID.fromString(request.warehouseId()));
-            order.setStatus(request.status() != null ? request.status() : "pending");
-            order.setPriority(request.priority() != null ? request.priority() : "normal");
-            if (request.orderDate() != null && !request.orderDate().isEmpty()) {
-                order.setOrderDate(LocalDate.parse(request.orderDate()));
-            } else {
-                order.setOrderDate(LocalDate.now());
-            }
-            if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
-                order.setExpectedDate(LocalDate.parse(request.expectedDate()));
-            }
-            if (request.totalAmount() != null && !request.totalAmount().isEmpty()) {
-                order.setTotalAmount(new BigDecimal(request.totalAmount()));
-            }
-            order.setNotes(request.notes());
-
-            Order created = orderService.create(order);
-            
-            // Automatically create tasks for orders
-            try {
-                if ("outbound".equals(created.getOrderType())) {
-                    // Create picking tasks for outbound orders
-                    outboundWorkflowService.createPickingTasksForOrder(created.getId());
-                } else if ("inbound".equals(created.getOrderType())) {
-                    // Create receiving tasks for inbound orders (first-come-first-serve)
-                    inboundWorkflowService.createReceivingTasksForOrder(created.getId());
-                }
-            } catch (RuntimeException e) {
-                // Log error but don't fail order creation
-                // Tasks can be created manually if needed
-            }
-            
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        Order order = new Order();
+        order.setOrderNumber(request.orderNumber());
+        order.setOrderType(request.orderType());
+        order.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
+        order.setSupplierId(request.supplierId() != null ? UUID.fromString(request.supplierId()) : null);
+        order.setWarehouseId(UUID.fromString(request.warehouseId()));
+        order.setStatus(request.status() != null ? request.status() : "pending");
+        order.setPriority(request.priority() != null ? request.priority() : "normal");
+        if (request.orderDate() != null && !request.orderDate().isEmpty()) {
+            order.setOrderDate(LocalDate.parse(request.orderDate()));
+        } else {
+            order.setOrderDate(LocalDate.now());
         }
+        if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
+            order.setExpectedDate(LocalDate.parse(request.expectedDate()));
+        }
+        if (request.totalAmount() != null && !request.totalAmount().isEmpty()) {
+            order.setTotalAmount(new BigDecimal(request.totalAmount()));
+        }
+        order.setNotes(request.notes());
+
+        Order created = orderService.create(order);
+
+        // Do not fail order creation if task auto-generation fails.
+        if ("outbound".equals(created.getOrderType())) {
+            try {
+                outboundWorkflowService.createPickingTasksForOrder(created.getId());
+            } catch (RuntimeException ignored) {
+            }
+        } else if ("inbound".equals(created.getOrderType())) {
+            try {
+                inboundWorkflowService.createReceivingTasksForOrder(created.getId());
+            } catch (RuntimeException ignored) {
+            }
+        }
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}/status")
@@ -162,12 +141,8 @@ public class OrderController {
             @PathVariable UUID id,
             @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            Order updated = orderService.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Order updated = orderService.updateStatus(id, request.status());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}")
@@ -175,36 +150,28 @@ public class OrderController {
             @PathVariable UUID id,
             @RequestBody UpdateOrderRequest request
     ) {
-        try {
-            Order order = new Order();
-            if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
-                order.setExpectedDate(LocalDate.parse(request.expectedDate()));
-            }
-            if (request.notes() != null) {
-                order.setNotes(request.notes());
-            }
-            if (request.priority() != null) {
-                order.setPriority(request.priority());
-            }
-            if (request.totalAmount() != null && !request.totalAmount().isEmpty()) {
-                order.setTotalAmount(new BigDecimal(request.totalAmount()));
-            }
-            
-            Order updated = orderService.update(id, order);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        Order order = new Order();
+        if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
+            order.setExpectedDate(LocalDate.parse(request.expectedDate()));
         }
+        if (request.notes() != null) {
+            order.setNotes(request.notes());
+        }
+        if (request.priority() != null) {
+            order.setPriority(request.priority());
+        }
+        if (request.totalAmount() != null && !request.totalAmount().isEmpty()) {
+            order.setTotalAmount(new BigDecimal(request.totalAmount()));
+        }
+
+        Order updated = orderService.update(id, order);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            orderService.delete(id);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        orderService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -215,40 +182,32 @@ public class OrderController {
      */
     @PostMapping("/number/{orderNumber}/create-tasks")
     public ResponseEntity<CreateTasksResponse> createTasksForOrder(@PathVariable String orderNumber) {
-        try {
-            Order order = orderService.findByOrderNumber(orderNumber);
-            
-            if (!"outbound".equals(order.getOrderType())) {
-                return ResponseEntity.badRequest()
+        Order order = orderService.findByOrderNumber(orderNumber);
+
+        if (!"outbound".equals(order.getOrderType())) {
+            return ResponseEntity.badRequest()
                     .body(new CreateTasksResponse(false, "Only outbound orders can have picking tasks created", 0));
-            }
-            
-            // Check if tasks already exist
-            int existingTasks = outboundWorkflowService.getAvailableTasksForWorker(
+        }
+
+        int existingTasks = outboundWorkflowService.getAvailableTasksForWorker(
                 order.getWarehouseId(), "picking").stream()
                 .filter(task -> order.getId().equals(task.getReferenceId()))
                 .toList().size();
-            
-            // Create picking tasks
-            outboundWorkflowService.createPickingTasksForOrder(order.getId());
-            
-            // Count newly created tasks
-            int newTasks = outboundWorkflowService.getAvailableTasksForWorker(
+
+        outboundWorkflowService.createPickingTasksForOrder(order.getId());
+
+        int newTasks = outboundWorkflowService.getAvailableTasksForWorker(
                 order.getWarehouseId(), "picking").stream()
                 .filter(task -> order.getId().equals(task.getReferenceId()))
                 .toList().size();
-            
-            int createdCount = newTasks - existingTasks;
-            
-            return ResponseEntity.ok(new CreateTasksResponse(
-                true, 
+
+        int createdCount = newTasks - existingTasks;
+
+        return ResponseEntity.ok(new CreateTasksResponse(
+                true,
                 String.format("Created %d picking task(s) for order %s", createdCount, orderNumber),
                 createdCount
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest()
-                .body(new CreateTasksResponse(false, e.getMessage(), 0));
-        }
+        ));
     }
 
     /**
@@ -256,40 +215,32 @@ public class OrderController {
      */
     @PostMapping("/{id}/create-tasks")
     public ResponseEntity<CreateTasksResponse> createTasksForOrderById(@PathVariable UUID id) {
-        try {
-            Order order = orderService.findById(id);
-            
-            if (!"outbound".equals(order.getOrderType())) {
-                return ResponseEntity.badRequest()
+        Order order = orderService.findById(id);
+
+        if (!"outbound".equals(order.getOrderType())) {
+            return ResponseEntity.badRequest()
                     .body(new CreateTasksResponse(false, "Only outbound orders can have picking tasks created", 0));
-            }
-            
-            // Check if tasks already exist
-            int existingTasks = outboundWorkflowService.getAvailableTasksForWorker(
+        }
+
+        int existingTasks = outboundWorkflowService.getAvailableTasksForWorker(
                 order.getWarehouseId(), "picking").stream()
                 .filter(task -> order.getId().equals(task.getReferenceId()))
                 .toList().size();
-            
-            // Create picking tasks
-            outboundWorkflowService.createPickingTasksForOrder(order.getId());
-            
-            // Count newly created tasks
-            int newTasks = outboundWorkflowService.getAvailableTasksForWorker(
+
+        outboundWorkflowService.createPickingTasksForOrder(order.getId());
+
+        int newTasks = outboundWorkflowService.getAvailableTasksForWorker(
                 order.getWarehouseId(), "picking").stream()
                 .filter(task -> order.getId().equals(task.getReferenceId()))
                 .toList().size();
-            
-            int createdCount = newTasks - existingTasks;
-            
-            return ResponseEntity.ok(new CreateTasksResponse(
-                true, 
+
+        int createdCount = newTasks - existingTasks;
+
+        return ResponseEntity.ok(new CreateTasksResponse(
+                true,
                 String.format("Created %d picking task(s) for order %s", createdCount, order.getOrderNumber()),
                 createdCount
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest()
-                .body(new CreateTasksResponse(false, e.getMessage(), 0));
-        }
+        ));
     }
 
     private OrderDto toDto(Order order) {
@@ -349,4 +300,3 @@ public class OrderController {
 
     public record CreateTasksResponse(boolean success, String message, int tasksCreated) {}
 }
-
