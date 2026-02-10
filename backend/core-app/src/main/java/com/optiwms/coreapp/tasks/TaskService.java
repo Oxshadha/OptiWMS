@@ -50,6 +50,18 @@ public class TaskService {
                 .collect(Collectors.toList());
     }
 
+    public List<Task> findByReference(String referenceType, UUID referenceId) {
+        return repository.findByReferenceTypeAndReferenceId(referenceType, referenceId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<Task> findByTaskTypeAndReference(String taskType, String referenceType, UUID referenceId) {
+        return repository.findByTaskTypeAndReferenceTypeAndReferenceId(taskType, referenceType, referenceId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Task findById(UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -139,4 +151,3 @@ public class TaskService {
         return task;
     }
 }
-

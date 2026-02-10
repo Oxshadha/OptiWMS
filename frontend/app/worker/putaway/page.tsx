@@ -194,16 +194,24 @@ export default function PutawayPage() {
       // Find putaway task for this item and order
       const tasks = await tasksApi.getAll("putaway", "pending", undefined, worker?.warehouseId, true);
       const itemTask = tasks.find((t: any) => 
-        t.referenceId === selectedOrder.id && 
-        t.referenceType === "order"
+        t.referenceType === "order_item" &&
+        t.referenceId === currentItem.itemId
       );
 
-      if (!itemTask) {
+      // Backward compatibility for legacy tasks created at order level.
+      const fallbackTask = tasks.find((t: any) =>
+        t.referenceType === "order" &&
+        t.referenceId === selectedOrder.id
+      );
+
+      const taskToComplete = itemTask ?? fallbackTask;
+
+      if (!taskToComplete) {
         showToast.error("Putaway task not found for this item. Tasks are created automatically after receiving.");
         return;
       }
 
-      await operationsApi.completePutaway(itemTask.id, {
+      await operationsApi.completePutaway(taskToComplete.id, {
         locationCode: scannedLocation.trim().toUpperCase(),
         lpn: "", // LPN is ignored in backend but kept for backward compatibility
         quantity: currentItem.receivedQuantity, // Pass received quantity explicitly

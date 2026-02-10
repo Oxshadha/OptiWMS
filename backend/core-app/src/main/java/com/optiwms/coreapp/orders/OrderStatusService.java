@@ -73,7 +73,10 @@ public class OrderStatusService {
         }
 
         // Update status to "put_away" - this is called when all items are confirmed put away
-        if ("received".equals(order.getStatus()) || "partially_received".equals(order.getStatus())) {
+        if ("quality_approved".equals(order.getStatus())
+                || "putaway_in_progress".equals(order.getStatus())
+                || "received".equals(order.getStatus())
+                || "partially_received".equals(order.getStatus())) {
             orderService.updateStatus(orderId, "put_away");
         }
     }
@@ -128,7 +131,7 @@ public class OrderStatusService {
         // Get inbound orders that are received or partially_received
         List<Order> receivedOrders = orderService.findByType("inbound").stream()
                 .filter(order -> warehouseId == null || warehouseId.equals(order.getWarehouseId()))
-                .filter(order -> "received".equals(order.getStatus()) || "partially_received".equals(order.getStatus()))
+                .filter(order -> "quality_approved".equals(order.getStatus()) || "putaway_in_progress".equals(order.getStatus()))
                 .toList();
 
         // Filter to only orders that have items needing putaway

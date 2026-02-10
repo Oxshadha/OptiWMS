@@ -6,15 +6,18 @@ import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OrderStatusService;
 import com.optiwms.coreapp.operations.PutawayTaskService;
+import com.optiwms.coreapp.quality.QualityCheckService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.master.Material;
 import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.quality.QualityCheck;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,6 +31,7 @@ public class ReceivingService {
     private final MaterialService materialService;
     private final WarehouseService warehouseService;
     private final PutawayTaskService putawayTaskService;
+    private final QualityCheckService qualityCheckService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -35,7 +39,8 @@ public class ReceivingService {
                            InventoryService inventoryService,
                            MaterialService materialService,
                            WarehouseService warehouseService,
-                           PutawayTaskService putawayTaskService) {
+                           PutawayTaskService putawayTaskService,
+                           QualityCheckService qualityCheckService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -43,6 +48,7 @@ public class ReceivingService {
         this.materialService = materialService;
         this.warehouseService = warehouseService;
         this.putawayTaskService = putawayTaskService;
+        this.qualityCheckService = qualityCheckService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -57,7 +63,9 @@ public class ReceivingService {
             throw new RuntimeException("Order is not an inbound order");
         }
 
-        if (!"pending".equals(order.getStatus()) && !"received".equals(order.getStatus())) {
+        if (!"pending".equals(order.getStatus())
+                && !"received".equals(order.getStatus())
+                && !"partially_received".equals(order.getStatus())) {
             throw new RuntimeException("Order cannot be received in current status: " + order.getStatus());
         }
 
@@ -97,14 +105,13 @@ public class ReceivingService {
             orderService.updateWorkerRecord(order.getId(), workerId, "received");
         }
 
-        // CRITICAL: Create putaway tasks automatically after receiving
-        // This ensures items get assigned to bin locations
-        try {
-            putawayTaskService.createPutawayTasksForReceivedOrder(order.getId(), warehouseId);
-        } catch (Exception e) {
-            // Log error but don't fail receiving
-            // Putaway tasks can be created manually if needed
-            System.err.println("Failed to create putaway tasks after receiving: " + e.getMessage());
+        // Create quality checks for received items. Putaway is gated by quality approval.
+        createPendingQualityChecks(order.getId(), receivedItems, workerId);
+
+        // Move fully received orders into quality queue.
+        Order refreshedOrder = orderService.findById(order.getId());
+        if ("received".equals(refreshedOrder.getStatus())) {
+            orderService.updateStatus(order.getId(), "quality_pending");
         }
 
         // Store notes and photos in order notes
@@ -169,8 +176,7 @@ public class ReceivingService {
             }
             updateInventory(itemWarehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
             
-            // CRITICAL: Create putaway task for blind received items
-            // This ensures items get assigned to bin locations
+            // Blind receiving has no quality gate context, so putaway task is created immediately.
             try {
                 Integer qtyInteger = (int) Math.ceil(receivedItem.quantity().doubleValue());
                 putawayTaskService.createPutawayTaskForBlindReceive(
@@ -204,6 +210,25 @@ public class ReceivingService {
 
         UUID orderId = order != null ? order.getId() : null;
         return new ReceivingResult(true, "Items received successfully (blind receive)", orderId);
+    }
+
+    private void createPendingQualityChecks(UUID orderId, List<ReceivedItem> receivedItems, UUID checkedBy) {
+        for (ReceivedItem receivedItem : receivedItems) {
+            if (receivedItem.quantity() == null || receivedItem.quantity().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            QualityCheck qualityCheck = new QualityCheck();
+            qualityCheck.setGrnId(orderId);
+            qualityCheck.setMaterialId(receivedItem.materialId());
+            qualityCheck.setQtyReceived(receivedItem.quantity());
+            qualityCheck.setQtyPassed(BigDecimal.ZERO);
+            qualityCheck.setQtyRejected(BigDecimal.ZERO);
+            qualityCheck.setApprovalStatus("PENDING");
+            qualityCheck.setCheckedBy(checkedBy);
+            qualityCheck.setCheckDate(OffsetDateTime.now());
+            qualityCheckService.create(qualityCheck);
+        }
     }
 
     /**
@@ -263,4 +288,3 @@ public class ReceivingService {
 
     public record ReceivingResult(boolean success, String message, UUID orderId) {}
 }
-

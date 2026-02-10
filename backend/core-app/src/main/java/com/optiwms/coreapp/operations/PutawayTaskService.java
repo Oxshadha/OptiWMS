@@ -82,6 +82,14 @@ public class PutawayTaskService {
                 continue; // Skip items that haven't been received yet
             }
 
+            // Do not create duplicate putaway tasks for the same order item.
+            boolean alreadyExists = !taskService
+                    .findByTaskTypeAndReference("putaway", "order_item", item.getId())
+                    .isEmpty();
+            if (alreadyExists) {
+                continue;
+            }
+
             // Get material details
             Material material;
             try {
@@ -115,10 +123,11 @@ public class PutawayTaskService {
             putawayTask.setAssignedTo(null); // Unassigned - first come first serve
             putawayTask.setPriority(order.getPriority() != null ? order.getPriority() : "normal");
             putawayTask.setStatus("pending");
-            putawayTask.setReferenceType("order");
-            putawayTask.setReferenceId(orderId);
+            putawayTask.setReferenceType("order_item");
+            putawayTask.setReferenceId(item.getId());
             putawayTask.setLocationCode(suggestedLocation); // Suggested location (worker can change)
-            putawayTask.setNotes(String.format("Put away %s units of %s%s", 
+            putawayTask.setNotes(String.format("orderId=%s; Put away %s units of %s%s", 
+                    orderId,
                     receivedQty,
                     material.getMaterialCode() != null ? material.getMaterialCode() : "Item",
                     suggestedLocation != null ? " to location " + suggestedLocation : " (location to be selected)"));
