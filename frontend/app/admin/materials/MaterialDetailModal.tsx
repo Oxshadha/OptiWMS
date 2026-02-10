@@ -5,6 +5,7 @@ import { Modal } from "@/components/Modal";
 import { Material } from "@/lib/api/materials";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { logger } from "@/lib/utils/logger";
 
 interface MaterialDetailModalProps {
   isOpen: boolean;
@@ -53,7 +54,7 @@ export function MaterialDetailModal({
         );
         setDefaultLocations(locationsByWarehouse.flat());
       } catch (err) {
-        console.error("Failed to load default locations:", err);
+        logger.error("Failed to load default locations:", err);
       } finally {
         setIsLoadingLocations(false);
       }

@@ -11,6 +11,7 @@ import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { notificationsApi, Notification } from "@/lib/api/notifications";
 import { useTheme } from "@/lib/hooks/useTheme";
+import { logger } from "@/lib/utils/logger";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
@@ -154,7 +155,7 @@ export function Topbar() {
         setNotifications(notifs.slice(0, 10)); // Show latest 10
         setUnreadCount(count);
       } catch (error) {
-        console.error("Error loading notifications:", error);
+        logger.error("Error loading notifications:", error);
         setNotifications([]);
         setUnreadCount(0);
       } finally {
@@ -190,7 +191,7 @@ export function Topbar() {
         ));
         setUnreadCount(Math.max(0, unreadCount - 1));
       } catch (error) {
-        console.error("Error marking notification as read:", error);
+        logger.error("Error marking notification as read:", error);
       }
     }
     if (notification.actionUrl) {
@@ -566,7 +567,7 @@ export function Topbar() {
                         // Redirect to login
                         router.push("/admin/login");
                       } catch (error) {
-                        console.error("Error during logout:", error);
+                        logger.error("Error during logout:", error);
                         // Still redirect even if logout fails
                         router.push("/admin/login");
                       }

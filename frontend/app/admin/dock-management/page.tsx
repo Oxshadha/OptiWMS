@@ -11,6 +11,7 @@ import {
 } from "@/lib/api/operations";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { logger } from "@/lib/utils/logger";
 
 export default function DockManagementPage() {
   const { hasPermission, role } = useAdmin();
@@ -71,7 +72,7 @@ export default function DockManagementPage() {
         }));
         setYardTrailers(enrichedTrailers);
       } catch (err) {
-        console.error("Failed to fetch dock management data:", err);
+        logger.error("Failed to fetch dock management data:", err);
         setError(err instanceof Error ? err.message : "Failed to load dock management data");
       } finally {
         setLoading(false);
@@ -412,14 +413,14 @@ export default function DockManagementPage() {
           )
         );
       } catch (error) {
-        console.error("Failed to create appointment:", error);
+        logger.error("Failed to create appointment:", error);
         alert("Failed to create appointment. Please try again.");
         return;
       }
 
       handleCloseModal();
     } catch (error) {
-      console.error("Error creating appointment:", error);
+      logger.error("Error creating appointment:", error);
       setFormErrors({
         submit: "Failed to create appointment. Please try again.",
       });

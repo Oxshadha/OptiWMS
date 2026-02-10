@@ -12,6 +12,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { useWorker } from "@/contexts/WorkerContext";
 import { authApi } from "@/lib/api/auth";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 export default function ReceivingPage() {
   const { worker } = useWorker();
@@ -56,10 +57,10 @@ export default function ReceivingPage() {
           }
         } catch (err) {
           // Workers may not have permission to access /api/users - use default
-          console.warn("Could not fetch user details (workers may not have permission):", err);
+          logger.warn("Could not fetch user details (workers may not have permission):", err);
         }
       } catch (error) {
-        console.error("Failed to load blind receiving preference:", error);
+        logger.error("Failed to load blind receiving preference:", error);
         // Keep default (false) on error
       } finally {
         setLoadingPreference(false);
@@ -82,7 +83,7 @@ export default function ReceivingPage() {
       showToast.success("Preference saved");
     } catch (error) {
       // Gracefully handle permission errors - preference still works locally
-      console.warn("Could not save blind receiving preference (will work for this session only):", error);
+      logger.warn("Could not save blind receiving preference (will work for this session only):", error);
       // Don't revert - let user use the preference locally
       // Don't show error toast - it's not critical
     }
@@ -104,32 +105,32 @@ export default function ReceivingPage() {
         try {
           order = await ordersApi.getByOrderNumber(scannedValue.trim());
         } catch (err) {
-          console.log("[Receiving] Order not found via ordersApi, trying operationsApi:", err);
+          logger.debug("[Receiving] Order not found via ordersApi, trying operationsApi:", err);
           // If that fails, try the operations API
           try {
             order = await operationsApi.getOrderByNumber(scannedValue.trim());
           } catch (err2) {
-            console.error("[Receiving] Order not found in both APIs:", err2);
+            logger.error("[Receiving] Order not found in both APIs:", err2);
             throw new Error(`Order not found: ${scannedValue}`);
           }
         }
         
-        console.log("[Receiving] Order found:", order);
+        logger.debug("[Receiving] Order found:", order);
         setOrderDetails(order);
         
         // Load order items
         let orderItems: OrderItem[] = [];
         try {
           orderItems = await orderItemsApi.getByOrderId(order.id);
-          console.log("[Receiving] Order items loaded:", orderItems.length);
+          logger.debug("[Receiving] Order items loaded:", orderItems.length);
         } catch (err) {
-          console.error("[Receiving] Failed to load order items:", err);
+          logger.error("[Receiving] Failed to load order items:", err);
           orderItems = [];
         }
         
         // If no items found, show message but allow blind mode
         if (orderItems.length === 0) {
-          console.warn("[Receiving] Order has no items");
+          logger.warn("[Receiving] Order has no items");
           if (blindMode) {
             // Allow blind receiving with unknown item
             setItems([{
@@ -168,7 +169,7 @@ export default function ReceivingPage() {
                 materialId: orderItem.materialId,
               };
             } catch (err) {
-              console.warn(`[Receiving] Failed to load material ${orderItem.materialId}:`, err);
+              logger.warn(`[Receiving] Failed to load material ${orderItem.materialId}:`, err);
               // If material fetch fails, show user-friendly message instead of UUID
               return {
                 id: orderItem.id,
@@ -186,7 +187,7 @@ export default function ReceivingPage() {
         setSelectedItemIndex(0);
         setReceivedQty(0);
       } catch (error: any) {
-        console.error("[Receiving] Failed to load order details:", error);
+        logger.error("[Receiving] Failed to load order details:", error);
         const errorMessage = error?.message || "Failed to load order. Please check the PO/ASN number.";
         showToast.error(errorMessage);
         setItems([]);
@@ -392,7 +393,7 @@ export default function ReceivingPage() {
       setNotes("");
       setPhotos([]);
     } catch (error: any) {
-      console.error("Error confirming receipt:", error);
+      logger.error("Error confirming receipt:", error);
       const errorMessage = error?.message || "Error confirming receipt. Please try again.";
       showToast.error(errorMessage);
     }
@@ -571,9 +572,9 @@ export default function ReceivingPage() {
                       // Clear any existing timeout
                       const timeoutId = setTimeout(async () => {
                         try {
-                          console.log(`[Receiving] Looking up material code: ${trimmedValue}`);
+                          logger.debug(`[Receiving] Looking up material code: ${trimmedValue}`);
                           const material = await materialsApi.getByCode(trimmedValue);
-                          console.log(`[Receiving] Material found:`, material);
+                          logger.debug(`[Receiving] Material found:`, material);
                           // Found material - set the UUID
                           const display = formatMaterialDisplay(
                             material.materialCode,
@@ -593,11 +594,11 @@ export default function ReceivingPage() {
                           showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
                         } catch (err: any) {
                           // Material not found - that's OK for blind receiving
-                          console.error(`[Receiving] Material lookup failed for code: ${trimmedValue}`, err);
+                          logger.error(`[Receiving] Material lookup failed for code: ${trimmedValue}`, err);
                           // Only show error if user has typed a reasonable length code
                           if (trimmedValue.length >= 3) {
                             // Don't show toast on every keystroke, only log
-                            console.warn(`[Receiving] Material not found for: ${trimmedValue}. Error:`, err?.message || err);
+                            logger.warn(`[Receiving] Material not found for: ${trimmedValue}. Error:`, err?.message || err);
                           }
                         }
                       }, 500); // 500ms debounce
@@ -633,7 +634,7 @@ export default function ReceivingPage() {
                         showToast.success(`Material found: ${display.sku}${display.name !== display.sku ? ` • ${display.name}` : ''}`);
                       } catch (err: any) {
                         // Material not found - user will need to enter valid SKU
-                        console.error(`Material lookup failed for: ${skuValue}`, err);
+                        logger.error(`Material lookup failed for: ${skuValue}`, err);
                         showToast.error(`Material not found for code: "${skuValue}". Please check the SKU or verify it exists in Materials.`);
                       }
                     }

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Network Detection and Management
  * 
@@ -83,11 +84,11 @@ export function initNetworkMonitoring(): void {
 
   // Listen to online/offline events
   window.addEventListener("online", () => {
-    console.log("Network: Online");
+    logger.debug("Network: Online");
     updateStatus();
   });
   window.addEventListener("offline", () => {
-    console.log("Network: Offline");
+    logger.debug("Network: Offline");
     updateStatus();
   });
 
@@ -95,7 +96,7 @@ export function initNetworkMonitoring(): void {
   const connection = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
   if (connection) {
     connection.addEventListener("change", () => {
-      console.log("Network connection changed");
+      logger.debug("Network connection changed");
       updateStatus();
     });
   }
@@ -104,7 +105,7 @@ export function initNetworkMonitoring(): void {
   setInterval(() => {
     const currentStatus = getNetworkStatus();
     if (currentStatus.online !== networkStatus.online) {
-      console.log(`Network status changed: ${networkStatus.online ? "Online" : "Offline"} → ${currentStatus.online ? "Online" : "Offline"}`);
+      logger.debug(`Network status changed: ${networkStatus.online ? "Online" : "Offline"} → ${currentStatus.online ? "Online" : "Offline"}`);
       updateStatus();
     }
   }, 1000); // Check every second

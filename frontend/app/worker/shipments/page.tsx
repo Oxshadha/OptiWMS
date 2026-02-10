@@ -8,6 +8,7 @@ import { QRScanner } from "@/components/QRScanner";
 import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 export default function ShipmentsPage() {
   const { isOnline } = useOffline();
@@ -82,7 +83,7 @@ export default function ShipmentsPage() {
 
         setShipments(shipmentsData.flat());
       } catch (error) {
-        console.error("Failed to load shipments:", error);
+        logger.error("Failed to load shipments:", error);
         showToast.error("Failed to load shipments");
         setShipments([]);
       } finally {
@@ -181,7 +182,7 @@ export default function ShipmentsPage() {
         window.location.reload();
       }
     } catch (error) {
-      console.error("Error processing shipment:", error);
+      logger.error("Error processing shipment:", error);
       alert("Error processing shipment. Please try again.");
     }
   };

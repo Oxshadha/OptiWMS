@@ -13,6 +13,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface QualityCheckDisplay {
   id: string;
@@ -127,7 +128,7 @@ export default function QualityChecksPage() {
 
       setQualityChecks(displayChecks);
     } catch (err) {
-      console.error("Failed to load quality checks:", err);
+      logger.error("Failed to load quality checks:", err);
       setError(err instanceof Error ? err.message : "Failed to load quality checks");
       setQualityChecks([]);
       if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -340,7 +341,7 @@ export default function QualityChecksPage() {
                       showToast.success("Quality check approved successfully!");
                       await loadData();
                     } catch (err) {
-                      console.error("Failed to approve quality check:", err);
+                      logger.error("Failed to approve quality check:", err);
                       showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
                     }
                   }
@@ -501,7 +502,7 @@ export default function QualityChecksPage() {
                     setSelectedCheck(null);
                     setRejectReason("");
                   } catch (err) {
-                    console.error("Failed to reject quality check:", err);
+                    logger.error("Failed to reject quality check:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to reject quality check");
                   }
                 }}
@@ -608,7 +609,7 @@ function QualityCheckDetailModal({
                     await onRefresh();
                     onClose();
                   } catch (err) {
-                    console.error("Failed to approve quality check:", err);
+                    logger.error("Failed to approve quality check:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to approve quality check");
                   }
                 }}

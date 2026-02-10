@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Task Assignment API Utilities
  * 
@@ -103,14 +104,14 @@ export async function getWorkersForTaskTypeAPI(
     );
 
     if (!response.ok) {
-      console.error("Failed to fetch workers:", response.statusText);
+      logger.error("Failed to fetch workers:", response.statusText);
       return [];
     }
 
     const data = await response.json();
     return data.workers || [];
   } catch (error) {
-    console.error("Error fetching workers:", error);
+    logger.error("Error fetching workers:", error);
     return [];
   }
 }

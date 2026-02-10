@@ -8,6 +8,7 @@ import {
   LocationBin,
 } from "@/lib/types/warehouse-layout";
 import { analyticsApi, LocationVelocity } from "@/lib/api/analytics";
+import { logger } from "@/lib/utils/logger";
 
 interface WarehouseLayoutProps {
   layout: WarehouseLayout;
@@ -72,12 +73,12 @@ export function WarehouseLayoutVisualization({
             setVelocityData(velocityMap);
           } catch (error) {
             // If API fails, use mock data for demonstration
-            console.log("Velocity API not available, using mock data");
+            logger.debug("Velocity API not available, using mock data");
             const mockVelocityData = generateMockVelocityData(layout.racks);
             setVelocityData(mockVelocityData);
           }
         } catch (error) {
-          console.error("Error loading velocity data:", error);
+          logger.error("Error loading velocity data:", error);
           // Fallback to mock data
           const mockVelocityData = generateMockVelocityData(layout.racks);
           setVelocityData(mockVelocityData);

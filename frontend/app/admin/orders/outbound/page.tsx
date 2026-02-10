@@ -16,6 +16,7 @@ import { mapOutboundOrderStatus } from "@/lib/utils/status-mappers";
 import clsx from "clsx";
 import { OutboundOrderDisplay } from "./types";
 import { CreateOutboundOrderModal } from "./components/CreateOutboundOrderModal";
+import { logger } from "@/lib/utils/logger";
 
 const statusConfig = {
   pending: { label: "Pending", class: "badge-outline" },
@@ -88,7 +89,7 @@ export default function OutboundOrdersPage() {
           } catch (err) {
             const isDev = process.env.NODE_ENV === 'development';
             if (isDev) {
-              console.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
+              logger.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
             }
             return {
               order,
@@ -126,7 +127,7 @@ export default function OutboundOrdersPage() {
     } catch (err) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
-        console.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
+        logger.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
       }
       setError("Failed to load outbound orders. Please try again.");
     } finally {
@@ -391,7 +392,7 @@ export default function OutboundOrdersPage() {
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
-                        console.error("Failed to cancel order:", err instanceof Error ? err.message : 'Unknown error');
+                        logger.error("Failed to cancel order:", err instanceof Error ? err.message : 'Unknown error');
                       }
                       showToast.error("Failed to cancel order. Please try again.");
                     }
@@ -415,7 +416,7 @@ export default function OutboundOrdersPage() {
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
-                        console.error("Failed to delete order:", err instanceof Error ? err.message : 'Unknown error');
+                        logger.error("Failed to delete order:", err instanceof Error ? err.message : 'Unknown error');
                       }
                       showToast.error("Failed to delete order. Please try again.");
                     }

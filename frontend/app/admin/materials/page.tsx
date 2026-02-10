@@ -13,9 +13,9 @@ import { locationsApi } from "@/lib/api/locations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { useMaterials, useCreateMaterial, useUpdateMaterial, useDeleteMaterial } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
-import { logger } from "@/lib/utils/logger";
 import { AssignBinLocationModal, BulkAssignBinLocationsModal } from "./AssignBinLocationModal";
 import { MaterialDetailModal } from "./MaterialDetailModal";
+import { logger } from "@/lib/utils/logger";
 
 // Material type options (industry standard)
 const MATERIAL_TYPES = [
@@ -77,7 +77,7 @@ export default function MaterialsPage() {
     try {
       // Get all warehouses
       const warehouses = await warehousesApi.getAll();
-      console.log("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
+      logger.debug("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
       if (warehouses.length === 0) return;
 
       // For each warehouse, get materials with locations
@@ -85,9 +85,9 @@ export default function MaterialsPage() {
       for (const warehouse of warehouses) {
         try {
           const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
-          console.log(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
+          logger.debug(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
           if (materialsWithLocs.length > 0) {
-            console.log("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
+            logger.debug("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
           }
           materialsWithLocs.forEach(m => {
             if (m.locationCode) {
@@ -95,13 +95,13 @@ export default function MaterialsPage() {
             }
           });
         } catch (err) {
-          console.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
+          logger.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
         }
       }
-      console.log("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
+      logger.debug("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
       setMaterialsWithLocations(locationMap);
     } catch (err) {
-      console.error("Failed to load material locations:", err);
+      logger.error("Failed to load material locations:", err);
     }
   };
 
@@ -198,7 +198,7 @@ export default function MaterialsPage() {
 
   // Debug logging
   React.useEffect(() => {
-    console.log("[MaterialsPage] State:", {
+    logger.debug("[MaterialsPage] State:", {
       isLoading,
       hasData: !!allMaterials,
       dataLength: allMaterials?.length || 0,
@@ -206,17 +206,17 @@ export default function MaterialsPage() {
       filteredLength: filteredMaterials.length,
     });
     if (allMaterials) {
-      console.log(`[MaterialsPage] ✅ Loaded ${allMaterials.length} materials from API`);
+      logger.debug(`[MaterialsPage] ✅ Loaded ${allMaterials.length} materials from API`);
       if (allMaterials.length > 0) {
-        console.log("[MaterialsPage] First material sample:", allMaterials[0]);
+        logger.debug("[MaterialsPage] First material sample:", allMaterials[0]);
       }
     }
     if (error) {
-      console.error("[MaterialsPage] ❌ Error loading materials:", error);
+      logger.error("[MaterialsPage] ❌ Error loading materials:", error);
       logger.error("[Materials] Error loading materials:", error);
     }
     if (isLoading) {
-      console.log("[MaterialsPage] ⏳ Loading materials...");
+      logger.debug("[MaterialsPage] ⏳ Loading materials...");
     }
   }, [allMaterials, error, isLoading, filteredMaterials.length]);
 

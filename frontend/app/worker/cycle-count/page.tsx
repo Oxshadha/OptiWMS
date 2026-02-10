@@ -8,6 +8,7 @@ import { QRScanner } from "@/components/QRScanner";
 import { operationsApi, CycleCount } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 interface CycleCountTask {
   id: string;
@@ -90,7 +91,7 @@ export default function CycleCountPage() {
                 counted: parseInt(count.countedQuantity || "0", 10) || 0,
               };
             } catch (error) {
-              console.error(`Error fetching material ${count.materialId}:`, error);
+              logger.error(`Error fetching material ${count.materialId}:`, error);
               // Don't show UUID, show user-friendly message
               return {
                 id: count.id,
@@ -105,7 +106,7 @@ export default function CycleCountPage() {
         );
         setCycleCountTasks(tasksWithNames);
       } catch (error) {
-        console.error("Error loading cycle count tasks:", error);
+        logger.error("Error loading cycle count tasks:", error);
         setCycleCountTasks([]);
       } finally {
         setLoading(false);
@@ -126,7 +127,7 @@ export default function CycleCountPage() {
       const records = await getScanRecordsByTask("cycle-count");
       setSavedCounts(records);
     } catch (error) {
-      console.error("Error loading saved counts:", error);
+      logger.error("Error loading saved counts:", error);
     }
   };
 
@@ -170,7 +171,7 @@ export default function CycleCountPage() {
         setSaveStatus("idle");
       }, 1500);
     } catch (error) {
-      console.error("Error saving cycle count:", error);
+      logger.error("Error saving cycle count:", error);
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 2000);
     }

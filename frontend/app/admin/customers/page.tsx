@@ -8,6 +8,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { customersApi, Customer } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 // Display format for customers
 interface CustomerDisplay {
@@ -83,7 +84,7 @@ export default function CustomersPage() {
         
         setCustomers(displayCustomers);
       } catch (err) {
-        console.error("Failed to load customers:", err);
+        logger.error("Failed to load customers:", err);
         setError(err instanceof Error ? err.message : "Failed to load customers");
         setCustomers([]);
         if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -481,7 +482,7 @@ export default function CustomersPage() {
               setSelectedCustomer(null);
               await loadData();
             } catch (err) {
-              console.error("Failed to delete customer:", err);
+              logger.error("Failed to delete customer:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete customer");
             }
           }}
@@ -558,7 +559,7 @@ function AddCustomerModal({
       });
       setValidationErrors({});
     } catch (err) {
-      console.error("Failed to add customer:", err);
+      logger.error("Failed to add customer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to add customer");
     }
   };
@@ -786,7 +787,7 @@ function CustomerEditModal({
       await onUpdated();
       onClose();
     } catch (err) {
-      console.error("Failed to update customer:", err);
+      logger.error("Failed to update customer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update customer");
     }
   };

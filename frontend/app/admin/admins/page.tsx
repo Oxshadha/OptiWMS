@@ -19,6 +19,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { usersApi, User } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { logger } from "@/lib/utils/logger";
 
 interface AdminDisplay {
   id: string;
@@ -97,7 +98,7 @@ export default function AdminsPage() {
       
       setAdmins(adminsWithWarehouses);
     } catch (error) {
-      console.error("Error loading admins:", error);
+      logger.error("Error loading admins:", error);
       setError(error instanceof Error ? error.message : "Failed to load managers");
       setAdmins([]);
       showToast.error("Failed to load managers");
@@ -263,7 +264,7 @@ export default function AdminsPage() {
         setSelectedAdmin(null);
         await loadAdmins();
       } catch (err) {
-        console.error("Failed to delete admin:", err);
+        logger.error("Failed to delete admin:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to delete admin");
       }
     }
@@ -571,7 +572,7 @@ function CreateAdminModal({
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData.map(w => ({ id: w.id, name: w.name })));
       } catch (error) {
-        console.error("Failed to load warehouses:", error);
+        logger.error("Failed to load warehouses:", error);
       }
     };
     if (isOpen) {

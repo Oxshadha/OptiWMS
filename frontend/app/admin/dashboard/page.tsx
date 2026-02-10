@@ -1,11 +1,11 @@
 "use client";
+import { logger } from "@/lib/utils/logger";
 import { KpiTile } from "@/components/KpiTile";
 import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { useDashboardData } from "./useDashboardData";
-import { logger } from "@/lib/utils/logger";
 import {
   BarChart,
   Bar,

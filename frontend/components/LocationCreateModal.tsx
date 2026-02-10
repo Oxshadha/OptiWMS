@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Modal } from "@/components/Modal";
 import { locationsApi, CreateLocationRequest } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface LocationCreateModalProps {
   isOpen: boolean;
@@ -58,7 +59,7 @@ export function LocationCreateModal({
       onSuccess?.();
       onClose();
     } catch (error) {
-      console.error("Failed to create location:", error);
+      logger.error("Failed to create location:", error);
       showToast.error("Failed to create location. Please try again.");
     } finally {
       setIsSubmitting(false);

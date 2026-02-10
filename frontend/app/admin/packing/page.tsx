@@ -12,6 +12,7 @@ import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapPackingStatus } from "@/lib/utils/status-mappers";
+import { logger } from "@/lib/utils/logger";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -133,7 +134,7 @@ export default function PackingPage() {
 
       setPackingRecords(displayRecords);
     } catch (err) {
-      console.error("Failed to load packing records:", err);
+      logger.error("Failed to load packing records:", err);
       setError(err instanceof Error ? err.message : "Failed to load packing records");
       setPackingRecords([]);
       showToast.error("Failed to load packing records. Please try again.");
@@ -153,7 +154,7 @@ export default function PackingPage() {
         const workers = await usersApi.getAll("worker");
         setAvailableWorkers(workers);
       } catch (err) {
-        console.error("Failed to load workers:", err);
+        logger.error("Failed to load workers:", err);
       }
     };
     loadWorkers();
@@ -215,7 +216,7 @@ export default function PackingPage() {
       setSelectedRecordForAssign(null);
       await loadData();
     } catch (err) {
-      console.error("Failed to assign packer:", err);
+      logger.error("Failed to assign packer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to assign packer");
     }
   };

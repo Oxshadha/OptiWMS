@@ -8,6 +8,7 @@ import { SummaryCards } from "@/components/SummaryCards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 export default function LaborProductivityPage() {
   const { hasPermission } = useAdmin();
@@ -30,7 +31,7 @@ export default function LaborProductivityPage() {
       setProductivityMetrics(productivityData);
       setLeaderboard(leaderboardData);
     } catch (err) {
-      console.error("Failed to load labor productivity data:", err);
+      logger.error("Failed to load labor productivity data:", err);
       const message =
         err instanceof Error ? err.message : "Failed to load labor productivity data";
       setError(message);

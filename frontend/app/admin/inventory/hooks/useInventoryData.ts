@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { inventoryApi } from "@/lib/api/inventory";
 import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
-import { logger } from "@/lib/utils/logger";
 import { InventoryDisplayItem } from "../types";
+import { logger } from "@/lib/utils/logger";
 
 type SortBy = "name" | "sku" | "qty" | "location" | null;
 type SortDirection = "asc" | "desc";

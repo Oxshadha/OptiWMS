@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
+import { logger } from "@/lib/utils/logger";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,7 +29,7 @@ export default function LoginPage() {
         const warehouses = await warehousesApi.getAll();
         setAvailableWarehouses(warehouses.map(w => ({ id: w.id, name: w.name })));
       } catch (error) {
-        console.error("Failed to load warehouses:", error);
+        logger.error("Failed to load warehouses:", error);
         // Fallback to empty array if API fails
         setAvailableWarehouses([]);
       } finally {
@@ -115,7 +116,7 @@ export default function LoginPage() {
               warehouseName = selectedWarehouse.name;
             }
           } catch (err) {
-            console.error("Error fetching warehouse:", err);
+            logger.error("Error fetching warehouse:", err);
           }
         }
 
@@ -132,7 +133,7 @@ export default function LoginPage() {
         };
         setAdmin(adminData);
       } catch (apiError) {
-        console.error("Error verifying admin role:", apiError);
+        logger.error("Error verifying admin role:", apiError);
         setError("Failed to verify user role. Please try again.");
         setIsLoading(false);
         return;

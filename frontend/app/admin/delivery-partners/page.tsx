@@ -11,6 +11,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 // Helper function to format currency
 const formatCurrency = (amount: number, currencyCode?: string): string => {
@@ -137,7 +138,7 @@ export default function DeliveryPartnersPage() {
 
       setDeliveryPartners(displayPartners);
     } catch (err) {
-      console.error("Failed to load delivery partners:", err);
+      logger.error("Failed to load delivery partners:", err);
       setError(err instanceof Error ? err.message : "Failed to load delivery partners");
       // Don't fallback to mock data - show error instead
       setDeliveryPartners([]);
@@ -560,7 +561,7 @@ export default function DeliveryPartnersPage() {
               // Reload data
               await loadData();
             } catch (err) {
-              console.error("Failed to delete delivery partner:", err);
+              logger.error("Failed to delete delivery partner:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete delivery partner");
             }
           }}
@@ -720,7 +721,7 @@ function EditDeliveryPartnerModal({
       await onUpdated();
       onClose();
     } catch (err) {
-      console.error("Failed to update delivery partner:", err);
+      logger.error("Failed to update delivery partner:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update delivery partner");
     }
   };
@@ -992,7 +993,7 @@ function CreateDeliveryPartnerModal({
         rating: "",
       });
     } catch (err) {
-      console.error("Failed to create delivery partner:", err);
+      logger.error("Failed to create delivery partner:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create delivery partner");
     }
   };

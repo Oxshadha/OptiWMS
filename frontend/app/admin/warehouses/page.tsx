@@ -12,6 +12,7 @@ import { locationsApi, Location } from "@/lib/api/locations";
 import { useAdmin } from "@/contexts/AdminContext";
 import { LocationCreateModal } from "@/components/LocationCreateModal";
 import { LocationEditModal } from "@/components/LocationEditModal";
+import { logger } from "@/lib/utils/logger";
 
 export default function WarehousesPage() {
   const { admin, role } = useAdmin();
@@ -61,7 +62,7 @@ export default function WarehousesPage() {
           await loadWarehouseLayout(initialWarehouseId);
         }
       } catch (error) {
-        console.error("Failed to load warehouses:", error);
+        logger.error("Failed to load warehouses:", error);
         setError("Failed to load warehouses. Using fallback layout.");
         // Fallback to mock layout
         if (isWarehouseManager && assignedWarehouseId) {
@@ -103,7 +104,7 @@ export default function WarehousesPage() {
       } catch (hierarchyError) {
         // Fallback: get storage-only locations and convert
         // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
-        console.log("Hierarchy not available, using storage-only locations list");
+        logger.debug("Hierarchy not available, using storage-only locations list");
         const locations = await locationsApi.getStorageLocationsByWarehouse(warehouseId);
         if (locations.length > 0) {
           const warehouse = warehouses.find((w) => w.id === warehouseId);
@@ -115,12 +116,12 @@ export default function WarehousesPage() {
           setLayout(layout);
         } else {
           // No locations found, use mock layout
-          console.log("No storage locations found, using mock layout");
+          logger.debug("No storage locations found, using mock layout");
           setLayout(getWarehouseLayout(warehouseId));
         }
       }
     } catch (error) {
-      console.error("Failed to load warehouse layout:", error);
+      logger.error("Failed to load warehouse layout:", error);
       setError("Failed to load warehouse layout. Using fallback.");
       setLayout(getWarehouseLayout(warehouseId));
     } finally {
@@ -141,7 +142,7 @@ export default function WarehousesPage() {
       setSelectedRack(rack);
     } else {
       // For special status racks, just show a message or do nothing
-      console.log(`Rack ${rack.id} is ${rack.status} - rack is empty`);
+      logger.debug(`Rack ${rack.id} is ${rack.status} - rack is empty`);
     }
   };
 
@@ -172,7 +173,7 @@ export default function WarehousesPage() {
 
   const handleBinClick = (bin: LocationBin) => {
     setSelectedBin(bin);
-    console.log("Bin clicked:", bin);
+    logger.debug("Bin clicked:", bin);
   };
 
   const handleCloseElevation = () => {

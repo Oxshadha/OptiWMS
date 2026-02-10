@@ -18,6 +18,7 @@ import {
 import { getFromStore, updateInStore, STORES, initDB } from "@/lib/indexeddb";
 import { authApi } from "@/lib/api/auth";
 import { usersApi } from "@/lib/api/users";
+import { logger } from "@/lib/utils/logger";
 
 export interface WorkerData {
   id: string;
@@ -63,13 +64,13 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
     const handleStorageChange = (e: StorageEvent) => {
       // Storage event only fires in OTHER tabs, not the current one
       if (e.key === 'accessToken') {
-        console.log('[WorkerContext] Token changed in another tab, reloading worker data');
+        logger.debug('[WorkerContext] Token changed in another tab, reloading worker data');
         if (e.newValue) {
           // New token set - reload worker data (will validate role)
           loadWorkerFromStorage();
         } else {
           // Token removed - clear worker state
-          console.log('[WorkerContext] Token removed in another tab, clearing worker state');
+          logger.debug('[WorkerContext] Token removed in another tab, clearing worker state');
           setWorkerState(null);
         }
       }
@@ -77,7 +78,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
 
     // Also listen for custom events from the same tab (when login happens in current tab)
     const handleTokenChange = () => {
-      console.log('[WorkerContext] Token change detected (same tab), reloading worker data');
+      logger.debug('[WorkerContext] Token change detected (same tab), reloading worker data');
       loadWorkerFromStorage();
     };
 
@@ -102,7 +103,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
       prevPathname !== null &&
       worker
     ) {
-      console.log(
+      logger.debug(
         "[WorkerContext] Clearing worker state on navigation to login page (keeping IndexedDB)",
         {
           from: prevPathname,
@@ -132,15 +133,15 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
     if (pathname?.startsWith("/worker")) {
       if (!worker && hasToken) {
         // We have a token but no worker data - try loading from storage/API
-        console.log("[WorkerContext] Has token but no worker - reloading from storage/API");
+        logger.debug("[WorkerContext] Has token but no worker - reloading from storage/API");
         loadWorkerFromStorage();
       } else if (!worker && !hasToken && isLoading) {
         // No token and no worker - ensure loading is false
-        console.log("[WorkerContext] No token and no worker - setting loading to false");
+        logger.debug("[WorkerContext] No token and no worker - setting loading to false");
         setIsLoading(false);
       } else if (worker && isLoading) {
         // We have worker but still loading - set to false
-        console.log("[WorkerContext] Has worker but still loading - setting to false");
+        logger.debug("[WorkerContext] Has worker but still loading - setting to false");
         setIsLoading(false);
       }
     }
@@ -148,20 +149,20 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
 
   const loadWorkerFromStorage = async () => {
     try {
-      console.log(
+      logger.debug(
         "[WorkerContext] Attempting to load worker with key:",
         WORKER_DATA_KEY
       );
       
       // Check if we have a token
       const hasToken = typeof window !== 'undefined' && !!localStorage.getItem('accessToken');
-      console.log("[WorkerContext] Has token:", hasToken);
+      logger.debug("[WorkerContext] Has token:", hasToken);
       
       // Ensure IndexedDB is initialized
       try {
         await initDB();
       } catch (dbError) {
-        console.error("[WorkerContext] IndexedDB init error:", dbError);
+        logger.error("[WorkerContext] IndexedDB init error:", dbError);
       }
       
       try {
@@ -169,9 +170,9 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           STORES.WORKER_DATA,
           WORKER_DATA_KEY
         );
-        console.log("[WorkerContext] Raw data from IndexedDB:", stored);
+        logger.debug("[WorkerContext] Raw data from IndexedDB:", stored);
         if (stored) {
-          console.log("[WorkerContext] Loaded worker from storage:", {
+          logger.debug("[WorkerContext] Loaded worker from storage:", {
             role: stored.role,
             name: stored.name,
             key: stored.key,
@@ -184,15 +185,15 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           return;
         }
       } catch (storeError) {
-        console.error("[WorkerContext] Error reading from store:", storeError);
+        logger.error("[WorkerContext] Error reading from store:", storeError);
       }
       
       // If we have a token but no stored worker, fetch from API
       if (hasToken) {
-        console.log("[WorkerContext] Has token but no stored worker - fetching from API");
+        logger.debug("[WorkerContext] Has token but no stored worker - fetching from API");
         try {
           const userInfo = await authApi.getCurrentUser();
-          console.log("[WorkerContext] Fetched user info from API:", userInfo);
+          logger.debug("[WorkerContext] Fetched user info from API:", userInfo);
           
           // Check if user is a worker role
           const workerRoles = [
@@ -224,24 +225,24 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                     warehouseName = warehouse.name;
                   } catch (err) {
                     // If getById fails, try to get all warehouses and find by ID
-                    console.log("[WorkerContext] getById failed, trying getAll:", err);
+                    logger.debug("[WorkerContext] getById failed, trying getAll:", err);
                     try {
                       const warehouses = await warehousesApi.getAll();
                       const warehouse = warehouses.find(w => w.id === fullUser.warehouseId);
                       if (warehouse) {
                         warehouseName = warehouse.name;
                       } else {
-                        console.warn("[WorkerContext] Warehouse not found in list");
+                        logger.warn("[WorkerContext] Warehouse not found in list");
                         warehouseName = "Unknown Warehouse";
                       }
                     } catch (err2) {
-                      console.warn("[WorkerContext] Could not fetch warehouse name:", err2);
+                      logger.warn("[WorkerContext] Could not fetch warehouse name:", err2);
                       warehouseName = "Unknown Warehouse";
                     }
                   }
                 } catch (err) {
                   // Workers may not have permission - use fallback
-                  console.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
+                  logger.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
                   warehouseName = "Unknown Warehouse";
                 }
               }
@@ -260,7 +261,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               };
             } catch (apiError: any) {
               // Workers don't have permission to access /api/users - use data from getCurrentUser
-              console.warn("[WorkerContext] Could not fetch full user details (workers may not have permission), using basic info:", apiError);
+              logger.warn("[WorkerContext] Could not fetch full user details (workers may not have permission), using basic info:", apiError);
               
               // Get warehouse name and ID - try multiple methods
               let warehouseName = "Unknown";
@@ -269,11 +270,11 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               // If warehouseId is missing, try to find warehouse by name (fallback)
               // NOTE: This is a TEMPORARY fallback. Workers should have warehouseId set in database.
               if (!warehouseId) {
-                console.warn("[WorkerContext] ⚠️ No warehouseId in userInfo, trying fallback");
+                logger.warn("[WorkerContext] ⚠️ No warehouseId in userInfo, trying fallback");
                 try {
                   const { warehousesApi } = await import('@/lib/api/warehouses');
                   const warehouses = await warehousesApi.getAll();
-                  console.log("[WorkerContext] Fetched warehouses for fallback:", warehouses.length);
+                  logger.debug("[WorkerContext] Fetched warehouses for fallback:", warehouses.length);
                   
                   if (warehouses.length > 0) {
                     // Try to find "Colombo Main Warehouse" first, otherwise use first warehouse
@@ -286,16 +287,16 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                     const selectedWarehouse = colomboWarehouse || warehouses[0];
                     warehouseId = selectedWarehouse.id;
                     warehouseName = selectedWarehouse.name;
-                    console.warn("[WorkerContext] ⚠️ Using fallback warehouse (worker should be assigned in database):", warehouseName, warehouseId);
-                    console.warn("[WorkerContext] ⚠️ Admin should assign worker to correct warehouse using: PUT /api/users/{id}/assign-warehouse");
-                    console.warn("[WorkerContext] ⚠️ Or via Admin UI: Workers → Edit → Select Warehouse → Update");
+                    logger.warn("[WorkerContext] ⚠️ Using fallback warehouse (worker should be assigned in database):", warehouseName, warehouseId);
+                    logger.warn("[WorkerContext] ⚠️ Admin should assign worker to correct warehouse using: PUT /api/users/{id}/assign-warehouse");
+                    logger.warn("[WorkerContext] ⚠️ Or via Admin UI: Workers → Edit → Select Warehouse → Update");
                   } else {
-                    console.error("[WorkerContext] ❌ No warehouses found in system!");
-                    console.error("[WorkerContext] ❌ Cannot set fallback warehouse - no warehouses exist!");
+                    logger.error("[WorkerContext] ❌ No warehouses found in system!");
+                    logger.error("[WorkerContext] ❌ Cannot set fallback warehouse - no warehouses exist!");
                   }
                 } catch (err: any) {
-                  console.error("[WorkerContext] ❌ Could not fetch warehouses for fallback:", err?.message || err);
-                  console.error("[WorkerContext] ❌ Worker needs warehouseId assigned in database. Use: PUT /api/users/{id}/assign-warehouse");
+                  logger.error("[WorkerContext] ❌ Could not fetch warehouses for fallback:", err?.message || err);
+                  logger.error("[WorkerContext] ❌ Worker needs warehouseId assigned in database. Use: PUT /api/users/{id}/assign-warehouse");
                   // Don't set warehouseId if fallback fails - let the UI show the error
                 }
               } else {
@@ -308,23 +309,23 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                     warehouseName = warehouse.name;
                   } catch (err) {
                     // If getById fails, try to get all warehouses and find by ID
-                    console.log("[WorkerContext] getById failed, trying getAll:", err);
+                    logger.debug("[WorkerContext] getById failed, trying getAll:", err);
                     try {
                       const warehouses = await warehousesApi.getAll();
                       const warehouse = warehouses.find(w => w.id === warehouseId);
                       if (warehouse) {
                         warehouseName = warehouse.name;
                       } else {
-                        console.warn("[WorkerContext] Warehouse not found in list");
+                        logger.warn("[WorkerContext] Warehouse not found in list");
                         warehouseName = "Unknown Warehouse";
                       }
                     } catch (err2) {
-                      console.warn("[WorkerContext] Could not fetch warehouse name:", err2);
+                      logger.warn("[WorkerContext] Could not fetch warehouse name:", err2);
                       warehouseName = "Unknown Warehouse";
                     }
                   }
                 } catch (err) {
-                  console.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
+                  logger.warn("[WorkerContext] Could not fetch warehouse name (this is OK for workers):", err);
                   warehouseName = "Unknown Warehouse";
                 }
               }
@@ -341,11 +342,11 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
               
               // CRITICAL: Ensure warehouseId is set (from userInfo or fallback)
               if (!warehouseId) {
-                console.error("[WorkerContext] ❌ CRITICAL: warehouseId is still undefined after fallback attempt!");
-                console.error("[WorkerContext] ❌ Worker MUST be assigned to warehouse in database.");
-                console.error("[WorkerContext] ❌ Admin should use: PUT /api/users/{id}/assign-warehouse");
+                logger.error("[WorkerContext] ❌ CRITICAL: warehouseId is still undefined after fallback attempt!");
+                logger.error("[WorkerContext] ❌ Worker MUST be assigned to warehouse in database.");
+                logger.error("[WorkerContext] ❌ Admin should use: PUT /api/users/{id}/assign-warehouse");
               } else {
-                console.log("[WorkerContext] ✅ warehouseId is set:", warehouseId, "warehouseName:", warehouseName);
+                logger.debug("[WorkerContext] ✅ warehouseId is set:", warehouseId, "warehouseName:", warehouseName);
               }
               
               workerData = {
@@ -364,7 +365,7 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
             
             setWorkerState(workerData);
             setIsLoading(false); // CRITICAL: Set loading to false when worker data is set
-            console.log("[WorkerContext] Worker data set from API:", {
+            logger.debug("[WorkerContext] Worker data set from API:", {
               workerId: workerData.workerId,
               name: workerData.name,
               role: workerData.role,
@@ -380,15 +381,15 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
                 ...workerData,
               });
             } catch (err) {
-              console.error("[WorkerContext] Error saving to IndexedDB:", err);
+              logger.error("[WorkerContext] Error saving to IndexedDB:", err);
             }
           } else {
-            console.log("[WorkerContext] User is not a worker role:", userInfo.role);
+            logger.debug("[WorkerContext] User is not a worker role:", userInfo.role);
             setWorkerState(null);
             setIsLoading(false); // Set loading to false even if not a worker
           }
         } catch (apiError) {
-          console.error("[WorkerContext] Error fetching user from API:", apiError);
+          logger.error("[WorkerContext] Error fetching user from API:", apiError);
           // Token might be invalid - clear it
           if (typeof window !== 'undefined') {
             localStorage.removeItem('accessToken');
@@ -398,11 +399,11 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           setIsLoading(false); // Set loading to false on error
         }
       } else {
-        console.log("[WorkerContext] No token found - not authenticated");
+        logger.debug("[WorkerContext] No token found - not authenticated");
         setWorkerState(null);
       }
     } catch (error) {
-      console.error(
+      logger.error(
         "[WorkerContext] Error loading worker from storage:",
         error
       );
@@ -413,14 +414,14 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
   };
 
   const setWorker = async (newWorker: WorkerData | null) => {
-    console.log("[WorkerContext] setWorker called:", { hasWorker: !!newWorker, role: newWorker?.role });
+    logger.debug("[WorkerContext] setWorker called:", { hasWorker: !!newWorker, role: newWorker?.role });
     
     // Update state immediately (don't wait for IndexedDB)
     setWorkerState(newWorker);
     
     // CRITICAL: Set loading to false when worker is set
     if (newWorker) {
-      console.log("[WorkerContext] Setting isLoading to false (worker set)");
+      logger.debug("[WorkerContext] Setting isLoading to false (worker set)");
       setIsLoading(false);
     }
     
@@ -443,16 +444,16 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
             phone: newWorker.phone,
             deviceId: newWorker.deviceId,
           };
-          console.log("[WorkerContext] Saving worker to storage:", {
+          logger.debug("[WorkerContext] Saving worker to storage:", {
             key: dataToSave.key,
             role: dataToSave.role,
             name: dataToSave.name,
           });
 
           await updateInStore(STORES.WORKER_DATA, dataToSave);
-          console.log("[WorkerContext] Worker saved to storage successfully");
+          logger.debug("[WorkerContext] Worker saved to storage successfully");
         } catch (error) {
-          console.error("[WorkerContext] Error saving worker to storage:", error);
+          logger.error("[WorkerContext] Error saving worker to storage:", error);
           // Don't block login if IndexedDB fails - data is already in context
         }
       })();
@@ -463,9 +464,9 @@ export function WorkerProvider({ children }: { children: ReactNode }) {
           await initDB();
           const { deleteFromStore } = await import("@/lib/indexeddb");
           await deleteFromStore(STORES.WORKER_DATA, WORKER_DATA_KEY);
-          console.log("[WorkerContext] Cleared worker from storage");
+          logger.debug("[WorkerContext] Cleared worker from storage");
         } catch (error) {
-          console.error("[WorkerContext] Error clearing worker from storage:", error);
+          logger.error("[WorkerContext] Error clearing worker from storage:", error);
         }
       })();
     }

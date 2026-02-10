@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Sync Service for Offline-First PWA
  * 
@@ -99,7 +100,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
 
     // If retry count is too high, mark as permanently failed
     if (item.retryCount >= 5) {
-      console.error(`Sync item ${item.id} failed after ${item.retryCount} retries`);
+      logger.error(`Sync item ${item.id} failed after ${item.retryCount} retries`);
     }
 
     return false;
@@ -111,7 +112,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
  */
 export async function syncAll(): Promise<{ success: number; failed: number }> {
   if (!isOnline()) {
-    console.log("Offline - skipping sync");
+    logger.debug("Offline - skipping sync");
     return { success: 0, failed: 0 };
   }
 

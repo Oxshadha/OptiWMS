@@ -14,6 +14,7 @@ import { validateLocationCode, formatLocationCodeForDisplay } from "@/lib/utils/
 import { validateLocationExists } from "@/lib/utils/location-helpers";
 import { showToast } from "@/lib/utils/toast";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 // Component to display item details
 function ItemDetailsDisplay({ materialId, quantity }: { materialId: string; quantity: number }) {
@@ -33,7 +34,7 @@ function ItemDetailsDisplay({ materialId, quantity }: { materialId: string; quan
         setItemName(display.name || material.description || material.materialCode || "Item");
         setItemSku(display.sku || material.materialCode || "N/A");
       } catch (err) {
-        console.error("Failed to load material:", err);
+        logger.error("Failed to load material:", err);
         
         // Retry up to 2 times with exponential backoff
         if (retryCount < 2) {
@@ -97,7 +98,7 @@ export default function PutawayPage() {
   // REMOVED - Now loading orders instead
   /*
   useEffect(() => {
-    console.log("[Putaway] useEffect triggered:", {
+    logger.debug("[Putaway] useEffect triggered:", {
       workerContextLoading,
       hasWorker: !!worker,
       workerWarehouseId: worker?.warehouseId,
@@ -106,13 +107,13 @@ export default function PutawayPage() {
     
     // Wait for worker context to finish loading
     if (workerContextLoading) {
-      console.log("[Putaway] Worker context still loading, waiting...");
+      logger.debug("[Putaway] Worker context still loading, waiting...");
       return;
     }
 
     const loadPutawayTasks = async () => {
       if (!worker) {
-        console.warn("[Putaway] No worker data available");
+        logger.warn("[Putaway] No worker data available");
         setIsLoading(false);
         setTask(null);
         return;
@@ -124,24 +125,24 @@ export default function PutawayPage() {
       // If warehouseId is missing, try to get it from warehouse name lookup
       // This handles cases where context hasn't fully loaded warehouseId yet
       if (!warehouseId && worker.warehouse && worker.warehouse !== "Unknown" && worker.warehouse !== "Unassigned") {
-        console.warn("[Putaway] warehouseId missing but warehouse name exists:", worker.warehouse);
-        console.warn("[Putaway] Attempting to fetch warehouseId from warehouse name...");
+        logger.warn("[Putaway] warehouseId missing but warehouse name exists:", worker.warehouse);
+        logger.warn("[Putaway] Attempting to fetch warehouseId from warehouse name...");
         try {
           const { warehousesApi } = await import('@/lib/api/warehouses');
           const warehouses = await warehousesApi.getAll();
           const matchingWarehouse = warehouses.find(w => w.name === worker.warehouse);
           if (matchingWarehouse) {
             warehouseId = matchingWarehouse.id;
-            console.log("[Putaway] Found warehouseId from name:", warehouseId);
+            logger.debug("[Putaway] Found warehouseId from name:", warehouseId);
           }
         } catch (err) {
-          console.error("[Putaway] Failed to fetch warehouses:", err);
+          logger.error("[Putaway] Failed to fetch warehouses:", err);
         }
       }
 
       if (!warehouseId) {
-        console.error("[Putaway] CRITICAL: No warehouseId available after all attempts");
-        console.error("[Putaway] Worker data:", { 
+        logger.error("[Putaway] CRITICAL: No warehouseId available after all attempts");
+        logger.error("[Putaway] Worker data:", { 
           id: worker.id, 
           name: worker.name, 
           warehouse: worker.warehouse,
@@ -154,12 +155,12 @@ export default function PutawayPage() {
 
       try {
         setIsLoading(true);
-        console.log("[Putaway] Loading tasks for warehouse:", warehouseId);
+        logger.debug("[Putaway] Loading tasks for warehouse:", warehouseId);
         
         // Get only available (unassigned) tasks for worker's warehouse
         // Status "pending" means unassigned tasks (first come first serve)
         const tasks = await tasksApi.getAll("putaway", "pending", undefined, warehouseId, true);
-        console.log("[Putaway] Available tasks:", tasks.length);
+        logger.debug("[Putaway] Available tasks:", tasks.length);
         
         // Also include tasks assigned to this worker (in_progress, assigned)
         const myTasks = await tasksApi.getAll("putaway", undefined, worker.id, warehouseId, false);
@@ -167,7 +168,7 @@ export default function PutawayPage() {
           t.assignedTo === worker.id && 
           (t.status === "assigned" || t.status === "in_progress")
         );
-        console.log("[Putaway] My active tasks:", myActiveTasks.length);
+        logger.debug("[Putaway] My active tasks:", myActiveTasks.length);
         
         // Combine: available tasks + my active tasks
         const allTasks = [...tasks, ...myActiveTasks];
@@ -177,7 +178,7 @@ export default function PutawayPage() {
           new Map(allTasks.map(t => [t.id, t])).values()
         );
         
-        console.log("[Putaway] Total unique tasks:", uniqueTasks.length);
+        logger.debug("[Putaway] Total unique tasks:", uniqueTasks.length);
         
         if (uniqueTasks.length > 0) {
           const firstTask = uniqueTasks[0];
@@ -185,7 +186,7 @@ export default function PutawayPage() {
           // Fetch full task details to get item information
           try {
             const taskDetails = await tasksApi.getById(firstTask.id);
-            console.log("[Putaway] Task details:", {
+            logger.debug("[Putaway] Task details:", {
               taskId: firstTask.id,
               referenceType: taskDetails.referenceType,
               referenceId: taskDetails.referenceId,
@@ -202,7 +203,7 @@ export default function PutawayPage() {
             
             // If task has reference, try to fetch order items and order details
             if (taskDetails.referenceType === "order" && taskDetails.referenceId) {
-              console.log("[Putaway] Task is linked to order ID:", taskDetails.referenceId);
+              logger.debug("[Putaway] Task is linked to order ID:", taskDetails.referenceId);
               try {
                 const { orderItemsApi } = await import("@/lib/api/orderItems");
                 const { ordersApi } = await import("@/lib/api/orders");
@@ -211,7 +212,7 @@ export default function PutawayPage() {
                 try {
                   const order = await ordersApi.getById(taskDetails.referenceId);
                   orderNumber = order.orderNumber || "";
-                  console.log("[Putaway] ✅ Linked to order:", {
+                  logger.debug("[Putaway] ✅ Linked to order:", {
                     orderNumber: orderNumber,
                     orderId: taskDetails.referenceId,
                     orderType: order.orderType,
@@ -222,18 +223,18 @@ export default function PutawayPage() {
                   
                   // Verify this is the correct order by checking order number format
                   if (orderNumber && !orderNumber.startsWith("PO-") && !orderNumber.startsWith("IN-")) {
-                    console.warn("[Putaway] ⚠️ Order number format unexpected:", orderNumber);
+                    logger.warn("[Putaway] ⚠️ Order number format unexpected:", orderNumber);
                   }
                 } catch (err) {
-                  console.error("[Putaway] ❌ Could not fetch order details:", err);
-                  console.error("[Putaway] Order ID that failed:", taskDetails.referenceId);
+                  logger.error("[Putaway] ❌ Could not fetch order details:", err);
+                  logger.error("[Putaway] Order ID that failed:", taskDetails.referenceId);
                   orderNumber = undefined;
                 }
                 
                 // Fetch order items - get ALL items, not just first
                 const orderItems = await orderItemsApi.getByOrderId(taskDetails.referenceId);
-                console.log("[Putaway] Order items found:", orderItems.length);
-                console.log("[Putaway] Order items details:", orderItems.map(item => ({
+                logger.debug("[Putaway] Order items found:", orderItems.length);
+                logger.debug("[Putaway] Order items details:", orderItems.map(item => ({
                   materialId: item.materialId,
                   quantity: item.quantity,
                   pickedQuantity: item.pickedQuantity,
@@ -248,13 +249,13 @@ export default function PutawayPage() {
                   // Use pickedQuantity (received quantity) for inbound orders, not ordered quantity
                   // pickedQuantity stores the actual received quantity for inbound orders
                   quantity = firstItem.pickedQuantity || firstItem.quantity || 0;
-                  console.log("[Putaway] Quantity from order item - pickedQuantity:", firstItem.pickedQuantity, "quantity:", firstItem.quantity, "using:", quantity);
+                  logger.debug("[Putaway] Quantity from order item - pickedQuantity:", firstItem.pickedQuantity, "quantity:", firstItem.quantity, "using:", quantity);
                   
                   // Try to get material name and SKU
                   try {
                     const { materialsApi } = await import("@/lib/api/materials");
                     const material = await materialsApi.getById(firstItem.materialId);
-                    console.log("[Putaway] Material fetched:", material);
+                    logger.debug("[Putaway] Material fetched:", material);
                     
                     const display = formatMaterialDisplay(
                       material.materialCode,
@@ -263,21 +264,21 @@ export default function PutawayPage() {
                     );
                     itemName = display.name || material.description || material.materialCode || "Item";
                     itemSku = display.sku || material.materialCode || "N/A";
-                    console.log("[Putaway] ✅ Material details loaded:", { 
+                    logger.debug("[Putaway] ✅ Material details loaded:", { 
                       name: itemName, 
                       sku: itemSku,
                       materialCode: material.materialCode,
                       description: material.description
                     });
                   } catch (err) {
-                    console.error("[Putaway] ❌ Could not fetch material details:", err);
+                    logger.error("[Putaway] ❌ Could not fetch material details:", err);
                     // Try to use material code from task notes as fallback
                     if (taskDetails.notes) {
                       const notesMatch = taskDetails.notes.match(/Put away \d+ units of ([^(]+)/);
                       if (notesMatch && notesMatch[1]) {
                         itemName = notesMatch[1].trim();
                         itemSku = notesMatch[1].trim();
-                        console.log("[Putaway] Using fallback from notes:", itemName);
+                        logger.debug("[Putaway] Using fallback from notes:", itemName);
                       } else {
                         itemName = "Item (Material details unavailable)";
                         itemSku = "N/A";
@@ -288,10 +289,10 @@ export default function PutawayPage() {
                     }
                   }
                 } else {
-                  console.warn("[Putaway] No order items found for order:", taskDetails.referenceId);
+                  logger.warn("[Putaway] No order items found for order:", taskDetails.referenceId);
                 }
               } catch (err) {
-                console.error("[Putaway] Could not fetch order items:", err);
+                logger.error("[Putaway] Could not fetch order items:", err);
                 // Fallback: try to extract info from task notes
                 if (taskDetails.notes) {
                   const notesMatch = taskDetails.notes.match(/Put away (\d+) units of ([^(]+)/);
@@ -334,7 +335,7 @@ export default function PutawayPage() {
               orderNumber: orderNumber, // Add order number
             });
             
-            console.log("[Putaway] ✅ Task loaded:", {
+            logger.debug("[Putaway] ✅ Task loaded:", {
               taskId: firstTask.id,
               orderNumber: orderNumber,
               itemName: itemName,
@@ -343,7 +344,7 @@ export default function PutawayPage() {
               location: locationCode || "Not specified"
             });
           } catch (err) {
-            console.error("Failed to load task details:", err);
+            logger.error("Failed to load task details:", err);
             // Use basic task info
             setTask({
               id: firstTask.id,
@@ -357,11 +358,11 @@ export default function PutawayPage() {
             });
           }
         } else {
-          console.log("[Putaway] No tasks available");
+          logger.debug("[Putaway] No tasks available");
           setTask(null);
         }
       } catch (error: any) {
-        console.error("[Putaway] Failed to load putaway tasks:", error);
+        logger.error("[Putaway] Failed to load putaway tasks:", error);
         const errorMessage = error?.message || "Failed to load putaway tasks";
         showToast.error(errorMessage);
         setTask(null);
@@ -396,9 +397,9 @@ export default function PutawayPage() {
         setIsLoadingOrders(true);
         const ordersList = await ordersApi.getOrdersNeedingPutaway(worker.warehouseId!);
         setOrders(ordersList.map(o => ({ id: o.id, orderNumber: o.orderNumber, status: o.status })));
-        console.log("[Putaway] Orders needing putaway:", ordersList.length);
+        logger.debug("[Putaway] Orders needing putaway:", ordersList.length);
       } catch (err) {
-        console.error("[Putaway] Failed to load orders:", err);
+        logger.error("[Putaway] Failed to load orders:", err);
         showToast.error("Failed to load orders. Please try again.");
       } finally {
         setIsLoadingOrders(false);
@@ -423,7 +424,7 @@ export default function PutawayPage() {
         setIsLoading(true);
         const items = await orderItemsApi.getPutawayItems(selectedOrder.id);
         setPutawayItems(items);
-        console.log("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
+        logger.debug("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
         
         // Reset progress tracking
         const progress = new Map<string, boolean>();
@@ -431,7 +432,7 @@ export default function PutawayPage() {
         setPutawayProgress(progress);
         setCurrentItemIndex(0);
       } catch (err) {
-        console.error("[Putaway] Failed to load putaway items:", err);
+        logger.error("[Putaway] Failed to load putaway items:", err);
         showToast.error("Failed to load order items. Please try again.");
       } finally {
         setIsLoading(false);
@@ -588,7 +589,7 @@ export default function PutawayPage() {
         }
       }
     } catch (error) {
-      console.error("Error confirming putaway:", error);
+      logger.error("Error confirming putaway:", error);
       showToast.error("Failed to complete putaway. Please try again.");
     }
   };
@@ -609,7 +610,7 @@ export default function PutawayPage() {
   };
 
   const handleSaveNote = () => {
-    console.log("Note saved:", note);
+    logger.debug("Note saved:", note);
     setShowNoteModal(false);
   };
 

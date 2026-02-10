@@ -17,6 +17,7 @@ import {
   EditScheduleModal,
   ScheduleCycleCountModal,
 } from "./components/CycleCountModals";
+import { logger } from "@/lib/utils/logger";
 
 export default function CycleCountsPage() {
   const { hasPermission, admin, role } = useAdmin();
@@ -82,7 +83,7 @@ export default function CycleCountsPage() {
 
       setCycleCounts(displayCounts);
     } catch (err) {
-      console.error("Failed to load cycle counts:", err);
+      logger.error("Failed to load cycle counts:", err);
       setError(err instanceof Error ? err.message : "Failed to load cycle counts");
       setCycleCounts([]);
       if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -581,7 +582,7 @@ export default function CycleCountsPage() {
                     setReviewNotes("");
                     await loadData();
                   } catch (err) {
-                    console.error("Failed to review discrepancies:", err);
+                    logger.error("Failed to review discrepancies:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to review discrepancies");
                   }
                 }}
@@ -653,7 +654,7 @@ export default function CycleCountsPage() {
                     setCancelReason("");
                     await loadData();
                   } catch (err) {
-                    console.error("Failed to cancel cycle count:", err);
+                    logger.error("Failed to cancel cycle count:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to cancel cycle count");
                   }
                 }}

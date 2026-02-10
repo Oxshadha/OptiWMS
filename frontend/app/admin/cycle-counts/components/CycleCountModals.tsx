@@ -7,6 +7,7 @@ import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { CycleCountDisplay, countTypeConfig, statusConfig } from "../types";
+import { logger } from "@/lib/utils/logger";
 
 // Cycle Count Detail Modal
 export function CycleCountDetailModal({
@@ -165,7 +166,7 @@ export function ScheduleCycleCountModal({
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData);
       } catch (err) {
-        console.error("Failed to load warehouses:", err);
+        logger.error("Failed to load warehouses:", err);
       } finally {
         setIsLoadingWarehouses(false);
       }
@@ -203,7 +204,7 @@ export function ScheduleCycleCountModal({
         notes: "",
       });
     } catch (err) {
-      console.error("Failed to schedule cycle count:", err);
+      logger.error("Failed to schedule cycle count:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to schedule cycle count");
     }
   };
@@ -423,7 +424,7 @@ export function CreateAdHocCountModal({
         const warehousesData = await warehousesApi.getAll();
         setWarehouses(warehousesData);
       } catch (err) {
-        console.error("Failed to load warehouses:", err);
+        logger.error("Failed to load warehouses:", err);
       } finally {
         setIsLoadingWarehouses(false);
       }
@@ -461,7 +462,7 @@ export function CreateAdHocCountModal({
         notes: "",
       });
     } catch (err) {
-      console.error("Failed to create ad-hoc cycle count:", err);
+      logger.error("Failed to create ad-hoc cycle count:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create ad-hoc cycle count");
     }
   };
@@ -664,7 +665,7 @@ export function EditScheduleModal({
       await onUpdated();
       onClose();
     } catch (err) {
-      console.error("Failed to update schedule:", err);
+      logger.error("Failed to update schedule:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update schedule");
     }
   };

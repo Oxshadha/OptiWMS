@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { accountApi, UserProfile } from "@/lib/api/account";
 import { showToast } from "@/lib/utils/toast";
-import { logger } from "@/lib/utils/logger";
 import { useAdmin } from "@/contexts/AdminContext";
+import { logger } from "@/lib/utils/logger";
 
 export default function AccountSettingsPage() {
   const { admin } = useAdmin();
