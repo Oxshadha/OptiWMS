@@ -21,15 +21,11 @@ public class OrderItemController {
 
     @GetMapping("/{orderId}/items")
     public ResponseEntity<List<OrderItemDto>> getByOrderId(@PathVariable UUID orderId) {
-        try {
-            List<OrderItem> items = orderItemService.findByOrderId(orderId);
-            List<OrderItemDto> dtos = items.stream()
-                    .map(this::toDto)
-                    .collect(Collectors.toList());
-            return ResponseEntity.ok(dtos);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        List<OrderItem> items = orderItemService.findByOrderId(orderId);
+        List<OrderItemDto> dtos = items.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 
     /**
@@ -38,46 +34,59 @@ public class OrderItemController {
      */
     @GetMapping("/{orderId}/putaway-items")
     public ResponseEntity<List<PutawayItemDto>> getPutawayItems(@PathVariable UUID orderId) {
-        try {
-            List<OrderItem> items = orderItemService.findByOrderId(orderId);
-            // Filter to only items that have been received (picked_quantity > 0)
-            List<PutawayItemDto> putawayItems = items.stream()
-                    .filter(item -> item.getPickedQuantity() != null && item.getPickedQuantity() > 0)
-                    .map(item -> {
-                        // Get suggested location from material location assignment or task
-                        String suggestedLocation = null; // Will be populated from task or material location service
-                        return new PutawayItemDto(
-                                item.getId().toString(),
-                                item.getMaterialId().toString(),
-                                item.getPickedQuantity(), // Received quantity
-                                item.getQuantity(), // Ordered quantity
-                                suggestedLocation,
-                                item.getStatus()
-                        );
-                    })
-                    .collect(Collectors.toList());
-            return ResponseEntity.ok(putawayItems);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        List<OrderItem> items = orderItemService.findByOrderId(orderId);
+        // Filter to only items that have been received (picked_quantity > 0)
+        List<PutawayItemDto> putawayItems = items.stream()
+                .filter(item -> item.getPickedQuantity() != null && item.getPickedQuantity() > 0)
+                .map(item -> {
+                    // Get suggested location from material location assignment or task
+                    String suggestedLocation = null; // Will be populated from task or material location service
+                    return new PutawayItemDto(
+                            item.getId().toString(),
+                            item.getMaterialId().toString(),
+                            item.getPickedQuantity(), // Received quantity
+                            item.getQuantity(), // Ordered quantity
+                            suggestedLocation,
+                            item.getStatus()
+                    );
+                })
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(putawayItems);
     }
 
     @PostMapping("/{orderId}/items")
     public ResponseEntity<OrderItemDto> create(@PathVariable UUID orderId, @RequestBody CreateOrderItemRequest request) {
-        try {
-            OrderItem item = new OrderItem();
-            item.setOrderId(orderId);
-            item.setMaterialId(UUID.fromString(request.materialId()));
-            item.setQuantity(request.quantity());
-            item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
-            item.setLocationCode(request.locationCode());
-            item.setStatus("pending");
-            
-            OrderItem created = orderItemService.create(item);
-            return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
+        OrderItem item = new OrderItem();
+        item.setOrderId(orderId);
+        item.setMaterialId(UUID.fromString(request.materialId()));
+        item.setQuantity(request.quantity());
+        item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
+        item.setLocationCode(request.locationCode());
+        item.setStatus("pending");
+
+        OrderItem created = orderItemService.create(item);
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
+    }
+
+    @PutMapping("/items/{itemId}")
+    public ResponseEntity<OrderItemDto> update(
+            @PathVariable UUID itemId,
+            @RequestBody UpdateOrderItemRequest request
+    ) {
+        OrderItem item = new OrderItem();
+        item.setQuantity(request.quantity());
+        item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
+        item.setLocationCode(request.locationCode());
+        item.setStatus(request.status());
+
+        OrderItem updated = orderItemService.update(itemId, item);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @DeleteMapping("/items/{itemId}")
+    public ResponseEntity<Void> delete(@PathVariable UUID itemId) {
+        orderItemService.deleteById(itemId);
+        return ResponseEntity.noContent().build();
     }
 
     private OrderItemDto toDto(OrderItem item) {
@@ -113,6 +122,13 @@ public class OrderItemController {
             String locationCode
     ) {}
 
+    public record UpdateOrderItemRequest(
+            Integer quantity,
+            String unitPrice,
+            String locationCode,
+            String status
+    ) {}
+
     public record PutawayItemDto(
             String itemId,
             String materialId,
@@ -122,4 +138,3 @@ public class OrderItemController {
             String status
     ) {}
 }
-

@@ -94,6 +94,35 @@ public class ReturnController {
         return ResponseEntity.ok(toDto(updated));
     }
 
+    @PutMapping("/{id}/approve")
+    public ResponseEntity<ReturnDto> approve(
+            @PathVariable UUID id,
+            @RequestBody ApproveReturnRequest request
+    ) {
+        UUID approvedBy = request.approvedBy() != null ? UUID.fromString(request.approvedBy()) : null;
+        ReturnRecord updated = service.approve(id, approvedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/inspection")
+    public ResponseEntity<ReturnDto> submitInspection(
+            @PathVariable UUID id,
+            @RequestBody ReturnInspectionRequest request
+    ) {
+        UUID inspectedBy = request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null;
+        ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/assign")
+    public ResponseEntity<ReturnDto> assignWorker(
+            @PathVariable UUID id,
+            @RequestBody AssignReturnWorkerRequest request
+    ) {
+        ReturnRecord updated = service.assignWorker(id, UUID.fromString(request.workerId()));
+        return ResponseEntity.ok(toDto(updated));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         service.deleteById(id);
@@ -138,6 +167,16 @@ public class ReturnController {
     ) {}
 
     public record UpdateStatusRequest(String status) {}
+
+    public record ApproveReturnRequest(String approvedBy) {}
+
+    public record ReturnInspectionRequest(
+            String overallResolution,
+            String notes,
+            String inspectedBy
+    ) {}
+
+    public record AssignReturnWorkerRequest(String workerId) {}
 
     public record ReturnDto(
             String id,

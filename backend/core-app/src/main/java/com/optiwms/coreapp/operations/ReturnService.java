@@ -81,6 +81,58 @@ public class ReturnService {
     }
 
     @Transactional
+    public ReturnRecord assignWorker(UUID id, UUID workerId) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+
+        entity.setReceivedBy(workerId);
+        if (entity.getStatus() == null || "pending".equalsIgnoreCase(entity.getStatus())) {
+            entity.setStatus("received");
+        }
+
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public ReturnRecord submitInspection(UUID id, String overallResolution, String notes, UUID inspectedBy) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+
+        entity.setResolution(overallResolution);
+        if (inspectedBy != null) {
+            entity.setInspectedBy(inspectedBy);
+        }
+        if (notes != null && !notes.isBlank()) {
+            String existingReason = entity.getReason();
+            String appended = "[Inspection Notes] " + notes.trim();
+            entity.setReason(
+                    existingReason == null || existingReason.isBlank()
+                            ? appended
+                            : existingReason + "\n" + appended
+            );
+        }
+        entity.setStatus("inspecting");
+
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public ReturnRecord approve(UUID id, UUID approvedBy) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+
+        entity.setStatus("approved");
+        if (approvedBy != null && entity.getInspectedBy() == null) {
+            entity.setInspectedBy(approvedBy);
+        }
+
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public ReturnRecord update(ReturnRecord returnRecord) {
         ReturnEntity entity = repository.findById(returnRecord.getId())
                 .orElseThrow(() -> new RuntimeException("Return not found: " + returnRecord.getId()));
@@ -119,4 +171,3 @@ public class ReturnService {
         return r;
     }
 }
-
