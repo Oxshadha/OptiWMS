@@ -75,37 +75,29 @@ public class TaskController {
 
     @GetMapping("/{id}")
     public ResponseEntity<TaskDto> getById(@PathVariable UUID id) {
-        try {
-            Task task = taskService.findById(id);
-            return ResponseEntity.ok(toDto(task));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        Task task = taskService.findById(id);
+        return ResponseEntity.ok(toDto(task));
     }
 
     @PostMapping
     public ResponseEntity<TaskDto> create(@RequestBody CreateTaskRequest request) {
-        try {
-            Task task = new Task();
-            task.setTaskNumber(request.taskNumber());
-            task.setTaskType(request.taskType());
-            task.setWarehouseId(UUID.fromString(request.warehouseId()));
-            task.setAssignedTo(request.assignedTo() != null ? UUID.fromString(request.assignedTo()) : null);
-            task.setPriority(request.priority() != null ? request.priority() : "normal");
-            task.setStatus(request.status() != null ? request.status() : "pending");
-            if (request.dueDate() != null && !request.dueDate().isEmpty()) {
-                task.setDueDate(LocalDateTime.parse(request.dueDate()));
-            }
-            task.setLocationCode(request.locationCode());
-            task.setReferenceType(request.referenceType());
-            task.setReferenceId(request.referenceId() != null ? UUID.fromString(request.referenceId()) : null);
-            task.setNotes(request.notes());
-
-            Task created = taskService.create(task);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        Task task = new Task();
+        task.setTaskNumber(request.taskNumber());
+        task.setTaskType(request.taskType());
+        task.setWarehouseId(UUID.fromString(request.warehouseId()));
+        task.setAssignedTo(request.assignedTo() != null ? UUID.fromString(request.assignedTo()) : null);
+        task.setPriority(request.priority() != null ? request.priority() : "normal");
+        task.setStatus(request.status() != null ? request.status() : "pending");
+        if (request.dueDate() != null && !request.dueDate().isEmpty()) {
+            task.setDueDate(LocalDateTime.parse(request.dueDate()));
         }
+        task.setLocationCode(request.locationCode());
+        task.setReferenceType(request.referenceType());
+        task.setReferenceId(request.referenceId() != null ? UUID.fromString(request.referenceId()) : null);
+        task.setNotes(request.notes());
+
+        Task created = taskService.create(task);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}/status")
@@ -113,12 +105,8 @@ public class TaskController {
             @PathVariable UUID id,
             @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            Task updated = taskService.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = taskService.updateStatus(id, request.status());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PostMapping("/{id}/assign")
@@ -126,12 +114,8 @@ public class TaskController {
             @PathVariable UUID id,
             @RequestBody AssignTaskRequest request
     ) {
-        try {
-            Task updated = taskService.assignTask(id, UUID.fromString(request.workerId()), request.assignedBy());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = taskService.assignTask(id, UUID.fromString(request.workerId()), request.assignedBy());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PostMapping("/{id}/claim")
@@ -139,12 +123,8 @@ public class TaskController {
             @PathVariable UUID id,
             @RequestBody ClaimTaskRequest request
     ) {
-        try {
-            Task updated = workflowService.claimTask(id, UUID.fromString(request.workerId()));
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = workflowService.claimTask(id, UUID.fromString(request.workerId()));
+        return ResponseEntity.ok(toDto(updated));
     }
 
     private TaskDto toDto(Task task) {
@@ -205,4 +185,3 @@ public class TaskController {
             String notes
     ) {}
 }
-
