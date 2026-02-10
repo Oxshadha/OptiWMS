@@ -30,7 +30,7 @@ export function ItemDetailsDisplay({ materialId }: { materialId: string }) {
           return;
         }
 
-        setItemName(`Item (Material ID: ${materialId.substring(0, 8)}...)`);
+        setItemName("Item details unavailable");
         setItemSku("N/A");
       }
     };

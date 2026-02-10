@@ -102,8 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const userInfo = await authApi.getCurrentUser();
         logger.debug('[AuthContext] Fetched user info:', userInfo);
 
-        // Fetch full user details
-        const fullUser = await usersApi.getById(userInfo.userId);
+        // Fetch full user details. Some worker roles may not have /api/users/{id} permission.
+        let fullUser: Awaited<ReturnType<typeof usersApi.getById>> | null = null;
+        try {
+          fullUser = await usersApi.getById(userInfo.userId);
+        } catch (err) {
+          logger.warn('[AuthContext] Falling back to /auth/me user payload (users endpoint unavailable):', err);
+        }
         
         // Determine if user is admin or worker
         // Normalize role (remove ROLE_ prefix if present, like "role_admin" -> "admin")
@@ -123,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Get warehouse name if applicable
         let warehouseName: string | undefined;
-        if (fullUser.warehouseId) {
+        if (fullUser?.warehouseId) {
           try {
             const { warehousesApi } = await import('@/lib/api/warehouses');
             const warehouse = await warehousesApi.getById(fullUser.warehouseId);
@@ -134,15 +139,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const authUser: AuthUser = {
-          id: fullUser.id,
-          userId: fullUser.id,
-          username: fullUser.username,
-          email: fullUser.email || userInfo.email,
-          name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
+          id: fullUser?.id || userInfo.userId,
+          userId: fullUser?.id || userInfo.userId,
+          username: fullUser?.username || userInfo.username,
+          email: fullUser?.email || userInfo.email,
+          name: fullUser
+            ? (`${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username)
+            : (userInfo.name || userInfo.username),
           role: (isAdminRole ? normalizedRole as AdminRole : normalizedRole as WorkerRole) || null,
-          warehouseId: fullUser.warehouseId,
+          warehouseId: fullUser?.warehouseId || userInfo.warehouseId,
           warehouseName,
-          avatar: fullUser.avatarUrl,
+          avatar: fullUser?.avatarUrl,
         };
 
         setUser(authUser);
