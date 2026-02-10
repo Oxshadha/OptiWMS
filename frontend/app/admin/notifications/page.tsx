@@ -7,6 +7,7 @@ import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { useRouter } from "next/navigation";
 import { notificationsApi, Notification as ApiNotification } from "@/lib/api/notifications";
+import { logger } from "@/lib/utils/logger";
 
 // Notification types
 type NotificationType =
@@ -28,111 +29,18 @@ type Notification = {
   read: boolean;
   createdAt: string;
   actionUrl?: string; // Optional URL to navigate to when clicked
-  metadata?: Record<string, any>; // Additional data for the notification
+  metadata?: Record<string, unknown>; // Additional data for the notification
 };
 
-// Mock notifications - will be replaced with API calls
-const mockNotifications: Notification[] = [
-  {
-    id: "notif-1",
-    title: "New Order Received",
-    message: "Order SO-1001 has been received and requires processing",
-    type: "order",
-    read: false,
-    createdAt: "2025-12-18T10:30:00",
-    actionUrl: "/admin/orders/outbound?order=SO-1001",
-    metadata: { orderId: "SO-1001", customer: "Acme Corp" },
-  },
-  {
-    id: "notif-2",
-    title: "Inventory Alert",
-    message: "SKU-1005 (Yoga Mat) is running low on stock. Current quantity: 5 units",
-    type: "inventory",
-    read: false,
-    createdAt: "2025-12-18T09:15:00",
-    actionUrl: "/admin/inventory?sku=SKU-1005",
-    metadata: { sku: "SKU-1005", currentQty: 5, minQty: 10 },
-  },
-  {
-    id: "notif-3",
-    title: "Cycle Count Scheduled",
-    message: "Cycle count for Zone A is scheduled for tomorrow at 8:00 AM",
-    type: "cycle_count",
-    read: true,
-    createdAt: "2025-12-18T08:00:00",
-    actionUrl: "/admin/cycle-counts",
-    metadata: { zone: "Zone A", scheduledDate: "2025-12-19" },
-  },
-  {
-    id: "notif-4",
-    title: "Task Assigned",
-    message: "You have been assigned a new picking task (TASK-452368)",
-    type: "task",
-    read: true,
-    createdAt: "2025-12-18T07:45:00",
-    actionUrl: "/admin/tasks/452368",
-    metadata: { taskId: "TASK-452368", taskType: "picking" },
-  },
-  {
-    id: "notif-5",
-    title: "Anomaly Detected",
-    message: "Inventory count discrepancy detected at location A1. Expected: 50, Found: 45",
-    type: "anomaly",
-    read: false,
-    createdAt: "2025-12-18T06:30:00",
-    actionUrl: "/admin/anomalies/anom-1",
-    metadata: { anomalyId: "ANOM-2025-001", location: "A1" },
-  },
-  {
-    id: "notif-6",
-    title: "Shipment Ready",
-    message: "Shipment SHIP-2025-001 is ready for pickup by delivery partner",
-    type: "shipment",
-    read: false,
-    createdAt: "2025-12-17T16:20:00",
-    actionUrl: "/admin/shipments?shipment=SHIP-2025-001",
-    metadata: { shipmentId: "SHIP-2025-001" },
-  },
-  {
-    id: "notif-7",
-    title: "Return Processed",
-    message: "Return RET-1001 has been processed and restocked",
-    type: "return",
-    read: true,
-    createdAt: "2025-12-17T14:10:00",
-    actionUrl: "/admin/returns?return=RET-1001",
-    metadata: { returnId: "RET-1001" },
-  },
-  {
-    id: "notif-8",
-    title: "System Maintenance",
-    message: "Scheduled system maintenance will occur tonight from 11 PM to 1 AM",
-    type: "system",
-    read: false,
-    createdAt: "2025-12-17T12:00:00",
-    metadata: { maintenanceWindow: "2025-12-18T23:00:00 - 2025-12-19T01:00:00" },
-  },
-  {
-    id: "notif-9",
-    title: "Stock Transfer Approved",
-    message: "Stock transfer TF-2025-001 has been approved and is ready for execution",
-    type: "inventory",
-    read: true,
-    createdAt: "2025-12-17T11:30:00",
-    actionUrl: "/admin/stock-transfers?transfer=TF-2025-001",
-    metadata: { transferId: "TF-2025-001" },
-  },
-  {
-    id: "notif-10",
-    title: "Quality Check Required",
-    message: "Quality check required for inbound order PO-452368",
-    type: "order",
-    read: false,
-    createdAt: "2025-12-17T10:15:00",
-    actionUrl: "/admin/quality-checks?order=PO-452368",
-    metadata: { orderId: "PO-452368", type: "inbound" },
-  },
-];
+const parseMetadata = (metadata?: string): Record<string, unknown> => {
+  if (!metadata) return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+};
 
 const typeConfig: Record<NotificationType, { label: string; icon: string; color: string }> = {
   order: { label: "Order", icon: "inventory_2", color: "badge-primary" },
@@ -175,11 +83,11 @@ export default function NotificationsPage() {
           read: n.read,
           createdAt: n.createdAt,
           actionUrl: n.actionUrl,
-          metadata: n.metadata ? JSON.parse(n.metadata) : {},
+          metadata: parseMetadata(n.metadata),
         }));
         setNotifications(mappedNotifications);
       } catch (error) {
-        console.error("Error loading notifications:", error);
+        logger.error("Error loading notifications:", error);
         setNotifications([]);
       } finally {
         setLoading(false);
@@ -195,7 +103,7 @@ export default function NotificationsPage() {
         n.id === id ? { ...n, read: true } : n
       ));
     } catch (error) {
-      console.error("Error marking notification as read:", error);
+      logger.error("Error marking notification as read:", error);
     }
   };
 
@@ -205,7 +113,7 @@ export default function NotificationsPage() {
       await notificationsApi.markAllAsRead(admin.id);
       setNotifications(notifications.map(n => ({ ...n, read: true })));
     } catch (error) {
-      console.error("Error marking all as read:", error);
+      logger.error("Error marking all as read:", error);
     }
   };
 
@@ -214,7 +122,7 @@ export default function NotificationsPage() {
       await notificationsApi.delete(id);
       setNotifications(notifications.filter(n => n.id !== id));
     } catch (error) {
-      console.error("Error deleting notification:", error);
+      logger.error("Error deleting notification:", error);
     }
   };
 
@@ -300,8 +208,8 @@ export default function NotificationsPage() {
     );
   };
 
-  const markAllAsRead = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const markAllAsRead = async () => {
+    await handleMarkAllAsRead();
   };
 
   const handleNotificationClick = (notif: Notification) => {
@@ -684,4 +592,3 @@ function NotificationDetailModal({
     </DetailModal>
   );
 }
-

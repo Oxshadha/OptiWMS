@@ -10,6 +10,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { deliveryPartnersApi } from "@/lib/api/deliveryPartners";
+import { logger } from "@/lib/utils/logger";
 
 interface ShipmentDisplay {
   id: string;
@@ -25,79 +26,6 @@ interface ShipmentDisplay {
   orders: string[];
   shipmentDate: string;
 }
-
-const mockShipments: ShipmentDisplay[] = [
-  { 
-    id: "SH-9001", 
-    carrier: "DHL", 
-    status: "In Transit", 
-    eta: "2025-12-16", 
-    tracking: "DHL123456", 
-    destination: "New York, NY", 
-    weight: "15.5 kg",
-    driverName: "John Smith",
-    driverPhone: "+1-555-0101",
-    vehicleNumber: "ABC-1234",
-    orders: ["SO-1001", "SO-1002"],
-    shipmentDate: "2025-12-15",
-  },
-  { 
-    id: "SH-9002", 
-    carrier: "FedEx", 
-    status: "Label Created", 
-    eta: "2025-12-17", 
-    tracking: "FDX789012", 
-    destination: "Los Angeles, CA", 
-    weight: "8.2 kg",
-    driverName: "",
-    driverPhone: "",
-    vehicleNumber: "",
-    orders: ["SO-1003"],
-    shipmentDate: "2025-12-16",
-  },
-  { 
-    id: "SH-9003", 
-    carrier: "UPS", 
-    status: "Delivered", 
-    eta: "2025-12-13", 
-    tracking: "1Z999AA101", 
-    destination: "Chicago, IL", 
-    weight: "22.1 kg",
-    driverName: "Mike Johnson",
-    driverPhone: "+1-555-0202",
-    vehicleNumber: "XYZ-5678",
-    orders: ["SO-1004"],
-    shipmentDate: "2025-12-12",
-  },
-  { 
-    id: "SH-9004", 
-    carrier: "DHL", 
-    status: "In Transit", 
-    eta: "2025-12-18", 
-    tracking: "DHL789456", 
-    destination: "Miami, FL", 
-    weight: "12.3 kg",
-    driverName: "Sarah Williams",
-    driverPhone: "+1-555-0303",
-    vehicleNumber: "DEF-9012",
-    orders: ["SO-1005"],
-    shipmentDate: "2025-12-17",
-  },
-  { 
-    id: "SH-9005", 
-    carrier: "USPS", 
-    status: "Delivered", 
-    eta: "2025-12-12", 
-    tracking: "940011189922", 
-    destination: "Seattle, WA", 
-    weight: "5.8 kg",
-    driverName: "Tom Brown",
-    driverPhone: "+1-555-0404",
-    vehicleNumber: "GHI-3456",
-    orders: ["SO-1006"],
-    shipmentDate: "2025-12-11",
-  },
-];
 
 const statusClass = (s: string) => {
   if (s === "Delivered") return "badge-success";
@@ -159,7 +87,7 @@ export default function ShipmentsPage() {
         
         setShipments(displayShipments);
       } catch (err) {
-        console.error("Failed to load shipments:", err);
+        logger.error("Failed to load shipments:", err);
         setError(err instanceof Error ? err.message : "Failed to load shipments");
         setShipments([]);
         if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -555,15 +483,15 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
           );
           setAvailableOrders(readyOrders);
           if (readyOrders.length === 0) {
-            console.warn("No orders ready for shipment. Orders need to be picked/packed first.");
+            logger.warn("No orders ready for shipment. Orders need to be picked/packed first.");
           }
         } else {
           setAvailableOrders([]);
           const error = ordersResult.reason;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error("Failed to load orders:", error);
+          logger.error("Failed to load orders:", error);
           if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
-            console.warn("No permission to access orders API");
+            logger.warn("No permission to access orders API");
           }
         }
         
@@ -574,9 +502,9 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
           setWarehouses([]);
           const error = warehousesResult.reason;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error("Failed to load warehouses:", error);
+          logger.error("Failed to load warehouses:", error);
           if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
-            console.warn("No permission to access warehouses API");
+            logger.warn("No permission to access warehouses API");
             showToast.error("Access denied: You may not have permission to view warehouses. Please contact your administrator.");
           }
         }
@@ -588,16 +516,16 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
           setDeliveryPartners([]);
           const error = partnersResult.reason;
           const errorMsg = error instanceof Error ? error.message : String(error);
-          console.error("Failed to load delivery partners:", error);
+          logger.error("Failed to load delivery partners:", error);
           if (errorMsg.includes("403") || errorMsg.includes("Forbidden") || errorMsg.includes("Access Denied")) {
-            console.warn("No permission to access delivery partners API - this may be a role/permission issue");
+            logger.warn("No permission to access delivery partners API - this may be a role/permission issue");
             showToast.error("Access denied: You may not have permission to view delivery partners. Please contact your administrator.");
           } else {
             showToast.error("Failed to load delivery partners. Please check your connection and try again.");
           }
         }
       } catch (err) {
-        console.error("Failed to load data:", err);
+        logger.error("Failed to load shipment form data:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to load data");
       }
     };
@@ -640,7 +568,7 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
         window.dispatchEvent(new CustomEvent('reloadShipments'));
       }
     } catch (err) {
-      console.error("Failed to create shipment:", err);
+      logger.error("Failed to create shipment:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create shipment");
     } finally {
       setLoading(false);
@@ -916,8 +844,7 @@ function ShipmentDetailModal({
           <button 
             className="btn btn-primary"
             onClick={() => {
-              // TODO: Print manifest - replace with actual print functionality
-              console.log("Printing manifest for:", shipment.id);
+              logger.info("Printing shipment manifest", shipment.id);
               const printWindow = window.open('', '_blank');
               if (printWindow) {
                 printWindow.document.write(`
