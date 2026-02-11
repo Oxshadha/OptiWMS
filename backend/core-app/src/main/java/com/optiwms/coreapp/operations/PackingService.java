@@ -17,10 +17,12 @@ public class PackingService {
 
     private final PackingRecordRepository repository;
     private final OrderService orderService;
+    private final OperationEventService operationEventService;
 
-    public PackingService(PackingRecordRepository repository, OrderService orderService) {
+    public PackingService(PackingRecordRepository repository, OrderService orderService, OperationEventService operationEventService) {
         this.repository = repository;
         this.orderService = orderService;
+        this.operationEventService = operationEventService;
     }
 
     @Transactional
@@ -42,6 +44,21 @@ public class PackingService {
                 } catch (RuntimeException e) {
                     // Log but don't fail packing update
                 }
+            }
+            if (workerId != null) {
+                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                        "PACKING",
+                        workerId,
+                        null,
+                        entity.getOrderId(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        entity.getStartedAt(),
+                        entity.getCompletedAt(),
+                        null
+                ));
             }
         }
         PackingRecordEntity saved = repository.save(entity);
@@ -183,4 +200,3 @@ public class PackingService {
         return p;
     }
 }
-

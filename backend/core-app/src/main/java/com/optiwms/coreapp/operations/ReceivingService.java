@@ -36,6 +36,7 @@ public class ReceivingService {
     private final QualityCheckService qualityCheckService;
     private final GrnService grnService;
     private final TaskService taskService;
+    private final OperationEventService operationEventService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -46,7 +47,8 @@ public class ReceivingService {
                            PutawayTaskService putawayTaskService,
                            QualityCheckService qualityCheckService,
                            GrnService grnService,
-                           TaskService taskService) {
+                           TaskService taskService,
+                           OperationEventService operationEventService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -57,6 +59,7 @@ public class ReceivingService {
         this.qualityCheckService = qualityCheckService;
         this.grnService = grnService;
         this.taskService = taskService;
+        this.operationEventService = operationEventService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -112,6 +115,23 @@ public class ReceivingService {
         if (workerId != null && "inbound".equals(order.getOrderType())) {
             orderService.updateWorkerRecord(order.getId(), workerId, "received");
             completeReceivingTasks(order.getId(), workerId);
+            int receivedTotal = receivedItems.stream()
+                    .filter(it -> it.quantity() != null)
+                    .mapToInt(it -> (int) Math.ceil(it.quantity().doubleValue()))
+                    .sum();
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "RECEIVING",
+                    workerId,
+                    null,
+                    order.getId(),
+                    null,
+                    warehouseId,
+                    null,
+                    receivedTotal,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    "mode=order"
+            ));
         }
 
         // Create/find GRN for this inbound receipt and attach quality checks to GRN.
@@ -219,6 +239,25 @@ public class ReceivingService {
         }
 
         UUID orderId = order != null ? order.getId() : null;
+        if (workerId != null) {
+            int receivedTotal = receivedItems.stream()
+                    .filter(it -> it.quantity() != null)
+                    .mapToInt(it -> (int) Math.ceil(it.quantity().doubleValue()))
+                    .sum();
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "RECEIVING",
+                    workerId,
+                    null,
+                    orderId,
+                    null,
+                    warehouseId,
+                    null,
+                    receivedTotal,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    "mode=blind"
+            ));
+        }
         return new ReceivingResult(true, "Items received successfully (blind receive)", orderId);
     }
 

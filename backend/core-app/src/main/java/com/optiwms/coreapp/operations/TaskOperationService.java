@@ -31,14 +31,17 @@ public class TaskOperationService {
     private final TaskService taskService;
     private final OrderService orderService;
     private final LocationService locationService;
+    private final OperationEventService operationEventService;
 
     public TaskOperationService(
             TaskService taskService,
             OrderService orderService,
-            LocationService locationService) {
+            LocationService locationService,
+            OperationEventService operationEventService) {
         this.taskService = taskService;
         this.orderService = orderService;
         this.locationService = locationService;
+        this.operationEventService = operationEventService;
     }
 
     /**
@@ -146,6 +149,22 @@ public class TaskOperationService {
         }
         
         logger.info("Task {} completed by worker {} (operation: {})", taskId, effectiveWorkerId, operationType);
+
+        if (effectiveWorkerId != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    normalizeOperationType(operationType, task.getTaskType()),
+                    effectiveWorkerId,
+                    task.getId(),
+                    "order".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    task.getWarehouseId(),
+                    null,
+                    null,
+                    task.getStartedAt(),
+                    java.time.LocalDateTime.now(),
+                    null
+            ));
+        }
         
         // Store worker record in order if task references an order
         if (task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
@@ -169,6 +188,13 @@ public class TaskOperationService {
             case "shipped", "shipping" -> "shipped";
             default -> null;
         };
+    }
+
+    private String normalizeOperationType(String operationType, String taskType) {
+        if (operationType != null && !operationType.isBlank()) {
+            return operationType.toUpperCase();
+        }
+        return taskType != null ? taskType.toUpperCase() : "TASK";
     }
 
     /**

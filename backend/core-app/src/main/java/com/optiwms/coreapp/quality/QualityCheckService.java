@@ -3,6 +3,7 @@ package com.optiwms.coreapp.quality;
 import com.optiwms.coreapp.operations.PutawayTaskService;
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.coreapp.operations.GrnService;
+import com.optiwms.coreapp.operations.OperationEventService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.quality.QualityCheck;
 import com.optiwms.domain.operations.ReturnRecord;
@@ -26,18 +27,21 @@ public class QualityCheckService {
     private final PutawayTaskService putawayTaskService;
     private final ReturnService returnService;
     private final GrnService grnService;
+    private final OperationEventService operationEventService;
 
     public QualityCheckService(
             QualityCheckRepository repository,
             OrderService orderService,
             PutawayTaskService putawayTaskService,
             ReturnService returnService,
-            GrnService grnService) {
+            GrnService grnService,
+            OperationEventService operationEventService) {
         this.repository = repository;
         this.orderService = orderService;
         this.putawayTaskService = putawayTaskService;
         this.returnService = returnService;
         this.grnService = grnService;
+        this.operationEventService = operationEventService;
     }
 
     public List<QualityCheck> listAll() {
@@ -127,6 +131,22 @@ public class QualityCheckService {
             }
         }
 
+        if (approvedBy != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "QUALITY_APPROVE",
+                    approvedBy,
+                    null,
+                    entity.getGrnId() != null ? grnService.findById(entity.getGrnId()).getPoId() : null,
+                    null,
+                    null,
+                    entity.getMaterialId(),
+                    entity.getQtyPassed() != null ? entity.getQtyPassed().intValue() : null,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    null
+            ));
+        }
+
         return toDomain(entity);
     }
 
@@ -179,6 +199,22 @@ public class QualityCheckService {
 
             orderService.updateStatus(orderId, "return_initiated");
             grnService.updateStatus(grnId, "REJECTED");
+        }
+
+        if (reviewedBy != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "QUALITY_REJECT",
+                    reviewedBy,
+                    null,
+                    entity.getGrnId() != null ? grnService.findById(entity.getGrnId()).getPoId() : null,
+                    null,
+                    null,
+                    entity.getMaterialId(),
+                    entity.getQtyRejected() != null ? entity.getQtyRejected().intValue() : null,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    rejectionReason
+            ));
         }
 
         return toDomain(entity);
