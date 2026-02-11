@@ -13,10 +13,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.UUID;
 
 @Service
 public class PutawayService {
+    private static final Pattern PUTAWAY_PROGRESS_PATTERN = Pattern.compile("PUTAWAY_PROGRESS=(\\d+)/(\\d+)");
 
     private final TaskService taskService;
     private final InventoryService inventoryService;
@@ -56,6 +59,7 @@ public class PutawayService {
         UUID actualMaterialId = materialId;
         Integer actualQuantity = quantity;
         UUID orderIdForStatusUpdate = null;
+        Integer requiredQuantityForTask = null;
 
         if (task.getReferenceId() != null && "order_item".equals(task.getReferenceType())) {
             OrderItemEntity orderItem = orderItemRepository.findById(task.getReferenceId())
@@ -71,6 +75,7 @@ public class PutawayService {
             if (actualQuantity == null || actualQuantity <= 0) {
                 actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
             }
+            requiredQuantityForTask = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
         }
 
         if (actualMaterialId == null && task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
@@ -83,6 +88,7 @@ public class PutawayService {
                 // Use pickedQuantity (received quantity) for putaway, not ordered quantity
                 // pickedQuantity stores the actual received quantity for inbound orders
                 actualQuantity = orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : orderItem.getQuantity();
+                requiredQuantityForTask = actualQuantity;
             }
         }
 
@@ -92,6 +98,16 @@ public class PutawayService {
 
         if (actualQuantity == null || actualQuantity <= 0) {
             throw new RuntimeException("Invalid quantity for putaway");
+        }
+
+        Integer completedQuantity = extractCompletedQuantity(task.getNotes());
+        Integer requiredQuantity = requiredQuantityForTask != null ? requiredQuantityForTask : actualQuantity;
+        Integer remaining = Math.max(requiredQuantity - completedQuantity, 0);
+        if (remaining <= 0) {
+            throw new RuntimeException("Putaway already completed for this task");
+        }
+        if (actualQuantity > remaining) {
+            throw new RuntimeException("Requested putaway quantity exceeds remaining quantity. Remaining: " + remaining);
         }
 
         // Make variables final for lambda
@@ -110,7 +126,25 @@ public class PutawayService {
         
         inventoryService.createOrUpdate(inventoryItem);
 
+        Integer newCompletedQuantity = completedQuantity + actualQuantity;
+        if (newCompletedQuantity < requiredQuantity) {
+            taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), newCompletedQuantity, requiredQuantity));
+            taskService.updateStatus(taskId, "in_progress");
+            if (orderIdForStatusUpdate != null) {
+                var order = orderService.findById(orderIdForStatusUpdate);
+                if ("quality_approved".equals(order.getStatus())) {
+                    orderService.updateStatus(orderIdForStatusUpdate, "putaway_in_progress");
+                }
+            }
+            return new PutawayResult(
+                    true,
+                    "Partial putaway saved (" + newCompletedQuantity + "/" + requiredQuantity + "). Continue with remaining quantity.",
+                    taskId
+            );
+        }
+
         // Complete task with worker attribution for labor productivity analytics.
+        taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), requiredQuantity, requiredQuantity));
         if (workerId != null) {
             taskService.updateStatusWithWorker(taskId, "completed", workerId);
         } else {
@@ -190,4 +224,31 @@ public class PutawayService {
     }
 
     public record PutawayResult(boolean success, String message, UUID taskId) {}
+
+    private Integer extractCompletedQuantity(String notes) {
+        if (notes == null || notes.isBlank()) {
+            return 0;
+        }
+        Matcher matcher = PUTAWAY_PROGRESS_PATTERN.matcher(notes);
+        if (matcher.find()) {
+            try {
+                return Integer.parseInt(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private String upsertPutawayProgressNote(String existingNotes, Integer completed, Integer required) {
+        String progress = "PUTAWAY_PROGRESS=" + completed + "/" + required;
+        if (existingNotes == null || existingNotes.isBlank()) {
+            return progress;
+        }
+        Matcher matcher = PUTAWAY_PROGRESS_PATTERN.matcher(existingNotes);
+        if (matcher.find()) {
+            return matcher.replaceFirst(progress);
+        }
+        return existingNotes + "\n" + progress;
+    }
 }

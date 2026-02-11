@@ -28,6 +28,7 @@ export function MaterialDetailModal({
   onDelete,
   onAssignLocation,
 }: MaterialDetailModalProps) {
+  const displayName = material.description?.split(",")[0]?.trim() || material.description || "—";
   const [defaultLocations, setDefaultLocations] = useState<Array<{ locationCode: string; priority: number; warehouseName: string }>>([]);
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
 
@@ -87,9 +88,9 @@ export function MaterialDetailModal({
           </div>
           <div className="col-span-2">
             <label className="label">
-              <span className="label-text font-medium">Description</span>
+              <span className="label-text font-medium">Product Name</span>
             </label>
-            <div>{material.description || "—"}</div>
+            <div>{displayName}</div>
           </div>
           <div>
             <label className="label">

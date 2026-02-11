@@ -131,6 +131,15 @@ public class TaskService {
         return toDomain(saved);
     }
 
+    @Transactional
+    public Task updateNotes(UUID id, String notes) {
+        TaskEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        entity.setNotes(notes);
+        TaskEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
     private Task toDomain(TaskEntity entity) {
         Task task = new Task();
         task.setId(entity.getId());

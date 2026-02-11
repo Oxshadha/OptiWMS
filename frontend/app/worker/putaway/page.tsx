@@ -32,6 +32,8 @@ export default function PutawayPage() {
   const [locationError, setLocationError] = useState<string>("");
   const [validatingLocation, setValidatingLocation] = useState(false);
   const [putawayProgress, setPutawayProgress] = useState<Map<string, boolean>>(new Map()); // Track which items are put away
+  const [allocatedByItem, setAllocatedByItem] = useState<Map<string, number>>(new Map());
+  const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
 
   // Load orders needing putaway
   useEffect(() => {
@@ -76,9 +78,15 @@ export default function PutawayPage() {
         
         // Reset progress tracking
         const progress = new Map<string, boolean>();
+        const allocated = new Map<string, number>();
         items.forEach(item => progress.set(item.itemId, false));
+        items.forEach(item => allocated.set(item.itemId, 0));
         setPutawayProgress(progress);
+        setAllocatedByItem(allocated);
         setCurrentItemIndex(0);
+        if (items.length > 0) {
+          setAllocationQuantity(items[0].receivedQuantity);
+        }
       } catch (err) {
         logger.error("[Putaway] Failed to load putaway items:", err);
         showToast.error("Failed to load order items. Please try again.");
@@ -89,6 +97,16 @@ export default function PutawayPage() {
 
     loadPutawayItems();
   }, [selectedOrder]);
+
+  useEffect(() => {
+    const currentItem = putawayItems[currentItemIndex];
+    if (!currentItem) {
+      return;
+    }
+    const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
+    const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+    setAllocationQuantity(Math.max(remaining, 1));
+  }, [currentItemIndex, putawayItems, allocatedByItem]);
 
   const handleLocationSelect = async (locationCode: string) => {
     setValidatingLocation(true);
@@ -192,16 +210,18 @@ export default function PutawayPage() {
 
     try {
       // Find putaway task for this item and order
-      const tasks = await tasksApi.getAll("putaway", "pending", undefined, worker?.warehouseId, true);
+      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
       const itemTask = tasks.find((t: any) => 
         t.referenceType === "order_item" &&
-        t.referenceId === currentItem.itemId
+        t.referenceId === currentItem.itemId &&
+        (t.status === "pending" || t.status === "in_progress")
       );
 
       // Backward compatibility for legacy tasks created at order level.
       const fallbackTask = tasks.find((t: any) =>
         t.referenceType === "order" &&
-        t.referenceId === selectedOrder.id
+        t.referenceId === selectedOrder.id &&
+        (t.status === "pending" || t.status === "in_progress")
       );
 
       const taskToComplete = itemTask ?? fallbackTask;
@@ -211,28 +231,48 @@ export default function PutawayPage() {
         return;
       }
 
+      const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
+      const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+      if (allocationQuantity <= 0 || allocationQuantity > remaining) {
+        showToast.error(`Putaway quantity must be between 1 and ${remaining}`);
+        return;
+      }
+
       await operationsApi.completePutaway(taskToComplete.id, {
         locationCode: scannedLocation.trim().toUpperCase(),
         lpn: "", // LPN is ignored in backend but kept for backward compatibility
-        quantity: currentItem.receivedQuantity, // Pass received quantity explicitly
+        quantity: allocationQuantity,
         materialId: currentItem.materialId, // Pass material ID explicitly
         workerId: worker?.id, // Required for labor productivity attribution
       });
       
-      // Mark item as put away
+      const nextAllocated = alreadyAllocated + allocationQuantity;
+      const isComplete = nextAllocated >= currentItem.receivedQuantity;
+      const updatedAllocated = new Map(allocatedByItem);
+      updatedAllocated.set(currentItem.itemId, nextAllocated);
+      setAllocatedByItem(updatedAllocated);
+
+      // Mark item as put away when fully allocated
       const newProgress = new Map(putawayProgress);
-      newProgress.set(currentItem.itemId, true);
+      newProgress.set(currentItem.itemId, isComplete);
       setPutawayProgress(newProgress);
       
-      showToast.success(`Item put away to ${scannedLocation}! Inventory location updated.`);
+      showToast.success(
+        isComplete
+          ? `Item fully put away to location(s).`
+          : `Partial putaway saved (${nextAllocated}/${currentItem.receivedQuantity}).`
+      );
       
       // Reset form
       setScannedLocation("");
       setLocationError("");
       
-      // Move to next item or show completion
-      if (currentItemIndex < putawayItems.length - 1) {
+      // Move to next item only when fully allocated
+      if (isComplete && currentItemIndex < putawayItems.length - 1) {
         setCurrentItemIndex(currentItemIndex + 1);
+        const nextItem = putawayItems[currentItemIndex + 1];
+        const nextAllocatedQty = updatedAllocated.get(nextItem.itemId) || 0;
+        setAllocationQuantity(Math.max(nextItem.receivedQuantity - nextAllocatedQty, 1));
       } else {
         // All items done - check if order is complete
         const allDone = Array.from(newProgress.values()).every(done => done);
@@ -243,6 +283,9 @@ export default function PutawayPage() {
             setSelectedOrder(null);
             setPutawayItems([]);
           }, 2000);
+        } else {
+          const nextRemaining = Math.max(currentItem.receivedQuantity - nextAllocated, 0);
+          setAllocationQuantity(Math.max(nextRemaining, 1));
         }
       }
     } catch (error) {
@@ -316,6 +359,9 @@ export default function PutawayPage() {
 
   // If order selected, show items for putaway
   if (selectedOrder && putawayItems.length > 0) {
+    const currentItem = putawayItems[currentItemIndex];
+    const alreadyAllocated = currentItem ? (allocatedByItem.get(currentItem.itemId) || 0) : 0;
+    const remainingQuantity = currentItem ? Math.max(currentItem.receivedQuantity - alreadyAllocated, 0) : 0;
     return (
       <PutawayOrderWorkflow
         selectedOrder={selectedOrder}
@@ -340,6 +386,9 @@ export default function PutawayPage() {
         onUseSuggestedLocation={handleUseSuggestedLocation}
         onConfirmPutaway={handleConfirmPutaway}
         onLocationSelect={handleLocationSelect}
+        allocationQuantity={allocationQuantity}
+        remainingQuantity={remainingQuantity}
+        onAllocationQuantityChange={setAllocationQuantity}
       />
     );
   }

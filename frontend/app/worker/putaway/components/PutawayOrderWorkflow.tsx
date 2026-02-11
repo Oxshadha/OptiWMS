@@ -23,6 +23,9 @@ export function PutawayOrderWorkflow({
   onUseSuggestedLocation,
   onConfirmPutaway,
   onLocationSelect,
+  allocationQuantity,
+  remainingQuantity,
+  onAllocationQuantityChange,
 }: {
   selectedOrder: SelectedOrder;
   putawayItems: PutawayItem[];
@@ -40,6 +43,9 @@ export function PutawayOrderWorkflow({
   onUseSuggestedLocation: (location: string) => Promise<void>;
   onConfirmPutaway: () => Promise<void>;
   onLocationSelect: (locationCode: string) => Promise<void>;
+  allocationQuantity: number;
+  remainingQuantity: number;
+  onAllocationQuantityChange: (quantity: number) => void;
 }) {
   const currentItem = putawayItems[currentItemIndex];
   const completedCount = Array.from(putawayProgress.values()).filter((done) => done).length;
@@ -77,12 +83,32 @@ export function PutawayOrderWorkflow({
           </div>
           <div className="font-bold text-lg mb-4">Put Away Item</div>
 
-          <ItemDetailsDisplay materialId={currentItem.materialId} />
+          <ItemDetailsDisplay
+            materialId={currentItem.materialId}
+            materialCode={currentItem.materialCode}
+            materialName={currentItem.materialName}
+            warehouseId={warehouseId}
+            existingLocations={currentItem.existingLocations}
+          />
 
           <div className="space-y-3 mb-4">
             <div className="p-3 bg-base-200 rounded-lg">
               <div className="text-sm text-base-content/60">Quantity to Put Away</div>
               <div className="font-semibold">{currentItem.receivedQuantity} units</div>
+              <div className="text-xs text-base-content/60">Remaining: {remainingQuantity} units</div>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text font-medium">Putaway Quantity (this location)</span>
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={Math.max(remainingQuantity, 1)}
+                className="input input-bordered"
+                value={allocationQuantity}
+                onChange={(e) => onAllocationQuantityChange(Number(e.target.value) || 0)}
+              />
             </div>
           </div>
 
@@ -131,7 +157,7 @@ export function PutawayOrderWorkflow({
           <button
             onClick={() => void onConfirmPutaway()}
             className="btn btn-primary w-full btn-lg"
-            disabled={!scannedLocation || !!locationError}
+            disabled={!scannedLocation || !!locationError || allocationQuantity <= 0 || allocationQuantity > remainingQuantity}
           >
             <span className="material-symbols-outlined">check</span>
             Confirm Putaway
