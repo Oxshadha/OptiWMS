@@ -150,11 +150,13 @@ export const analyticsApi = {
   getWorkerProductivity: async (
     workerId?: string,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    period?: 'weekly' | 'monthly'
   ): Promise<WorkerProductivityMetrics[]> => {
-    const period = startDate || endDate ? 'weekly' : 'monthly';
+    const selectedPeriod: 'weekly' | 'monthly' =
+      period ?? (startDate || endDate ? 'weekly' : 'monthly');
     const raw = await apiClient.get<WorkerProductivityMetricsRaw[]>(
-      `/analytics/worker-productivity?period=${period}`
+      `/analytics/worker-productivity?period=${selectedPeriod}`
     );
     const filtered = workerId ? raw.filter((m) => m.workerId === workerId) : raw;
     return filtered.map((m) => {
@@ -164,7 +166,7 @@ export const analyticsApi = {
       return {
         workerId: m.workerId,
         workerName: m.workerName || "Unknown",
-        period,
+        period: selectedPeriod,
         picksPerHour: Number.isFinite(picksPerHour) ? picksPerHour : 0,
         averageDwellTime: m.averageTimeMinutes ?? 0,
         errorRate: Math.max(0, 100 - (m.efficiency ?? 0)),

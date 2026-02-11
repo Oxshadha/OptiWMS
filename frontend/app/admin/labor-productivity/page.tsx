@@ -25,7 +25,7 @@ export default function LaborProductivityPage() {
       setLoading(true);
       setError(null);
       const [productivityData, leaderboardData] = await Promise.all([
-        analyticsApi.getWorkerProductivity(),
+        analyticsApi.getWorkerProductivity(undefined, undefined, undefined, selectedPeriod),
         analyticsApi.getWorkerLeaderboard(selectedPeriod),
       ]);
       setProductivityMetrics(productivityData);
@@ -45,6 +45,13 @@ export default function LaborProductivityPage() {
 
   useEffect(() => {
     loadData();
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 10000);
+    return () => clearInterval(interval);
   }, [selectedPeriod]);
 
   if (!canView) {

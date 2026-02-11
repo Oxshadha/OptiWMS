@@ -216,6 +216,7 @@ export default function PutawayPage() {
         lpn: "", // LPN is ignored in backend but kept for backward compatibility
         quantity: currentItem.receivedQuantity, // Pass received quantity explicitly
         materialId: currentItem.materialId, // Pass material ID explicitly
+        workerId: worker?.id, // Required for labor productivity attribution
       });
       
       // Mark item as put away

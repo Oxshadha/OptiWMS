@@ -23,6 +23,7 @@ export function CreateMaterialModal({
     materialType: "raw_material" as string,
     unitType: "",
     storageType: "pallet",
+    weightKg: "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -38,6 +39,7 @@ export function CreateMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
+      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
     });
   };
 
@@ -121,6 +123,25 @@ export function CreateMaterialModal({
           </div>
         </div>
 
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Unit Weight (kg)</span>
+          </label>
+          <input
+            type="number"
+            step="0.001"
+            min="0"
+            className="input input-bordered"
+            placeholder="e.g., 0.250"
+            value={formData.weightKg}
+            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+            disabled={isLoading}
+          />
+          <label className="label">
+            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
+          </label>
+        </div>
+
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>
             Cancel
@@ -153,6 +174,7 @@ export function EditMaterialModal({
     materialType: material.materialType || "raw_material",
     unitType: material.unitType || "",
     storageType: material.storageType || "pallet",
+    weightKg: material.weightKg != null ? String(material.weightKg) : "",
   });
 
   useEffect(() => {
@@ -162,6 +184,7 @@ export function EditMaterialModal({
       materialType: material.materialType || "raw_material",
       unitType: material.unitType || "",
       storageType: material.storageType || "pallet",
+      weightKg: material.weightKg != null ? String(material.weightKg) : "",
     });
   }, [material]);
 
@@ -173,6 +196,7 @@ export function EditMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
+      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
     });
   };
 
@@ -253,6 +277,24 @@ export function EditMaterialModal({
               <option value="cold">Cold Storage</option>
             </select>
           </div>
+        </div>
+
+        <div className="form-control">
+          <label className="label">
+            <span className="label-text font-medium">Unit Weight (kg)</span>
+          </label>
+          <input
+            type="number"
+            step="0.001"
+            min="0"
+            className="input input-bordered"
+            value={formData.weightKg}
+            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+            disabled={isLoading}
+          />
+          <label className="label">
+            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
+          </label>
         </div>
 
         <div className="flex justify-end gap-3 pt-4">

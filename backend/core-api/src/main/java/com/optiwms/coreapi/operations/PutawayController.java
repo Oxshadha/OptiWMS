@@ -31,7 +31,8 @@ public class PutawayController {
                     request.locationCode(), 
                     request.lpn(),
                     request.quantity(),
-                    request.materialId() != null ? UUID.fromString(request.materialId()) : null
+                    request.materialId() != null ? UUID.fromString(request.materialId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
             );
             return ResponseEntity.ok(new PutawayResponse(
                     result.success(),
@@ -70,7 +71,8 @@ public class PutawayController {
             String locationCode, 
             String lpn,
             Integer quantity,
-            String materialId) {}
+            String materialId,
+            String workerId) {}
     public record PutawayResponse(boolean success, String message, String taskId) {}
     
     public record SuggestLocationRequest(
@@ -84,4 +86,3 @@ public class PutawayController {
             String reason,
             boolean aiEnhanced) {}
 }
-

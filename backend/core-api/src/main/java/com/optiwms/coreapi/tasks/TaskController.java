@@ -105,7 +105,12 @@ public class TaskController {
             @PathVariable UUID id,
             @RequestBody UpdateStatusRequest request
     ) {
-        Task updated = taskService.updateStatus(id, request.status());
+        Task updated;
+        if (request.workerId() != null && !request.workerId().isBlank()) {
+            updated = taskService.updateStatusWithWorker(id, request.status(), UUID.fromString(request.workerId()));
+        } else {
+            updated = taskService.updateStatus(id, request.status());
+        }
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -159,7 +164,7 @@ public class TaskController {
             String notes
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(String status, String workerId) {}
 
     public record AssignTaskRequest(
             String workerId,

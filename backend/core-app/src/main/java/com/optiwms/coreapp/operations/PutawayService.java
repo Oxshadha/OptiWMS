@@ -41,7 +41,7 @@ public class PutawayService {
     }
 
     @Transactional
-    public PutawayResult completePutaway(UUID taskId, String locationCode, String lpn, Integer quantity, UUID materialId) {
+    public PutawayResult completePutaway(UUID taskId, String locationCode, String lpn, Integer quantity, UUID materialId, UUID workerId) {
         Task task = taskService.findById(taskId);
         
         if (!"putaway".equals(task.getTaskType())) {
@@ -110,9 +110,12 @@ public class PutawayService {
         
         inventoryService.createOrUpdate(inventoryItem);
 
-        // Complete task using centralized service (updates task status)
-        // Note: Putaway doesn't track worker in order, only in task
-        taskService.updateStatus(taskId, "completed");
+        // Complete task with worker attribution for labor productivity analytics.
+        if (workerId != null) {
+            taskService.updateStatusWithWorker(taskId, "completed", workerId);
+        } else {
+            taskService.updateStatus(taskId, "completed");
+        }
 
         // CRITICAL: Check if all items in the order are put away and update order status
         if (orderIdForStatusUpdate != null) {

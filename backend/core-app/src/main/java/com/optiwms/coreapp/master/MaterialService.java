@@ -121,6 +121,7 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setWeightKg(material.getWeightKg());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -172,6 +173,9 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        if (material.getWeightKg() != null) {
+            entity.setWeightKg(material.getWeightKg());
+        }
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);

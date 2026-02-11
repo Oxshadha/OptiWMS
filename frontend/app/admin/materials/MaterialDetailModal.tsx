@@ -103,6 +103,12 @@ export function MaterialDetailModal({
             </label>
             <div className="capitalize">{material.storageType || "—"}</div>
           </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+            </label>
+            <div>{material.weightKg != null ? material.weightKg : "—"}</div>
+          </div>
           <div className="col-span-2">
             <label className="label">
               <span className="label-text font-medium">Default Bin Locations</span>

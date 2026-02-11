@@ -54,6 +54,7 @@ export interface CompletePutawayRequest {
   lpn?: string;
   quantity?: number; // Optional - will be determined from order item if not provided
   materialId?: string; // Optional - will be determined from order item if not provided
+  workerId?: string;
 }
 
 export interface PutawayResponse {
