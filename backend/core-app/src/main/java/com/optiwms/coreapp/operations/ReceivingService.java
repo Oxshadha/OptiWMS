@@ -5,12 +5,14 @@ import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OrderStatusService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.coreapp.operations.PutawayTaskService;
 import com.optiwms.coreapp.quality.QualityCheckService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.master.Material;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
@@ -33,6 +35,7 @@ public class ReceivingService {
     private final PutawayTaskService putawayTaskService;
     private final QualityCheckService qualityCheckService;
     private final GrnService grnService;
+    private final TaskService taskService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -42,7 +45,8 @@ public class ReceivingService {
                            WarehouseService warehouseService,
                            PutawayTaskService putawayTaskService,
                            QualityCheckService qualityCheckService,
-                           GrnService grnService) {
+                           GrnService grnService,
+                           TaskService taskService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -52,6 +56,7 @@ public class ReceivingService {
         this.putawayTaskService = putawayTaskService;
         this.qualityCheckService = qualityCheckService;
         this.grnService = grnService;
+        this.taskService = taskService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -106,6 +111,7 @@ public class ReceivingService {
         // Store worker record in order (received_by, received_at)
         if (workerId != null && "inbound".equals(order.getOrderType())) {
             orderService.updateWorkerRecord(order.getId(), workerId, "received");
+            completeReceivingTasks(order.getId(), workerId);
         }
 
         // Create/find GRN for this inbound receipt and attach quality checks to GRN.
@@ -333,6 +339,15 @@ public class ReceivingService {
         }
         String trimmed = locationCode.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void completeReceivingTasks(UUID orderId, UUID workerId) {
+        List<Task> receivingTasks = taskService.findByTaskTypeAndReference("receiving", "order", orderId);
+        for (Task task : receivingTasks) {
+            if (!"completed".equals(task.getStatus())) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
+            }
+        }
     }
 
     public record ReceivedItem(UUID materialId, BigDecimal quantity, String locationCode) {}

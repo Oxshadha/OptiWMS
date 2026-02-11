@@ -50,9 +50,11 @@ public class AnalyticsService {
         Map<UUID, WorkerProductivityMetrics> metricsMap = new HashMap<>();
 
         for (TaskEntity task : tasks) {
-            if (task.getAssignedTo() == null) continue;
+            UUID workerId = resolveWorkerId(task);
+            if (workerId == null) {
+                continue;
+            }
 
-            UUID workerId = task.getAssignedTo();
             metricsMap.putIfAbsent(workerId, new WorkerProductivityMetrics(workerId, 0, 0, 0L, BigDecimal.ZERO));
 
             WorkerProductivityMetrics metrics = metricsMap.get(workerId);
@@ -102,9 +104,14 @@ public class AnalyticsService {
         Map<UUID, String> workerNames = new HashMap<>();
 
         for (TaskEntity task : tasks) {
-            if (task.getAssignedTo() == null || !"completed".equals(task.getStatus())) continue;
+            if (!"completed".equals(task.getStatus())) {
+                continue;
+            }
 
-            UUID workerId = task.getAssignedTo();
+            UUID workerId = resolveWorkerId(task);
+            if (workerId == null) {
+                continue;
+            }
             taskCounts.put(workerId, taskCounts.getOrDefault(workerId, 0) + 1);
 
             if (!workerNames.containsKey(workerId)) {
@@ -299,6 +306,13 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    private UUID resolveWorkerId(TaskEntity task) {
+        if (task.getAssignedTo() != null) {
+            return task.getAssignedTo();
+        }
+        return task.getCompletedBy();
+    }
+
     private Integer calculateRank(Integer taskCount, Collection<Integer> allCounts) {
         long rank = allCounts.stream()
                 .filter(count -> count > taskCount)
@@ -427,4 +441,3 @@ public class AnalyticsService {
         }
     }
 }
-

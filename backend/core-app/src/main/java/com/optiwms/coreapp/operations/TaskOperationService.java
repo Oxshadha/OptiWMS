@@ -137,18 +137,22 @@ public class TaskOperationService {
     @Transactional
     public void completeTask(UUID taskId, UUID workerId, String operationType) {
         Task task = taskService.findById(taskId);
+
+        UUID effectiveWorkerId = workerId != null ? workerId : task.getAssignedTo();
+        if (effectiveWorkerId != null) {
+            taskService.updateStatusWithWorker(taskId, "completed", effectiveWorkerId);
+        } else {
+            taskService.updateStatus(taskId, "completed");
+        }
         
-        // Update task status with worker record
-        taskService.updateStatusWithWorker(taskId, "completed", workerId);
-        
-        logger.info("Task {} completed by worker {} (operation: {})", taskId, workerId, operationType);
+        logger.info("Task {} completed by worker {} (operation: {})", taskId, effectiveWorkerId, operationType);
         
         // Store worker record in order if task references an order
         if (task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
             // Map operation type to order field
             String orderOperation = mapOperationToOrderField(operationType);
-            if (orderOperation != null) {
-                orderService.updateWorkerRecord(task.getReferenceId(), workerId, orderOperation);
+            if (orderOperation != null && effectiveWorkerId != null) {
+                orderService.updateWorkerRecord(task.getReferenceId(), effectiveWorkerId, orderOperation);
             }
         }
     }

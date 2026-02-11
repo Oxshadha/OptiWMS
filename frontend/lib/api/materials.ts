@@ -7,6 +7,7 @@ export interface Material {
   unitType?: string;
   storageType?: string;
   materialType?: string;
+  weightKg?: number;
   // ABC/FMS Classification for storage zone assignment
   abcClass?: string;      // A, B, C (volume-based)
   fmsClass?: string;      // F, M, S (frequency-based)
@@ -61,4 +62,3 @@ export const materialsApi = {
     return apiClient.postFormData<ImportResponse>('/master/materials/inventory/import', formData);
   },
 };
-
