@@ -27,6 +27,7 @@ public class PutawayService {
     private final OrderItemRepository orderItemRepository;
     private final OrderStatusService orderStatusService;
     private final OrderService orderService;
+    private final OperationEventService operationEventService;
 
     public PutawayService(
             TaskService taskService, 
@@ -34,13 +35,15 @@ public class PutawayService {
             MaterialLocationAssignmentService materialLocationService,
             OrderItemRepository orderItemRepository,
             OrderStatusService orderStatusService,
-            OrderService orderService) {
+            OrderService orderService,
+            OperationEventService operationEventService) {
         this.taskService = taskService;
         this.inventoryService = inventoryService;
         this.materialLocationService = materialLocationService;
         this.orderItemRepository = orderItemRepository;
         this.orderStatusService = orderStatusService;
         this.orderService = orderService;
+        this.operationEventService = operationEventService;
     }
 
     @Transactional
@@ -128,6 +131,21 @@ public class PutawayService {
 
         Integer newCompletedQuantity = completedQuantity + actualQuantity;
         if (newCompletedQuantity < requiredQuantity) {
+            if (workerId != null) {
+                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                        "PUTAWAY",
+                        workerId,
+                        taskId,
+                        orderIdForStatusUpdate,
+                        "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                        finalWarehouseId,
+                        finalMaterialId,
+                        actualQuantity,
+                        task.getStartedAt(),
+                        java.time.LocalDateTime.now(),
+                        "partial_allocation=true;location=" + finalLocationCode
+                ));
+            }
             taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), newCompletedQuantity, requiredQuantity));
             taskService.updateStatus(taskId, "in_progress");
             if (orderIdForStatusUpdate != null) {
@@ -147,6 +165,19 @@ public class PutawayService {
         taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), requiredQuantity, requiredQuantity));
         if (workerId != null) {
             taskService.updateStatusWithWorker(taskId, "completed", workerId);
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "PUTAWAY",
+                    workerId,
+                    taskId,
+                    orderIdForStatusUpdate,
+                    "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    finalWarehouseId,
+                    finalMaterialId,
+                    actualQuantity,
+                    task.getStartedAt(),
+                    java.time.LocalDateTime.now(),
+                    "partial_allocation=false;location=" + finalLocationCode
+            ));
         } else {
             taskService.updateStatus(taskId, "completed");
         }

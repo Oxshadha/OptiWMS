@@ -21,13 +21,16 @@ public class CycleCountService {
     private final CycleCountRepository repository;
     private final CycleCountRecountRepository recountRepository;
     private final InventoryService inventoryService;
+    private final OperationEventService operationEventService;
 
     public CycleCountService(CycleCountRepository repository,
                             CycleCountRecountRepository recountRepository,
-                            InventoryService inventoryService) {
+                            InventoryService inventoryService,
+                            OperationEventService operationEventService) {
         this.repository = repository;
         this.recountRepository = recountRepository;
         this.inventoryService = inventoryService;
+        this.operationEventService = operationEventService;
     }
 
     public List<CycleCount> listAll() {
@@ -152,6 +155,19 @@ public class CycleCountService {
                 inventoryService.createOrUpdate(item);
 
                 repository.save(entity);
+                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                        "CYCLE_COUNT",
+                        countedBy,
+                        null,
+                        null,
+                        null,
+                        entity.getWarehouseId(),
+                        materialId,
+                        countedQtyInteger,
+                        null,
+                        LocalDateTime.now(),
+                        "recount_required=false;final=true"
+                ));
                 return new CycleCountResult(
                     true, 
                     String.format("Count completed after %d recounts. Final variance: %.0f units.", 
@@ -187,6 +203,20 @@ public class CycleCountService {
             item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
             inventoryService.createOrUpdate(item);
         }
+
+        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                "CYCLE_COUNT",
+                countedBy,
+                null,
+                null,
+                null,
+                entity.getWarehouseId(),
+                materialId,
+                countedQtyInteger,
+                null,
+                LocalDateTime.now(),
+                "recount_required=false;final=true"
+        ));
 
         return new CycleCountResult(
             true, 

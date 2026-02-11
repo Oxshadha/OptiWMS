@@ -18,10 +18,12 @@ public class StockTransferService {
 
     private final StockTransferRepository repository;
     private final InventoryService inventoryService;
+    private final OperationEventService operationEventService;
 
-    public StockTransferService(StockTransferRepository repository, InventoryService inventoryService) {
+    public StockTransferService(StockTransferRepository repository, InventoryService inventoryService, OperationEventService operationEventService) {
         this.repository = repository;
         this.inventoryService = inventoryService;
+        this.operationEventService = operationEventService;
     }
 
     public List<StockTransfer> listAll() {
@@ -85,6 +87,19 @@ public class StockTransferService {
         entity.setDispatchedBy(userId);
         entity.setDispatchedAt(LocalDateTime.now());
         StockTransferEntity saved = repository.save(entity);
+        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                "STOCK_TRANSFER_DISPATCH",
+                userId,
+                null,
+                null,
+                null,
+                entity.getSourceWarehouseId(),
+                entity.getMaterialId(),
+                entity.getQuantity(),
+                null,
+                LocalDateTime.now(),
+                "destWarehouse=" + entity.getDestWarehouseId()
+        ));
         return toDomain(saved);
     }
 
@@ -123,6 +138,19 @@ public class StockTransferService {
         entity.setReceivedBy(userId);
         entity.setReceivedAt(LocalDateTime.now());
         StockTransferEntity saved = repository.save(entity);
+        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                "STOCK_TRANSFER_RECEIVE",
+                userId,
+                null,
+                null,
+                null,
+                entity.getDestWarehouseId(),
+                entity.getMaterialId(),
+                entity.getQuantity(),
+                null,
+                LocalDateTime.now(),
+                "sourceWarehouse=" + entity.getSourceWarehouseId()
+        ));
         return toDomain(saved);
     }
 
