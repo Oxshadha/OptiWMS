@@ -26,6 +26,13 @@ const MATERIAL_TYPES = [
 
 type MaterialTypeFilter = typeof MATERIAL_TYPES[number]["value"];
 
+const cleanDisplayName = (description?: string) => {
+  if (!description) return "—";
+  // Legacy imports sometimes append metadata like: "Rice 5kg Bag,raw_material,kg,pallet"
+  const first = description.split(",")[0]?.trim();
+  return first || description;
+};
+
 export default function MaterialsPage() {
   const { hasPermission } = useAdmin();
   // Support URL query parameter for type filter (for redirects from legacy pages)
@@ -348,16 +355,16 @@ export default function MaterialsPage() {
             columns={[
               {
                 key: "materialCode",
-                label: "Product Code",
+                label: "SKU Code",
                 render: (material: Material) => (
                   <span className="font-mono font-semibold text-primary">{material.materialCode}</span>
                 ),
               },
               {
                 key: "description",
-                label: "Description",
+                label: "Product Name",
                 render: (material: Material) => (
-                  <span className="text-base-content">{material.description || "—"}</span>
+                  <span className="text-base-content">{cleanDisplayName(material.description)}</span>
                 ),
               },
               {
@@ -617,4 +624,3 @@ export default function MaterialsPage() {
     </div>
   );
 }
-

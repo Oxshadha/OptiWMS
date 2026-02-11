@@ -62,6 +62,8 @@ public class MaterialLocationAssignmentService {
             throw new RuntimeException("Location is not active: " + locationCode);
         }
 
+        validateLocationCapacity(location, warehouseId, quantity, materialId);
+
         // Find existing inventory at this location
         List<InventoryItem> existingInventory = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId)
                 .stream()
@@ -96,6 +98,36 @@ public class MaterialLocationAssignmentService {
             inventoryItem.setMaterialType(material.getMaterialType());
             
             return inventoryService.createOrUpdate(inventoryItem);
+        }
+    }
+
+    private void validateLocationCapacity(Location location, UUID warehouseId, Integer putawayQuantity, UUID materialId) {
+        if (putawayQuantity == null || putawayQuantity <= 0) {
+            throw new RuntimeException("Invalid putaway quantity");
+        }
+
+        List<InventoryItem> locationInventory = inventoryService.findByWarehouse(warehouseId).stream()
+                .filter(item -> location.getLocationCode().equals(item.getLocationCode()))
+                .collect(Collectors.toList());
+
+        int currentQuantity = locationInventory.stream()
+                .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
+                .sum();
+
+        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
+            int capacityUnits = location.getCapacity().intValue();
+            if (currentQuantity + putawayQuantity > capacityUnits) {
+                throw new RuntimeException("Location capacity exceeded for " + location.getLocationCode()
+                        + ". Capacity: " + capacityUnits + ", Current: " + currentQuantity
+                        + ", Requested: " + putawayQuantity);
+            }
+        }
+
+        boolean hasMaterialAlready = locationInventory.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
+        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
+            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
+                throw new RuntimeException("Location pallet capacity reached for " + location.getLocationCode());
+            }
         }
     }
 

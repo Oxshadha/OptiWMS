@@ -1,7 +1,12 @@
 package com.optiwms.coreapi.orders;
 
 import com.optiwms.coreapp.orders.OrderItemService;
+import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
+import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.domain.orders.OrderItem;
+import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.master.Material;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,9 +19,19 @@ import java.util.stream.Collectors;
 public class OrderItemController {
 
     private final OrderItemService orderItemService;
+    private final OrderService orderService;
+    private final MaterialLocationAssignmentService materialLocationService;
+    private final MaterialService materialService;
 
-    public OrderItemController(OrderItemService orderItemService) {
+    public OrderItemController(
+            OrderItemService orderItemService,
+            OrderService orderService,
+            MaterialLocationAssignmentService materialLocationService,
+            MaterialService materialService) {
         this.orderItemService = orderItemService;
+        this.orderService = orderService;
+        this.materialLocationService = materialLocationService;
+        this.materialService = materialService;
     }
 
     @GetMapping("/{orderId}/items")
@@ -35,18 +50,46 @@ public class OrderItemController {
     @GetMapping("/{orderId}/putaway-items")
     public ResponseEntity<List<PutawayItemDto>> getPutawayItems(@PathVariable UUID orderId) {
         List<OrderItem> items = orderItemService.findByOrderId(orderId);
+        Order order = orderService.findById(orderId);
         // Filter to only items that have been received (picked_quantity > 0)
         List<PutawayItemDto> putawayItems = items.stream()
                 .filter(item -> item.getPickedQuantity() != null && item.getPickedQuantity() > 0)
                 .map(item -> {
-                    // Get suggested location from material location assignment or task
-                    String suggestedLocation = null; // Will be populated from task or material location service
+                    String suggestedLocation = null;
+                    List<String> existingLocations = java.util.List.of();
+                    String materialCode = null;
+                    String materialName = null;
+                    try {
+                        Material material = materialService.findById(item.getMaterialId());
+                        materialCode = material.getMaterialCode();
+                        materialName = material.getDescription();
+                    } catch (Exception ignored) {
+                        // Material lookup best-effort
+                    }
+                    try {
+                        existingLocations = materialLocationService
+                                .findMaterialLocations(item.getMaterialId(), order.getWarehouseId())
+                                .stream()
+                                .map(MaterialLocationAssignmentService.LocationInventory::locationCode)
+                                .distinct()
+                                .collect(java.util.stream.Collectors.toList());
+                        suggestedLocation = materialLocationService.suggestLocationForPutaway(
+                                item.getMaterialId(),
+                                order.getWarehouseId(),
+                                item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity()
+                        );
+                    } catch (Exception ignored) {
+                        // Suggestions best-effort; do not break putaway list
+                    }
                     return new PutawayItemDto(
                             item.getId().toString(),
                             item.getMaterialId().toString(),
+                            materialCode,
+                            materialName,
                             item.getPickedQuantity(), // Received quantity
                             item.getQuantity(), // Ordered quantity
                             suggestedLocation,
+                            existingLocations,
                             item.getStatus()
                     );
                 })
@@ -132,9 +175,12 @@ public class OrderItemController {
     public record PutawayItemDto(
             String itemId,
             String materialId,
+            String materialCode,
+            String materialName,
             Integer receivedQuantity,
             Integer orderedQuantity,
             String suggestedLocation,
+            List<String> existingLocations,
             String status
     ) {}
 }
