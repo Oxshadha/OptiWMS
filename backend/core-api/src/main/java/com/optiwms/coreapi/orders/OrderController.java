@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.format.DateTimeParseException;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -96,7 +97,30 @@ public class OrderController {
     }
 
     @PostMapping
-    public ResponseEntity<OrderDto> create(@RequestBody CreateOrderRequest request) {
+    public ResponseEntity<?> create(@RequestBody CreateOrderRequest request) {
+        LocalDate orderDate;
+        try {
+            orderDate = request.orderDate() != null && !request.orderDate().isEmpty()
+                    ? LocalDate.parse(request.orderDate())
+                    : LocalDate.now();
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Invalid orderDate format. Use YYYY-MM-DD."));
+        }
+
+        LocalDate expectedDate = null;
+        try {
+            if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
+                expectedDate = LocalDate.parse(request.expectedDate());
+            }
+        } catch (DateTimeParseException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Invalid expectedDate format. Use YYYY-MM-DD."));
+        }
+
+        if (expectedDate != null && expectedDate.isBefore(orderDate)) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse("Expected delivery date cannot be before order date."));
+        }
+
         Order order = new Order();
         order.setOrderNumber(request.orderNumber());
         order.setOrderType(request.orderType());
@@ -105,14 +129,8 @@ public class OrderController {
         order.setWarehouseId(UUID.fromString(request.warehouseId()));
         order.setStatus(request.status() != null ? request.status() : "pending");
         order.setPriority(request.priority() != null ? request.priority() : "normal");
-        if (request.orderDate() != null && !request.orderDate().isEmpty()) {
-            order.setOrderDate(LocalDate.parse(request.orderDate()));
-        } else {
-            order.setOrderDate(LocalDate.now());
-        }
-        if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
-            order.setExpectedDate(LocalDate.parse(request.expectedDate()));
-        }
+        order.setOrderDate(orderDate);
+        order.setExpectedDate(expectedDate);
         if (request.totalAmount() != null && !request.totalAmount().isEmpty()) {
             order.setTotalAmount(new BigDecimal(request.totalAmount()));
         }
@@ -146,13 +164,23 @@ public class OrderController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<OrderDto> update(
+    public ResponseEntity<?> update(
             @PathVariable UUID id,
             @RequestBody UpdateOrderRequest request
     ) {
+        Order existingOrder = orderService.findById(id);
         Order order = new Order();
         if (request.expectedDate() != null && !request.expectedDate().isEmpty()) {
-            order.setExpectedDate(LocalDate.parse(request.expectedDate()));
+            try {
+                LocalDate expectedDate = LocalDate.parse(request.expectedDate());
+                if (existingOrder.getOrderDate() != null && expectedDate.isBefore(existingOrder.getOrderDate())) {
+                    return ResponseEntity.badRequest()
+                            .body(new ErrorResponse("Expected delivery date cannot be before order date."));
+                }
+                order.setExpectedDate(expectedDate);
+            } catch (DateTimeParseException e) {
+                return ResponseEntity.badRequest().body(new ErrorResponse("Invalid expectedDate format. Use YYYY-MM-DD."));
+            }
         }
         if (request.notes() != null) {
             order.setNotes(request.notes());
@@ -282,6 +310,8 @@ public class OrderController {
             String priority,
             String totalAmount
     ) {}
+
+    public record ErrorResponse(String message) {}
 
     public record OrderDto(
             String id,

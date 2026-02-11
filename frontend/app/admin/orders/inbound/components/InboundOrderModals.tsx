@@ -107,6 +107,7 @@ export function EditInboundOrderModal({
   onSaved: () => Promise<void>;
   order: InboundOrderDisplay;
 }) {
+  const orderDateValue = order.orderDate || "";
   const [formData, setFormData] = useState({
     expectedDelivery: order.expectedDelivery,
     supplierName: order.supplierName,
@@ -116,6 +117,15 @@ export function EditInboundOrderModal({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (
+      formData.expectedDelivery &&
+      orderDateValue &&
+      new Date(formData.expectedDelivery) < new Date(orderDateValue)
+    ) {
+      showToast.error("Expected delivery date cannot be before order date.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await ordersApi.update(order.id, {
@@ -153,6 +163,7 @@ export function EditInboundOrderModal({
             onChange={(e) =>
               setFormData({ ...formData, expectedDelivery: e.target.value })
             }
+            min={orderDateValue || undefined}
             required
           />
         </div>
@@ -207,6 +218,7 @@ export function CreateInboundOrderModal({
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
+    orderDate: new Date().toISOString().split("T")[0],
     expectedDeliveryDate: "",
     notes: "",
     items: [] as Array<{
@@ -246,6 +258,11 @@ export function CreateInboundOrderModal({
         return;
       }
 
+      if (new Date(formData.expectedDeliveryDate) < new Date(formData.orderDate)) {
+        setError("Expected delivery date cannot be before order date.");
+        return;
+      }
+
       if (formData.items.length === 0) {
         setError("Please add at least one item to the order.");
         return;
@@ -274,12 +291,23 @@ export function CreateInboundOrderModal({
         return;
       }
 
+      const invalidManufactureDates = formData.items.filter(
+        (item) =>
+          item.manufactureDate &&
+          new Date(item.manufactureDate) > new Date(formData.orderDate)
+      );
+      if (invalidManufactureDates.length > 0) {
+        setError("Manufacture date cannot be later than order date.");
+        return;
+      }
+
       const orderNumber = `PO-${Date.now()}`;
       const createdOrder = await ordersApi.create({
         orderNumber,
         orderType: "inbound",
         supplierId: formData.supplierId,
         warehouseId: formData.warehouseId,
+        orderDate: formData.orderDate,
         expectedDate: formData.expectedDeliveryDate,
         notes: formData.notes || undefined,
         status: "pending",
@@ -390,6 +418,18 @@ export function CreateInboundOrderModal({
             </div>
             <div className="form-control">
               <label className="label">
+                <span className="label-text font-medium">Order Date *</span>
+              </label>
+              <input
+                type="date"
+                className="input input-bordered w-full"
+                value={formData.orderDate}
+                onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-control">
+              <label className="label">
                 <span className="label-text font-medium">Expected Delivery Date *</span>
               </label>
               <input
@@ -399,6 +439,7 @@ export function CreateInboundOrderModal({
                 onChange={(e) =>
                   setFormData({ ...formData, expectedDeliveryDate: e.target.value })
                 }
+                min={formData.orderDate || undefined}
                 required
               />
             </div>
@@ -517,7 +558,7 @@ export function CreateInboundOrderModal({
                           newItems[idx].manufactureDate = e.target.value;
                           setFormData({ ...formData, items: newItems });
                         }}
-                        max={item.expiryDate || undefined}
+                        max={formData.orderDate || item.expiryDate || undefined}
                       />
                       {item.manufactureDate &&
                         item.expiryDate &&
@@ -602,11 +643,19 @@ export function CreateInboundOrderModal({
             <div className="card bg-base-200 p-4 rounded-lg space-y-2">
               <div className="flex justify-between">
                 <span className="text-base-content/60">Supplier:</span>
-                <span className="font-semibold">Tech Supplies Inc</span>
+                <span className="font-semibold">
+                  {suppliers.find((s) => s.id === formData.supplierId)?.name || "—"}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-base-content/60">Warehouse:</span>
-                <span className="font-semibold">Warehouse 1</span>
+                <span className="font-semibold">
+                  {warehouses.find((w) => w.id === formData.warehouseId)?.name || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-base-content/60">Order Date:</span>
+                <span className="font-semibold">{formData.orderDate}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-base-content/60">Expected Delivery:</span>
