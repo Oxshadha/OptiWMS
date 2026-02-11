@@ -14,12 +14,24 @@ import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class CsvImportService {
+    private static final Set<String> UNIT_TOKENS = Set.of(
+            "kg", "g", "gram", "grams", "l", "liter", "litre", "ml", "pcs", "pc", "unit", "box", "pallet"
+    );
+    private static final Set<String> STORAGE_TOKENS = Set.of(
+            "pallet", "shelf", "bin", "rack", "bulk", "carton", "container"
+    );
+    private static final Set<String> MATERIAL_TYPE_TOKENS = Set.of(
+            "raw_material", "raw material", "packing_material", "packaging_material", "product"
+    );
 
     private final MaterialService materialService;
     private final InventoryService inventoryService;
@@ -43,26 +55,36 @@ public class CsvImportService {
                 new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
 
             String line;
-            boolean isFirstLine = true;
+            Map<String, Integer> headerMap = null;
+            int lineNumber = 0;
 
             while ((line = reader.readLine()) != null) {
-                if (isFirstLine) {
-                    isFirstLine = false;
-                    continue; // Skip header
-                }
-
+                lineNumber++;
                 if (line.trim().isEmpty()) {
                     continue; // Skip empty lines
                 }
 
+                if (headerMap == null) {
+                    headerMap = parseHeaderMap(line);
+                    List<String> missingHeaders = findMissingRequiredHeaders(headerMap);
+                    if (!missingHeaders.isEmpty()) {
+                        return new ImportResult(
+                                0,
+                                1,
+                                List.of("Missing required CSV headers: " + String.join(", ", missingHeaders))
+                        );
+                    }
+                    continue;
+                }
+
                 try {
-                    Material material = parseMaterialLine(line);
+                    Material material = parseMaterialLine(line, headerMap);
                     if (material != null) {
                         materials.add(material);
                     }
                 } catch (Exception e) {
                     errorCount++;
-                    errors.add("Line: " + line + " - Error: " + e.getMessage());
+                    errors.add("Line " + lineNumber + ": " + e.getMessage());
                 }
             }
 
@@ -78,25 +100,37 @@ public class CsvImportService {
         return new ImportResult(successCount, errorCount, errors);
     }
 
-    private Material parseMaterialLine(String line) {
-        // Handle CSV with potential commas in description
-        String[] parts = line.split(",", 2);
-        
-        if (parts.length < 2) {
-            return null;
-        }
-
-        String materialCode = parts[0].trim();
-        String description = parts[1].trim();
+    private Material parseMaterialLine(String line, Map<String, Integer> headerMap) {
+        String[] parts = parseCsvLine(line);
+        String materialCode = getField(parts, headerMap, "material_code");
+        String description = getField(parts, headerMap, "description");
 
         if (materialCode.isEmpty() || description.isEmpty()) {
-            return null;
+            throw new RuntimeException("material_code and description are required");
         }
+
+        String materialType = getField(parts, headerMap, "material_type");
+        String unitType = getField(parts, headerMap, "unit_type");
+        String storageType = getField(parts, headerMap, "storage_type");
+        String weightKgRaw = getField(parts, headerMap, "weight_kg");
 
         Material material = new Material();
         material.setMaterialCode(materialCode);
-        material.setDescription(description);
-        material.setStorageType("pallet"); // Default
+        material.setDescription(normalizeMaterialDescription(description));
+        if (!materialType.isEmpty()) {
+            material.setMaterialType(materialType);
+        }
+        if (!unitType.isEmpty()) {
+            material.setUnitType(unitType);
+        }
+        material.setStorageType(storageType.isEmpty() ? "pallet" : storageType);
+        if (!weightKgRaw.isEmpty()) {
+            try {
+                material.setWeightKg(new BigDecimal(cleanNumber(weightKgRaw)));
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Invalid weight_kg value: " + weightKgRaw);
+            }
+        }
 
         return material;
     }
@@ -274,6 +308,106 @@ public class CsvImportService {
                 .replaceAll("\\s+", "");
     }
 
+    private Map<String, Integer> parseHeaderMap(String headerLine) {
+        String[] headers = parseCsvLine(headerLine);
+        Map<String, Integer> headerMap = new HashMap<>();
+        for (int i = 0; i < headers.length; i++) {
+            String normalized = normalizeHeader(headers[i]);
+            if (!normalized.isEmpty()) {
+                headerMap.putIfAbsent(normalized, i);
+            }
+        }
+        return headerMap;
+    }
+
+    private List<String> findMissingRequiredHeaders(Map<String, Integer> headerMap) {
+        List<String> missing = new ArrayList<>();
+        if (!headerMap.containsKey("material_code")) {
+            missing.add("material_code");
+        }
+        if (!headerMap.containsKey("description")) {
+            missing.add("description");
+        }
+        return missing;
+    }
+
+    private String normalizeHeader(String header) {
+        if (header == null) {
+            return "";
+        }
+
+        String normalized = header.trim().toLowerCase()
+                .replace("-", "_")
+                .replace(" ", "_");
+
+        if (normalized.equals("materialcode") || normalized.equals("sku") || normalized.equals("code")) {
+            return "material_code";
+        }
+        if (normalized.equals("name") || normalized.equals("item_name") || normalized.equals("material_name")) {
+            return "description";
+        }
+        if (normalized.equals("type")) {
+            return "material_type";
+        }
+        if (normalized.equals("unit")) {
+            return "unit_type";
+        }
+        if (normalized.equals("storage")) {
+            return "storage_type";
+        }
+        if (normalized.equals("weight") || normalized.equals("weightkg")) {
+            return "weight_kg";
+        }
+
+        return normalized;
+    }
+
+    private String getField(String[] parts, Map<String, Integer> headerMap, String key) {
+        Integer index = headerMap.get(key);
+        if (index == null || index < 0 || index >= parts.length) {
+            return "";
+        }
+        return parts[index].trim();
+    }
+
+    private String normalizeMaterialDescription(String description) {
+        String trimmed = description == null ? "" : description.trim();
+        if (trimmed.isEmpty()) {
+            return trimmed;
+        }
+
+        String[] segments = trimmed.split(",");
+        if (segments.length <= 1) {
+            return trimmed;
+        }
+
+        String firstSegment = segments[0].trim();
+        if (firstSegment.isEmpty()) {
+            return trimmed;
+        }
+
+        List<String> normalizedTail = new ArrayList<>();
+        for (int i = 1; i < segments.length; i++) {
+            String token = segments[i].trim().toLowerCase();
+            if (!token.isEmpty()) {
+                normalizedTail.add(token);
+            }
+        }
+        if (normalizedTail.isEmpty()) {
+            return firstSegment;
+        }
+
+        Set<String> allowedLegacyTokens = new HashSet<>();
+        allowedLegacyTokens.addAll(MATERIAL_TYPE_TOKENS);
+        allowedLegacyTokens.addAll(UNIT_TOKENS);
+        allowedLegacyTokens.addAll(STORAGE_TOKENS);
+
+        boolean tailLooksLikeLegacyMetadata = normalizedTail.stream()
+                .allMatch(token -> allowedLegacyTokens.contains(token));
+
+        return tailLooksLikeLegacyMetadata ? firstSegment : trimmed;
+    }
+
     public static class ImportResult {
         private final int successCount;
         private final int errorCount;
@@ -298,4 +432,3 @@ public class CsvImportService {
         }
     }
 }
-
