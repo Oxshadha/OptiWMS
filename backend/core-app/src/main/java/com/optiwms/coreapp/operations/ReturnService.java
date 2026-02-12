@@ -1,5 +1,7 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.operations.ReturnRecord;
 import com.optiwms.infra.operations.ReturnEntity;
 import com.optiwms.infra.operations.ReturnRepository;
@@ -14,9 +16,11 @@ import java.util.stream.Collectors;
 public class ReturnService {
 
     private final ReturnRepository repository;
+    private final OrderService orderService;
 
-    public ReturnService(ReturnRepository repository) {
+    public ReturnService(ReturnRepository repository, OrderService orderService) {
         this.repository = repository;
+        this.orderService = orderService;
     }
 
     public List<ReturnRecord> listAll() {
@@ -68,6 +72,60 @@ public class ReturnService {
         entity.setInspectedBy(returnRecord.getInspectedBy());
 
         ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public ReturnRecord intakeOutboundReturn(String orderNumber, String reason, UUID receivedBy) {
+        Order order = orderService.findByOrderNumber(orderNumber);
+        if (!"outbound".equalsIgnoreCase(order.getOrderType())) {
+            throw new RuntimeException("Return intake by order number is supported only for outbound orders");
+        }
+
+        List<ReturnEntity> existingReturns = repository.findByOriginalOrderId(order.getId());
+        ReturnEntity entity = existingReturns.stream()
+                .filter(this::isOpenReturn)
+                .findFirst()
+                .orElse(null);
+
+        if (entity == null) {
+            entity = new ReturnEntity();
+            entity.setReturnNumber("RET-OUT-" + System.currentTimeMillis());
+            entity.setOriginalOrderId(order.getId());
+            entity.setCustomerId(order.getCustomerId());
+            entity.setWarehouseId(order.getWarehouseId());
+            entity.setReturnDate(java.time.LocalDate.now());
+            entity.setStatus("received");
+            entity.setResolution("quality_review_pending");
+        } else {
+            entity.setStatus("received");
+            if (entity.getReturnDate() == null) {
+                entity.setReturnDate(java.time.LocalDate.now());
+            }
+        }
+
+        if (reason != null && !reason.isBlank()) {
+            String intakeReason = reason.trim();
+            if (entity.getReason() == null || entity.getReason().isBlank()) {
+                entity.setReason(intakeReason);
+            } else if (!entity.getReason().contains(intakeReason)) {
+                entity.setReason(entity.getReason() + "\n" + intakeReason);
+            }
+        } else if (entity.getReason() == null || entity.getReason().isBlank()) {
+            entity.setReason("Outbound return intake");
+        }
+
+        if (receivedBy != null) {
+            entity.setReceivedBy(receivedBy);
+        }
+
+        ReturnEntity saved = repository.save(entity);
+
+        String currentStatus = order.getStatus() != null ? order.getStatus().toLowerCase() : "";
+        if ("shipped".equals(currentStatus) || "delivered".equals(currentStatus)) {
+            orderService.updateStatus(order.getId(), "return_initiated");
+        }
+
         return toDomain(saved);
     }
 
@@ -169,5 +227,17 @@ public class ReturnService {
         r.setInspectedBy(entity.getInspectedBy());
         r.setCreatedAt(entity.getCreatedAt());
         return r;
+    }
+
+    private boolean isOpenReturn(ReturnEntity entity) {
+        String status = entity.getStatus();
+        if (status == null || status.isBlank()) {
+            return true;
+        }
+        String normalized = status.toLowerCase();
+        return !("closed".equals(normalized)
+                || "completed".equals(normalized)
+                || "cancelled".equals(normalized)
+                || "approved".equals(normalized));
     }
 }

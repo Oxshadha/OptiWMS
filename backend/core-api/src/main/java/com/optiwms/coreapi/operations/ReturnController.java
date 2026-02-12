@@ -2,8 +2,10 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.domain.operations.ReturnRecord;
+import com.optiwms.infra.users.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -16,9 +18,11 @@ import java.util.stream.Collectors;
 public class ReturnController {
 
     private final ReturnService service;
+    private final UserRepository userRepository;
 
-    public ReturnController(ReturnService service) {
+    public ReturnController(ReturnService service, UserRepository userRepository) {
         this.service = service;
+        this.userRepository = userRepository;
     }
 
     @GetMapping
@@ -70,6 +74,22 @@ public class ReturnController {
 
         ReturnRecord created = service.create(returnRecord);
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+    }
+
+    @PostMapping("/intake/outbound")
+    public ResponseEntity<ReturnDto> intakeOutbound(
+            @RequestBody OutboundReturnIntakeRequest request,
+            Authentication authentication
+    ) {
+        UUID workerId = request.workerId() != null
+                ? UUID.fromString(request.workerId())
+                : resolveActorUserId(authentication);
+        ReturnRecord createdOrUpdated = service.intakeOutboundReturn(
+                request.orderNumber(),
+                request.reason(),
+                workerId
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(createdOrUpdated));
     }
 
     @PutMapping("/{id}")
@@ -178,6 +198,12 @@ public class ReturnController {
 
     public record AssignReturnWorkerRequest(String workerId) {}
 
+    public record OutboundReturnIntakeRequest(
+            String orderNumber,
+            String reason,
+            String workerId
+    ) {}
+
     public record ReturnDto(
             String id,
             String returnNumber,
@@ -191,4 +217,13 @@ public class ReturnController {
             String receivedBy,
             String inspectedBy
     ) {}
+
+    private UUID resolveActorUserId(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+            return null;
+        }
+        return userRepository.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
+    }
 }

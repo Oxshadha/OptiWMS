@@ -201,8 +201,10 @@ public class OrderService {
         transitions.put("picked", setOf("picked", "packing", "cancelled"));
         transitions.put("packing", setOf("packing", "ready_to_ship", "cancelled"));
         transitions.put("ready_to_ship", setOf("ready_to_ship", "shipped", "cancelled"));
-        transitions.put("shipped", setOf("shipped", "delivered"));
-        transitions.put("delivered", setOf("delivered"));
+        transitions.put("shipped", setOf("shipped", "delivered", "return_initiated"));
+        transitions.put("delivered", setOf("delivered", "return_initiated"));
+        transitions.put("return_initiated", setOf("return_initiated", "returned", "cancelled"));
+        transitions.put("returned", setOf("returned"));
         transitions.put("cancelled", setOf("cancelled"));
         return transitions;
     }
