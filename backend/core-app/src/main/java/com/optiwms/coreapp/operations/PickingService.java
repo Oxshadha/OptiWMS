@@ -98,14 +98,23 @@ public class PickingService {
         // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
         Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
         
-        InventoryItem inventoryItem = existing.get(0);
-        Integer newAvailable = (inventoryItem.getAvailableQuantity() != null ? inventoryItem.getAvailableQuantity() : 0) - qtyInteger;
-        if (newAvailable < 0) {
-            throw new RuntimeException("Insufficient inventory for material: " + materialId);
+        InventoryItem inventoryItem = existing.stream()
+                .filter(item -> locationCode != null && locationCode.equals(item.getLocationCode()))
+                .findFirst()
+                .orElse(existing.get(0));
+
+        Integer reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
+        Integer onHand = inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0;
+
+        if (reserved < qtyInteger) {
+            throw new RuntimeException("Insufficient reserved inventory for material: " + materialId + " at location: " + locationCode);
         }
-        
-        inventoryItem.setAvailableQuantity(newAvailable);
-        inventoryItem.setReservedQuantity((inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0) + qtyInteger);
+        if (onHand < qtyInteger) {
+            throw new RuntimeException("Insufficient on-hand inventory for material: " + materialId);
+        }
+
+        inventoryItem.setReservedQuantity(reserved - qtyInteger);
+        inventoryItem.setQuantity(onHand - qtyInteger);
         inventoryService.createOrUpdate(inventoryItem);
     }
 
@@ -113,4 +122,3 @@ public class PickingService {
 
     public record PickingResult(boolean success, String message, UUID taskId) {}
 }
-
