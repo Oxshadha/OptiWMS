@@ -46,8 +46,11 @@ export const shipmentsApi = {
     return apiClient.put<Shipment>(`/shipments/${id}/status`, { status });
   },
 
+  confirmDelivery: async (id: string): Promise<Shipment> => {
+    return apiClient.put<Shipment>(`/shipments/${id}/confirm-delivery`, {});
+  },
+
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/shipments/${id}`);
   },
 };
-

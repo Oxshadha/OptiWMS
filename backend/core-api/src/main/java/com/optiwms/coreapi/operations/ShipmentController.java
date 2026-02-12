@@ -4,6 +4,8 @@ import com.optiwms.coreapp.operations.ShipmentService;
 import com.optiwms.domain.operations.Shipment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -91,9 +93,23 @@ public class ShipmentController {
     @PutMapping("/{id}/status")
     public ResponseEntity<ShipmentDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @RequestBody UpdateStatusRequest request,
+            Authentication authentication
     ) {
-        Shipment updated = service.updateStatus(id, request.status());
+        boolean managerApproval = isManagerOrAdmin(authentication);
+        Shipment updated = service.updateStatus(id, request.status(), null, managerApproval);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/confirm-delivery")
+    public ResponseEntity<ShipmentDto> confirmDelivery(
+            @PathVariable UUID id,
+            Authentication authentication
+    ) {
+        if (!isManagerOrAdmin(authentication)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        Shipment updated = service.updateStatus(id, "delivered", null, true);
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -166,4 +182,17 @@ public class ShipmentController {
             String shippedAt,
             String deliveredAt
     ) {}
+
+    private boolean isManagerOrAdmin(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+        for (GrantedAuthority authority : authentication.getAuthorities()) {
+            String role = authority.getAuthority();
+            if ("ROLE_ADMIN".equals(role) || "ROLE_WAREHOUSE_MANAGER".equals(role)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
