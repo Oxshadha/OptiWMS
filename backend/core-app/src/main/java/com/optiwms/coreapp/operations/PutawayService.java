@@ -72,10 +72,12 @@ public class PutawayService {
                     .orElseThrow(() -> new RuntimeException("Order item not found for putaway task"));
             orderIdForStatusUpdate = orderItem.getOrderId();
             var order = orderService.findById(orderIdForStatusUpdate);
-            if (!"quality_approved".equals(order.getStatus()) && !"putaway_in_progress".equals(order.getStatus())) {
+            if (!"quality_approved".equals(order.getStatus())
+                    && !"putaway_in_progress".equals(order.getStatus())
+                    && !"put_away".equals(order.getStatus())) {
                 throw new RuntimeException(
                         "Order status is '" + order.getStatus()
-                                + "'. Putaway allowed only for 'quality_approved' or 'putaway_in_progress'. "
+                                + "'. Putaway allowed only for 'quality_approved', 'putaway_in_progress', or 'put_away'. "
                                 + "Ensure all quality checks for this GRN are approved."
                 );
             }
@@ -246,49 +248,61 @@ public class PutawayService {
             return;
         }
 
-        // Get warehouse ID from order
-        UUID warehouseId = null;
-        try {
-            com.optiwms.domain.orders.Order order = orderService.findById(orderId);
-            warehouseId = order.getWarehouseId();
-        } catch (Exception e) {
-            // If we can't get order, try to get warehouse from inventory
-            if (!orderItems.isEmpty()) {
-                List<InventoryItem> inventory = inventoryService.findByMaterial(orderItems.get(0).getMaterialId());
-                if (!inventory.isEmpty()) {
-                    warehouseId = inventory.get(0).getWarehouseId();
+        // Primary rule: if item-level putaway tasks exist, use task completion as source of truth.
+        boolean hasItemLevelTasks = orderItems.stream().anyMatch(item ->
+                !taskService.findByTaskTypeAndReference("putaway", "order_item", item.getId()).isEmpty()
+        );
+
+        boolean allPutAway;
+        if (hasItemLevelTasks) {
+            allPutAway = orderItems.stream().allMatch(item -> {
+                Integer receivedQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : 0;
+                if (receivedQty <= 0) {
+                    return true; // Not received yet, skip
+                }
+                List<Task> tasks = taskService.findByTaskTypeAndReference("putaway", "order_item", item.getId());
+                return !tasks.isEmpty() && tasks.stream().allMatch(t -> "completed".equals(t.getStatus()));
+            });
+        } else {
+            // Backward compatibility: legacy data without item-level tasks.
+            UUID warehouseId = null;
+            try {
+                com.optiwms.domain.orders.Order order = orderService.findById(orderId);
+                warehouseId = order.getWarehouseId();
+            } catch (Exception e) {
+                if (!orderItems.isEmpty()) {
+                    List<InventoryItem> inventory = inventoryService.findByMaterial(orderItems.get(0).getMaterialId());
+                    if (!inventory.isEmpty()) {
+                        warehouseId = inventory.get(0).getWarehouseId();
+                    }
                 }
             }
-        }
-
-        if (warehouseId == null) {
-            return; // Can't determine warehouse
-        }
-
-        final UUID finalWarehouseId = warehouseId; // Make final for lambda
-
-        // Check if all received items have been put away (have location_code in inventory)
-        boolean allPutAway = orderItems.stream().allMatch(item -> {
-            Integer receivedQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : 0;
-            if (receivedQty <= 0) {
-                return true; // Not received yet, skip
+            if (warehouseId == null) {
+                return;
             }
 
-            // Check if inventory has location_code for this material
-            List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(
-                    item.getMaterialId(),
-                    finalWarehouseId
-            );
+            final UUID finalWarehouseId = warehouseId;
+            allPutAway = orderItems.stream().allMatch(item -> {
+                Integer receivedQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : 0;
+                if (receivedQty <= 0) {
+                    return true;
+                }
 
-            // Check if at least received quantity has location_code
-            int totalWithLocation = inventoryItems.stream()
-                    .filter(inv -> inv.getLocationCode() != null && !inv.getLocationCode().isEmpty())
-                    .mapToInt(inv -> inv.getQuantity() != null ? inv.getQuantity() : 0)
-                    .sum();
+                List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(
+                        item.getMaterialId(),
+                        finalWarehouseId
+                );
 
-            return totalWithLocation >= receivedQty;
-        });
+                int totalWithLocation = inventoryItems.stream()
+                        .filter(inv -> inv.getLocationCode() != null && !inv.getLocationCode().isEmpty())
+                        .mapToInt(inv -> inv.getQuantity() != null ? inv.getQuantity() : 0)
+                        .sum();
 
+                return totalWithLocation >= receivedQty;
+            });
+        }
+
+        // Check if all received items have been put away
         if (allPutAway) {
             // Update order status to "put_away" or "ready_for_picking"
             orderStatusService.updateStatusAfterPutaway(orderId);
