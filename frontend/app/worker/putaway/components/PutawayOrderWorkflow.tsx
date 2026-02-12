@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { LocationPicker } from "@/components/LocationPicker";
 import { PutawayItem } from "@/lib/api/orderItems";
 import { ItemDetailsDisplay } from "./ItemDetailsDisplay";
@@ -23,9 +24,12 @@ export function PutawayOrderWorkflow({
   onUseSuggestedLocation,
   onConfirmPutaway,
   onLocationSelect,
+  onSelectItem,
+  onSkipItem,
   allocationQuantity,
   remainingQuantity,
   onAllocationQuantityChange,
+  skippedReasonsByItem,
 }: {
   selectedOrder: SelectedOrder;
   putawayItems: PutawayItem[];
@@ -43,13 +47,19 @@ export function PutawayOrderWorkflow({
   onUseSuggestedLocation: (location: string) => Promise<void>;
   onConfirmPutaway: () => Promise<void>;
   onLocationSelect: (locationCode: string) => Promise<void>;
+  onSelectItem: (index: number) => void;
+  onSkipItem: (reason: string) => Promise<void>;
   allocationQuantity: number;
   remainingQuantity: number;
   onAllocationQuantityChange: (quantity: number) => void;
+  skippedReasonsByItem: Map<string, string>;
 }) {
+  const [showSkipInput, setShowSkipInput] = useState(false);
+  const [skipReason, setSkipReason] = useState("");
   const currentItem = putawayItems[currentItemIndex];
   const completedCount = Array.from(putawayProgress.values()).filter((done) => done).length;
   const isItemDone = currentItem ? putawayProgress.get(currentItem.itemId) || false : false;
+  const isItemSkipped = currentItem ? skippedReasonsByItem.has(currentItem.itemId) : false;
 
   if (!currentItem) {
     return null;
@@ -162,6 +172,57 @@ export function PutawayOrderWorkflow({
             <span className="material-symbols-outlined">check</span>
             Confirm Putaway
           </button>
+
+          <div className="mt-3">
+            {!showSkipInput ? (
+              <button
+                className="btn btn-outline w-full"
+                onClick={() => setShowSkipInput(true)}
+              >
+                <span className="material-symbols-outlined">skip_next</span>
+                Skip Item With Reason
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  className="textarea textarea-bordered w-full"
+                  rows={2}
+                  placeholder="Reason for skipping this item (e.g., location blocked, damage, missing label)"
+                  value={skipReason}
+                  onChange={(e) => setSkipReason(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <button
+                    className="btn btn-warning flex-1"
+                    onClick={() => void onSkipItem(skipReason).then(() => {
+                      setSkipReason("");
+                      setShowSkipInput(false);
+                    })}
+                    disabled={!skipReason.trim()}
+                  >
+                    Confirm Skip
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      setShowSkipInput(false);
+                      setSkipReason("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {isItemSkipped && (
+            <div className="alert alert-warning mt-3">
+              <span>
+                Skipped previously: {skippedReasonsByItem.get(currentItem.itemId)}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -170,12 +231,23 @@ export function PutawayOrderWorkflow({
         <div className="space-y-2">
           {putawayItems.map((item, idx) => {
             const isDone = putawayProgress.get(item.itemId) || false;
+            const skipReason = skippedReasonsByItem.get(item.itemId);
+            const isSkipped = !!skipReason && !isDone;
             const isCurrent = idx === currentItemIndex && !isDone;
             return (
-              <div
+              <button
                 key={item.itemId}
+                type="button"
+                onClick={() => !isDone && onSelectItem(idx)}
+                disabled={isDone}
                 className={`p-3 rounded-lg border ${
-                  isDone ? "bg-success/10 border-success" : isCurrent ? "bg-primary/10 border-primary" : "bg-base-200"
+                  isDone
+                    ? "bg-success/10 border-success opacity-60 cursor-not-allowed pointer-events-none"
+                    : isSkipped
+                    ? "bg-warning/10 border-warning"
+                    : isCurrent
+                    ? "bg-primary/10 border-primary"
+                    : "bg-base-200 hover:border-primary/40"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -184,14 +256,24 @@ export function PutawayOrderWorkflow({
                     <div className="text-xs text-base-content/60">Quantity: {item.receivedQuantity}</div>
                   </div>
                   {isDone ? (
-                    <span className="badge badge-success">Done</span>
+                    <div className="flex items-center gap-2">
+                      <span className="badge badge-success">Done</span>
+                      <span className="badge badge-outline">Completed earlier</span>
+                    </div>
+                  ) : isSkipped ? (
+                    <span className="badge badge-warning">Skipped</span>
                   ) : isCurrent ? (
                     <span className="badge badge-primary">Current</span>
                   ) : (
                     <span className="badge badge-ghost">Pending</span>
                   )}
                 </div>
-              </div>
+                {isSkipped && (
+                  <div className="text-xs text-warning-content/80 mt-1 text-left">
+                    Reason: {skipReason}
+                  </div>
+                )}
+              </button>
             );
           })}
         </div>
