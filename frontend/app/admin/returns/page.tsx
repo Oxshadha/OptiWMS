@@ -370,6 +370,40 @@ export default function ReturnsPage() {
             </button>
           </li>
         )}
+        {canApprove && returnItem.status === "inspecting" && (
+          <li>
+            <button
+              onClick={async () => {
+                const rejectionReason = prompt(
+                  `Reject return ${returnItem.returnNumber}.\nEnter rejection reason:`
+                );
+                if (!rejectionReason || !rejectionReason.trim()) {
+                  return;
+                }
+                const markFalseClaim = confirm(
+                  "Mark this as false customer return request?"
+                );
+                try {
+                  await returnsApi.reject(returnItem.id, {
+                    rejectionReason: rejectionReason.trim(),
+                    resolution: markFalseClaim ? "false_return_request" : "reject",
+                    reviewedBy: admin?.id,
+                  });
+                  showToast.success(`Return ${returnItem.returnNumber} rejected`);
+                  await loadData();
+                } catch (err) {
+                  logger.error("Failed to reject return:", err);
+                  showToast.error(err instanceof Error ? err.message : "Failed to reject return");
+                }
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">
+                cancel
+              </span>
+              Reject Return
+            </button>
+          </li>
+        )}
         {returnItem.status === "pending" && (
           <li>
             <button onClick={() => handleAssignWorker(returnItem)}>

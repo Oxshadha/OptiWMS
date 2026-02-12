@@ -108,18 +108,23 @@ public class ReturnController {
     @PutMapping("/{id}/status")
     public ResponseEntity<ReturnDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @RequestBody UpdateStatusRequest request,
+            Authentication authentication
     ) {
-        ReturnRecord updated = service.updateStatus(id, request.status());
+        UUID actor = resolveActorUserId(authentication);
+        ReturnRecord updated = service.updateStatus(id, request.status(), actor, request.notes());
         return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/approve")
     public ResponseEntity<ReturnDto> approve(
             @PathVariable UUID id,
-            @RequestBody ApproveReturnRequest request
+            @RequestBody ApproveReturnRequest request,
+            Authentication authentication
     ) {
-        UUID approvedBy = request.approvedBy() != null ? UUID.fromString(request.approvedBy()) : null;
+        UUID approvedBy = request.approvedBy() != null
+                ? UUID.fromString(request.approvedBy())
+                : resolveActorUserId(authentication);
         ReturnRecord updated = service.approve(id, approvedBy);
         return ResponseEntity.ok(toDto(updated));
     }
@@ -127,10 +132,26 @@ public class ReturnController {
     @PutMapping("/{id}/inspection")
     public ResponseEntity<ReturnDto> submitInspection(
             @PathVariable UUID id,
-            @RequestBody ReturnInspectionRequest request
+            @RequestBody ReturnInspectionRequest request,
+            Authentication authentication
     ) {
-        UUID inspectedBy = request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null;
+        UUID inspectedBy = request.inspectedBy() != null
+                ? UUID.fromString(request.inspectedBy())
+                : resolveActorUserId(authentication);
         ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/reject")
+    public ResponseEntity<ReturnDto> reject(
+            @PathVariable UUID id,
+            @RequestBody RejectReturnRequest request,
+            Authentication authentication
+    ) {
+        UUID reviewedBy = request.reviewedBy() != null
+                ? UUID.fromString(request.reviewedBy())
+                : resolveActorUserId(authentication);
+        ReturnRecord updated = service.reject(id, request.rejectionReason(), request.resolution(), reviewedBy);
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -161,7 +182,16 @@ public class ReturnController {
                 returnRecord.getStatus(),
                 returnRecord.getResolution(),
                 returnRecord.getReceivedBy() != null ? returnRecord.getReceivedBy().toString() : null,
-                returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy().toString() : null
+                returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy().toString() : null,
+                returnRecord.getReturnFlow(),
+                returnRecord.getQcOutcome(),
+                returnRecord.getSupplierResponseStatus(),
+                returnRecord.getSupplierResponseNotes(),
+                returnRecord.getFalseReturnRequest(),
+                returnRecord.getCustomerCareFlag(),
+                returnRecord.getFollowupOrderId() != null ? returnRecord.getFollowupOrderId().toString() : null,
+                returnRecord.getClosedAt() != null ? returnRecord.getClosedAt().toString() : null,
+                returnRecord.getLastStatusChangedAt() != null ? returnRecord.getLastStatusChangedAt().toString() : null
         );
     }
 
@@ -186,7 +216,7 @@ public class ReturnController {
             String inspectedBy
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(String status, String notes) {}
 
     public record ApproveReturnRequest(String approvedBy) {}
 
@@ -194,6 +224,12 @@ public class ReturnController {
             String overallResolution,
             String notes,
             String inspectedBy
+    ) {}
+
+    public record RejectReturnRequest(
+            String rejectionReason,
+            String resolution,
+            String reviewedBy
     ) {}
 
     public record AssignReturnWorkerRequest(String workerId) {}
@@ -215,7 +251,16 @@ public class ReturnController {
             String status,
             String resolution,
             String receivedBy,
-            String inspectedBy
+            String inspectedBy,
+            String returnFlow,
+            String qcOutcome,
+            String supplierResponseStatus,
+            String supplierResponseNotes,
+            Boolean falseReturnRequest,
+            Boolean customerCareFlag,
+            String followupOrderId,
+            String closedAt,
+            String lastStatusChangedAt
     ) {}
 
     private UUID resolveActorUserId(Authentication authentication) {
