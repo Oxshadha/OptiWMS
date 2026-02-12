@@ -21,6 +21,8 @@ public class Shipment extends BaseEntity {
     private LocalDate eta;
     private LocalDateTime shippedAt;
     private LocalDateTime deliveredAt;
+    private UUID deliveryConfirmedBy;
+    private LocalDateTime deliveryConfirmedAt;
 
     // Getters and Setters
     public String getShipmentNumber() { return shipmentNumber; }
@@ -49,5 +51,8 @@ public class Shipment extends BaseEntity {
     public void setShippedAt(LocalDateTime shippedAt) { this.shippedAt = shippedAt; }
     public LocalDateTime getDeliveredAt() { return deliveredAt; }
     public void setDeliveredAt(LocalDateTime deliveredAt) { this.deliveredAt = deliveredAt; }
+    public UUID getDeliveryConfirmedBy() { return deliveryConfirmedBy; }
+    public void setDeliveryConfirmedBy(UUID deliveryConfirmedBy) { this.deliveryConfirmedBy = deliveryConfirmedBy; }
+    public LocalDateTime getDeliveryConfirmedAt() { return deliveryConfirmedAt; }
+    public void setDeliveryConfirmedAt(LocalDateTime deliveryConfirmedAt) { this.deliveryConfirmedAt = deliveryConfirmedAt; }
 }
-

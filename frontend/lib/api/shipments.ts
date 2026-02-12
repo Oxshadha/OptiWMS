@@ -15,6 +15,8 @@ export interface Shipment {
   eta?: string;
   shippedAt?: string;
   deliveredAt?: string;
+  deliveryConfirmedBy?: string;
+  deliveryConfirmedAt?: string;
 }
 
 export const shipmentsApi = {

@@ -124,6 +124,8 @@ public class ShipmentService {
                 throw new RuntimeException("Shipment must be marked as shipped before delivery confirmation");
             }
             entity.setDeliveredAt(LocalDateTime.now());
+            entity.setDeliveryConfirmedBy(workerId);
+            entity.setDeliveryConfirmedAt(LocalDateTime.now());
             
             // Update order status to "delivered" when shipment is delivered
             if (entity.getOrderId() != null) {
@@ -190,6 +192,8 @@ public class ShipmentService {
             s.setEta(entity.getEta());
             s.setShippedAt(entity.getShippedAt());
             s.setDeliveredAt(entity.getDeliveredAt());
+            s.setDeliveryConfirmedBy(entity.getDeliveryConfirmedBy());
+            s.setDeliveryConfirmedAt(entity.getDeliveryConfirmedAt());
             s.setCreatedAt(entity.getCreatedAt());
             return s;
         } catch (Exception e) {
