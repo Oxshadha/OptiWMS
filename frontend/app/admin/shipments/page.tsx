@@ -36,11 +36,13 @@ export default function ShipmentsPage() {
           // Map status from API format to display format
           let displayStatus = s.status || "Label Created";
           if (displayStatus === "in_transit") displayStatus = "In Transit";
+          else if (displayStatus === "shipped") displayStatus = "In Transit";
           else if (displayStatus === "label_created") displayStatus = "Label Created";
           else if (displayStatus === "ready_to_ship") displayStatus = "Ready to Ship";
           else if (displayStatus === "delivered") displayStatus = "Delivered";
           
           return {
+            shipmentId: s.id,
             id: s.shipmentNumber || s.id,
             carrier: s.carrier || "N/A",
             status: displayStatus,
@@ -140,6 +142,23 @@ export default function ShipmentsPage() {
   const handleTrackShipment = (tracking: string) => {
     // Open tracking in new window (would link to carrier tracking page)
     window.open(`https://tracking.example.com/${tracking}`, '_blank');
+  };
+
+  const handleConfirmDelivery = async (shipment: ShipmentDisplay) => {
+    try {
+      await shipmentsApi.confirmDelivery(shipment.shipmentId);
+      showToast.success(`Delivery confirmed for ${shipment.id}`);
+      setShipments((current) =>
+        current.map((s) =>
+          s.shipmentId === shipment.shipmentId
+            ? { ...s, status: "Delivered", shipmentDate: new Date().toISOString().split("T")[0] }
+            : s
+        )
+      );
+    } catch (error) {
+      logger.error("Failed to confirm delivery:", error);
+      showToast.error(error instanceof Error ? error.message : "Failed to confirm delivery");
+    }
   };
 
   return (
@@ -371,6 +390,14 @@ export default function ShipmentsPage() {
                   </td>
                   <td>
                     <div className="flex gap-2">
+                      <button
+                        className="btn btn-ghost btn-xs"
+                        title="Confirm Delivery"
+                        disabled={!(s.status === "In Transit")}
+                        onClick={() => handleConfirmDelivery(s)}
+                      >
+                        <span className="material-symbols-outlined text-sm">task_alt</span>
+                      </button>
                       <button 
                         className="btn btn-ghost btn-xs" 
                         title="Track"
@@ -413,4 +440,3 @@ export default function ShipmentsPage() {
     </div>
   );
 }
-

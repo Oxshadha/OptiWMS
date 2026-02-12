@@ -1,4 +1,5 @@
 export interface ShipmentDisplay {
+  shipmentId: string;
   id: string;
   carrier: string;
   status: string;
