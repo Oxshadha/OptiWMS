@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { getTask } from "@/lib/indexeddb";
+import { logger } from "@/lib/utils/logger";
 
 // Fallback task data if not found in IndexedDB
 const defaultTaskDetails: Record<string, any> = {
@@ -81,7 +82,7 @@ export default function TaskDetailPage() {
           setTask(defaultTaskDetails[taskId] || null);
         }
       } catch (error) {
-        console.error("Error loading task:", error);
+        logger.error("Error loading task:", error);
         // Fallback to default tasks
         setTask(defaultTaskDetails[taskId] || null);
       } finally {
@@ -117,12 +118,12 @@ export default function TaskDetailPage() {
 
   const handleStart = () => {
     // Handle task start
-    console.log("Task started:", task.id);
+    logger.debug("Task started:", task.id);
   };
 
   const handleComplete = () => {
     // Handle task completion
-    console.log("Task completed:", task.id);
+    logger.debug("Task completed:", task.id);
     router.push("/worker/tasks");
   };
 

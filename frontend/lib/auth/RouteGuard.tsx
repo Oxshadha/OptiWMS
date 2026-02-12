@@ -3,6 +3,7 @@
 import { useEffect, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "./AuthContext";
+import { logger } from "@/lib/utils/logger";
 
 interface RouteGuardProps {
   children: ReactNode;
@@ -40,27 +41,27 @@ export function RouteGuard({
         loginPath = '/admin/login';
       }
 
-      console.log(`[RouteGuard] Not authenticated, redirecting to ${loginPath}`);
+      logger.debug(`[RouteGuard] Not authenticated, redirecting to ${loginPath}`);
       router.replace(loginPath);
       return;
     }
 
     // Check role requirement
     if (requiredRole === 'admin' && !isAdmin) {
-      console.log('[RouteGuard] Admin role required but user is not admin');
+      logger.debug('[RouteGuard] Admin role required but user is not admin');
       router.replace('/worker/dashboard');
       return;
     }
 
     if (requiredRole === 'worker' && !isWorker) {
-      console.log('[RouteGuard] Worker role required but user is not worker');
+      logger.debug('[RouteGuard] Worker role required but user is not worker');
       router.replace('/admin/dashboard');
       return;
     }
 
     // Check route access
     if (!checkRouteAccess(pathname)) {
-      console.log(`[RouteGuard] User does not have access to ${pathname}`);
+      logger.debug(`[RouteGuard] User does not have access to ${pathname}`);
       
       // Redirect based on user role
       if (isAdmin) {

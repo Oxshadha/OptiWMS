@@ -121,6 +121,7 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setWeightKg(material.getWeightKg());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -172,6 +173,9 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        if (material.getWeightKg() != null) {
+            entity.setWeightKg(material.getWeightKg());
+        }
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -192,7 +196,20 @@ public class MaterialService {
         m.setUnitType(entity.getUnitType());
         m.setStorageType(entity.getStorageType());
         m.setMaterialType(entity.getMaterialType());
+        m.setLengthCm(entity.getLengthCm());
+        m.setWidthCm(entity.getWidthCm());
+        m.setHeightCm(entity.getHeightCm());
+        m.setWeightKg(entity.getWeightKg());
+        m.setVolumeCm3(entity.getVolumeCm3());
+        m.setPalletSpaces(entity.getPalletSpaces());
+        m.setStackable(entity.getStackable());
+        m.setMaxStackHeight(entity.getMaxStackHeight());
+        m.setTemperatureControlled(entity.getTemperatureControlled());
+        m.setHazardous(entity.getHazardous());
+        m.setFragile(entity.getFragile());
+        m.setMaxPalletWeightKg(entity.getMaxPalletWeightKg());
+        m.setMinOrderQuantity(entity.getMinOrderQuantity());
+        m.setSafetyStockLevel(entity.getSafetyStockLevel());
         return m;
     }
 }
-

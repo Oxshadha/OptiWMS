@@ -12,6 +12,15 @@ export interface Return {
   resolution?: string;
   receivedBy?: string;
   inspectedBy?: string;
+  returnFlow?: string;
+  qcOutcome?: string;
+  supplierResponseStatus?: string;
+  supplierResponseNotes?: string;
+  falseReturnRequest?: boolean;
+  customerCareFlag?: boolean;
+  followupOrderId?: string;
+  closedAt?: string;
+  lastStatusChangedAt?: string;
 }
 
 export const returnsApi = {
@@ -36,8 +45,8 @@ export const returnsApi = {
     return apiClient.put<Return>(`/returns/${id}`, returnRecord);
   },
 
-  updateStatus: async (id: string, status: string): Promise<Return> => {
-    return apiClient.put<Return>(`/returns/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, notes?: string): Promise<Return> => {
+    return apiClient.put<Return>(`/returns/${id}/status`, { status, notes });
   },
 
   delete: async (id: string): Promise<void> => {
@@ -59,5 +68,19 @@ export const returnsApi = {
   assignWorker: async (id: string, workerId: string): Promise<Return> => {
     return apiClient.put<Return>(`/returns/${id}/assign`, { workerId });
   },
-};
 
+  reject: async (
+    id: string,
+    payload: { rejectionReason: string; resolution?: string; reviewedBy?: string }
+  ): Promise<Return> => {
+    return apiClient.put<Return>(`/returns/${id}/reject`, payload);
+  },
+
+  intakeOutbound: async (data: {
+    orderNumber: string;
+    reason?: string;
+    workerId?: string;
+  }): Promise<Return> => {
+    return apiClient.post<Return>('/returns/intake/outbound', data);
+  },
+};

@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { logger } from '@/lib/utils/logger';
+import { logger } from "@/lib/utils/logger";
 
 export interface LoginRequest {
   username: string;

@@ -1,79 +1,25 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
-import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
-import { DetailModal } from "@/components/DetailModal";
-import React from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
+import type { SupplierDisplay } from "./types";
+import {
+  CreateSupplierModal,
+  DeleteSupplierModal,
+  EditSupplierModal,
+  SupplierDetailModal,
+} from "./components/SupplierModals";
 
-// Display format for suppliers
-interface SupplierDisplay {
-  id: string;
-  supplierCode: string;
-  name: string;
-  country: string;
-  type: "local" | "foreign";
-  contactPerson: string;
-  email: string;
-  phone: string;
-  productsSupplied: number;
-  leadTimeDays: number;
-  rating: number;
-  status: string;
-}
-
-const mockSuppliers: SupplierDisplay[] = [
-  {
-    id: "supplier-1",
-    supplierCode: "SUP-001",
-    name: "Tech Supplies Inc",
-    country: "United States",
-    type: "local" as const,
-    contactPerson: "John Smith",
-    email: "john@techsupplies.com",
-    phone: "+1-555-0101",
-    productsSupplied: 45,
-    leadTimeDays: 7,
-    rating: 4.5,
-    status: "active",
-  },
-  {
-    id: "supplier-2",
-    supplierCode: "SUP-002",
-    name: "Global Electronics",
-    country: "China",
-    type: "foreign" as const,
-    contactPerson: "Li Wei",
-    email: "li@globalelec.com",
-    phone: "+86-555-0102",
-    productsSupplied: 32,
-    leadTimeDays: 14,
-    rating: 4.2,
-    status: "active",
-  },
-  {
-    id: "supplier-3",
-    supplierCode: "SUP-003",
-    name: "Quality Goods Co",
-    country: "United Kingdom",
-    type: "foreign" as const,
-    contactPerson: "Emma Johnson",
-    email: "emma@qualitygoods.co.uk",
-    phone: "+44-555-0103",
-    productsSupplied: 28,
-    leadTimeDays: 10,
-    rating: 4.8,
-    status: "active",
-  },
-];
 
 export default function SuppliersPage() {
+  const router = useRouter();
   const { hasPermission } = useAdmin();
   const canDelete = hasPermission(ADMIN_ROUTES.SUPPLIERS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -126,7 +72,7 @@ export default function SuppliersPage() {
       
       setSuppliers(displaySuppliers);
     } catch (err) {
-      console.error("Failed to load suppliers:", err);
+      logger.error("Failed to load suppliers:", err);
       setError(err instanceof Error ? err.message : "Failed to load suppliers");
       setSuppliers([]);
       showToast.error("Failed to load suppliers. Please try again.");
@@ -137,17 +83,6 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  // Listen for reload events from modals
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadSuppliers', handleReload);
-    return () => {
-      window.removeEventListener('reloadSuppliers', handleReload);
-    };
   }, []);
 
   const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
@@ -338,8 +273,7 @@ export default function SuppliersPage() {
         <li>
           <button
             onClick={() => {
-              // Navigate to products page filtered by supplier
-              window.location.href = `/admin/products?supplier=${supplier.id}`;
+              router.push(`/admin/products?supplier=${supplier.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">inventory</span>
@@ -349,8 +283,7 @@ export default function SuppliersPage() {
         <li>
           <button
             onClick={() => {
-              // Navigate to inbound orders page filtered by supplier
-              window.location.href = `/admin/orders/inbound?supplier=${supplier.id}`;
+              router.push(`/admin/orders/inbound?supplier=${supplier.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">
@@ -363,8 +296,7 @@ export default function SuppliersPage() {
           <li>
             <button
               onClick={() => {
-                // TODO: Handle PO approval
-                console.log("Approving PO for supplier:", supplier.id);
+                showToast.warning("Purchase order approval workflow coming soon");
               }}
             >
               <span className="material-symbols-outlined text-sm">
@@ -406,7 +338,7 @@ export default function SuppliersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => window.location.reload()}
+            onClick={() => loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -504,26 +436,46 @@ export default function SuppliersPage() {
       )}
 
       {/* Suppliers Table */}
-      <DataTable
-        data={filteredSuppliers}
-        columns={columns}
-        keyExtractor={(supplier) => supplier.id}
-        onRowClick={(supplier) => {
-          setSelectedSupplier(supplier);
-          setShowDetailModal(true);
-        }}
-        actions={renderActions}
-        emptyMessage={
-          searchQuery
-            ? `No suppliers found matching "${searchQuery}"`
-            : "No suppliers found"
-        }
-      />
+      {error && (
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>{error}</span>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+            Retry
+          </button>
+        </div>
+      )}
+      {isLoading && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-center gap-3 text-base-content/70">
+            <span className="loading loading-spinner loading-md" />
+            <span>Loading suppliers...</span>
+          </div>
+        </div>
+      )}
+      {!isLoading && (
+        <DataTable
+          data={filteredSuppliers}
+          columns={columns}
+          keyExtractor={(supplier) => supplier.id}
+          onRowClick={(supplier) => {
+            setSelectedSupplier(supplier);
+            setShowDetailModal(true);
+          }}
+          actions={renderActions}
+          emptyMessage={
+            searchQuery
+              ? `No suppliers found matching "${searchQuery}"`
+              : "No suppliers found"
+          }
+        />
+      )}
 
       {/* Create Supplier Modal */}
       <CreateSupplierModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSuccess={loadData}
       />
 
       {/* Supplier Detail Modal */}
@@ -533,6 +485,11 @@ export default function SuppliersPage() {
           onClose={() => {
             setShowDetailModal(false);
             setSelectedSupplier(null);
+          }}
+          onEdit={(supplier) => {
+            setShowDetailModal(false);
+            setSelectedSupplier(supplier);
+            setShowEditModal(true);
           }}
           supplier={selectedSupplier}
         />
@@ -546,6 +503,7 @@ export default function SuppliersPage() {
             setShowEditModal(false);
             setSelectedSupplier(null);
           }}
+          onUpdated={loadData}
           supplier={selectedSupplier}
         />
       )}
@@ -568,7 +526,7 @@ export default function SuppliersPage() {
               setSelectedSupplier(null);
               await loadData();
             } catch (err) {
-              console.error("Failed to delete supplier:", err);
+              logger.error("Failed to delete supplier:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete supplier");
             }
           }}
@@ -576,724 +534,6 @@ export default function SuppliersPage() {
         />
       )}
 
-      {/* Listen for edit event from detail modal */}
-      {typeof window !== "undefined" && (
-        <EditSupplierListener
-          onEdit={(supplier) => {
-            setShowDetailModal(false);
-            setSelectedSupplier(supplier);
-            setShowEditModal(true);
-          }}
-        />
-      )}
     </div>
-  );
-}
-
-// Edit Supplier Event Listener Component
-function EditSupplierListener({
-  onEdit,
-}: {
-  onEdit: (supplier: SupplierDisplay) => void;
-}) {
-  React.useEffect(() => {
-    const handleEdit = (event: CustomEvent) => {
-      onEdit(event.detail);
-    };
-    window.addEventListener("editSupplier" as any, handleEdit as EventListener);
-    return () => {
-      window.removeEventListener(
-        "editSupplier" as any,
-        handleEdit as EventListener
-      );
-    };
-  }, [onEdit]);
-  return null;
-}
-
-// Supplier Detail Modal
-function SupplierDetailModal({
-  isOpen,
-  onClose,
-  supplier,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  supplier: SupplierDisplay;
-}) {
-  return (
-    <DetailModal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={`Supplier: ${supplier.name}`}
-      size="lg"
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-base-content/60">
-              Supplier Code
-            </label>
-            <p className="font-semibold">{supplier.supplierCode}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Country</label>
-            <p className="font-semibold">{supplier.country}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Type</label>
-            <p>
-              <span
-                className={`badge ${
-                  supplier.type === "local" ? "badge-success" : "badge-info"
-                }`}
-              >
-                {supplier.type === "local" ? "Local" : "Foreign"}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">
-              Contact Person
-            </label>
-            <p className="font-semibold">{supplier.contactPerson}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Email</label>
-            <p className="font-semibold">{supplier.email}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Phone</label>
-            <p className="font-semibold">{supplier.phone}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">
-              Products Supplied
-            </label>
-            <p className="font-semibold">{supplier.productsSupplied}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Lead Time</label>
-            <p className="font-semibold">{supplier.leadTimeDays} days</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Rating</label>
-            <p className="font-semibold">
-              <span className="text-warning">★</span>{" "}
-              {supplier.rating.toFixed(1)}
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span
-                className={`badge ${
-                  supplier.status === "active" ? "badge-success" : "badge-error"
-                }`}
-              >
-                {supplier.status === "active" ? "Active" : "Inactive"}
-              </span>
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              onClose();
-              // Trigger edit modal - will be handled by parent
-              if (typeof window !== "undefined") {
-                window.dispatchEvent(
-                  new CustomEvent("editSupplier", { detail: supplier })
-                );
-              }
-            }}
-          >
-            Edit Supplier
-          </button>
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-// Edit Supplier Modal
-function EditSupplierModal({
-  isOpen,
-  onClose,
-  supplier,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  supplier: SupplierDisplay;
-}) {
-  const [formData, setFormData] = useState({
-    supplierCode: supplier.supplierCode,
-    name: supplier.name,
-    contactPerson: supplier.contactPerson,
-    email: supplier.email,
-    phone: supplier.phone,
-    country: supplier.country,
-    type: supplier.type,
-    leadTimeDays: supplier.leadTimeDays.toString(),
-    rating: supplier.rating.toString(),
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      const updateData: Partial<Supplier> = {
-        code: formData.supplierCode,
-        name: formData.name,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        country: formData.country,
-        leadTimeDays: formData.leadTimeDays ? parseInt(formData.leadTimeDays) : undefined,
-        rating: formData.rating || undefined,
-      };
-
-      await suppliersApi.update(supplier.id, updateData);
-      showToast.success("Supplier updated successfully");
-      onClose();
-      // Trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
-      }
-    } catch (err) {
-      console.error("Failed to update supplier:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to update supplier");
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Supplier" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Supplier Code *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.supplierCode}
-              onChange={(e) =>
-                setFormData({ ...formData, supplierCode: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Supplier Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Contact Person</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.contactPerson}
-              onChange={(e) =>
-                setFormData({ ...formData, contactPerson: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Email</span>
-            </label>
-            <input
-              type="email"
-              className="input input-bordered w-full"
-              value={formData.email}
-              onChange={(e) =>
-                setFormData({ ...formData, email: e.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className="input input-bordered w-full"
-            value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Country *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.country}
-            onChange={(e) =>
-              setFormData({ ...formData, country: e.target.value })
-            }
-            required
-          >
-            <option value="United States">United States</option>
-            <option value="United Kingdom">United Kingdom</option>
-            <option value="China">China</option>
-            <option value="Canada">Canada</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Supplier Type *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.type}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                type: e.target.value as "local" | "foreign",
-              })
-            }
-            required
-          >
-            <option value="">Select type...</option>
-            <option value="local">Local</option>
-            <option value="foreign">Foreign</option>
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">
-                Average Lead Time (days)
-              </span>
-            </label>
-            <input
-              type="number"
-              className="input input-bordered w-full"
-              value={formData.leadTimeDays}
-              onChange={(e) =>
-                setFormData({ ...formData, leadTimeDays: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Rating (0-5)</span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="5"
-              className="input input-bordered w-full"
-              value={formData.rating}
-              onChange={(e) =>
-                setFormData({ ...formData, rating: e.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Update Supplier
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Create Supplier Modal
-function CreateSupplierModal({
-  isOpen,
-  onClose,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-}) {
-  const [formData, setFormData] = useState({
-    supplierCode: "",
-    name: "",
-    contactPerson: "",
-    email: "",
-    phone: "",
-    address: "",
-    city: "",
-    state: "",
-    country: "",
-    type: "" as "local" | "foreign" | "",
-    postalCode: "",
-    paymentTerms: "",
-    leadTimeDays: "",
-    rating: "",
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      const createData: Omit<Supplier, 'id'> = {
-        code: formData.supplierCode,
-        name: formData.name,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        address: formData.address || undefined,
-        country: formData.country,
-        leadTimeDays: formData.leadTimeDays ? parseInt(formData.leadTimeDays) : undefined,
-        rating: formData.rating || undefined,
-        status: "active",
-      };
-
-      await suppliersApi.create(createData);
-      showToast.success("Supplier created successfully");
-      onClose();
-      // Reset form
-      setFormData({
-        supplierCode: "",
-        name: "",
-        contactPerson: "",
-        email: "",
-        phone: "",
-        address: "",
-        city: "",
-        state: "",
-        country: "",
-        type: "" as "local" | "foreign" | "",
-        postalCode: "",
-        paymentTerms: "",
-        leadTimeDays: "",
-        rating: "",
-      });
-      // Trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadSuppliers'));
-      }
-    } catch (err) {
-      console.error("Failed to create supplier:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to create supplier");
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Supplier" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Supplier Code *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.supplierCode}
-              onChange={(e) =>
-                setFormData({ ...formData, supplierCode: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Supplier Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.name}
-              onChange={(e) =>
-                setFormData({ ...formData, name: e.target.value })
-              }
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Contact Person</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.contactPerson}
-              onChange={(e) =>
-                setFormData({ ...formData, contactPerson: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Email</span>
-            </label>
-            <input
-              type="email"
-              className="input input-bordered w-full"
-              value={formData.email}
-              onChange={(e) =>
-                setFormData({ ...formData, email: e.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className="input input-bordered w-full"
-            value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Address</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered w-full"
-            rows={2}
-            value={formData.address}
-            onChange={(e) =>
-              setFormData({ ...formData, address: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">City</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.city}
-              onChange={(e) =>
-                setFormData({ ...formData, city: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">State/Province</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.state}
-              onChange={(e) =>
-                setFormData({ ...formData, state: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Country *</span>
-            </label>
-            <select
-              className="select select-bordered w-full"
-              value={formData.country}
-              onChange={(e) =>
-                setFormData({ ...formData, country: e.target.value })
-              }
-              required
-            >
-              <option value="">Select country</option>
-              <option value="United States">United States</option>
-              <option value="United Kingdom">United Kingdom</option>
-              <option value="China">China</option>
-              <option value="Canada">Canada</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Supplier Type *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.type}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                type: e.target.value as "local" | "foreign",
-              })
-            }
-            required
-          >
-            <option value="">Select type...</option>
-            <option value="local">Local</option>
-            <option value="foreign">Foreign</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Postal Code</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered w-full"
-            value={formData.postalCode}
-            onChange={(e) =>
-              setFormData({ ...formData, postalCode: e.target.value })
-            }
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Payment Terms</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered w-full"
-            rows={2}
-            value={formData.paymentTerms}
-            onChange={(e) =>
-              setFormData({ ...formData, paymentTerms: e.target.value })
-            }
-            placeholder="e.g., Net 30, COD, etc."
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">
-                Average Lead Time (days)
-              </span>
-            </label>
-            <input
-              type="number"
-              className="input input-bordered w-full"
-              value={formData.leadTimeDays}
-              onChange={(e) =>
-                setFormData({ ...formData, leadTimeDays: e.target.value })
-              }
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Rating (0-5)</span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="5"
-              className="input input-bordered w-full"
-              value={formData.rating}
-              onChange={(e) =>
-                setFormData({ ...formData, rating: e.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Create Supplier
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Delete Supplier Modal
-function DeleteSupplierModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  supplier,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  supplier: SupplierDisplay;
-}) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Delete Supplier" size="md">
-      <div className="space-y-4">
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">warning</span>
-          <div>
-            <h3 className="font-bold">
-              Warning: This action cannot be undone!
-            </h3>
-            <div className="text-sm">
-              You are about to delete <strong>{supplier.name}</strong> (Supplier
-              Code: {supplier.supplierCode}). This will permanently remove the
-              supplier from the system and all associated data.
-            </div>
-          </div>
-        </div>
-        <div className="bg-base-200 rounded-lg p-4">
-          <p className="text-sm text-base-content/70">
-            <strong>Supplier Name:</strong> {supplier.name}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Supplier Code:</strong> {supplier.supplierCode}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Country:</strong> {supplier.country}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Products Supplied:</strong> {supplier.productsSupplied}
-          </p>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-error" onClick={onConfirm}>
-            <span className="material-symbols-outlined">delete</span>
-            Delete Supplier
-          </button>
-        </div>
-      </div>
-    </Modal>
   );
 }

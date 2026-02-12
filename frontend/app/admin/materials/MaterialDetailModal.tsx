@@ -5,6 +5,7 @@ import { Modal } from "@/components/Modal";
 import { Material } from "@/lib/api/materials";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { logger } from "@/lib/utils/logger";
 
 interface MaterialDetailModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export function MaterialDetailModal({
   onDelete,
   onAssignLocation,
 }: MaterialDetailModalProps) {
+  const displayName = material.description?.split(",")[0]?.trim() || material.description || "—";
   const [defaultLocations, setDefaultLocations] = useState<Array<{ locationCode: string; priority: number; warehouseName: string }>>([]);
   const [isLoadingLocations, setIsLoadingLocations] = useState(false);
 
@@ -53,7 +55,7 @@ export function MaterialDetailModal({
         );
         setDefaultLocations(locationsByWarehouse.flat());
       } catch (err) {
-        console.error("Failed to load default locations:", err);
+        logger.error("Failed to load default locations:", err);
       } finally {
         setIsLoadingLocations(false);
       }
@@ -86,9 +88,9 @@ export function MaterialDetailModal({
           </div>
           <div className="col-span-2">
             <label className="label">
-              <span className="label-text font-medium">Description</span>
+              <span className="label-text font-medium">Product Name</span>
             </label>
-            <div>{material.description || "—"}</div>
+            <div>{displayName}</div>
           </div>
           <div>
             <label className="label">
@@ -101,6 +103,12 @@ export function MaterialDetailModal({
               <span className="label-text font-medium">Storage Type</span>
             </label>
             <div className="capitalize">{material.storageType || "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+            </label>
+            <div>{material.weightKg != null ? material.weightKg : "—"}</div>
           </div>
           <div className="col-span-2">
             <label className="label">

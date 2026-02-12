@@ -10,12 +10,14 @@ import {
   ROLE_DISPLAY_NAMES,
 } from "@/lib/worker-roles";
 import { useWorker } from "@/contexts/WorkerContext";
+import { logger } from "@/lib/utils/logger";
 
 export default function WorkerLoginPage() {
   const router = useRouter();
   const { setWorker, clearWorker } = useWorker();
   const [employeeId, setEmployeeId] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -41,14 +43,14 @@ export default function WorkerLoginPage() {
 
       // CRITICAL: Clear any existing admin/worker contexts before login
       // This prevents token conflicts when switching between worker and admin
-      console.log("[WorkerLogin] Clearing existing contexts before login");
+      logger.debug("[WorkerLogin] Clearing existing contexts before login");
       try {
         const { initDB, deleteFromStore, STORES } = await import("@/lib/indexeddb");
         await initDB();
         await deleteFromStore(STORES.ADMIN_DATA, "current_admin");
-        console.log("[WorkerLogin] Admin context cleared");
+        logger.debug("[WorkerLogin] Admin context cleared");
       } catch (err) {
-        console.warn("[WorkerLogin] Could not clear admin context (non-critical):", err);
+        logger.warn("[WorkerLogin] Could not clear admin context (non-critical):", err);
       }
       
       // Call authentication API - try employee ID as username first
@@ -91,13 +93,13 @@ export default function WorkerLoginPage() {
       const normalizedRole = workerRole as WorkerRole;
       
       // Log for debugging
-      console.log("[WorkerLogin] User role from API:", userInfo.role);
-      console.log("[WorkerLogin] Normalized role:", normalizedRole);
-      console.log("[WorkerLogin] Is valid role:", isValidRole(normalizedRole));
+      logger.debug("[WorkerLogin] User role from API:", userInfo.role);
+      logger.debug("[WorkerLogin] Normalized role:", normalizedRole);
+      logger.debug("[WorkerLogin] Is valid role:", isValidRole(normalizedRole));
       
       // Validate role is a valid worker role
       if (!isValidRole(normalizedRole)) {
-        console.error("[WorkerLogin] Invalid role:", {
+        logger.error("[WorkerLogin] Invalid role:", {
           original: userInfo.role,
           normalized: normalizedRole,
           validRoles: getAllWorkerRoles()
@@ -121,7 +123,7 @@ export default function WorkerLoginPage() {
           }
         } catch (err) {
           // Log but don't fail - workers may not have permission to access warehouse API
-          console.warn("[WorkerLogin] Could not fetch warehouse name (this is OK for workers):", err);
+          logger.warn("[WorkerLogin] Could not fetch warehouse name (this is OK for workers):", err);
           // Use warehouse ID as fallback
           warehouseName = warehouseId ? `Warehouse ${warehouseId.substring(0, 8)}...` : "Unknown Warehouse";
         }
@@ -211,15 +213,29 @@ export default function WorkerLoginPage() {
               <label className="label">
                 <span className="label-text font-medium">Password</span>
               </label>
-              <input
-                className="input input-bordered w-full"
-                placeholder="Enter your password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-                required
-              />
+              <div className="relative">
+                <input
+                  className="input input-bordered w-full pr-12"
+                  placeholder="Enter your password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  disabled={isLoading}
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  disabled={isLoading}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
             </div>
 
             <button

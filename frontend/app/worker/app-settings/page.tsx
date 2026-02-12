@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 const SETTINGS_KEY = "worker_app_settings";
 
@@ -66,7 +67,7 @@ export default function WorkerAppSettingsPage() {
           }
         }
       } catch (error) {
-        console.error("Failed to load settings:", error);
+        logger.error("Failed to load settings:", error);
       } finally {
         setLoading(false);
       }
@@ -84,7 +85,7 @@ export default function WorkerAppSettingsPage() {
       // Try to sync to backend (if online) - optional
       // For now, settings are stored in localStorage which is sufficient
     } catch (error) {
-      console.error("Failed to save settings:", error);
+      logger.error("Failed to save settings:", error);
       showToast.error("Failed to save settings");
     }
   };

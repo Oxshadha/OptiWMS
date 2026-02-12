@@ -8,6 +8,7 @@ import { QRScanner } from "@/components/QRScanner";
 import { operationsApi, CycleCount } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
 
 interface CycleCountTask {
   id: string;
@@ -64,6 +65,16 @@ export default function CycleCountPage() {
         // Fetch material names for each count
         const tasksWithNames = await Promise.all(
           activeCounts.map(async (count) => {
+            if (!count.materialId) {
+              return {
+                id: count.id,
+                location: count.locationCode,
+                sku: "N/A",
+                item: "Material details not available",
+                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
+                counted: parseInt(count.countedQuantity || "0", 10) || 0,
+              };
+            }
             try {
               const material = await materialsApi.getById(count.materialId);
               const display = formatMaterialDisplay(
@@ -76,26 +87,26 @@ export default function CycleCountPage() {
                 location: count.locationCode,
                 sku: display.sku,
                 item: display.name,
-                expected: parseInt(count.expectedQuantity) || 0,
-                counted: parseInt(count.countedQuantity) || 0,
+                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
+                counted: parseInt(count.countedQuantity || "0", 10) || 0,
               };
             } catch (error) {
-              console.error(`Error fetching material ${count.materialId}:`, error);
+              logger.error(`Error fetching material ${count.materialId}:`, error);
               // Don't show UUID, show user-friendly message
               return {
                 id: count.id,
                 location: count.locationCode,
                 sku: "N/A",
                 item: "Material details not available",
-                expected: parseInt(count.expectedQuantity) || 0,
-                counted: parseInt(count.countedQuantity) || 0,
+                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
+                counted: parseInt(count.countedQuantity || "0", 10) || 0,
               };
             }
           })
         );
         setCycleCountTasks(tasksWithNames);
       } catch (error) {
-        console.error("Error loading cycle count tasks:", error);
+        logger.error("Error loading cycle count tasks:", error);
         setCycleCountTasks([]);
       } finally {
         setLoading(false);
@@ -116,7 +127,7 @@ export default function CycleCountPage() {
       const records = await getScanRecordsByTask("cycle-count");
       setSavedCounts(records);
     } catch (error) {
-      console.error("Error loading saved counts:", error);
+      logger.error("Error loading saved counts:", error);
     }
   };
 
@@ -160,7 +171,7 @@ export default function CycleCountPage() {
         setSaveStatus("idle");
       }, 1500);
     } catch (error) {
-      console.error("Error saving cycle count:", error);
+      logger.error("Error saving cycle count:", error);
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 2000);
     }
@@ -384,4 +395,3 @@ export default function CycleCountPage() {
     </div>
   );
 }
-

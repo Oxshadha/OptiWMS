@@ -13,6 +13,7 @@ import { authApi } from "@/lib/api/auth";
 import { usersApi } from "@/lib/api/users";
 import { AdminRole, isValidAdminRole } from "@/lib/admin-roles";
 import { WorkerRole, isValidWorkerRole } from "@/lib/worker-roles";
+import { logger } from "@/lib/utils/logger";
 
 export type UserRole = AdminRole | WorkerRole | null;
 
@@ -61,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'accessToken') {
-        console.log('[AuthContext] Token changed in another tab');
+        logger.debug('[AuthContext] Token changed in another tab');
         if (e.newValue) {
           loadAuthState();
         } else {
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const handleTokenChange = () => {
-      console.log('[AuthContext] Token change detected (same tab)');
+      logger.debug('[AuthContext] Token change detected (same tab)');
       loadAuthState();
     };
 
@@ -90,7 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       const token = authApi.getAccessToken();
       if (!token) {
-        console.log('[AuthContext] No token found');
+        logger.debug('[AuthContext] No token found');
         setUser(null);
         setIsLoading(false);
         return;
@@ -99,10 +100,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Fetch current user from API
       try {
         const userInfo = await authApi.getCurrentUser();
-        console.log('[AuthContext] Fetched user info:', userInfo);
+        logger.debug('[AuthContext] Fetched user info:', userInfo);
 
-        // Fetch full user details
-        const fullUser = await usersApi.getById(userInfo.userId);
+        // Fetch full user details. Some worker roles may not have /api/users/{id} permission.
+        let fullUser: Awaited<ReturnType<typeof usersApi.getById>> | null = null;
+        try {
+          fullUser = await usersApi.getById(userInfo.userId);
+        } catch (err) {
+          logger.warn('[AuthContext] Falling back to /auth/me user payload (users endpoint unavailable):', err);
+        }
         
         // Determine if user is admin or worker
         // Normalize role (remove ROLE_ prefix if present, like "role_admin" -> "admin")
@@ -114,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const isWorkerRole = WORKER_ROLES.includes(normalizedRole);
 
         if (!isAdminRole && !isWorkerRole) {
-          console.warn('[AuthContext] Unknown role:', userRole);
+          logger.warn('[AuthContext] Unknown role:', userInfo.role);
           setUser(null);
           setIsLoading(false);
           return;
@@ -122,31 +128,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Get warehouse name if applicable
         let warehouseName: string | undefined;
-        if (fullUser.warehouseId) {
+        if (fullUser?.warehouseId) {
           try {
             const { warehousesApi } = await import('@/lib/api/warehouses');
             const warehouse = await warehousesApi.getById(fullUser.warehouseId);
             warehouseName = warehouse.name;
           } catch (err) {
-            console.error('[AuthContext] Error fetching warehouse:', err);
+            logger.error('[AuthContext] Error fetching warehouse:', err);
           }
         }
 
         const authUser: AuthUser = {
-          id: fullUser.id,
-          userId: fullUser.id,
-          username: fullUser.username,
-          email: fullUser.email || userInfo.email,
-          name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
+          id: fullUser?.id || userInfo.userId,
+          userId: fullUser?.id || userInfo.userId,
+          username: fullUser?.username || userInfo.username,
+          email: fullUser?.email || userInfo.email,
+          name: fullUser
+            ? (`${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username)
+            : (userInfo.name || userInfo.username),
           role: (isAdminRole ? normalizedRole as AdminRole : normalizedRole as WorkerRole) || null,
-          warehouseId: fullUser.warehouseId,
+          warehouseId: fullUser?.warehouseId || userInfo.warehouseId,
           warehouseName,
-          avatar: fullUser.avatarUrl,
+          avatar: fullUser?.avatarUrl,
         };
 
         setUser(authUser);
       } catch (error) {
-        console.error('[AuthContext] Error loading auth state:', error);
+        logger.error('[AuthContext] Error loading auth state:', error);
         // Token might be invalid
         if (error instanceof Error && error.message.includes('401')) {
           // Clear invalid token
@@ -155,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
       }
     } catch (error) {
-      console.error('[AuthContext] Error in loadAuthState:', error);
+      logger.error('[AuthContext] Error in loadAuthState:', error);
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -188,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await authApi.logout();
       setUser(null);
     } catch (error) {
-      console.error('[AuthContext] Error during logout:', error);
+      logger.error('[AuthContext] Error during logout:', error);
       // Clear state anyway
       setUser(null);
     }

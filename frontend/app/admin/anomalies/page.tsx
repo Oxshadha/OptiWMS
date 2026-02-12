@@ -1,17 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { anomaliesApi, Anomaly as ApiAnomaly } from "@/lib/api/anomalies";
+import { anomaliesApi } from "@/lib/api/anomalies";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface AnomalyDisplay {
   id: string;
@@ -28,70 +29,6 @@ interface AnomalyDisplay {
   resolvedBy: string | null;
   resolvedAt: string | null;
 }
-
-// Mock data - will be replaced with API calls
-const mockAnomalies: AnomalyDisplay[] = [
-  {
-    id: "anom-1",
-    anomalyId: "ANOM-2025-001",
-    anomalyType: "quantity_mismatch",
-    severity: "high",
-    description: "Inventory count discrepancy: Expected 50, Found 45 at location A1",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "product",
-    relatedEntityId: "SKU-1001",
-    detectedBy: "ai_service",
-    detectedAt: "2025-12-15 10:30",
-    status: "open",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-  {
-    id: "anom-2",
-    anomalyId: "ANOM-2025-002",
-    anomalyType: "location_error",
-    severity: "medium",
-    description: "Item scanned at wrong location during picking task",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "task",
-    relatedEntityId: "TASK-452368",
-    detectedBy: "system",
-    detectedAt: "2025-12-15 09:15",
-    status: "investigating",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-  {
-    id: "anom-3",
-    anomalyId: "ANOM-2025-003",
-    anomalyType: "expiry_alert",
-    severity: "low",
-    description: "Product batch expiring within 7 days",
-    warehouseName: "Warehouse 2",
-    relatedEntityType: "product",
-    relatedEntityId: "SKU-2001",
-    detectedBy: "system",
-    detectedAt: "2025-12-14 14:20",
-    status: "resolved",
-    resolvedBy: "Manager A",
-    resolvedAt: "2025-12-14 15:00",
-  },
-  {
-    id: "anom-4",
-    anomalyId: "ANOM-2025-004",
-    anomalyType: "unauthorized_access",
-    severity: "critical",
-    description: "Worker accessed restricted location without authorization",
-    warehouseName: "Warehouse 1",
-    relatedEntityType: "worker",
-    relatedEntityId: "worker-3",
-    detectedBy: "ai_service",
-    detectedAt: "2025-12-15 08:45",
-    status: "open",
-    resolvedBy: null,
-    resolvedAt: null,
-  },
-];
 
 const severityConfig = {
   low: { label: "Low", class: "badge-outline" },
@@ -130,92 +67,94 @@ export default function AnomaliesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
+        anomaliesApi.getAll(),
+        warehousesApi.getAll(),
+        materialsApi.getAll(),
+        usersApi.getAll(),
+      ]);
+
+      // Build maps
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
+      
+      const materialsMap = new Map<string, string>();
+      materialsData.forEach((m) =>
+        materialsMap.set(m.id, m.materialCode || m.description || m.id)
+      );
+      
+      const usersMap = new Map<string, string>();
+      usersData.forEach((u) => {
+        const displayName =
+          `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
+          u.username ||
+          u.email ||
+          "Unknown";
+        usersMap.set(u.id, displayName);
+      });
+
+      // Transform API data to display format
+      const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
+        const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
+        const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
+        
+        // Map severity from API to display format
+        let severity: "low" | "medium" | "high" | "critical" = "low";
+        const apiSeverity = (a.severity || "").toUpperCase();
+        if (apiSeverity === "CRITICAL") severity = "critical";
+        else if (apiSeverity === "HIGH") severity = "high";
+        else if (apiSeverity === "MEDIUM") severity = "medium";
+        else severity = "low";
+
+        // Map status from API to display format
+        let displayStatus = a.status || "open";
+        if (displayStatus === "DETECTED") displayStatus = "open";
+        else if (displayStatus === "RESOLVED") displayStatus = "resolved";
+        else if (displayStatus === "REVIEWED") displayStatus = "investigating";
+
+        return {
+          id: a.id,
+          anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
+          anomalyType: a.anomalyType || "unknown",
+          severity,
+          description: a.description || "No description",
+          warehouseName,
+          relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
+          relatedEntityId,
+          detectedBy: a.reviewedBy
+            ? usersMap.get(a.reviewedBy) || "System"
+            : "AI Service",
+          detectedAt: a.reviewedAt || new Date().toISOString(),
+          status: displayStatus,
+          resolvedBy: a.reviewedBy
+            ? usersMap.get(a.reviewedBy) || "System"
+            : null,
+          resolvedAt: a.reviewedAt || null,
+        };
+      });
+
+      setAnomalies(displayAnomalies);
+    } catch (err) {
+      logger.error("Failed to load anomalies:", err);
+      setError(err instanceof Error ? err.message : "Failed to load anomalies");
+      setAnomalies([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load anomalies. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Load data from API
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
-          anomaliesApi.getAll(),
-          warehousesApi.getAll(),
-          materialsApi.getAll(),
-          usersApi.getAll(),
-        ]);
-
-        // Build maps
-        const warehousesMap = new Map<string, string>();
-        warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-        
-        const materialsMap = new Map<string, string>();
-        materialsData.forEach(m => materialsMap.set(m.id, m.sku || m.code));
-        
-        const usersMap = new Map<string, string>();
-        usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
-
-        // Transform API data to display format
-        const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
-          const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
-          const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
-          
-          // Map severity from API to display format
-          let severity: "low" | "medium" | "high" | "critical" = "low";
-          const apiSeverity = (a.severity || "").toUpperCase();
-          if (apiSeverity === "CRITICAL") severity = "critical";
-          else if (apiSeverity === "HIGH") severity = "high";
-          else if (apiSeverity === "MEDIUM") severity = "medium";
-          else severity = "low";
-
-          // Map status from API to display format
-          let displayStatus = a.status || "open";
-          if (displayStatus === "DETECTED") displayStatus = "open";
-          else if (displayStatus === "RESOLVED") displayStatus = "resolved";
-          else if (displayStatus === "REVIEWED") displayStatus = "investigating";
-
-          return {
-            id: a.id,
-            anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
-            anomalyType: a.anomalyType || "unknown",
-            severity,
-            description: a.description || "No description",
-            warehouseName,
-            relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
-            relatedEntityId,
-            detectedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "System" : "AI Service",
-            detectedAt: a.reviewedAt || new Date().toISOString(),
-            status: displayStatus,
-            resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) : null,
-            resolvedAt: a.reviewedAt || null,
-          };
-        });
-
-        setAnomalies(displayAnomalies);
-      } catch (err) {
-        console.error("Failed to load anomalies:", err);
-        setError(err instanceof Error ? err.message : "Failed to load anomalies");
-        setAnomalies([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load anomalies. Please try again.");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
-  }, []);
-
-  // Listen for reload events
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadAnomalies', handleReload);
-    return () => {
-      window.removeEventListener('reloadAnomalies', handleReload);
-    };
-  }, []);
+  }, [loadData]);
 
   // Filter anomalies by warehouse for warehouse managers
   const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
@@ -510,7 +449,7 @@ export default function AnomaliesPage() {
               </li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-ghost">
+          <button className="btn btn-sm btn-ghost" onClick={() => loadData()}>
             <span className="material-symbols-outlined">refresh</span>
             <span>Refresh</span>
           </button>
@@ -545,6 +484,7 @@ export default function AnomaliesPage() {
             setShowResolveModal(false);
             setSelectedAnomaly(null);
           }}
+          onResolved={loadData}
           anomaly={selectedAnomaly}
         />
       )}
@@ -556,10 +496,12 @@ export default function AnomaliesPage() {
 function ResolveAnomalyModal({
   isOpen,
   onClose,
+  onResolved,
   anomaly,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  onResolved: () => Promise<void>;
   anomaly: AnomalyDisplay;
 }) {
   const [formData, setFormData] = useState({
@@ -571,7 +513,7 @@ function ResolveAnomalyModal({
 
   const { admin } = useAdmin();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
@@ -583,14 +525,11 @@ function ResolveAnomalyModal({
         resolutionText
       );
       showToast.success("Anomaly resolved successfully");
+      await onResolved();
       onClose();
       setFormData({ resolutionNotes: "", actionsTaken: "" });
-      // Reload data - trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadAnomalies'));
-      }
     } catch (err) {
-      console.error("Failed to resolve anomaly:", err);
+      logger.error("Failed to resolve anomaly:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to resolve anomaly");
     }
   };
@@ -669,4 +608,3 @@ function ResolveAnomalyModal({
     </Modal>
   );
 }
-

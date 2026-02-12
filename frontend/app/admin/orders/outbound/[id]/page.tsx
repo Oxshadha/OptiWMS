@@ -9,6 +9,7 @@ import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi, Material } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 const statusConfig = {
   pending: { label: "Pending", class: "badge-outline" },
@@ -82,7 +83,7 @@ export default function OutboundOrderDetailPage() {
             const customerData = await customersApi.getById(orderResult.customerId);
             setCustomer(customerData);
           } catch (err) {
-            console.warn("Failed to load customer:", err);
+            logger.warn("Failed to load customer:", err);
           }
         }
 
@@ -91,7 +92,7 @@ export default function OutboundOrderDetailPage() {
           const warehouseData = await warehousesApi.getById(orderResult.warehouseId);
           setWarehouse(warehouseData);
         } catch (err) {
-          console.warn("Failed to load warehouse:", err);
+          logger.warn("Failed to load warehouse:", err);
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : "Failed to load order details";

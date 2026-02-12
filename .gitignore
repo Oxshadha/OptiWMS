@@ -68,6 +68,12 @@ Resources/*
 docs/plan.md
 docs/erd.md
 docs/domain.md
+docs/API_CONNECTION_MATRIX.csv
+docs/API_CONNECTION_UNMATCHED.csv
+docs/BACKEND_ENDPOINT_CATALOG.csv
+docs/JIRA_DOMAIN_TEMPLATES.md
+docs/SRS_OptiWMS_Complete_Long_Form_v1.md
+docs/SRS_OptiWMS_Industry_v2.md
 !docs/.gitkeep
 
 # Temporary files
@@ -144,3 +150,6 @@ Desktop.ini
 
 # Cursor
 .cursor/
+
+#LOCAL GRADLE CACHE
+backend/.gradle-local/

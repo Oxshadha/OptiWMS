@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { logger } from "@/lib/utils/logger";
 
 export default function DashboardSettingsPage() {
   const [settings, setSettings] = useState({
@@ -18,7 +19,7 @@ export default function DashboardSettingsPage() {
 
   const handleSave = () => {
     // TODO: API call to save dashboard settings
-    console.log("Saving dashboard settings:", settings);
+    logger.debug("Saving dashboard settings:", settings);
   };
 
   return (

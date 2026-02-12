@@ -10,6 +10,8 @@ import com.optiwms.infra.tasks.TaskRepository;
 import com.optiwms.infra.users.UserRepository;
 import com.optiwms.infra.workers.WorkerAchievementEntity;
 import com.optiwms.infra.workers.WorkerAchievementRepository;
+import com.optiwms.infra.operations.OperationEventEntity;
+import com.optiwms.infra.operations.OperationEventRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -28,31 +30,40 @@ public class AnalyticsService {
     private final InventoryItemRepository inventoryRepository;
     private final UserRepository userRepository;
     private final WorkerAchievementRepository achievementRepository;
+    private final OperationEventRepository operationEventRepository;
 
     public AnalyticsService(
             TaskRepository taskRepository,
             OrderRepository orderRepository,
             InventoryItemRepository inventoryRepository,
             UserRepository userRepository,
-            WorkerAchievementRepository achievementRepository) {
+            WorkerAchievementRepository achievementRepository,
+            OperationEventRepository operationEventRepository) {
         this.taskRepository = taskRepository;
         this.orderRepository = orderRepository;
         this.inventoryRepository = inventoryRepository;
         this.userRepository = userRepository;
         this.achievementRepository = achievementRepository;
+        this.operationEventRepository = operationEventRepository;
     }
 
     // Worker Productivity
     public List<WorkerProductivityMetrics> getWorkerProductivity(String period, UUID warehouseId) {
         LocalDateTime startDate = getStartDateForPeriod(period);
+        List<OperationEventEntity> events = getOperationEventsForPeriod(startDate, warehouseId);
+        if (!events.isEmpty()) {
+            return buildProductivityFromEvents(events);
+        }
         List<TaskEntity> tasks = getTasksForPeriod(startDate, warehouseId);
 
         Map<UUID, WorkerProductivityMetrics> metricsMap = new HashMap<>();
 
         for (TaskEntity task : tasks) {
-            if (task.getAssignedTo() == null) continue;
+            UUID workerId = resolveWorkerId(task);
+            if (workerId == null) {
+                continue;
+            }
 
-            UUID workerId = task.getAssignedTo();
             metricsMap.putIfAbsent(workerId, new WorkerProductivityMetrics(workerId, 0, 0, 0L, BigDecimal.ZERO));
 
             WorkerProductivityMetrics metrics = metricsMap.get(workerId);
@@ -96,15 +107,24 @@ public class AnalyticsService {
     // Leaderboard
     public List<LeaderboardEntry> getLeaderboard(String period, UUID warehouseId) {
         LocalDateTime startDate = getStartDateForPeriod(period);
+        List<OperationEventEntity> events = getOperationEventsForPeriod(startDate, warehouseId);
+        if (!events.isEmpty()) {
+            return buildLeaderboardFromEvents(events);
+        }
         List<TaskEntity> tasks = getTasksForPeriod(startDate, warehouseId);
 
         Map<UUID, Integer> taskCounts = new HashMap<>();
         Map<UUID, String> workerNames = new HashMap<>();
 
         for (TaskEntity task : tasks) {
-            if (task.getAssignedTo() == null || !"completed".equals(task.getStatus())) continue;
+            if (!"completed".equals(task.getStatus())) {
+                continue;
+            }
 
-            UUID workerId = task.getAssignedTo();
+            UUID workerId = resolveWorkerId(task);
+            if (workerId == null) {
+                continue;
+            }
             taskCounts.put(workerId, taskCounts.getOrDefault(workerId, 0) + 1);
 
             if (!workerNames.containsKey(workerId)) {
@@ -299,11 +319,84 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    private UUID resolveWorkerId(TaskEntity task) {
+        if (task.getAssignedTo() != null) {
+            return task.getAssignedTo();
+        }
+        return task.getCompletedBy();
+    }
+
     private Integer calculateRank(Integer taskCount, Collection<Integer> allCounts) {
         long rank = allCounts.stream()
                 .filter(count -> count > taskCount)
                 .count();
         return (int) (rank + 1);
+    }
+
+    private List<OperationEventEntity> getOperationEventsForPeriod(LocalDateTime startDate, UUID warehouseId) {
+        return operationEventRepository.findByCompletedAtAfter(startDate).stream()
+                .filter(e -> warehouseId == null || warehouseId.equals(e.getWarehouseId()))
+                .collect(Collectors.toList());
+    }
+
+    private List<WorkerProductivityMetrics> buildProductivityFromEvents(List<OperationEventEntity> events) {
+        Map<UUID, WorkerProductivityMetrics> metricsMap = new HashMap<>();
+
+        for (OperationEventEntity event : events) {
+            if (event.getWorkerId() == null) {
+                continue;
+            }
+            UUID workerId = event.getWorkerId();
+            metricsMap.putIfAbsent(workerId, new WorkerProductivityMetrics(workerId, 0, 0, 0L, BigDecimal.ZERO));
+            WorkerProductivityMetrics metrics = metricsMap.get(workerId);
+            metrics.totalTasks++;
+            metrics.completedTasks++;
+            metrics.totalTimeMinutes += event.getDurationMinutes() != null ? event.getDurationMinutes() : 0L;
+        }
+
+        List<WorkerProductivityMetrics> result = new ArrayList<>();
+        for (WorkerProductivityMetrics metrics : metricsMap.values()) {
+            if (metrics.completedTasks > 0) {
+                metrics.averageTimeMinutes = BigDecimal.valueOf(metrics.totalTimeMinutes)
+                        .divide(BigDecimal.valueOf(metrics.completedTasks), 2, RoundingMode.HALF_UP);
+            }
+            metrics.efficiency = BigDecimal.valueOf(100);
+            userRepository.findById(metrics.workerId).ifPresent(user -> {
+                metrics.workerName = user.getFirstName() + " " + user.getLastName();
+            });
+            result.add(metrics);
+        }
+
+        return result.stream()
+                .sorted((a, b) -> b.completedTasks.compareTo(a.completedTasks))
+                .collect(Collectors.toList());
+    }
+
+    private List<LeaderboardEntry> buildLeaderboardFromEvents(List<OperationEventEntity> events) {
+        Map<UUID, Integer> eventCounts = new HashMap<>();
+        Map<UUID, String> workerNames = new HashMap<>();
+
+        for (OperationEventEntity event : events) {
+            if (event.getWorkerId() == null) {
+                continue;
+            }
+            UUID workerId = event.getWorkerId();
+            eventCounts.put(workerId, eventCounts.getOrDefault(workerId, 0) + 1);
+            if (!workerNames.containsKey(workerId)) {
+                userRepository.findById(workerId).ifPresent(user ->
+                        workerNames.put(workerId, user.getFirstName() + " " + user.getLastName()));
+            }
+        }
+
+        return eventCounts.entrySet().stream()
+                .map(entry -> new LeaderboardEntry(
+                        entry.getKey(),
+                        workerNames.getOrDefault(entry.getKey(), "Unknown"),
+                        entry.getValue(),
+                        calculateRank(entry.getValue(), eventCounts.values())
+                ))
+                .sorted((a, b) -> b.taskCount.compareTo(a.taskCount))
+                .collect(Collectors.toList());
     }
 
     private WorkerAchievement toDomain(WorkerAchievementEntity entity) {
@@ -427,4 +520,3 @@ public class AnalyticsService {
         }
     }
 }
-

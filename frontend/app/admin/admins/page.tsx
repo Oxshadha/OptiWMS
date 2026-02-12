@@ -5,13 +5,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
-import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
-import { DetailModal } from "@/components/DetailModal";
 import {
   AdminRole,
-  getAllAdminRoles,
-  ROLE_DISPLAY_NAMES,
   getRoleDisplayName,
 } from "@/lib/admin-roles";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -19,70 +15,23 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { usersApi, User } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
-
-interface AdminDisplay {
-  id: string;
-  name: string;
-  email: string;
-  role: AdminRole;
-  warehouseName: string;
-  lastLogin: string;
-  avatar?: string;
-  createdAt: string;
-  status: string;
-}
-
-// Mock data - will be replaced with API calls
-const mockAdmins = [
-  {
-    id: "admin-1",
-    name: "Henry Kaul",
-    email: "henry.kaul@optiwms.com",
-    role: "admin" as AdminRole,
-    warehouseName: "All Warehouses",
-    lastLogin: "2 hours ago",
-    avatar: "/assets/avatars/Henry Kual.jpg",
-    createdAt: "2024-01-15",
-    status: "active",
-  },
-  {
-    id: "admin-2",
-    name: "John Manager",
-    email: "john.manager@optiwms.com",
-    role: "warehouse_manager" as AdminRole,
-    warehouseName: "Warehouse 1",
-    lastLogin: "5 minutes ago",
-    avatar: "/assets/avatars/placeholder.svg",
-    createdAt: "2024-03-20",
-    status: "active",
-  },
-  {
-    id: "admin-3",
-    name: "Jane Supervisor",
-    email: "jane.supervisor@optiwms.com",
-    role: "warehouse_manager" as AdminRole,
-    warehouseName: "Warehouse 2",
-    lastLogin: "1 day ago",
-    avatar: "/assets/avatars/placeholder.svg",
-    createdAt: "2024-05-10",
-    status: "active",
-  },
-];
-
-const statusConfig = {
-  active: { label: "Active", class: "badge-success" },
-  inactive: { label: "Inactive", class: "badge-error" },
-  suspended: { label: "Suspended", class: "badge-warning" },
-};
+import { logger } from "@/lib/utils/logger";
+import {
+  AdminDetailModal,
+  CreateAdminModal,
+  DeleteAdminModal,
+} from "./components/AdminModals";
+import { AdminDisplay, statusConfig } from "./types";
 
 export default function AdminsPage() {
-  const { hasPermission, role } = useAdmin();
+  const { hasPermission } = useAdmin();
   const searchParams = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [admins, setAdmins] = useState<AdminDisplay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState(() => {
@@ -94,58 +43,49 @@ export default function AdminsPage() {
   const loadAdmins = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       // Fetch all users with admin roles
       const adminRoles = ["admin", "warehouse_manager", "inbound_coordinator"];
-      const allUsers: User[] = [];
-      
-      for (const adminRole of adminRoles) {
-        try {
-          const users = await usersApi.getAll(adminRole);
-          allUsers.push(...users);
-        } catch (error) {
-          console.error(`Error fetching users with role ${adminRole}:`, error);
-        }
-      }
-      
-      // Map users to admin display format
-      const adminsWithWarehouses = await Promise.all(
-        allUsers.map(async (user) => {
-          let warehouseName = "All Warehouses";
-          if (user.warehouseId) {
-            try {
-              const warehouse = await warehousesApi.getById(user.warehouseId);
-              warehouseName = warehouse.name || "Unknown Warehouse";
-            } catch (error) {
-              console.error(`Error fetching warehouse ${user.warehouseId}:`, error);
-            }
-          }
-          
-          // Format last login
-          const lastLogin = user.lastLoginAt 
-            ? new Date(user.lastLoginAt).toLocaleString()
-            : "Never";
-          
-          // Format created date
-          const createdAt = user.id ? "2024-01-01" : "Unknown"; // User entity might not have createdAt
-          
-          return {
-            id: user.id,
-            name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || "Unknown",
-            email: user.email || "",
-            role: (user.role as AdminRole) || "warehouse_manager",
-            warehouseName: warehouseName,
-            lastLogin: lastLogin,
-            avatar: user.avatarUrl,
-            createdAt: createdAt,
-            status: user.status || "active",
-          };
-        })
+      const [roleUsers, warehouses] = await Promise.all([
+        Promise.all(adminRoles.map((adminRole) => usersApi.getAll(adminRole))),
+        warehousesApi.getAll(),
+      ]);
+      const dedupedUsers: User[] = Array.from(
+        new Map(roleUsers.flat().map((u) => [u.id, u])).values()
       );
+      const warehouseMap = new Map<string, string>();
+      warehouses.forEach((wh) => warehouseMap.set(wh.id, wh.name));
+
+      const adminsWithWarehouses: AdminDisplay[] = dedupedUsers.map((user) => {
+        const warehouseName = user.warehouseId
+          ? warehouseMap.get(user.warehouseId) || "Unknown Warehouse"
+          : "All Warehouses";
+        const lastLogin = user.lastLoginAt
+          ? new Date(user.lastLoginAt).toLocaleString()
+          : "Never";
+
+        return {
+          id: user.id,
+          name:
+            `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+            user.username ||
+            "Unknown",
+          email: user.email || "",
+          role: (user.role as AdminRole) || "warehouse_manager",
+          warehouseName,
+          lastLogin,
+          avatar: user.avatarUrl,
+          createdAt: "-",
+          status: user.status || "active",
+        };
+      });
       
       setAdmins(adminsWithWarehouses);
     } catch (error) {
-      console.error("Error loading admins:", error);
+      logger.error("Error loading admins:", error);
+      setError(error instanceof Error ? error.message : "Failed to load managers");
       setAdmins([]);
+      showToast.error("Failed to load managers");
     } finally {
       setLoading(false);
     }
@@ -154,17 +94,6 @@ export default function AdminsPage() {
   // Load admins from API on mount
   useEffect(() => {
     loadAdmins();
-  }, [loadAdmins]);
-
-  // Listen for reload events
-  useEffect(() => {
-    const handleReload = () => {
-      loadAdmins();
-    };
-    window.addEventListener('reloadAdmins', handleReload);
-    return () => {
-      window.removeEventListener('reloadAdmins', handleReload);
-    };
   }, [loadAdmins]);
 
   useEffect(() => {
@@ -317,12 +246,9 @@ export default function AdminsPage() {
         showToast.success("Admin deleted successfully");
         setShowDeleteModal(false);
         setSelectedAdmin(null);
-        // Reload data
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('reloadAdmins'));
-        }
+        await loadAdmins();
       } catch (err) {
-        console.error("Failed to delete admin:", err);
+        logger.error("Failed to delete admin:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to delete admin");
       }
     }
@@ -355,9 +281,8 @@ export default function AdminsPage() {
           <li>
             <button
               onClick={() => {
-                // Edit functionality - could open an edit modal similar to workers
-                // For now, show a message that this feature needs implementation
-                showToast.error("Edit manager functionality coming soon");
+                setSelectedAdmin(admin);
+                setShowDetailModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">edit</span>
@@ -460,6 +385,14 @@ export default function AdminsPage() {
         <div className="flex items-center justify-center py-12">
           <span className="loading loading-spinner loading-lg"></span>
         </div>
+      ) : error ? (
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>{error}</span>
+          <button className="btn btn-sm" onClick={loadAdmins}>
+            Retry
+          </button>
+        </div>
       ) : (
         <DataTable
         data={filteredAdmins}
@@ -509,385 +442,3 @@ export default function AdminsPage() {
   );
 }
 
-// Admin Detail Modal
-function AdminDetailModal({
-  isOpen,
-  onClose,
-  admin,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  admin: AdminDisplay;
-}) {
-  return (
-    <DetailModal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={`Manager: ${admin.name}`}
-      size="lg"
-    >
-      <div className="space-y-4">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
-            {admin.avatar ? (
-              <Image
-                src={admin.avatar}
-                alt={admin.name}
-                width={80}
-                height={80}
-                className="rounded-full object-cover"
-              />
-            ) : (
-              <span className="material-symbols-outlined text-primary text-4xl">person</span>
-            )}
-          </div>
-          <div>
-            <h3 className="text-xl font-bold">{admin.name}</h3>
-            <p className="text-sm text-base-content/60">{admin.email}</p>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-base-content/60">Role</label>
-            <p>
-              <span className="badge badge-primary">
-                {getRoleDisplayName(admin.role)}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span
-                className={`badge ${
-                  statusConfig[admin.status as keyof typeof statusConfig].class
-                }`}
-              >
-                {statusConfig[admin.status as keyof typeof statusConfig].label}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Warehouse</label>
-            <p className="font-semibold">{admin.warehouseName}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Last Login</label>
-            <p className="font-semibold">{admin.lastLogin}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Created At</label>
-            <p className="font-semibold">{admin.createdAt}</p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
-          <button className="btn btn-primary">Edit Manager</button>
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-// Create Admin Modal
-function CreateAdminModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess?: () => void;
-}) {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    password: "",
-    role: "warehouse_manager" as AdminRole,
-    warehouseId: "",
-    avatar: null as File | null,
-  });
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
-
-  useEffect(() => {
-    const loadWarehouses = async () => {
-      try {
-        const { warehousesApi } = await import("@/lib/api/warehouses");
-        const warehousesData = await warehousesApi.getAll();
-        setWarehouses(warehousesData.map(w => ({ id: w.id, name: w.name })));
-      } catch (error) {
-        console.error("Failed to load warehouses:", error);
-      }
-    };
-    if (isOpen) {
-      loadWarehouses();
-    }
-  }, [isOpen]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setError("");
-
-    try {
-      // Generate username from email or use email as username
-      const username = formData.email.split("@")[0] || formData.email;
-      
-      await usersApi.create({
-        username: username,
-        email: formData.email,
-        password: formData.password,
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        role: formData.role,
-        warehouseId: formData.warehouseId || undefined,
-        phone: formData.phone || undefined,
-        status: "active",
-      });
-
-      // Reset form
-      setFormData({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        password: "",
-        role: "warehouse_manager" as AdminRole,
-        warehouseId: "",
-        avatar: null,
-      });
-      
-      // Close modal
-      onClose();
-      
-      // Reload admins list (instead of full page reload)
-      if (onSuccess) {
-        onSuccess();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create admin");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Manager" size="lg">
-      {error && (
-        <div className="alert alert-error mb-4">
-          <span>{error}</span>
-        </div>
-      )}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">First Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.firstName}
-              onChange={(e) =>
-                setFormData({ ...formData, firstName: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Last Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.lastName}
-              onChange={(e) =>
-                setFormData({ ...formData, lastName: e.target.value })
-              }
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Email *</span>
-            </label>
-            <input
-              type="email"
-              className="input input-bordered w-full"
-              value={formData.email}
-              onChange={(e) =>
-                setFormData({ ...formData, email: e.target.value })
-              }
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Phone</span>
-            </label>
-            <input
-              type="tel"
-              className="input input-bordered w-full"
-              value={formData.phone}
-              onChange={(e) =>
-                setFormData({ ...formData, phone: e.target.value })
-              }
-            />
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Role *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.role}
-            onChange={(e) =>
-              setFormData({ ...formData, role: e.target.value as AdminRole })
-            }
-            required
-          >
-            <option value="warehouse_manager">Warehouse Manager</option>
-            <option value="inbound_coordinator">Inbound Coordinator</option>
-          </select>
-          <label className="label">
-            <span className="label-text-alt text-info">
-              Only System Administrators can create managers
-            </span>
-          </label>
-        </div>
-
-        {formData.role === "warehouse_manager" && (
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Warehouse *</span>
-            </label>
-            <select
-              className="select select-bordered w-full"
-              value={formData.warehouseId}
-              onChange={(e) =>
-                setFormData({ ...formData, warehouseId: e.target.value })
-              }
-              required={formData.role === "warehouse_manager"}
-            >
-              <option value="">Select warehouse</option>
-              {warehouses.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Password *</span>
-          </label>
-          <input
-            type="password"
-            className="input input-bordered w-full"
-            value={formData.password}
-            onChange={(e) =>
-              setFormData({ ...formData, password: e.target.value })
-            }
-            required
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Avatar</span>
-          </label>
-          <input
-            type="file"
-            className="file-input file-input-bordered w-full"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) setFormData({ ...formData, avatar: file });
-            }}
-          />
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <span className="loading loading-spinner loading-sm"></span>
-                Creating...
-              </>
-            ) : (
-              "Create Manager"
-            )}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Delete Admin Modal
-function DeleteAdminModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  admin,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  admin: AdminDisplay;
-}) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Delete Manager" size="md">
-      <div className="space-y-4">
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">warning</span>
-          <div>
-            <h3 className="font-bold">
-              Warning: This action cannot be undone!
-            </h3>
-            <div className="text-sm">
-              You are about to delete <strong>{admin.name}</strong> (
-              {admin.email}). This will permanently remove their access to the
-              system.
-            </div>
-          </div>
-        </div>
-        <div className="bg-base-200 rounded-lg p-4">
-          <p className="text-sm text-base-content/70">
-            <strong>Role:</strong> {getRoleDisplayName(admin.role)}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Warehouse:</strong> {admin.warehouseName}
-          </p>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-error" onClick={onConfirm}>
-            <span className="material-symbols-outlined">delete</span>
-            Delete Manager
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}

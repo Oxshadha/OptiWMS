@@ -4,6 +4,8 @@ import com.optiwms.domain.common.BaseEntity;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class StockTransfer extends BaseEntity {
@@ -17,10 +19,14 @@ public class StockTransfer extends BaseEntity {
     private Integer quantity;
     private String status;
     private String notes;
+    private UUID createdBy;
+    private UUID releasedBy;
+    private LocalDateTime releasedAt;
     private UUID dispatchedBy;
     private LocalDateTime dispatchedAt;
     private UUID receivedBy;
     private LocalDateTime receivedAt;
+    private List<StockTransferLine> lines = new ArrayList<>();
 
     // Getters and Setters
     public String getTransferNumber() { return transferNumber; }
@@ -43,6 +49,12 @@ public class StockTransfer extends BaseEntity {
     public void setStatus(String status) { this.status = status; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public UUID getCreatedBy() { return createdBy; }
+    public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
+    public UUID getReleasedBy() { return releasedBy; }
+    public void setReleasedBy(UUID releasedBy) { this.releasedBy = releasedBy; }
+    public LocalDateTime getReleasedAt() { return releasedAt; }
+    public void setReleasedAt(LocalDateTime releasedAt) { this.releasedAt = releasedAt; }
     public UUID getDispatchedBy() { return dispatchedBy; }
     public void setDispatchedBy(UUID dispatchedBy) { this.dispatchedBy = dispatchedBy; }
     public LocalDateTime getDispatchedAt() { return dispatchedAt; }
@@ -51,5 +63,6 @@ public class StockTransfer extends BaseEntity {
     public void setReceivedBy(UUID receivedBy) { this.receivedBy = receivedBy; }
     public LocalDateTime getReceivedAt() { return receivedAt; }
     public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
+    public List<StockTransferLine> getLines() { return lines; }
+    public void setLines(List<StockTransferLine> lines) { this.lines = lines; }
 }
-

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useWorker } from "@/contexts/WorkerContext";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 const SETTINGS_KEY = "worker_settings";
 
@@ -25,7 +26,7 @@ export default function SettingsPage() {
         setDarkMode(parsed.darkMode ?? false);
       }
     } catch (error) {
-      console.error("Failed to load settings:", error);
+      logger.error("Failed to load settings:", error);
     }
   }, []);
 

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Worker Availability Service
  * 
@@ -65,7 +66,7 @@ export async function getWorkerCurrentTasks(workerId: string): Promise<Task[]> {
       (task: any) => task.workerId === workerId || task.assignedTo === workerId
     );
   } catch (error) {
-    console.error("Error getting worker current tasks:", error);
+    logger.error("Error getting worker current tasks:", error);
     return [];
   }
 }

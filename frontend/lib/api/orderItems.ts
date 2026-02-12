@@ -48,9 +48,11 @@ export const orderItemsApi = {
 export interface PutawayItem {
   itemId: string;
   materialId: string;
+  materialCode?: string | null;
+  materialName?: string | null;
   receivedQuantity: number;
   orderedQuantity: number;
   suggestedLocation: string | null;
+  existingLocations?: string[];
   status: string;
 }
-

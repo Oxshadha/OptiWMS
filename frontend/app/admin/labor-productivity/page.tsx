@@ -7,133 +7,51 @@ import { analyticsApi, WorkerProductivityMetrics, LeaderboardEntry } from "@/lib
 import { SummaryCards } from "@/components/SummaryCards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
-
-// Mock data - will be replaced with API calls
-const mockProductivityMetrics: WorkerProductivityMetrics[] = [
-  {
-    workerId: "w-1",
-    workerName: "John Smith",
-    period: "2025-12",
-    picksPerHour: 45.2,
-    averageDwellTime: 8.5,
-    errorRate: 0.5,
-    tasksCompleted: 120,
-    totalPicks: 5424,
-    totalHours: 120,
-    onTimeCompletionRate: 98.5,
-  },
-  {
-    workerId: "w-2",
-    workerName: "Jane Doe",
-    period: "2025-12",
-    picksPerHour: 52.8,
-    averageDwellTime: 6.2,
-    errorRate: 0.2,
-    tasksCompleted: 145,
-    totalPicks: 7656,
-    totalHours: 145,
-    onTimeCompletionRate: 99.2,
-  },
-  {
-    workerId: "w-3",
-    workerName: "Mike Johnson",
-    period: "2025-12",
-    picksPerHour: 38.5,
-    averageDwellTime: 12.3,
-    errorRate: 1.8,
-    tasksCompleted: 98,
-    totalPicks: 3773,
-    totalHours: 98,
-    onTimeCompletionRate: 95.0,
-  },
-];
-
-const mockLeaderboard: LeaderboardEntry[] = [
-  {
-    rank: 1,
-    workerId: "w-2",
-    workerName: "Jane Doe",
-    role: "Picker",
-    score: 95,
-    picksPerHour: 52.8,
-    tasksCompleted: 145,
-    errorRate: 0.2,
-    badge: "Top Performer",
-    trend: "up",
-  },
-  {
-    rank: 2,
-    workerId: "w-1",
-    workerName: "John Smith",
-    role: "Picker",
-    score: 88,
-    picksPerHour: 45.2,
-    tasksCompleted: 120,
-    errorRate: 0.5,
-    badge: "Speed Demon",
-    trend: "stable",
-  },
-  {
-    rank: 3,
-    workerId: "w-4",
-    workerName: "Sarah Williams",
-    role: "Picker",
-    score: 82,
-    picksPerHour: 42.1,
-    tasksCompleted: 115,
-    errorRate: 0.8,
-    trend: "up",
-  },
-  {
-    rank: 4,
-    workerId: "w-3",
-    workerName: "Mike Johnson",
-    role: "Picker",
-    score: 72,
-    picksPerHour: 38.5,
-    tasksCompleted: 98,
-    errorRate: 1.8,
-    trend: "down",
-  },
-];
+import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 export default function LaborProductivityPage() {
-  const { hasPermission, role } = useAdmin();
+  const { hasPermission } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
   const [productivityMetrics, setProductivityMetrics] = useState<WorkerProductivityMetrics[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("weekly");
-  const [selectedMetric, setSelectedMetric] = useState<"picksPerHour" | "errorRate" | "dwellTime">("picksPerHour");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load data from API
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [productivityData, leaderboardData] = await Promise.all([
+        analyticsApi.getWorkerProductivity(undefined, undefined, undefined, selectedPeriod),
+        analyticsApi.getWorkerLeaderboard(selectedPeriod),
+      ]);
+      setProductivityMetrics(productivityData);
+      setLeaderboard(leaderboardData);
+    } catch (err) {
+      logger.error("Failed to load labor productivity data:", err);
+      const message =
+        err instanceof Error ? err.message : "Failed to load labor productivity data";
+      setError(message);
+      setProductivityMetrics([]);
+      setLeaderboard([]);
+      showToast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const [productivityData, leaderboardData] = await Promise.all([
-          analyticsApi.getWorkerProductivity(),
-          analyticsApi.getWorkerLeaderboard(selectedPeriod),
-        ]);
-
-        setProductivityMetrics(productivityData);
-        setLeaderboard(leaderboardData);
-      } catch (err) {
-        console.error("Failed to load labor productivity data:", err);
-        setError(err instanceof Error ? err.message : "Failed to load labor productivity data");
-        // Fallback to mock data on error
-        setProductivityMetrics(mockProductivityMetrics);
-        setLeaderboard(mockLeaderboard);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 10000);
+    return () => clearInterval(interval);
   }, [selectedPeriod]);
 
   if (!canView) {
@@ -159,6 +77,9 @@ export default function LaborProductivityPage() {
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading labor productivity data: {error}</span>
+        <button className="btn btn-sm" onClick={loadData}>
+          Retry
+        </button>
       </div>
     );
   }
@@ -203,34 +124,29 @@ export default function LaborProductivityPage() {
       <SummaryCards
         cards={[
           {
-            title: "Average PPH",
+            label: "Average PPH",
             value: summary.averagePPH.toFixed(1),
             icon: "trending_up",
-            trend: null,
           },
           {
-            title: "Avg Dwell Time",
+            label: "Avg Dwell Time",
             value: `${summary.averageDwellTime.toFixed(1)} min`,
             icon: "schedule",
-            trend: null,
           },
           {
-            title: "Avg Error Rate",
+            label: "Avg Error Rate",
             value: `${summary.averageErrorRate.toFixed(2)}%`,
             icon: "error_outline",
-            trend: null,
           },
           {
-            title: "Total Tasks",
+            label: "Total Tasks",
             value: summary.totalTasksCompleted.toString(),
             icon: "task",
-            trend: null,
           },
           {
-            title: "Top Performer",
+            label: "Top Performer",
             value: summary.topPerformer,
             icon: "emoji_events",
-            trend: null,
           },
         ]}
       />
@@ -312,4 +228,3 @@ export default function LaborProductivityPage() {
     </div>
   );
 }
-

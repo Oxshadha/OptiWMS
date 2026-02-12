@@ -35,4 +35,13 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
+# -----------------------------------------------------------------------------
+# DEVELOPMENT DEFAULTS
+# -----------------------------------------------------------------------------
+# This file is used mainly for local development.
+# For production, use profile-specific overrides (for example docker/prod):
+# - Disable default admin/dev seeding
+# - Use strong secrets and non-default DB credentials
+# - Restrict CORS to real frontend domains only
+# -----------------------------------------------------------------------------
 

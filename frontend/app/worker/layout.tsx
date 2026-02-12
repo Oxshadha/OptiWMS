@@ -18,6 +18,7 @@ import {
   isValidRole,
 } from "@/lib/worker-roles";
 import { WorkerProvider } from "@/contexts/WorkerContext";
+import { logger } from "@/lib/utils/logger";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -147,7 +148,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       } catch (error: any) {
         // Only log if it's not a 404 or 500 (endpoint might not exist)
         if (error?.message && !error.message.includes('404') && !error.message.includes('500')) {
-          console.error("Failed to load notifications:", error);
+          logger.error("Failed to load notifications:", error);
         }
         // Set empty notifications on error
         setNotifications([]);
@@ -187,7 +188,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         );
         setUnreadCount(prev => Math.max(0, prev - 1));
       } catch (error) {
-        console.error("Failed to mark notification as read:", error);
+        logger.error("Failed to mark notification as read:", error);
       }
     }
   };
@@ -217,7 +218,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
     // If no token and not loading, redirect immediately (for manual URL entry)
     if (!currentHasToken && !isLoading && !worker && !role) {
-      console.log("[WorkerLayout] No token on manual URL entry - redirecting to login immediately");
+      logger.debug("[WorkerLayout] No token on manual URL entry - redirecting to login immediately");
       router.replace("/worker/login");
       return;
     }
@@ -239,7 +240,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         // Still check if authenticated
         const currentHasToken = typeof window !== 'undefined' && !!localStorage.getItem('accessToken');
         if (!worker && !role && !currentHasToken) {
-          console.log("[WorkerLayout] Public route but not authenticated - redirecting to login");
+          logger.debug("[WorkerLayout] Public route but not authenticated - redirecting to login");
           router.replace("/worker/login");
         }
         return;
@@ -256,7 +257,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
       // Debug logging (remove in production)
       if (process.env.NODE_ENV === "development") {
-        console.log("[Route Protection]", {
+        logger.debug("[Route Protection]", {
           pathname,
           operation,
           isOperationRoute,
@@ -272,17 +273,17 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         
         // If no worker AND no token, redirect to login immediately
         if (!worker && !role && !currentHasToken) {
-          console.log("[WorkerLayout] No worker and no token - redirecting to login");
+          logger.debug("[WorkerLayout] No worker and no token - redirecting to login");
           router.replace("/worker/login");
           return;
         }
 
         // If we have a token but no worker state, wait a bit more (API call might be in progress)
         if (!worker && !role && currentHasToken) {
-          console.log("[WorkerLayout] Has token but no worker - waiting for API call...");
+          logger.debug("[WorkerLayout] Has token but no worker - waiting for API call...");
           const retryTimeout = setTimeout(() => {
             if (!worker && !role) {
-              console.log("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
+              logger.debug("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
               // Token might be invalid, clear it
               localStorage.removeItem('accessToken');
               localStorage.removeItem('refreshToken');
@@ -311,7 +312,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   // Initialize offline-first infrastructure
   useEffect(() => {
     // Initialize IndexedDB
-    initDB().catch(console.error);
+    initDB().catch((error) => logger.error(error));
 
     // Initialize network monitoring
     initNetworkMonitoring();
@@ -340,7 +341,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     if (isLoading && hasToken && !worker) {
       // Set a timeout - if still loading after 5 seconds, force stop
       const timeout = setTimeout(() => {
-        console.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
+        logger.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
         setLoadingTimeout(true);
       }, 5000);
       
@@ -353,7 +354,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   // If timeout occurred, redirect to login
   React.useEffect(() => {
     if (loadingTimeout && !worker && !role) {
-      console.log("[WorkerLayout] Loading timeout - redirecting to login");
+      logger.debug("[WorkerLayout] Loading timeout - redirecting to login");
       router.replace("/worker/login");
     }
   }, [loadingTimeout, worker, role, router]);
@@ -370,7 +371,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   if (isLoading && !worker && !role) {
     // If we have a token, show loading (API call might be in progress)
     if (hasToken && !loadingTimeout) {
-      console.log("[WorkerLayout] Has token but no worker - showing loading (API call in progress)");
+      logger.debug("[WorkerLayout] Has token but no worker - showing loading (API call in progress)");
       return (
         <div className="min-h-screen bg-base-200 flex items-center justify-center">
           <div className="text-center">
@@ -401,7 +402,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   
   // If no worker, no role, and no token after loading - redirect will happen in useEffect
   if (!isLoading && !worker && !role && !hasToken && pathname !== "/worker/login") {
-    console.log("[WorkerLayout] No worker, no role, no token - redirecting to login");
+    logger.debug("[WorkerLayout] No worker, no role, no token - redirecting to login");
     // Redirect happens in useEffect, just show loading
     return (
       <div className="min-h-screen bg-base-200 flex items-center justify-center">
@@ -582,7 +583,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                             // Redirect to login
                             router.push("/worker/login");
                           } catch (error) {
-                            console.error("Error during logout:", error);
+                            logger.error("Error during logout:", error);
                             // Still redirect even if logout fails
                             router.push("/worker/login");
                           }

@@ -1,4 +1,4 @@
-import { logger } from '@/lib/utils/logger';
+import { logger } from "@/lib/utils/logger";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
@@ -115,7 +115,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
       }
     }
     
-    console.error(`[API Client] Error response: ${errorMessage}`);
+    logger.error(`[API Client] Error response: ${errorMessage}`);
     throw new Error(`API Error: ${response.status} - ${errorMessage}`);
   }
   
@@ -155,7 +155,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     const data = JSON.parse(text);
     return data;
   } catch (jsonError) {
-    console.error("[API Client] JSON parse error:", jsonError);
+    logger.error("[API Client] JSON parse error:", jsonError);
     // For 204 No Content, this is expected - return undefined
     if (response.status === 204) {
       return undefined as T;
@@ -168,16 +168,16 @@ export const apiClient = {
   async get<T>(endpoint: string): Promise<T> {
     // Check authentication for protected endpoints (not auth endpoints)
     if (!endpoint.startsWith('/auth/') && !isAuthenticated()) {
-      console.error(`[API Client] Not authenticated for ${endpoint}`);
+      logger.error(`[API Client] Not authenticated for ${endpoint}`);
       redirectToLogin();
       throw new Error('Not authenticated. Please login.');
     }
 
-    console.log(`[API Client] GET ${endpoint}`);
+    logger.debug(`[API Client] GET ${endpoint}`);
     const url = `${API_BASE_URL}${endpoint}`;
     const headers = getAuthHeaders();
-    console.log(`[API Client] Request URL: ${url}`);
-    console.log(`[API Client] Has auth header: ${!!headers['Authorization']}`);
+    logger.debug(`[API Client] Request URL: ${url}`);
+    logger.debug(`[API Client] Has auth header: ${!!headers['Authorization']}`);
 
     try {
       const response = await fetch(url, {
@@ -185,10 +185,10 @@ export const apiClient = {
         headers: headers as HeadersInit,
         credentials: 'include',
       });
-      console.log(`[API Client] Response status: ${response.status}`);
+      logger.debug(`[API Client] Response status: ${response.status}`);
       return handleResponse<T>(response);
     } catch (fetchError) {
-      console.error(`[API Client] Fetch error for ${endpoint}:`, fetchError);
+      logger.error(`[API Client] Fetch error for ${endpoint}:`, fetchError);
       throw fetchError;
     }
   },

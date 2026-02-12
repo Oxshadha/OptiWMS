@@ -200,6 +200,9 @@ export function isValidRole(role: string | null | undefined): role is WorkerRole
   return role in PERMISSION_MATRIX;
 }
 
+// Backward-compatible alias used by auth and route guard modules.
+export const isValidWorkerRole = isValidRole;
+
 /**
  * Filter operations based on worker role
  * 
@@ -230,4 +233,3 @@ export function filterOperationsByRole<T extends { operation?: Operation | strin
     return false;
   });
 }
-

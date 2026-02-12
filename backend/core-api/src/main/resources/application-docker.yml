@@ -35,3 +35,14 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
+# -----------------------------------------------------------------------------
+# PRODUCTION NOTES
+# -----------------------------------------------------------------------------
+# 1) This docker profile is intended for deployment-like environments.
+# 2) Default admin/dev credentials must never be used in production.
+# 3) Keep default-admin seeding disabled in production environments.
+#    (If you add a seeding toggle property, ensure it resolves to false here.)
+# 4) Use secret manager / environment variables for all sensitive values:
+#    - JWT_SECRET
+#    - DB credentials
+# -----------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Industry Standard: Custom Data Fetching Hook
  * 
@@ -82,7 +83,7 @@ export function useDataLoader<T>(
       const errorMessage = err instanceof Error ? err.message : "Failed to load data";
       setError(errorMessage);
       setData([]);
-      console.error("[useDataLoader] Error:", err);
+      logger.error("[useDataLoader] Error:", err);
     } finally {
       setLoading(false);
     }

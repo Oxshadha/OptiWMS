@@ -1,71 +1,61 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { QRScanner } from "@/components/QRScanner";
-import { Modal } from "@/components/Modal";
+import { useState, useEffect } from "react";
 import { operationsApi } from "@/lib/api/operations";
 import { tasksApi } from "@/lib/api/tasks-api";
-import { locationsApi } from "@/lib/api/locations";
 import { ordersApi } from "@/lib/api/orders";
 import { orderItemsApi, PutawayItem } from "@/lib/api/orderItems";
-import { LocationPicker } from "@/components/LocationPicker";
 import { useWorker } from "@/contexts/WorkerContext";
-import { validateLocationCode, formatLocationCodeForDisplay } from "@/lib/utils/validation";
+import { validateLocationCode } from "@/lib/utils/validation";
 import { validateLocationExists } from "@/lib/utils/location-helpers";
 import { showToast } from "@/lib/utils/toast";
-import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
+import { logger } from "@/lib/utils/logger";
+import { PutawayOrderSelection } from "./components/PutawayOrderSelection";
+import { PutawayOrderWorkflow } from "./components/PutawayOrderWorkflow";
 
-// Component to display item details
-function ItemDetailsDisplay({ materialId, quantity }: { materialId: string; quantity: number }) {
-  const [itemName, setItemName] = useState<string>("Loading...");
-  const [itemSku, setItemSku] = useState<string>("N/A");
+const parsePutawayProgress = (notes?: string | null): { completed: number; required: number } | null => {
+  if (!notes) return null;
+  const match = notes.match(/PUTAWAY_PROGRESS=(\d+)\/(\d+)/i);
+  if (!match) return null;
+  const completed = Number(match[1]);
+  const required = Number(match[2]);
+  if (Number.isNaN(completed) || Number.isNaN(required)) return null;
+  return { completed, required };
+};
 
-  useEffect(() => {
-    const loadMaterial = async (retryCount = 0) => {
-      try {
-        const { materialsApi } = await import("@/lib/api/materials");
-        const material = await materialsApi.getById(materialId);
-        const display = formatMaterialDisplay(
-          material.materialCode,
-          material.description,
-          material.id
-        );
-        setItemName(display.name || material.description || material.materialCode || "Item");
-        setItemSku(display.sku || material.materialCode || "N/A");
-      } catch (err) {
-        console.error("Failed to load material:", err);
-        
-        // Retry up to 2 times with exponential backoff
-        if (retryCount < 2) {
-          setTimeout(() => {
-            loadMaterial(retryCount + 1);
-          }, 1000 * Math.pow(2, retryCount)); // 1s, 2s delays
-          return;
-        }
-        
-        // After retries, show error with material ID for debugging
-        setItemName(`Item (Material ID: ${materialId.substring(0, 8)}...)`);
-        setItemSku("N/A");
-      }
-    };
-    loadMaterial();
-  }, [materialId]);
+const parsePutawaySkipReason = (notes?: string | null): string | null => {
+  if (!notes) return null;
+  const match = notes.match(/PUTAWAY_SKIP_REASON=([^\n\r;]+)/i);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+};
 
-  return (
-    <div className="p-3 bg-base-200 rounded-lg mb-4">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="material-symbols-outlined text-base-content/60">inventory</span>
-        <span className="text-sm text-base-content/60">Product</span>
-      </div>
-      <div className="font-semibold text-base-content">{itemName}</div>
-      {itemSku && itemSku !== "N/A" && !isUUID(itemSku) && (
-        <div className="text-xs text-base-content/60 mt-1">
-          <span className="font-mono font-semibold text-primary">SKU: {itemSku}</span>
-        </div>
-      )}
-    </div>
-  );
-}
+const isItemFullyPutAway = (status?: string, completed?: number, required?: number): boolean => {
+  if ((status || "").toLowerCase() === "completed") return true;
+  if (typeof completed === "number" && typeof required === "number") {
+    return completed >= required && required > 0;
+  }
+  return false;
+};
+
+const extractErrorMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const errObj = error as Record<string, unknown>;
+    if (typeof errObj.message === "string") return errObj.message;
+    if (typeof errObj.error === "string") return errObj.error;
+    if (errObj.response && typeof errObj.response === "object") {
+      const response = errObj.response as Record<string, unknown>;
+      if (typeof response.message === "string") return response.message;
+    }
+  }
+  return "Unknown error";
+};
 
 export default function PutawayPage() {
   const { worker, isLoading: workerContextLoading } = useWorker();
@@ -82,307 +72,26 @@ export default function PutawayPage() {
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [scannedLocation, setScannedLocation] = useState("");
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [note, setNote] = useState("");
-  const [photos, setPhotos] = useState<string[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false); // Changed to false - only set to true when loading items
   const [locationError, setLocationError] = useState<string>("");
   const [validatingLocation, setValidatingLocation] = useState(false);
   const [putawayProgress, setPutawayProgress] = useState<Map<string, boolean>>(new Map()); // Track which items are put away
-
-  // OLD TASK-BASED CODE - REMOVED - Now using order-based approach
-  // Load putaway tasks from API - filtered by warehouse and only available (unassigned) tasks
-  // REMOVED - Now loading orders instead
-  /*
-  useEffect(() => {
-    console.log("[Putaway] useEffect triggered:", {
-      workerContextLoading,
-      hasWorker: !!worker,
-      workerWarehouseId: worker?.warehouseId,
-      workerId: worker?.id
-    });
-    
-    // Wait for worker context to finish loading
-    if (workerContextLoading) {
-      console.log("[Putaway] Worker context still loading, waiting...");
-      return;
-    }
-
-    const loadPutawayTasks = async () => {
-      if (!worker) {
-        console.warn("[Putaway] No worker data available");
-        setIsLoading(false);
-        setTask(null);
-        return;
-      }
-
-      // Get warehouseId - check multiple sources like picking page does
-      let warehouseId = worker.warehouseId;
-      
-      // If warehouseId is missing, try to get it from warehouse name lookup
-      // This handles cases where context hasn't fully loaded warehouseId yet
-      if (!warehouseId && worker.warehouse && worker.warehouse !== "Unknown" && worker.warehouse !== "Unassigned") {
-        console.warn("[Putaway] warehouseId missing but warehouse name exists:", worker.warehouse);
-        console.warn("[Putaway] Attempting to fetch warehouseId from warehouse name...");
-        try {
-          const { warehousesApi } = await import('@/lib/api/warehouses');
-          const warehouses = await warehousesApi.getAll();
-          const matchingWarehouse = warehouses.find(w => w.name === worker.warehouse);
-          if (matchingWarehouse) {
-            warehouseId = matchingWarehouse.id;
-            console.log("[Putaway] Found warehouseId from name:", warehouseId);
-          }
-        } catch (err) {
-          console.error("[Putaway] Failed to fetch warehouses:", err);
-        }
-      }
-
-      if (!warehouseId) {
-        console.error("[Putaway] CRITICAL: No warehouseId available after all attempts");
-        console.error("[Putaway] Worker data:", { 
-          id: worker.id, 
-          name: worker.name, 
-          warehouse: worker.warehouse,
-          warehouseId: worker.warehouseId 
-        });
-        setIsLoading(false);
-        setTask(null);
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        console.log("[Putaway] Loading tasks for warehouse:", warehouseId);
-        
-        // Get only available (unassigned) tasks for worker's warehouse
-        // Status "pending" means unassigned tasks (first come first serve)
-        const tasks = await tasksApi.getAll("putaway", "pending", undefined, warehouseId, true);
-        console.log("[Putaway] Available tasks:", tasks.length);
-        
-        // Also include tasks assigned to this worker (in_progress, assigned)
-        const myTasks = await tasksApi.getAll("putaway", undefined, worker.id, warehouseId, false);
-        const myActiveTasks = myTasks.filter(t => 
-          t.assignedTo === worker.id && 
-          (t.status === "assigned" || t.status === "in_progress")
-        );
-        console.log("[Putaway] My active tasks:", myActiveTasks.length);
-        
-        // Combine: available tasks + my active tasks
-        const allTasks = [...tasks, ...myActiveTasks];
-        
-        // Remove duplicates
-        const uniqueTasks = Array.from(
-          new Map(allTasks.map(t => [t.id, t])).values()
-        );
-        
-        console.log("[Putaway] Total unique tasks:", uniqueTasks.length);
-        
-        if (uniqueTasks.length > 0) {
-          const firstTask = uniqueTasks[0];
-          
-          // Fetch full task details to get item information
-          try {
-            const taskDetails = await tasksApi.getById(firstTask.id);
-            console.log("[Putaway] Task details:", {
-              taskId: firstTask.id,
-              referenceType: taskDetails.referenceType,
-              referenceId: taskDetails.referenceId,
-              notes: taskDetails.notes
-            });
-            
-            // Try to get item details from reference (order/GRN)
-            let itemName = "Item";
-            let itemSku = "N/A";
-            let itemId: string | undefined;
-            let quantity = 0;
-            let materialId: string | undefined;
-            let orderNumber: string | undefined;
-            
-            // If task has reference, try to fetch order items and order details
-            if (taskDetails.referenceType === "order" && taskDetails.referenceId) {
-              console.log("[Putaway] Task is linked to order ID:", taskDetails.referenceId);
-              try {
-                const { orderItemsApi } = await import("@/lib/api/orderItems");
-                const { ordersApi } = await import("@/lib/api/orders");
-                
-                // Fetch order to get order number and full order details
-                try {
-                  const order = await ordersApi.getById(taskDetails.referenceId);
-                  orderNumber = order.orderNumber || "";
-                  console.log("[Putaway] ✅ Linked to order:", {
-                    orderNumber: orderNumber,
-                    orderId: taskDetails.referenceId,
-                    orderType: order.orderType,
-                    status: order.status,
-                    supplierId: order.supplierId,
-                    warehouseId: order.warehouseId
-                  });
-                  
-                  // Verify this is the correct order by checking order number format
-                  if (orderNumber && !orderNumber.startsWith("PO-") && !orderNumber.startsWith("IN-")) {
-                    console.warn("[Putaway] ⚠️ Order number format unexpected:", orderNumber);
-                  }
-                } catch (err) {
-                  console.error("[Putaway] ❌ Could not fetch order details:", err);
-                  console.error("[Putaway] Order ID that failed:", taskDetails.referenceId);
-                  orderNumber = undefined;
-                }
-                
-                // Fetch order items - get ALL items, not just first
-                const orderItems = await orderItemsApi.getByOrderId(taskDetails.referenceId);
-                console.log("[Putaway] Order items found:", orderItems.length);
-                console.log("[Putaway] Order items details:", orderItems.map(item => ({
-                  materialId: item.materialId,
-                  quantity: item.quantity,
-                  pickedQuantity: item.pickedQuantity,
-                  status: item.status
-                })));
-                
-                if (orderItems.length > 0) {
-                  const firstItem = orderItems[0];
-                  itemId = firstItem.materialId;
-                  materialId = firstItem.materialId;
-                  
-                  // Use pickedQuantity (received quantity) for inbound orders, not ordered quantity
-                  // pickedQuantity stores the actual received quantity for inbound orders
-                  quantity = firstItem.pickedQuantity || firstItem.quantity || 0;
-                  console.log("[Putaway] Quantity from order item - pickedQuantity:", firstItem.pickedQuantity, "quantity:", firstItem.quantity, "using:", quantity);
-                  
-                  // Try to get material name and SKU
-                  try {
-                    const { materialsApi } = await import("@/lib/api/materials");
-                    const material = await materialsApi.getById(firstItem.materialId);
-                    console.log("[Putaway] Material fetched:", material);
-                    
-                    const display = formatMaterialDisplay(
-                      material.materialCode,
-                      material.description,
-                      material.id
-                    );
-                    itemName = display.name || material.description || material.materialCode || "Item";
-                    itemSku = display.sku || material.materialCode || "N/A";
-                    console.log("[Putaway] ✅ Material details loaded:", { 
-                      name: itemName, 
-                      sku: itemSku,
-                      materialCode: material.materialCode,
-                      description: material.description
-                    });
-                  } catch (err) {
-                    console.error("[Putaway] ❌ Could not fetch material details:", err);
-                    // Try to use material code from task notes as fallback
-                    if (taskDetails.notes) {
-                      const notesMatch = taskDetails.notes.match(/Put away \d+ units of ([^(]+)/);
-                      if (notesMatch && notesMatch[1]) {
-                        itemName = notesMatch[1].trim();
-                        itemSku = notesMatch[1].trim();
-                        console.log("[Putaway] Using fallback from notes:", itemName);
-                      } else {
-                        itemName = "Item (Material details unavailable)";
-                        itemSku = "N/A";
-                      }
-                    } else {
-                      itemName = "Item (Material details unavailable)";
-                      itemSku = "N/A";
-                    }
-                  }
-                } else {
-                  console.warn("[Putaway] No order items found for order:", taskDetails.referenceId);
-                }
-              } catch (err) {
-                console.error("[Putaway] Could not fetch order items:", err);
-                // Fallback: try to extract info from task notes
-                if (taskDetails.notes) {
-                  const notesMatch = taskDetails.notes.match(/Put away (\d+) units of ([^(]+)/);
-                  if (notesMatch) {
-                    quantity = parseInt(notesMatch[1]) || 0;
-                    itemName = notesMatch[2].trim() || "Item";
-                    itemSku = notesMatch[2].trim() || "N/A";
-                  }
-                }
-              }
-            } else {
-              // No order reference - try to get info from task notes
-              if (taskDetails.notes) {
-                const notesMatch = taskDetails.notes.match(/Put away (\d+) units of ([^(]+)/);
-                if (notesMatch) {
-                  quantity = parseInt(notesMatch[1]) || 0;
-                  itemName = notesMatch[2].trim() || "Item";
-                  itemSku = notesMatch[2].trim() || "N/A";
-                }
-              }
-            }
-            
-            // Format location code for display
-            const locationCode = taskDetails.locationCode || "";
-            const toLocationDisplay = locationCode 
-              ? formatLocationCodeForDisplay(locationCode)
-              : "Not specified";
-            
-            setTask({
-              id: firstTask.id,
-              lpn: firstTask.referenceId || taskDetails.referenceId || "",
-              fromLocation: "Stage Area", // Default staging area
-              toLocation: toLocationDisplay,
-              toLocationCode: locationCode,
-              item: itemName,
-              itemSku: itemSku,
-              itemId,
-              qty: quantity || 0,
-              materialId,
-              orderNumber: orderNumber, // Add order number
-            });
-            
-            console.log("[Putaway] ✅ Task loaded:", {
-              taskId: firstTask.id,
-              orderNumber: orderNumber,
-              itemName: itemName,
-              itemSku: itemSku,
-              quantity: quantity,
-              location: locationCode || "Not specified"
-            });
-          } catch (err) {
-            console.error("Failed to load task details:", err);
-            // Use basic task info
-            setTask({
-              id: firstTask.id,
-              lpn: firstTask.referenceId || "",
-              fromLocation: "Stage Area",
-              toLocation: firstTask.locationCode ? formatLocationCodeForDisplay(firstTask.locationCode) : "Not specified",
-              toLocationCode: firstTask.locationCode || "",
-              item: firstTask.notes || "Item",
-              qty: 0,
-              orderNumber: undefined,
-            });
-          }
-        } else {
-          console.log("[Putaway] No tasks available");
-          setTask(null);
-        }
-      } catch (error: any) {
-        console.error("[Putaway] Failed to load putaway tasks:", error);
-        const errorMessage = error?.message || "Failed to load putaway tasks";
-        showToast.error(errorMessage);
-        setTask(null);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    // Load tasks if worker context is ready
-    loadPutawayTasks();
-    
-    // Poll for new tasks every 3 seconds (to catch newly created tasks)
-    const pollInterval = setInterval(() => {
-      if (worker?.warehouseId) {
-        loadPutawayTasks();
-      }
-    }, 3000);
-    
-    return () => clearInterval(pollInterval);
-  }, [workerContextLoading, worker, worker?.warehouseId, worker?.id]);
-  */
+  const [allocatedByItem, setAllocatedByItem] = useState<Map<string, number>>(new Map());
+  const [skippedReasonsByItem, setSkippedReasonsByItem] = useState<Map<string, string>>(new Map());
+  const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
+  
+  const getFirstPendingItemIndex = (
+    items: PutawayItem[],
+    progress: Map<string, boolean>,
+    skipped: Map<string, string>
+  ) => {
+    const nonSkippedPending = items.findIndex(
+      (item) => !(progress.get(item.itemId) || false) && !skipped.has(item.itemId)
+    );
+    if (nonSkippedPending >= 0) return nonSkippedPending;
+    const pendingIndex = items.findIndex((item) => !(progress.get(item.itemId) || false));
+    return pendingIndex >= 0 ? pendingIndex : 0;
+  };
 
   // Load orders needing putaway
   useEffect(() => {
@@ -396,9 +105,9 @@ export default function PutawayPage() {
         setIsLoadingOrders(true);
         const ordersList = await ordersApi.getOrdersNeedingPutaway(worker.warehouseId!);
         setOrders(ordersList.map(o => ({ id: o.id, orderNumber: o.orderNumber, status: o.status })));
-        console.log("[Putaway] Orders needing putaway:", ordersList.length);
+        logger.debug("[Putaway] Orders needing putaway:", ordersList.length);
       } catch (err) {
-        console.error("[Putaway] Failed to load orders:", err);
+        logger.error("[Putaway] Failed to load orders:", err);
         showToast.error("Failed to load orders. Please try again.");
       } finally {
         setIsLoadingOrders(false);
@@ -423,15 +132,67 @@ export default function PutawayPage() {
         setIsLoading(true);
         const items = await orderItemsApi.getPutawayItems(selectedOrder.id);
         setPutawayItems(items);
-        console.log("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
+        logger.debug("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
         
-        // Reset progress tracking
+        // Initialize progress from persisted task status/progress, not only local session state.
         const progress = new Map<string, boolean>();
-        items.forEach(item => progress.set(item.itemId, false));
+        const allocated = new Map<string, number>();
+        const skipped = new Map<string, string>();
+
+        items.forEach(item => {
+          progress.set(item.itemId, false);
+          allocated.set(item.itemId, 0);
+        });
+
+        try {
+          const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+          const relevantTasks = tasks.filter(
+            (task) =>
+              task.referenceType === "order_item" &&
+              items.some((item) => item.itemId === task.referenceId)
+          );
+
+          for (const item of items) {
+            const itemTasks = relevantTasks.filter((task) => task.referenceId === item.itemId);
+            const completedTask = itemTasks.find((task) => task.status === "completed");
+            const activeTask = itemTasks.find((task) => task.status === "in_progress" || task.status === "pending");
+            const taskForProgress = completedTask ?? activeTask;
+            const progressInfo = parsePutawayProgress(taskForProgress?.notes);
+            const skipReason = parsePutawaySkipReason(taskForProgress?.notes);
+            if (skipReason) {
+              skipped.set(item.itemId, skipReason);
+            }
+
+            if (completedTask) {
+              allocated.set(item.itemId, item.receivedQuantity);
+            } else if (progressInfo) {
+              allocated.set(item.itemId, Math.min(progressInfo.completed, item.receivedQuantity));
+            }
+
+            const done = isItemFullyPutAway(
+              completedTask?.status ?? item.status,
+              progressInfo?.completed,
+              progressInfo?.required
+            );
+            progress.set(item.itemId, done);
+          }
+        } catch (taskError) {
+          logger.warn("[Putaway] Could not hydrate progress from tasks, using defaults.", taskError);
+        }
+
         setPutawayProgress(progress);
-        setCurrentItemIndex(0);
+        setAllocatedByItem(allocated);
+        setSkippedReasonsByItem(skipped);
+        const firstPendingIndex = getFirstPendingItemIndex(items, progress, skipped);
+        setCurrentItemIndex(firstPendingIndex);
+        if (items.length > 0) {
+          const firstItem = items[firstPendingIndex];
+          const alreadyAllocated = allocated.get(firstItem.itemId) || 0;
+          const remaining = Math.max(firstItem.receivedQuantity - alreadyAllocated, 0);
+          setAllocationQuantity(Math.max(remaining, 1));
+        }
       } catch (err) {
-        console.error("[Putaway] Failed to load putaway items:", err);
+        logger.error("[Putaway] Failed to load putaway items:", err);
         showToast.error("Failed to load order items. Please try again.");
       } finally {
         setIsLoading(false);
@@ -440,6 +201,31 @@ export default function PutawayPage() {
 
     loadPutawayItems();
   }, [selectedOrder]);
+
+  useEffect(() => {
+    const currentItem = putawayItems[currentItemIndex];
+    if (!currentItem) {
+      return;
+    }
+    const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
+    const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+    setAllocationQuantity(Math.max(remaining, 1));
+  }, [currentItemIndex, putawayItems, allocatedByItem]);
+
+  useEffect(() => {
+    const currentItem = putawayItems[currentItemIndex];
+    if (!currentItem) {
+      return;
+    }
+
+    // If current item is already complete (e.g., resumed order), jump to first pending item.
+    if (putawayProgress.get(currentItem.itemId)) {
+      const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, skippedReasonsByItem);
+      if (nextIndex !== currentItemIndex) {
+        setCurrentItemIndex(nextIndex);
+      }
+    }
+  }, [currentItemIndex, putawayItems, putawayProgress, skippedReasonsByItem]);
 
   const handleLocationSelect = async (locationCode: string) => {
     setValidatingLocation(true);
@@ -543,74 +329,156 @@ export default function PutawayPage() {
 
     try {
       // Find putaway task for this item and order
-      const tasks = await tasksApi.getAll("putaway", "pending", undefined, worker?.warehouseId, true);
+      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
       const itemTask = tasks.find((t: any) => 
-        t.referenceId === selectedOrder.id && 
-        t.referenceType === "order"
+        t.referenceType === "order_item" &&
+        t.referenceId === currentItem.itemId &&
+        (t.status === "pending" || t.status === "in_progress")
       );
 
-      if (!itemTask) {
+      // Backward compatibility for legacy tasks created at order level.
+      const fallbackTask = tasks.find((t: any) =>
+        t.referenceType === "order" &&
+        t.referenceId === selectedOrder.id &&
+        (t.status === "pending" || t.status === "in_progress")
+      );
+
+      const taskToComplete = itemTask ?? fallbackTask;
+
+      if (!taskToComplete) {
         showToast.error("Putaway task not found for this item. Tasks are created automatically after receiving.");
         return;
       }
 
-      await operationsApi.completePutaway(itemTask.id, {
+      const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
+      const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+      if (allocationQuantity <= 0 || allocationQuantity > remaining) {
+        showToast.error(`Putaway quantity must be between 1 and ${remaining}`);
+        return;
+      }
+
+      await operationsApi.completePutaway(taskToComplete.id, {
         locationCode: scannedLocation.trim().toUpperCase(),
         lpn: "", // LPN is ignored in backend but kept for backward compatibility
-        quantity: currentItem.receivedQuantity, // Pass received quantity explicitly
+        quantity: allocationQuantity,
         materialId: currentItem.materialId, // Pass material ID explicitly
+        workerId: worker?.id, // Required for labor productivity attribution
       });
       
-      // Mark item as put away
+      const nextAllocated = alreadyAllocated + allocationQuantity;
+      const isComplete = nextAllocated >= currentItem.receivedQuantity;
+      const updatedAllocated = new Map(allocatedByItem);
+      updatedAllocated.set(currentItem.itemId, nextAllocated);
+      setAllocatedByItem(updatedAllocated);
+      if (isComplete) {
+        setSkippedReasonsByItem((prev) => {
+          const next = new Map(prev);
+          next.delete(currentItem.itemId);
+          return next;
+        });
+      }
+
+      // Mark item as put away when fully allocated
       const newProgress = new Map(putawayProgress);
-      newProgress.set(currentItem.itemId, true);
+      newProgress.set(currentItem.itemId, isComplete);
       setPutawayProgress(newProgress);
       
-      showToast.success(`Item put away to ${scannedLocation}! Inventory location updated.`);
+      showToast.success(
+        isComplete
+          ? `Item fully put away to location(s).`
+          : `Partial putaway saved (${nextAllocated}/${currentItem.receivedQuantity}).`
+      );
       
       // Reset form
       setScannedLocation("");
       setLocationError("");
       
-      // Move to next item or show completion
-      if (currentItemIndex < putawayItems.length - 1) {
-        setCurrentItemIndex(currentItemIndex + 1);
-      } else {
-        // All items done - check if order is complete
-        const allDone = Array.from(newProgress.values()).every(done => done);
+      // Move to next pending item when fully allocated.
+      if (isComplete) {
+        const allDone = Array.from(newProgress.values()).every((done) => done);
         if (allDone) {
           showToast.success(`All items in ${selectedOrder.orderNumber} have been put away! Inventory and warehouse layout will update automatically.`);
-          // Reload orders to refresh list
           setTimeout(() => {
             setSelectedOrder(null);
             setPutawayItems([]);
           }, 2000);
+        } else {
+          const nextIndex = getFirstPendingItemIndex(putawayItems, newProgress, skippedReasonsByItem);
+          setCurrentItemIndex(nextIndex);
+          const nextItem = putawayItems[nextIndex];
+          const nextAllocatedQty = updatedAllocated.get(nextItem.itemId) || 0;
+          setAllocationQuantity(Math.max(nextItem.receivedQuantity - nextAllocatedQty, 1));
         }
+      } else {
+        const nextRemaining = Math.max(currentItem.receivedQuantity - nextAllocated, 0);
+        setAllocationQuantity(Math.max(nextRemaining, 1));
       }
     } catch (error) {
-      console.error("Error confirming putaway:", error);
-      showToast.error("Failed to complete putaway. Please try again.");
+      const message = extractErrorMessage(error);
+      logger.error("Error confirming putaway:", error);
+      showToast.error(`Failed to complete putaway: ${message}`);
     }
   };
 
-  const handleTakePhoto = () => {
-    fileInputRef.current?.click();
-  };
+  const handleSkipItem = async (reason: string) => {
+    if (!selectedOrder || putawayItems.length === 0) {
+      showToast.error("No order or item selected");
+      return;
+    }
+    const currentItem = putawayItems[currentItemIndex];
+    if (!currentItem) {
+      showToast.error("No item selected");
+      return;
+    }
+    if (!reason.trim()) {
+      showToast.error("Skip reason is required");
+      return;
+    }
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotos((prev) => [...prev, reader.result as string]);
-      };
-      reader.readAsDataURL(file);
+    try {
+      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+      const itemTask = tasks.find(
+        (t: any) =>
+          t.referenceType === "order_item" &&
+          t.referenceId === currentItem.itemId &&
+          (t.status === "pending" || t.status === "in_progress")
+      );
+
+      if (!itemTask) {
+        showToast.error("Item-level putaway task not found. Cannot skip this item safely.");
+        return;
+      }
+
+      await operationsApi.skipPutaway(itemTask.id, {
+        reason: reason.trim(),
+        workerId: worker?.id,
+      });
+
+      const updatedSkipped = new Map(skippedReasonsByItem);
+      updatedSkipped.set(currentItem.itemId, reason.trim());
+      setSkippedReasonsByItem(updatedSkipped);
+      showToast.success("Item skipped with reason. Continue with next pending item.");
+
+      const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, updatedSkipped);
+      if (nextIndex !== currentItemIndex) {
+        setCurrentItemIndex(nextIndex);
+      }
+      setScannedLocation("");
+      setLocationError("");
+    } catch (error) {
+      const message = extractErrorMessage(error);
+      logger.error("Error skipping putaway item:", error);
+      showToast.error(`Failed to skip item: ${message}`);
     }
   };
 
-  const handleSaveNote = () => {
-    console.log("Note saved:", note);
-    setShowNoteModal(false);
+  const handleUseSuggestedLocation = async (suggestedLocation: string) => {
+    const validation = await validateLocationExists(suggestedLocation, worker?.warehouseId);
+    if (validation.valid) {
+      setScannedLocation(suggestedLocation);
+    } else {
+      showToast.error(validation.error || "Suggested location is not valid");
+    }
   };
 
   // Show loading while worker context is loading or items are loading
@@ -651,259 +519,58 @@ export default function PutawayPage() {
   // If no order selected, show order list
   if (!selectedOrder) {
     return (
-      <div className="p-4 space-y-4">
-        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-          <h2 className="text-xl font-bold mb-4">Select Purchase Order</h2>
-          
-          {/* PO Scanner/Input */}
-          <div className="mb-4">
-            <label className="label">
-              <span className="label-text font-medium">Scan or Enter PO Number</span>
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                className="input input-bordered flex-1"
-                placeholder="PO-1768116672193"
-                value={scannedPONumber}
-                onChange={(e) => handlePOChange(e.target.value)}
-              />
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowPOScanner(true)}
-              >
-                <span className="material-symbols-outlined">qr_code_scanner</span>
-                Scan
-              </button>
-            </div>
-          </div>
-
-          {/* Orders List */}
-          {isLoadingOrders ? (
-            <div className="flex justify-center py-8">
-              <span className="loading loading-spinner"></span>
-            </div>
-          ) : orders.length === 0 ? (
-            <div className="alert alert-info">
-              <span className="material-symbols-outlined">info</span>
-              <div>
-                <p className="font-semibold">No orders need putaway</p>
-                <p className="text-sm mt-1">
-                  Orders will appear here after items are received.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-base-content/60 mb-2">
-                {orders.length} order{orders.length !== 1 ? 's' : ''} need putaway:
-              </p>
-              {orders.map((order) => (
-                <button
-                  key={order.id}
-                  className="btn btn-outline w-full justify-start"
-                  onClick={() => setSelectedOrder({ id: order.id, orderNumber: order.orderNumber })}
-                >
-                  <span className="material-symbols-outlined">receipt</span>
-                  <span className="font-mono font-bold">{order.orderNumber}</span>
-                  <span className="badge badge-sm ml-auto">{order.status}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* PO Scanner Modal */}
-        {showPOScanner && (
-          <Modal isOpen={showPOScanner} onClose={() => setShowPOScanner(false)} title="Scan PO Number">
-            <QRScanner 
-              isOpen={showPOScanner}
-              onClose={() => setShowPOScanner(false)}
-              onScan={handlePOScan} 
-            />
-          </Modal>
-        )}
-      </div>
+      <PutawayOrderSelection
+        orders={orders}
+        scannedPONumber={scannedPONumber}
+        isLoadingOrders={isLoadingOrders}
+        showPOScanner={showPOScanner}
+        onPOChange={(value) => {
+          void handlePOChange(value);
+        }}
+        onOpenScanner={() => setShowPOScanner(true)}
+        onCloseScanner={() => setShowPOScanner(false)}
+        onPOScan={handlePOScan}
+        onSelectOrder={setSelectedOrder}
+      />
     );
   }
 
   // If order selected, show items for putaway
   if (selectedOrder && putawayItems.length > 0) {
     const currentItem = putawayItems[currentItemIndex];
-    const completedCount = Array.from(putawayProgress.values()).filter(done => done).length;
-    const isItemDone = putawayProgress.get(currentItem.itemId) || false;
-
+    const alreadyAllocated = currentItem ? (allocatedByItem.get(currentItem.itemId) || 0) : 0;
+    const remainingQuantity = currentItem ? Math.max(currentItem.receivedQuantity - alreadyAllocated, 0) : 0;
     return (
-      <div className="p-4 space-y-4">
-        {/* Order Header */}
-        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => {
-                setSelectedOrder(null);
-                setPutawayItems([]);
-                setCurrentItemIndex(0);
-              }}
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              Back to Orders
-            </button>
-            <div className="badge badge-primary badge-lg">
-              {selectedOrder.orderNumber}
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-sm text-base-content/60 mb-1">Putaway Progress</div>
-            <div className="flex items-center gap-2">
-              <progress 
-                className="progress progress-primary flex-1" 
-                value={completedCount} 
-                max={putawayItems.length}
-              />
-              <span className="text-sm font-semibold">
-                {completedCount}/{putawayItems.length}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Current Item */}
-        {currentItem && !isItemDone && (
-          <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-            <div className="text-sm text-base-content/60 mb-2">
-              Item {currentItemIndex + 1} of {putawayItems.length}
-            </div>
-            <div className="font-bold text-lg mb-4">
-              Put Away Item
-            </div>
-
-            {/* Item Details */}
-            <ItemDetailsDisplay materialId={currentItem.materialId} quantity={currentItem.receivedQuantity} />
-
-            <div className="space-y-3 mb-4">
-              <div className="p-3 bg-base-200 rounded-lg">
-                <div className="text-sm text-base-content/60">Quantity to Put Away</div>
-                <div className="font-semibold">{currentItem.receivedQuantity} units</div>
-              </div>
-            </div>
-
-            {/* Select Location */}
-            <div className="mb-4">
-              <label className="label">
-                <span className="label-text font-medium">Select Target Location</span>
-                {currentItem.suggestedLocation && (
-                  <span className="label-text-alt text-primary">
-                    Suggested: {currentItem.suggestedLocation}
-                  </span>
-                )}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  className={`input input-bordered flex-1 ${locationError ? "input-error" : ""}`}
-                  placeholder={currentItem.suggestedLocation || "Scan or enter location (e.g., C-02-05-3-B or ST-WH-001-01-001-1-A)"}
-                  value={scannedLocation}
-                  onChange={(e) => handleLocationChange(e.target.value)}
-                  disabled={validatingLocation}
-                />
-                <button
-                  onClick={() => setShowLocationPicker(true)}
-                  className="btn btn-primary btn-square"
-                  title="Browse available locations"
-                >
-                  <span className="material-symbols-outlined">location_on</span>
-                </button>
-              </div>
-              {validatingLocation && (
-                <div className="mt-1 text-xs text-base-content/60 flex items-center gap-1">
-                  <span className="loading loading-spinner loading-xs"></span>
-                  Validating location...
-                </div>
-              )}
-              {locationError && (
-                <div className="mt-1 text-xs text-error">{locationError}</div>
-              )}
-              {!locationError && !validatingLocation && scannedLocation && (
-                <div className="mt-1 text-xs text-success">✓ Location validated and active</div>
-              )}
-              {currentItem.suggestedLocation && (
-                <button
-                  className="btn btn-ghost btn-sm mt-2"
-                  onClick={async () => {
-                    const validation = await validateLocationExists(currentItem.suggestedLocation!, worker?.warehouseId);
-                    if (validation.valid) {
-                      setScannedLocation(currentItem.suggestedLocation!);
-                    } else {
-                      showToast.error(validation.error || "Suggested location is not valid");
-                    }
-                  }}
-                >
-                  Use Suggested: {currentItem.suggestedLocation}
-                </button>
-              )}
-            </div>
-
-            {/* Confirm Button */}
-            <button
-              onClick={handleConfirmPutaway}
-              className="btn btn-primary w-full btn-lg"
-              disabled={!scannedLocation || !!locationError}
-            >
-              <span className="material-symbols-outlined">check</span>
-              Confirm Putaway
-            </button>
-          </div>
-        )}
-
-        {/* Completed Items List */}
-        {putawayItems.length > 0 && (
-          <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-            <div className="text-sm font-medium mb-2">Items in Order</div>
-            <div className="space-y-2">
-              {putawayItems.map((item, idx) => {
-                const isDone = putawayProgress.get(item.itemId) || false;
-                const isCurrent = idx === currentItemIndex && !isDone;
-                return (
-                  <div
-                    key={item.itemId}
-                    className={`p-3 rounded-lg border ${
-                      isDone ? "bg-success/10 border-success" :
-                      isCurrent ? "bg-primary/10 border-primary" :
-                      "bg-base-200"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-semibold">Item {idx + 1}</div>
-                        <div className="text-xs text-base-content/60">
-                          Quantity: {item.receivedQuantity}
-                        </div>
-                      </div>
-                      {isDone ? (
-                        <span className="badge badge-success">Done</span>
-                      ) : isCurrent ? (
-                        <span className="badge badge-primary">Current</span>
-                      ) : (
-                        <span className="badge badge-ghost">Pending</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Modals */}
-        {showLocationPicker && (
-          <LocationPicker
-            isOpen={showLocationPicker}
-            onClose={() => setShowLocationPicker(false)}
-            onSelect={handleLocationSelect}
-            warehouseId={worker?.warehouseId}
-          />
-        )}
-      </div>
+      <PutawayOrderWorkflow
+        selectedOrder={selectedOrder}
+        putawayItems={putawayItems}
+        currentItemIndex={currentItemIndex}
+        putawayProgress={putawayProgress}
+        scannedLocation={scannedLocation}
+        locationError={locationError}
+        validatingLocation={validatingLocation}
+        showLocationPicker={showLocationPicker}
+        warehouseId={worker?.warehouseId}
+        onBack={() => {
+          setSelectedOrder(null);
+          setPutawayItems([]);
+          setCurrentItemIndex(0);
+        }}
+        onLocationChange={(value) => {
+          void handleLocationChange(value);
+        }}
+        onOpenLocationPicker={() => setShowLocationPicker(true)}
+        onCloseLocationPicker={() => setShowLocationPicker(false)}
+        onUseSuggestedLocation={handleUseSuggestedLocation}
+        onConfirmPutaway={handleConfirmPutaway}
+        onLocationSelect={handleLocationSelect}
+        onSelectItem={setCurrentItemIndex}
+        onSkipItem={handleSkipItem}
+        allocationQuantity={allocationQuantity}
+        remainingQuantity={remainingQuantity}
+        onAllocationQuantityChange={setAllocationQuantity}
+        skippedReasonsByItem={skippedReasonsByItem}
+      />
     );
   }
 

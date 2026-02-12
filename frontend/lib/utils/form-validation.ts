@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Enterprise-level client-side form validation utilities
  * Uses industry-standard libraries for country-specific validation
@@ -22,7 +23,7 @@ async function getPhoneValidationLib() {
     try {
       phoneValidationLib = await import('libphonenumber-js');
     } catch (err) {
-      console.warn('libphonenumber-js not installed. Install with: npm install libphonenumber-js');
+      logger.warn('libphonenumber-js not installed. Install with: npm install libphonenumber-js');
       return null;
     }
   }
@@ -38,7 +39,7 @@ async function getPostalCodeValidationLib() {
     try {
       postalCodeValidationLib = await import('postal-codes-js');
     } catch (err) {
-      console.warn('postal-codes-js not installed. Install with: npm install postal-codes-js');
+      logger.warn('postal-codes-js not installed. Install with: npm install postal-codes-js');
       return null;
     }
   }
@@ -101,7 +102,7 @@ export async function validatePhone(phone: string, countryCode?: string): Promis
         }
       } catch (err) {
         // If parsing fails, fall back to basic validation
-        console.warn('Phone validation error:', err);
+        logger.warn('Phone validation error:', err);
       }
     }
   }
@@ -181,7 +182,7 @@ export async function validatePostalCode(postalCode: string, countryCode?: strin
         }
       } catch (err) {
         // If validation fails, fall back to basic validation
-        console.warn('Postal code validation error:', err);
+        logger.warn('Postal code validation error:', err);
       }
     }
   }
