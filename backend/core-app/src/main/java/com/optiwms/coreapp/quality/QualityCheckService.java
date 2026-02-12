@@ -61,34 +61,7 @@ public class QualityCheckService {
         if (qualityCheck.getQtyPassed() != null) entity.setQtyPassed(qualityCheck.getQtyPassed());
         if (qualityCheck.getQtyRejected() != null) entity.setQtyRejected(qualityCheck.getQtyRejected());
         if (qualityCheck.getRejectionReason() != null) entity.setRejectionReason(qualityCheck.getRejectionReason());
-        if (qualityCheck.getApprovalStatus() != null) entity.setApprovalStatus(qualityCheck.getApprovalStatus());
-        if (qualityCheck.getApprovedBy() != null) entity.setApprovedBy(qualityCheck.getApprovedBy());
-        if (qualityCheck.getApprovedAt() != null) entity.setApprovedAt(qualityCheck.getApprovedAt());
         
-        entity = repository.save(entity);
-        return toDomain(entity);
-    }
-
-    @Transactional
-    public QualityCheck approve(UUID id, UUID approvedBy) {
-        QualityCheckEntity entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
-        entity.setApprovalStatus("APPROVED");
-        entity.setApprovedBy(approvedBy);
-        entity.setApprovedAt(OffsetDateTime.now());
-        entity.setRejectionReason(null);
-        entity = repository.save(entity);
-        return toDomain(entity);
-    }
-
-    @Transactional
-    public QualityCheck reject(UUID id, String rejectionReason, UUID reviewedBy) {
-        QualityCheckEntity entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
-        entity.setApprovalStatus("REJECTED");
-        entity.setApprovedBy(reviewedBy);
-        entity.setApprovedAt(OffsetDateTime.now());
-        entity.setRejectionReason(rejectionReason);
         entity = repository.save(entity);
         return toDomain(entity);
     }
@@ -107,9 +80,6 @@ public class QualityCheckService {
         check.setQtyPassed(entity.getQtyPassed());
         check.setQtyRejected(entity.getQtyRejected());
         check.setRejectionReason(entity.getRejectionReason());
-        check.setApprovalStatus(entity.getApprovalStatus());
-        check.setApprovedBy(entity.getApprovedBy());
-        check.setApprovedAt(entity.getApprovedAt());
         check.setCheckedBy(entity.getCheckedBy());
         check.setCheckDate(entity.getCheckDate());
         return check;
@@ -124,11 +94,9 @@ public class QualityCheckService {
         entity.setQtyPassed(check.getQtyPassed() != null ? check.getQtyPassed() : BigDecimal.ZERO);
         entity.setQtyRejected(check.getQtyRejected() != null ? check.getQtyRejected() : BigDecimal.ZERO);
         entity.setRejectionReason(check.getRejectionReason());
-        entity.setApprovalStatus(check.getApprovalStatus() != null ? check.getApprovalStatus() : "PENDING");
-        entity.setApprovedBy(check.getApprovedBy());
-        entity.setApprovedAt(check.getApprovedAt());
         entity.setCheckedBy(check.getCheckedBy());
         entity.setCheckDate(check.getCheckDate() != null ? check.getCheckDate() : OffsetDateTime.now());
         return entity;
     }
 }
+

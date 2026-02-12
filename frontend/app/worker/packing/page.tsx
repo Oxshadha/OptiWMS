@@ -82,7 +82,7 @@ export default function PackingPage() {
         );
         
         // Fetch order items and customer names for each order
-        const ordersWithDetails: Array<Order | null> = await Promise.all(
+        const ordersWithDetails = await Promise.all(
           warehouseOrders.map(async (apiOrder) => {
             try {
               // Fetch customer name
@@ -154,7 +154,7 @@ export default function PackingPage() {
         );
 
         // Filter out null values
-        const validOrders = ordersWithDetails.filter((o): o is NonNullable<typeof o> => o !== null);
+        const validOrders = ordersWithDetails.filter((o): o is Order => o !== null);
         setOrders(validOrders);
       } catch (error) {
         console.error("Error loading orders:", error);
@@ -164,7 +164,7 @@ export default function PackingPage() {
       }
     };
     loadOrders();
-  }, [isOnline, worker?.warehouseId]);
+  }, [isOnline]);
 
   const packagingTypes = [
     { id: "small", name: "Small Box", dimensions: { length: 20, width: 15, height: 10 }, maxWeight: 5 },
@@ -270,17 +270,19 @@ export default function PackingPage() {
     // Save to IndexedDB
     await saveScanRecord({
       taskId: selectedOrder.id,
-      location: "PACKING_STATION",
-      item: selectedOrder.orderNumber,
+      taskType: "packing",
+      locationCode: "",
       sku: "",
-      qty: selectedOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      quantity: selectedOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      timestamp: new Date().toISOString(),
     });
 
     // Add to sync queue
     await addToSyncQueue({
-      type: "operation",
-      action: "create",
+      type: "packing",
+      action: "complete",
       data: packingRecord,
+      timestamp: new Date().toISOString(),
     });
 
     // Update order status
@@ -302,13 +304,13 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = () => {
-    window.print();
-    showToast.success("Shipping label sent to printer");
+    // TODO: Print shipping label
+    alert("Printing shipping label...");
   };
 
   const handlePrintSlip = () => {
-    window.print();
-    showToast.success("Packing slip sent to printer");
+    // TODO: Print packing slip
+    alert("Printing packing slip...");
   };
 
   const readyToPackOrders = orders.filter(o => o.status === "ready_to_pack");
@@ -659,3 +661,4 @@ export default function PackingPage() {
     </div>
   );
 }
+

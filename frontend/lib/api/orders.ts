@@ -15,12 +15,6 @@ export interface Order {
   notes?: string;
 }
 
-export interface ApprovePurchaseOrdersResponse {
-  supplierId: string;
-  approvedCount: number;
-  message: string;
-}
-
 export const ordersApi = {
   getAll: async (orderType?: string, status?: string): Promise<Order[]> => {
     const params = new URLSearchParams();
@@ -67,20 +61,6 @@ export const ordersApi = {
     return ordersApi.getAll("outbound");
   },
 
-  approveSupplierPurchaseOrders: async (
-    supplierId: string,
-    approvedBy?: string,
-    note?: string
-  ): Promise<ApprovePurchaseOrdersResponse> => {
-    return apiClient.post<ApprovePurchaseOrdersResponse>(
-      `/orders/suppliers/${supplierId}/approve-purchase-orders`,
-      {
-        approvedBy,
-        note,
-      }
-    );
-  },
-
   /**
    * Get orders that need putaway (received but not yet put away)
    * For putaway workers to see available orders
@@ -97,3 +77,4 @@ export const ordersApi = {
     return apiClient.get<Order[]>(`/orders/warehouse/${warehouseId}/needs-receiving`);
   },
 };
+

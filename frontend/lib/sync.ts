@@ -56,8 +56,10 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         endpoint = "/operations";
         method = "POST";
         break;
-      default:
-        throw new Error(`Unsupported sync item type: ${String(item.type)}`);
+      case "stock_transfer":
+        endpoint = "/operations/stock-transfers";
+        method = item.action === "receive" ? "POST" : "PUT";
+        break;
     }
 
     // Make API call
@@ -165,3 +167,4 @@ export function startAutoSync(intervalMs: number = 30000): () => void {
     unsubscribe();
   };
 }
+

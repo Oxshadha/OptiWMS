@@ -64,16 +64,6 @@ export default function CycleCountPage() {
         // Fetch material names for each count
         const tasksWithNames = await Promise.all(
           activeCounts.map(async (count) => {
-            if (!count.materialId) {
-              return {
-                id: count.id,
-                location: count.locationCode,
-                sku: "N/A",
-                item: "Material details not available",
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
-              };
-            }
             try {
               const material = await materialsApi.getById(count.materialId);
               const display = formatMaterialDisplay(
@@ -86,8 +76,8 @@ export default function CycleCountPage() {
                 location: count.locationCode,
                 sku: display.sku,
                 item: display.name,
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
+                expected: parseInt(count.expectedQuantity) || 0,
+                counted: parseInt(count.countedQuantity) || 0,
               };
             } catch (error) {
               console.error(`Error fetching material ${count.materialId}:`, error);
@@ -97,8 +87,8 @@ export default function CycleCountPage() {
                 location: count.locationCode,
                 sku: "N/A",
                 item: "Material details not available",
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
+                expected: parseInt(count.expectedQuantity) || 0,
+                counted: parseInt(count.countedQuantity) || 0,
               };
             }
           })
@@ -394,3 +384,4 @@ export default function CycleCountPage() {
     </div>
   );
 }
+

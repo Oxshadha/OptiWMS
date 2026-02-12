@@ -10,7 +10,6 @@ import React from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
-import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 
 // Display format for suppliers
@@ -75,7 +74,7 @@ const mockSuppliers: SupplierDisplay[] = [
 ];
 
 export default function SuppliersPage() {
-  const { hasPermission, admin } = useAdmin();
+  const { hasPermission } = useAdmin();
   const canDelete = hasPermission(ADMIN_ROUTES.SUPPLIERS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -108,7 +107,7 @@ export default function SuppliersPage() {
       contactPerson: s.contactPerson || "N/A",
       email: s.email || "",
       phone: s.phone || "",
-      productsSupplied: 0,
+      productsSupplied: 0, // TODO: Get from material-supplier relationship
       leadTimeDays: s.leadTimeDays || 7,
       rating: parseFloat(s.rating || "4.0"),
       status: s.status,
@@ -363,23 +362,9 @@ export default function SuppliersPage() {
         {canApprovePO && (
           <li>
             <button
-              onClick={async () => {
-                try {
-                  const result = await ordersApi.approveSupplierPurchaseOrders(
-                    supplier.id,
-                    admin?.id,
-                    `Approved from Suppliers page for ${supplier.name}`
-                  );
-                  if (result.approvedCount > 0) {
-                    showToast.success(`Approved ${result.approvedCount} purchase order(s)`);
-                  } else {
-                    showToast.warning("No pending inbound purchase orders to approve for this supplier");
-                  }
-                  window.location.reload();
-                } catch (err) {
-                  console.error("Failed to approve purchase orders:", err);
-                  showToast.error(err instanceof Error ? err.message : "Failed to approve purchase orders");
-                }
+              onClick={() => {
+                // TODO: Handle PO approval
+                console.log("Approving PO for supplier:", supplier.id);
               }}
             >
               <span className="material-symbols-outlined text-sm">

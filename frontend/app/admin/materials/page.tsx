@@ -57,15 +57,7 @@ export default function MaterialsPage() {
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
 
   // Use React Query for data fetching (centralized, cached)
-  const {
-    data: allMaterialsData,
-    isLoading,
-    error,
-    refetch,
-  } = useMaterials();
-  const allMaterials: Material[] = Array.isArray(allMaterialsData)
-    ? allMaterialsData
-    : [];
+  const { data: allMaterials, isLoading, error, refetch } = useMaterials();
   const createMutation = useCreateMaterial();
   const updateMutation = useUpdateMaterial();
   const deleteMutation = useDeleteMaterial();
@@ -277,24 +269,28 @@ export default function MaterialsPage() {
       <SummaryCards
         cards={[
           {
-            label: "Total Products",
+            title: "Total Products",
             value: summaryStats.total.toString(),
             icon: "inventory_2",
+            trend: null,
           },
           {
-            label: "Raw Materials",
+            title: "Raw Materials",
             value: summaryStats.rawMaterials.toString(),
             icon: "science",
+            trend: null,
           },
           {
-            label: "Products",
+            title: "Products",
             value: summaryStats.products.toString(),
             icon: "category",
+            trend: null,
           },
           {
-            label: "Packaging",
+            title: "Packaging",
             value: summaryStats.packaging.toString(),
             icon: "inventory",
+            trend: null,
           },
         ]}
       />

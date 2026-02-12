@@ -6,12 +6,9 @@ import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
-import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
-import { mapPackingStatus } from "@/lib/utils/status-mappers";
 
 type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
@@ -122,26 +119,17 @@ export default function PackingPage() {
     try {
       setLoading(true);
       setError(null);
-      const [recordsData, ordersData, customersData, warehousesData] = await Promise.all([
-        packingApi.getAll(),
-        ordersApi.getAllOutbound(),
-        customersApi.getAll(),
-        warehousesApi.getAll(),
-      ]);
+      const recordsData = await packingApi.getAll();
       
-      const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
-      const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
-
-      const ordersMap = buildLookupMap(
-        ordersData,
-        (o) => o.id,
-        (o) => ({
-          customerName: o.customerId
-            ? getLookupValue(customersMap, o.customerId, "Unknown")
-            : "Unknown",
-          warehouseName: getLookupValue(warehousesMap, o.warehouseId, "Unknown"),
-        }),
-      );
+      // Fetch orders to get customer names
+      const ordersData = await ordersApi.getAllOutbound();
+      const ordersMap = new Map<string, { customerName: string; warehouseName: string }>();
+      ordersData.forEach(o => {
+        ordersMap.set(o.id, {
+          customerName: o.customerName || "Unknown",
+          warehouseName: o.warehouseName || "Unknown",
+        });
+      });
 
       // Transform API data to display format
       const displayRecords: PackingRecord[] = recordsData.map((r) => {
@@ -160,14 +148,19 @@ export default function PackingPage() {
           }
         }
 
-        const displayStatus = mapPackingStatus(r.status);
+        // Map status from API to display format
+        let displayStatus: PackingStatus = "pending";
+        if (r.status === "in_progress") displayStatus = "in_progress";
+        else if (r.status === "packed") displayStatus = "packed";
+        else if (r.status === "shipped") displayStatus = "shipped";
+        else displayStatus = "pending";
 
         return {
           id: r.id,
           orderId: r.orderId || "",
           orderNumber: r.orderNumber || "N/A",
           customer: orderInfo?.customerName || "Unknown",
-          priority: "normal" as const,
+          priority: "normal" as const, // TODO: Get from order when available
           packagingType: r.boxType || "",
           boxDimensions,
           actualWeight: r.actualWeightKg ? parseFloat(r.actualWeightKg) : 0,
@@ -175,7 +168,7 @@ export default function PackingPage() {
           chargeableWeight: r.chargeableWeightKg ? parseFloat(r.chargeableWeightKg) : 0,
           trackingNumber: r.trackingNumber,
           packerId: r.packerId,
-          packerName: r.packerId ? `Worker ${r.packerId.slice(0, 6)}` : undefined,
+          packerName: undefined, // TODO: Get from user API
           status: displayStatus,
           startedAt: r.startedAt,
           completedAt: r.completedAt,
@@ -288,55 +281,13 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = (record: PackingRecord) => {
-    if (typeof window === "undefined") return;
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      showToast.error("Unable to open print window");
-      return;
-    }
-
-    printWindow.document.write(`
-      <html>
-        <head><title>Shipping Label - ${record.orderNumber}</title></head>
-        <body>
-          <h1>Shipping Label</h1>
-          <p><strong>Order:</strong> ${record.orderNumber}</p>
-          <p><strong>Customer:</strong> ${record.customer}</p>
-          <p><strong>Tracking:</strong> ${record.trackingNumber || "N/A"}</p>
-          <p><strong>Packaging:</strong> ${record.packagingType || "N/A"}</p>
-          <p><strong>Weight (kg):</strong> ${record.chargeableWeight || record.actualWeight || 0}</p>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+    // TODO: Print shipping label
+    alert(`Printing label for ${record.orderNumber}...`);
   };
 
   const handlePrintSlip = (record: PackingRecord) => {
-    if (typeof window === "undefined") return;
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      showToast.error("Unable to open print window");
-      return;
-    }
-
-    printWindow.document.write(`
-      <html>
-        <head><title>Packing Slip - ${record.orderNumber}</title></head>
-        <body>
-          <h1>Packing Slip</h1>
-          <p><strong>Order:</strong> ${record.orderNumber}</p>
-          <p><strong>Customer:</strong> ${record.customer}</p>
-          <p><strong>Status:</strong> ${record.status}</p>
-          <p><strong>Packer:</strong> ${record.packerName || "Unassigned"}</p>
-          <p><strong>Actual Weight (kg):</strong> ${record.actualWeight || 0}</p>
-          <p><strong>Dimensional Weight (kg):</strong> ${record.dimensionalWeight || 0}</p>
-          <p><strong>Chargeable Weight (kg):</strong> ${record.chargeableWeight || 0}</p>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+    // TODO: Print packing slip
+    alert(`Printing slip for ${record.orderNumber}...`);
   };
 
   return (
@@ -823,3 +774,4 @@ export default function PackingPage() {
     </div>
   );
 }
+
