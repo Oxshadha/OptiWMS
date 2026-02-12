@@ -1,7 +1,10 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.anomalies.AnomalyService;
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.infra.cyclecount.CycleCountAuditLogEntity;
+import com.optiwms.infra.cyclecount.CycleCountAuditLogRepository;
 import com.optiwms.infra.cyclecount.CycleCountEntity;
 import com.optiwms.infra.cyclecount.CycleCountRecountEntity;
 import com.optiwms.infra.cyclecount.CycleCountRecountRepository;
@@ -18,18 +21,26 @@ import java.util.stream.Collectors;
 @Service
 public class CycleCountService {
 
+    private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+
     private final CycleCountRepository repository;
     private final CycleCountRecountRepository recountRepository;
+    private final CycleCountAuditLogRepository auditLogRepository;
     private final InventoryService inventoryService;
+    private final AnomalyService anomalyService;
     private final OperationEventService operationEventService;
 
     public CycleCountService(CycleCountRepository repository,
                             CycleCountRecountRepository recountRepository,
+                            CycleCountAuditLogRepository auditLogRepository,
                             InventoryService inventoryService,
+                            AnomalyService anomalyService,
                             OperationEventService operationEventService) {
         this.repository = repository;
         this.recountRepository = recountRepository;
+        this.auditLogRepository = auditLogRepository;
         this.inventoryService = inventoryService;
+        this.anomalyService = anomalyService;
         this.operationEventService = operationEventService;
     }
 
@@ -90,6 +101,10 @@ public class CycleCountService {
         CycleCountEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
 
+        if ("completed".equals(entity.getStatus()) || "cancelled".equals(entity.getStatus())) {
+            throw new RuntimeException("Cycle count is already in terminal status: " + entity.getStatus());
+        }
+
         // Find inventory at location
         List<InventoryItem> inventory = inventoryService.findByWarehouse(entity.getWarehouseId());
         InventoryItem item = inventory.stream()
@@ -103,6 +118,22 @@ public class CycleCountService {
         Integer systemQuantity = item.getQuantity() != null ? item.getQuantity() : 0;
         Integer variance = countedQtyInteger - systemQuantity;
         BigDecimal varianceDecimal = new BigDecimal(variance);
+        BigDecimal expectedQuantityDecimal = BigDecimal.valueOf(systemQuantity.longValue());
+        BigDecimal countedQuantityDecimal = BigDecimal.valueOf(countedQtyInteger.longValue());
+        BigDecimal variancePercentage = calculateVariancePercentage(systemQuantity, variance);
+        String anomalyLevel = calculateAnomalyLevel(varianceDecimal, entity.getVarianceThreshold());
+        boolean anomalyDetected = "major".equals(anomalyLevel) || "critical".equals(anomalyLevel);
+        String previousStatus = entity.getStatus();
+
+        entity.setMaterialId(materialId);
+        entity.setExpectedQuantity(expectedQuantityDecimal);
+        entity.setCountedQuantity(countedQuantityDecimal);
+        entity.setVariance(varianceDecimal);
+        entity.setVariancePercentage(variancePercentage);
+        entity.setAnomalyLevel(anomalyLevel);
+        entity.setAnomalyDetected(anomalyDetected);
+        entity.setCountedBy(countedBy);
+        entity.setCountedAt(LocalDateTime.now());
 
         // Get variance threshold (default 5 units if not set)
         BigDecimal threshold = entity.getVarianceThreshold() != null ? 
@@ -112,12 +143,22 @@ public class CycleCountService {
         if (varianceDecimal.abs().compareTo(threshold) > 0 && !Boolean.TRUE.equals(entity.getRecountRequired())) {
             // First count with large variance - require recount
             entity.setRecountRequired(true);
+            entity.setApprovalRequired(false);
             entity.setPreviousVariance(varianceDecimal);
-            entity.setVariance(varianceDecimal);
-            entity.setCountedBy(countedBy);
-            entity.setCountedAt(LocalDateTime.now());
             entity.setStatus("recount_required"); // New status
             repository.save(entity);
+
+            saveCycleCountAudit(
+                    entity.getId(),
+                    "COUNT_RECORDED_RECOUNT_REQUIRED",
+                    countedBy,
+                    previousStatus,
+                    entity.getStatus(),
+                    expectedQuantityDecimal,
+                    countedQuantityDecimal,
+                    varianceDecimal,
+                    "Variance exceeded threshold; recount required"
+            );
 
             // Record this count in recount history
             saveRecountHistory(id, 1, countedQuantity, varianceDecimal, countedBy, 
@@ -128,7 +169,8 @@ public class CycleCountService {
                 String.format("Large variance detected (%.0f units, threshold: %.0f). Please recount.", 
                     varianceDecimal.doubleValue(), threshold.doubleValue()),
                 varianceDecimal,
-                true // recountRequired flag
+                true,
+                false
             );
         }
 
@@ -146,84 +188,242 @@ public class CycleCountService {
             if (currentRecountCount >= 2) {
                 entity.setRecountRequired(false);
                 entity.setFinalVariance(varianceDecimal);
-                entity.setVariance(varianceDecimal);
-                entity.setStatus("completed");
-                
-                // Update inventory with final count
-                item.setQuantity(countedQtyInteger);
-                item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
-                inventoryService.createOrUpdate(item);
-
-                repository.save(entity);
-                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                        "CYCLE_COUNT",
-                        countedBy,
-                        null,
-                        null,
-                        null,
-                        entity.getWarehouseId(),
-                        materialId,
-                        countedQtyInteger,
-                        null,
-                        LocalDateTime.now(),
-                        "recount_required=false;final=true"
-                ));
+                if (variance == 0) {
+                    entity.setApprovalRequired(false);
+                    entity.setStatus("completed");
+                    repository.save(entity);
+                    saveCycleCountAudit(
+                            entity.getId(),
+                            "COUNT_RECORDED",
+                            countedBy,
+                            previousStatus,
+                            entity.getStatus(),
+                            expectedQuantityDecimal,
+                            countedQuantityDecimal,
+                            varianceDecimal,
+                            "Recount completed with zero variance"
+                    );
+                    operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                            "CYCLE_COUNT",
+                            countedBy,
+                            null,
+                            null,
+                            null,
+                            entity.getWarehouseId(),
+                            materialId,
+                            countedQtyInteger,
+                            null,
+                            LocalDateTime.now(),
+                            "approval_required=false;recount=true"
+                    ));
+                } else {
+                    entity.setApprovalRequired(true);
+                    entity.setStatus("pending_approval");
+                    repository.save(entity);
+                    maybeCreateAnomaly(entity);
+                    saveCycleCountAudit(
+                            entity.getId(),
+                            "COUNT_RECORDED_PENDING_APPROVAL",
+                            countedBy,
+                            previousStatus,
+                            entity.getStatus(),
+                            expectedQuantityDecimal,
+                            countedQuantityDecimal,
+                            varianceDecimal,
+                            "Recount finalized with non-zero variance; manager approval required"
+                    );
+                }
                 return new CycleCountResult(
                     true, 
                     String.format("Count completed after %d recounts. Final variance: %.0f units.", 
                         currentRecountCount, varianceDecimal.doubleValue()),
                     varianceDecimal,
-                    false
+                    false,
+                    entity.getApprovalRequired() != null && entity.getApprovalRequired()
                 );
             } else {
                 // Still need more recounts
-                entity.setVariance(varianceDecimal);
+                entity.setApprovalRequired(false);
                 repository.save(entity);
+                saveCycleCountAudit(
+                        entity.getId(),
+                        "RECOUNT_RECORDED",
+                        countedBy,
+                        previousStatus,
+                        entity.getStatus(),
+                        expectedQuantityDecimal,
+                        countedQuantityDecimal,
+                        varianceDecimal,
+                        String.format("Recount #%d recorded", currentRecountCount)
+                );
                 return new CycleCountResult(
                     false, 
                     String.format("Recount #%d recorded. Variance: %.0f units. Please recount again.", 
                         currentRecountCount, varianceDecimal.doubleValue()),
                     varianceDecimal,
-                    true
+                    true,
+                    false
                 );
             }
         }
 
         // Normal flow: Small variance, accept immediately
-        entity.setVariance(varianceDecimal);
         entity.setFinalVariance(varianceDecimal);
-        entity.setCountedBy(countedBy);
-        entity.setCountedAt(LocalDateTime.now());
-        entity.setStatus("completed");
-        repository.save(entity);
-
-        // Update inventory
-        if (variance != 0) {
-            item.setQuantity(countedQtyInteger);
-            item.setAvailableQuantity(countedQtyInteger - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
-            inventoryService.createOrUpdate(item);
+        if (variance == 0) {
+            entity.setApprovalRequired(false);
+            entity.setStatus("completed");
+            repository.save(entity);
+            saveCycleCountAudit(
+                    entity.getId(),
+                    "COUNT_RECORDED",
+                    countedBy,
+                    previousStatus,
+                    entity.getStatus(),
+                    expectedQuantityDecimal,
+                    countedQuantityDecimal,
+                    varianceDecimal,
+                    "Cycle count matched system quantity"
+            );
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "CYCLE_COUNT",
+                    countedBy,
+                    null,
+                    null,
+                    null,
+                    entity.getWarehouseId(),
+                    materialId,
+                    countedQtyInteger,
+                    null,
+                    LocalDateTime.now(),
+                    "approval_required=false;variance=0"
+            ));
+        } else {
+            entity.setApprovalRequired(true);
+            entity.setStatus("pending_approval");
+            repository.save(entity);
+            maybeCreateAnomaly(entity);
+            saveCycleCountAudit(
+                    entity.getId(),
+                    "COUNT_RECORDED_PENDING_APPROVAL",
+                    countedBy,
+                    previousStatus,
+                    entity.getStatus(),
+                    expectedQuantityDecimal,
+                    countedQuantityDecimal,
+                    varianceDecimal,
+                    "Variance detected; manager approval required"
+            );
         }
-
-        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                "CYCLE_COUNT",
-                countedBy,
-                null,
-                null,
-                null,
-                entity.getWarehouseId(),
-                materialId,
-                countedQtyInteger,
-                null,
-                LocalDateTime.now(),
-                "recount_required=false;final=true"
-        ));
 
         return new CycleCountResult(
             true, 
             "Count recorded successfully", 
             varianceDecimal,
-            false
+            false,
+            entity.getApprovalRequired() != null && entity.getApprovalRequired()
         );
+    }
+
+    @Transactional
+    public CycleCount approveAdjustment(UUID id, UUID approvedBy, String notes) {
+        CycleCountEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
+
+        if (!Boolean.TRUE.equals(entity.getApprovalRequired())) {
+            throw new RuntimeException("Cycle count does not require approval");
+        }
+        if (!"pending_approval".equals(entity.getStatus())) {
+            throw new RuntimeException("Cycle count is not in pending_approval status");
+        }
+        if (entity.getMaterialId() == null || entity.getCountedQuantity() == null) {
+            throw new RuntimeException("Cycle count is missing counted material/quantity details");
+        }
+
+        UUID materialId = entity.getMaterialId();
+        String locationCode = entity.getLocationCode();
+        List<InventoryItem> inventory = inventoryService.findByWarehouse(entity.getWarehouseId());
+        InventoryItem item = inventory.stream()
+                .filter(inv -> inv.getMaterialId().equals(materialId) &&
+                        (locationCode == null || locationCode.equals(inv.getLocationCode())))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Inventory not found for cycle count adjustment"));
+
+        Integer adjustedQuantity = entity.getCountedQuantity().intValue();
+        item.setQuantity(adjustedQuantity);
+        item.setAvailableQuantity(adjustedQuantity - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
+        inventoryService.createOrUpdate(item);
+
+        String previousStatus = entity.getStatus();
+        entity.setApprovalRequired(false);
+        entity.setApprovedBy(approvedBy);
+        entity.setApprovedAt(LocalDateTime.now());
+        entity.setApprovalNotes(notes);
+        entity.setStatus("completed");
+        entity = repository.save(entity);
+
+        saveCycleCountAudit(
+                entity.getId(),
+                "ADJUSTMENT_APPROVED",
+                approvedBy,
+                previousStatus,
+                entity.getStatus(),
+                entity.getExpectedQuantity(),
+                entity.getCountedQuantity(),
+                entity.getVariance(),
+                notes
+        );
+
+        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                "CYCLE_COUNT_APPROVAL",
+                approvedBy,
+                null,
+                null,
+                null,
+                entity.getWarehouseId(),
+                entity.getMaterialId(),
+                adjustedQuantity,
+                null,
+                LocalDateTime.now(),
+                "approval=approved;adjusted=true"
+        ));
+
+        return toDomain(entity);
+    }
+
+    @Transactional
+    public CycleCount rejectAdjustment(UUID id, UUID approvedBy, String notes) {
+        CycleCountEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
+
+        if (!Boolean.TRUE.equals(entity.getApprovalRequired())) {
+            throw new RuntimeException("Cycle count does not require approval");
+        }
+        if (!"pending_approval".equals(entity.getStatus())) {
+            throw new RuntimeException("Cycle count is not in pending_approval status");
+        }
+
+        String previousStatus = entity.getStatus();
+        entity.setApprovalRequired(false);
+        entity.setRecountRequired(true);
+        entity.setApprovedBy(approvedBy);
+        entity.setApprovedAt(LocalDateTime.now());
+        entity.setApprovalNotes(notes);
+        entity.setStatus("recount_required");
+        entity = repository.save(entity);
+
+        saveCycleCountAudit(
+                entity.getId(),
+                "ADJUSTMENT_REJECTED",
+                approvedBy,
+                previousStatus,
+                entity.getStatus(),
+                entity.getExpectedQuantity(),
+                entity.getCountedQuantity(),
+                entity.getVariance(),
+                notes
+        );
+
+        return toDomain(entity);
     }
 
     /**
@@ -239,6 +439,76 @@ public class CycleCountService {
         recount.setCountedBy(countedBy);
         recount.setNotes(notes);
         recountRepository.save(recount);
+    }
+
+    private void saveCycleCountAudit(
+            UUID cycleCountId,
+            String action,
+            UUID performedBy,
+            String fromStatus,
+            String toStatus,
+            BigDecimal expectedQuantity,
+            BigDecimal countedQuantity,
+            BigDecimal variance,
+            String notes
+    ) {
+        CycleCountAuditLogEntity log = new CycleCountAuditLogEntity();
+        log.setCycleCountId(cycleCountId);
+        log.setAction(action);
+        log.setPerformedBy(performedBy);
+        log.setFromStatus(fromStatus);
+        log.setToStatus(toStatus);
+        log.setExpectedQuantity(expectedQuantity);
+        log.setCountedQuantity(countedQuantity);
+        log.setVariance(variance);
+        log.setNotes(notes);
+        auditLogRepository.save(log);
+    }
+
+    private BigDecimal calculateVariancePercentage(Integer systemQuantity, Integer variance) {
+        if (systemQuantity == null || systemQuantity == 0) {
+            if (variance == null || variance == 0) {
+                return BigDecimal.ZERO;
+            }
+            return ONE_HUNDRED;
+        }
+        BigDecimal absVariance = BigDecimal.valueOf(Math.abs(variance.longValue()));
+        return absVariance.multiply(ONE_HUNDRED)
+                .divide(BigDecimal.valueOf(systemQuantity.longValue()), 4, java.math.RoundingMode.HALF_UP);
+    }
+
+    private String calculateAnomalyLevel(BigDecimal variance, BigDecimal threshold) {
+        BigDecimal absVariance = variance.abs();
+        BigDecimal safeThreshold = (threshold != null && threshold.compareTo(BigDecimal.ZERO) > 0)
+                ? threshold
+                : new BigDecimal("5.0");
+
+        if (absVariance.compareTo(BigDecimal.ZERO) == 0) {
+            return "none";
+        }
+        if (absVariance.compareTo(safeThreshold) <= 0) {
+            return "minor";
+        }
+        if (absVariance.compareTo(safeThreshold.multiply(new BigDecimal("2"))) <= 0) {
+            return "major";
+        }
+        return "critical";
+    }
+
+    private void maybeCreateAnomaly(CycleCountEntity entity) {
+        if (!Boolean.TRUE.equals(entity.getAnomalyDetected())) {
+            return;
+        }
+        anomalyService.create(
+                "CYCLE_COUNT_VARIANCE",
+                entity.getMaterialId(),
+                entity.getWarehouseId(),
+                entity.getCountedQuantity(),
+                entity.getExpectedQuantity(),
+                entity.getVariancePercentage(),
+                entity.getAnomalyLevel() != null ? entity.getAnomalyLevel().toUpperCase() : "MAJOR",
+                "Cycle count variance detected for count " + entity.getCountNumber()
+        );
     }
 
     private String generateCountNumber() {
@@ -257,6 +527,17 @@ public class CycleCountService {
         count.setCountedBy(entity.getCountedBy());
         count.setCountedAt(entity.getCountedAt());
         count.setVariance(entity.getVariance());
+        count.setMaterialId(entity.getMaterialId());
+        count.setExpectedQuantity(entity.getExpectedQuantity());
+        count.setCountedQuantity(entity.getCountedQuantity());
+        count.setVariancePercentage(entity.getVariancePercentage());
+        count.setAnomalyLevel(entity.getAnomalyLevel());
+        count.setAnomalyDetected(entity.getAnomalyDetected());
+        count.setApprovalRequired(entity.getApprovalRequired());
+        count.setApprovedBy(entity.getApprovedBy());
+        count.setApprovedAt(entity.getApprovedAt());
+        count.setApprovalNotes(entity.getApprovalNotes());
+        count.setRecountRequired(entity.getRecountRequired());
         count.setNotes(entity.getNotes());
         return count;
     }
@@ -272,6 +553,17 @@ public class CycleCountService {
         private UUID countedBy;
         private java.time.LocalDateTime countedAt;
         private BigDecimal variance;
+        private UUID materialId;
+        private BigDecimal expectedQuantity;
+        private BigDecimal countedQuantity;
+        private BigDecimal variancePercentage;
+        private String anomalyLevel;
+        private Boolean anomalyDetected;
+        private Boolean approvalRequired;
+        private UUID approvedBy;
+        private java.time.LocalDateTime approvedAt;
+        private String approvalNotes;
+        private Boolean recountRequired;
         private String notes;
 
         // Getters and Setters
@@ -295,14 +587,42 @@ public class CycleCountService {
         public void setCountedAt(java.time.LocalDateTime countedAt) { this.countedAt = countedAt; }
         public BigDecimal getVariance() { return variance; }
         public void setVariance(BigDecimal variance) { this.variance = variance; }
+        public UUID getMaterialId() { return materialId; }
+        public void setMaterialId(UUID materialId) { this.materialId = materialId; }
+        public BigDecimal getExpectedQuantity() { return expectedQuantity; }
+        public void setExpectedQuantity(BigDecimal expectedQuantity) { this.expectedQuantity = expectedQuantity; }
+        public BigDecimal getCountedQuantity() { return countedQuantity; }
+        public void setCountedQuantity(BigDecimal countedQuantity) { this.countedQuantity = countedQuantity; }
+        public BigDecimal getVariancePercentage() { return variancePercentage; }
+        public void setVariancePercentage(BigDecimal variancePercentage) { this.variancePercentage = variancePercentage; }
+        public String getAnomalyLevel() { return anomalyLevel; }
+        public void setAnomalyLevel(String anomalyLevel) { this.anomalyLevel = anomalyLevel; }
+        public Boolean getAnomalyDetected() { return anomalyDetected; }
+        public void setAnomalyDetected(Boolean anomalyDetected) { this.anomalyDetected = anomalyDetected; }
+        public Boolean getApprovalRequired() { return approvalRequired; }
+        public void setApprovalRequired(Boolean approvalRequired) { this.approvalRequired = approvalRequired; }
+        public UUID getApprovedBy() { return approvedBy; }
+        public void setApprovedBy(UUID approvedBy) { this.approvedBy = approvedBy; }
+        public java.time.LocalDateTime getApprovedAt() { return approvedAt; }
+        public void setApprovedAt(java.time.LocalDateTime approvedAt) { this.approvedAt = approvedAt; }
+        public String getApprovalNotes() { return approvalNotes; }
+        public void setApprovalNotes(String approvalNotes) { this.approvalNotes = approvalNotes; }
+        public Boolean getRecountRequired() { return recountRequired; }
+        public void setRecountRequired(Boolean recountRequired) { this.recountRequired = recountRequired; }
         public String getNotes() { return notes; }
         public void setNotes(String notes) { this.notes = notes; }
     }
 
-    public record CycleCountResult(boolean success, String message, BigDecimal variance, boolean recountRequired) {
+    public record CycleCountResult(
+            boolean success,
+            String message,
+            BigDecimal variance,
+            boolean recountRequired,
+            boolean approvalRequired
+    ) {
         // Backward compatible constructor
         public CycleCountResult(boolean success, String message, BigDecimal variance) {
-            this(success, message, variance, false);
+            this(success, message, variance, false, false);
         }
     }
 }

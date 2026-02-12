@@ -52,6 +52,31 @@ public class AnomalyService {
     }
 
     @Transactional
+    public Anomaly create(
+            String anomalyType,
+            UUID materialId,
+            UUID warehouseId,
+            BigDecimal detectedValue,
+            BigDecimal expectedValue,
+            BigDecimal variancePercentage,
+            String severity,
+            String description
+    ) {
+        AnomalyEntity entity = new AnomalyEntity();
+        entity.setAnomalyType(anomalyType);
+        entity.setMaterialId(materialId);
+        entity.setWarehouseId(warehouseId);
+        entity.setDetectedValue(detectedValue);
+        entity.setExpectedValue(expectedValue);
+        entity.setVariancePercentage(variancePercentage);
+        entity.setSeverity(severity);
+        entity.setDescription(description);
+        entity.setStatus("DETECTED");
+        entity = repository.save(entity);
+        return toDomain(entity);
+    }
+
+    @Transactional
     public Anomaly updateStatus(UUID id, String status, UUID reviewedBy, String resolutionNotes) {
         AnomalyEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Anomaly not found: " + id));
@@ -94,4 +119,3 @@ public class AnomalyService {
         return anomaly;
     }
 }
-

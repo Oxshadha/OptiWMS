@@ -25,6 +25,8 @@ export const countTypeConfig = {
 export const statusConfig = {
   scheduled: { label: "Scheduled", class: "badge-outline" },
   in_progress: { label: "In Progress", class: "badge-primary" },
+  pending_approval: { label: "Pending Approval", class: "badge-warning" },
+  recount_required: { label: "Recount Required", class: "badge-info" },
   completed: { label: "Completed", class: "badge-success" },
   cancelled: { label: "Cancelled", class: "badge-error" },
 } as const;
