@@ -210,7 +210,9 @@ public class TaskOperationService {
             // For outbound orders: pending -> picking -> picked
             if ("outbound".equals(order.getOrderType())) {
                 if ("picking".equals(taskType)) {
-                    if ("pending".equals(currentStatus)) {
+                    if ("pending".equals(currentStatus)
+                            || "allocated".equals(currentStatus)
+                            || "partially_allocated".equals(currentStatus)) {
                         orderService.updateStatus(orderId, "picking");
                     }
                 }
