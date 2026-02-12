@@ -16,6 +16,7 @@ export default function LoginPage() {
     password: "",
   });
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const [availableWarehouses, setAvailableWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingWarehouses, setLoadingWarehouses] = useState(true);
@@ -203,15 +204,28 @@ export default function LoginPage() {
               <label className="label">
                 <span className="label-text">Password</span>
               </label>
-              <input
-                type="password"
-                className="input input-bordered w-full"
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  className="input input-bordered w-full pr-12"
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
             </div>
             <div className="form-control mt-6">
               <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
