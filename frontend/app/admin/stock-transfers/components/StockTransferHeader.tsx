@@ -8,6 +8,7 @@ interface StockTransferHeaderProps {
   onSearchChange: (value: string) => void;
   onStatusFilterChange: (value: TransferStatus | "all") => void;
   onTypeFilterChange: (value: TransferType | "all") => void;
+  onCreateTransfer: () => void;
 }
 
 export function StockTransferHeader({
@@ -18,11 +19,16 @@ export function StockTransferHeader({
   onSearchChange,
   onStatusFilterChange,
   onTypeFilterChange,
+  onCreateTransfer,
 }: StockTransferHeaderProps) {
   return (
     <div className="flex items-center justify-between">
       <h1 className="text-3xl font-bold text-base-content">Stock Transfers ({totalTransfers})</h1>
       <div className="flex gap-3">
+        <button className="btn btn-primary btn-sm" onClick={onCreateTransfer}>
+          <span className="material-symbols-outlined text-sm">add</span>
+          Create Transfer
+        </button>
         <div className="form-control">
           <div className="relative">
             <input
@@ -58,7 +64,11 @@ export function StockTransferHeader({
           >
             <li><button className={statusFilter === "all" ? "active" : ""} onClick={() => onStatusFilterChange("all")}>All Status</button></li>
             <li><button className={statusFilter === "draft" ? "active" : ""} onClick={() => onStatusFilterChange("draft")}>Draft</button></li>
+            <li><button className={statusFilter === "released" ? "active" : ""} onClick={() => onStatusFilterChange("released")}>Released</button></li>
+            <li><button className={statusFilter === "in_progress" ? "active" : ""} onClick={() => onStatusFilterChange("in_progress")}>In Progress</button></li>
+            <li><button className={statusFilter === "partially_completed" ? "active" : ""} onClick={() => onStatusFilterChange("partially_completed")}>Partially Completed</button></li>
             <li><button className={statusFilter === "in_transit" ? "active" : ""} onClick={() => onStatusFilterChange("in_transit")}>In Transit</button></li>
+            <li><button className={statusFilter === "completed" ? "active" : ""} onClick={() => onStatusFilterChange("completed")}>Completed</button></li>
             <li><button className={statusFilter === "received" ? "active" : ""} onClick={() => onStatusFilterChange("received")}>Received</button></li>
             <li><button className={statusFilter === "cancelled" ? "active" : ""} onClick={() => onStatusFilterChange("cancelled")}>Cancelled</button></li>
           </ul>
