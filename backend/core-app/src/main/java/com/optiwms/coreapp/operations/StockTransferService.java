@@ -126,46 +126,6 @@ public class StockTransferService {
         return toDomain(saved);
     }
 
-    @Transactional
-    public StockTransfer cancel(UUID id, String reason) {
-        StockTransferEntity entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + id));
-
-        if ("received".equals(entity.getStatus())) {
-            throw new RuntimeException("Received transfers cannot be cancelled");
-        }
-
-        // If transfer already dispatched, restore source inventory.
-        if ("in_transit".equals(entity.getStatus())) {
-            List<InventoryItem> sourceInventory = inventoryService.findByMaterialAndWarehouse(
-                    entity.getMaterialId(), entity.getSourceWarehouseId());
-
-            if (sourceInventory.isEmpty()) {
-                InventoryItem sourceItem = new InventoryItem();
-                sourceItem.setMaterialId(entity.getMaterialId());
-                sourceItem.setWarehouseId(entity.getSourceWarehouseId());
-                sourceItem.setLocationCode(entity.getSourceLocationCode());
-                sourceItem.setQuantity(entity.getQuantity());
-                sourceItem.setAvailableQuantity(entity.getQuantity());
-                sourceItem.setReservedQuantity(0);
-                sourceItem.setStatus("active");
-                inventoryService.createOrUpdate(sourceItem);
-            } else {
-                InventoryItem sourceItem = sourceInventory.get(0);
-                sourceItem.setAvailableQuantity((sourceItem.getAvailableQuantity() != null ? sourceItem.getAvailableQuantity() : 0) + entity.getQuantity());
-                inventoryService.createOrUpdate(sourceItem);
-            }
-        }
-
-        entity.setStatus("cancelled");
-        if (reason != null && !reason.isBlank()) {
-            String currentNotes = entity.getNotes() != null ? entity.getNotes() : "";
-            entity.setNotes(currentNotes.isBlank() ? "Cancelled: " + reason : currentNotes + " | Cancelled: " + reason);
-        }
-        StockTransferEntity saved = repository.save(entity);
-        return toDomain(saved);
-    }
-
     private StockTransfer toDomain(StockTransferEntity entity) {
         StockTransfer transfer = new StockTransfer();
         transfer.setId(entity.getId());
@@ -186,3 +146,4 @@ public class StockTransferService {
         return transfer;
     }
 }
+

@@ -11,7 +11,7 @@ import { materialsApi } from '@/lib/api/materials';
 /**
  * Convert a single location to a LocationBin
  */
-function locationToBin(location: Location, inventoryMap: Map<string, { quantity: number; sku: string; weight: number }>): LocationBin {
+function locationToBin(location: Location, inventoryMap: Map<string, { quantity: number; sku: string }>): LocationBin {
   const inventory = inventoryMap.get(location.id);
   const level = location.levelNumber || 1;
   
@@ -30,7 +30,7 @@ function locationToBin(location: Location, inventoryMap: Map<string, { quantity:
     inventory: inventory ? {
       sku: inventory.sku,
       quantity: inventory.quantity,
-      weight: inventory.weight,
+      weight: 0, // TODO: Get from material data
     } : undefined,
   };
 }
@@ -68,7 +68,7 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
  */
 function locationsToRacks(
   locations: Location[],
-  inventoryMap: Map<string, { quantity: number; sku: string; weight: number }>
+  inventoryMap: Map<string, { quantity: number; sku: string }>
 ): RackUnit[] {
   // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
   const storageLocations = locations.filter((loc) => 
@@ -175,7 +175,6 @@ export async function convertLocationHierarchyToLayout(
   
   // Fetch materials to map materialId to materialCode (human-readable SKU)
   const materialCodeMap = new Map<string, string>();
-  const materialWeightMap = new Map<string, number>();
   try {
     // Fetch materials in parallel for better performance
     const materialPromises = uniqueMaterialIds.map(id => 
@@ -185,14 +184,13 @@ export async function convertLocationHierarchyToLayout(
     materials.forEach((material) => {
       if (material) {
         materialCodeMap.set(material.id, material.materialCode);
-        materialWeightMap.set(material.id, Number(material.weightKg) || 0);
       }
     });
   } catch (error) {
     console.error('Failed to fetch materials for SKU mapping:', error);
   }
   
-  const inventoryMap = new Map<string, { quantity: number; sku: string; weight: number }>();
+  const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
     // Only include items that have locationCode AND are in-stock (quantity > 0)
@@ -204,7 +202,6 @@ export async function convertLocationHierarchyToLayout(
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
           sku: sku,
-          weight: materialWeightMap.get(item.materialId) || 0,
         });
       }
     }
@@ -277,7 +274,6 @@ export async function convertLocationsToLayout(
   
   // Fetch materials to map materialId to materialCode (human-readable SKU)
   const materialCodeMap = new Map<string, string>();
-  const materialWeightMap = new Map<string, number>();
   try {
     // Fetch materials in parallel for better performance
     const materialPromises = uniqueMaterialIds.map(id => 
@@ -287,14 +283,13 @@ export async function convertLocationsToLayout(
     materials.forEach((material) => {
       if (material) {
         materialCodeMap.set(material.id, material.materialCode);
-        materialWeightMap.set(material.id, Number(material.weightKg) || 0);
       }
     });
   } catch (error) {
     console.error('Failed to fetch materials for SKU mapping:', error);
   }
   
-  const inventoryMap = new Map<string, { quantity: number; sku: string; weight: number }>();
+  const inventoryMap = new Map<string, { quantity: number; sku: string }>();
   
   inventoryItems.forEach((item) => {
     if (item.locationCode && parseFloat(item.quantity) > 0) {
@@ -305,7 +300,6 @@ export async function convertLocationsToLayout(
         inventoryMap.set(location.id, {
           quantity: parseFloat(item.quantity) || 0,
           sku: sku,
-          weight: materialWeightMap.get(item.materialId) || 0,
         });
       }
     }

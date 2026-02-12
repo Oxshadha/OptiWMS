@@ -4,14 +4,10 @@ export interface QualityCheck {
   id: string;
   grnId?: string;
   materialId?: string;
-  status?: string;
   qtyReceived: string;
   qtyPassed: string;
   qtyRejected: string;
   rejectionReason?: string;
-  approvalStatus?: string;
-  approvedBy?: string;
-  approvedAt?: string;
   checkedBy?: string;
   checkDate?: string;
 }
@@ -46,9 +42,10 @@ export const qualityChecksApi = {
   },
 
   reject: async (id: string, rejectionReason: string, rejectedBy?: string): Promise<QualityCheck> => {
-    return apiClient.put<QualityCheck>(`/quality-checks/${id}/reject`, {
+    return apiClient.put<QualityCheck>(`/quality-checks/${id}/reject`, { 
       rejectionReason,
-      rejectedBy,
+      rejectedBy 
     });
   },
 };
+

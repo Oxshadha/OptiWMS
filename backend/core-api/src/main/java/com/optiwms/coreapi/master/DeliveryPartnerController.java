@@ -121,26 +121,6 @@ public class DeliveryPartnerController {
         }
     }
 
-    @GetMapping("/{id}/metrics")
-    public ResponseEntity<DeliveryPartnerMetricsDto> getMetrics(@PathVariable UUID id) {
-        try {
-            DeliveryPartnerService.DeliveryPartnerMetrics metrics = service.getMetrics(id);
-            return ResponseEntity.ok(new DeliveryPartnerMetricsDto(
-                    metrics.partnerId().toString(),
-                    metrics.partnerCode(),
-                    metrics.companyName(),
-                    metrics.totalShipments(),
-                    metrics.deliveredShipments(),
-                    metrics.onTimeDeliveryRate(),
-                    metrics.averageCostPerDelivery(),
-                    metrics.currencyCode(),
-                    metrics.generatedAt()
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
-    }
-
     private DeliveryPartnerDto toDto(DeliveryPartner partner) {
         return new DeliveryPartnerDto(
                 partner.getId().toString(),
@@ -215,16 +195,5 @@ public class DeliveryPartnerController {
             Integer totalShipments,
             String onTimeDeliveryRate
     ) {}
-
-    public record DeliveryPartnerMetricsDto(
-            String partnerId,
-            String partnerCode,
-            String companyName,
-            Integer totalShipments,
-            Integer deliveredShipments,
-            Double onTimeDeliveryRate,
-            Double averageCostPerDelivery,
-            String currencyCode,
-            String generatedAt
-    ) {}
 }
+

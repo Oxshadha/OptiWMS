@@ -2,8 +2,6 @@ package com.optiwms.integration;
 
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,8 +17,6 @@ import java.util.UUID;
 @Service
 public class UserSeederService {
 
-    private static final Logger log = LoggerFactory.getLogger(UserSeederService.class);
-
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
@@ -30,26 +26,21 @@ public class UserSeederService {
     }
 
     @Transactional
-    public void ensureDefaultAdminExists(String username, String email, String plainPassword) {
-        if (isBlank(username) || isBlank(email) || isBlank(plainPassword)) {
-            log.warn("Default admin seeding skipped: credentials are not configured.");
-            return;
-        }
-
+    public void ensureDefaultAdminExists() {
         // Check if admin user exists by username or email
-        Optional<UserEntity> existingAdmin = userRepository.findByUsername(username.trim());
+        Optional<UserEntity> existingAdmin = userRepository.findByUsername("admin");
         if (existingAdmin.isEmpty()) {
-            existingAdmin = userRepository.findByEmail(email.trim());
+            existingAdmin = userRepository.findByEmail("admin@optiwms.com");
         }
 
         if (existingAdmin.isEmpty()) {
-            log.warn("Creating default admin user from configured seed values.");
+            System.out.println("Creating default admin user...");
             
             UserEntity admin = new UserEntity();
             admin.setId(UUID.randomUUID());
-            admin.setUsername(username.trim());
-            admin.setEmail(email.trim());
-            admin.setPasswordHash(passwordEncoder.encode(plainPassword));
+            admin.setUsername("admin");
+            admin.setEmail("admin@optiwms.com");
+            admin.setPasswordHash(passwordEncoder.encode("admin123"));
             admin.setFirstName("System");
             admin.setLastName("Administrator");
             admin.setRole("admin");
@@ -58,15 +49,14 @@ public class UserSeederService {
             admin.setUpdatedAt(OffsetDateTime.now());
             
             userRepository.save(admin);
-            log.warn("Default admin user created for email={}. Change password immediately.", email.trim());
+            System.out.println("Default admin user created:");
+            System.out.println("   Email: admin@optiwms.com");
+            System.out.println("   Password: admin123");
         } else {
             // Admin user already exists - DO NOT reset password
             // User may have changed password, so we respect their choice
-            log.info("Default admin user already exists (password unchanged)");
+            System.out.println("Default admin user already exists (password unchanged)");
         }
     }
-
-    private boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
 }
+

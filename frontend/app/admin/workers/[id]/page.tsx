@@ -1,39 +1,58 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
   WorkerRole,
   getAllWorkerRoles,
+  ROLE_DISPLAY_NAMES,
   getRoleDisplayName,
 } from "@/lib/worker-roles";
 import { warehousesApi } from "@/lib/api/warehouses";
-import { usersApi } from "@/lib/api/users";
-import { tasksApi } from "@/lib/api/tasks-api";
-import { showToast } from "@/lib/utils/toast";
 
-interface WorkerDetailDisplay {
-  id: string;
-  workerId: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: WorkerRole;
-  warehouseId: string;
-  warehouseName: string;
-  availabilityStatus: "available" | "busy" | "offline";
-  shiftStart: string;
-  shiftEnd: string;
-  tasksToday: number;
-  totalTasksCompleted: number;
-  avgTaskTime: number;
-  lastActive: string;
-  joinDate: string;
-  status: string;
-}
+// Mock data - will be replaced with API calls
+const workers = [
+  {
+    id: "worker-1",
+    workerId: "e8b5d4",
+    name: "John Doe",
+    warehouseName: "Warehouse 1",
+    availabilityStatus: "available",
+    shiftStart: "08:00",
+    shiftEnd: "17:00",
+    tasksToday: 12,
+    totalTasksCompleted: 245,
+    avgTaskTime: 15.5,
+    lastActive: "2 minutes ago",
+    avatar: "/assets/avatars/Jhon Doe.jpg",
+    role: "picker" as WorkerRole,
+    email: "john.doe@optiwms.com",
+    phone: "+1 234-567-8900",
+    joinDate: "2024-01-15",
+  },
+  {
+    id: "worker-2",
+    workerId: "a3f7b2",
+    name: "Jane Smith",
+    warehouseName: "Warehouse 1",
+    availabilityStatus: "busy",
+    shiftStart: "09:00",
+    shiftEnd: "18:00",
+    tasksToday: 8,
+    totalTasksCompleted: 189,
+    avgTaskTime: 18.2,
+    lastActive: "5 minutes ago",
+    avatar: "/assets/avatars/placeholder.svg",
+    role: "packer" as WorkerRole,
+    email: "jane.smith@optiwms.com",
+    phone: "+1 234-567-8901",
+    joinDate: "2024-02-20",
+  },
+];
 
 const statusConfig = {
   available: { label: "Available", class: "badge-success" },
@@ -48,153 +67,57 @@ export default function WorkerDetailPage() {
   const { hasPermission } = useAdmin();
   const workerId = params.id as string;
   const isEditMode = searchParams.get("edit") === "true";
+  const worker = workers.find((w) => w.id === workerId);
 
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
 
-  const [worker, setWorker] = useState<WorkerDetailDisplay | null>(null);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
+  const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        setIsLoadingWarehouses(true);
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData);
+      } catch (err) {
+        console.error("Failed to load warehouses:", err);
+      } finally {
+        setIsLoadingWarehouses(false);
+      }
+    };
+    loadWarehouses();
+  }, []);
 
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
     role: "" as WorkerRole | "",
-    warehouseId: "",
-    shiftStart: "08:00",
-    shiftEnd: "17:00",
+    warehouseName: "",
+    shiftStart: "",
+    shiftEnd: "",
   });
 
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const [user, warehousesData, tasks] = await Promise.all([
-        usersApi.getById(workerId),
-        warehousesApi.getAll(),
-        tasksApi.getAll(undefined, undefined, workerId),
-      ]);
-
-      const workerRoles = new Set(
-        getAllWorkerRoles().map((role) => role.toLowerCase())
-      );
-      if (!workerRoles.has((user.role || "").toLowerCase())) {
-        throw new Error("User is not a worker");
-      }
-
-      const warehouseMap = new Map<string, string>();
-      warehousesData.forEach((w) => warehouseMap.set(w.id, w.name));
-
-      const inProgressTasks = tasks.filter((t) => t.status === "in_progress").length;
-      const completedTasks = tasks.filter((t) => t.status === "completed").length;
-      const availabilityStatus =
-        user.status?.toLowerCase() !== "active"
-          ? "offline"
-          : inProgressTasks > 0
-            ? "busy"
-            : "available";
-
-      const fullName =
-        `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
-      const warehouseName = user.warehouseId
-        ? warehouseMap.get(user.warehouseId) || "Unknown"
-        : "Unassigned";
-
-      const mappedWorker: WorkerDetailDisplay = {
-        id: user.id,
-        workerId: user.employeeId || user.id.slice(0, 6),
-        name: fullName,
-        email: user.email || "",
-        phone: user.phone || "",
-        role: (user.role.toLowerCase() as WorkerRole) || "picker",
-        warehouseId: user.warehouseId || "",
-        warehouseName,
-        availabilityStatus,
-        shiftStart: "08:00",
-        shiftEnd: "17:00",
-        tasksToday: tasks.length,
-        totalTasksCompleted: completedTasks,
-        avgTaskTime: 15.0,
-        lastActive: user.lastLoginAt
-          ? new Date(user.lastLoginAt).toLocaleString()
-          : "Never",
-        joinDate: "N/A",
-        status: user.status || "inactive",
-      };
-
-      setWorker(mappedWorker);
-      setWarehouses(warehousesData.map((w) => ({ id: w.id, name: w.name })));
-      setFormData({
-        name: mappedWorker.name,
-        email: mappedWorker.email,
-        phone: mappedWorker.phone,
-        role: mappedWorker.role,
-        warehouseId: mappedWorker.warehouseId,
-        shiftStart: mappedWorker.shiftStart,
-        shiftEnd: mappedWorker.shiftEnd,
-      });
-    } catch (err) {
-      setWorker(null);
-      setError(err instanceof Error ? err.message : "Failed to load worker");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (workerId) {
-      loadData();
+    if (worker) {
+      setFormData({
+        name: worker.name,
+        email: worker.email || "",
+        phone: worker.phone || "",
+        role: worker.role,
+        warehouseName: worker.warehouseName,
+        shiftStart: worker.shiftStart,
+        shiftEnd: worker.shiftEnd,
+      });
     }
-  }, [workerId]);
-
-  const status = useMemo(() => {
-    if (!worker) return null;
-    return statusConfig[worker.availabilityStatus];
   }, [worker]);
 
-  const handleSave = async () => {
-    if (!worker) return;
-    try {
-      setIsSaving(true);
-
-      const [firstName, ...rest] = formData.name.trim().split(" ");
-      const lastName = rest.join(" ");
-
-      await usersApi.update(worker.id, {
-        email: formData.email.trim(),
-        firstName: firstName || undefined,
-        lastName: lastName || undefined,
-        role: formData.role,
-        phone: formData.phone.trim() || undefined,
-        warehouseId: formData.warehouseId || undefined,
-      });
-
-      showToast.success("Worker updated successfully");
-      router.push(`/admin/workers/${worker.id}`);
-      await loadData();
-    } catch (err) {
-      showToast.error(err instanceof Error ? err.message : "Failed to update worker");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
-  }
-
-  if (error || !worker || !status) {
+  if (!worker) {
     return (
       <div className="space-y-6">
         <div className="alert alert-error">
-          <span>{error || "Worker not found"}</span>
+          <span>Worker not found</span>
           <Link href="/admin/workers" className="btn btn-sm">
             Back to Workers
           </Link>
@@ -203,12 +126,20 @@ export default function WorkerDetailPage() {
     );
   }
 
+  const status = statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
+
+  const handleSave = async () => {
+    // TODO: API call to update worker
+    console.log("Updating worker:", workerId, formData);
+    router.push(`/admin/workers/${workerId}`);
+  };
+
   if (isEditMode && !canEdit) {
     return (
       <div className="space-y-6">
         <div className="alert alert-error">
-          <span>You don&apos;t have permission to edit workers</span>
-          <Link href={`/admin/workers/${worker.id}`} className="btn btn-sm">
+          <span>You don't have permission to edit workers</span>
+          <Link href={`/admin/workers/${workerId}`} className="btn btn-sm">
             View Details
           </Link>
         </div>
@@ -218,6 +149,7 @@ export default function WorkerDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <Link href="/admin/workers" className="text-primary hover:underline mb-2 inline-block">
@@ -231,7 +163,7 @@ export default function WorkerDetailPage() {
           </p>
         </div>
         {!isEditMode && canEdit && (
-          <Link href={`/admin/workers/${worker.id}?edit=true`}>
+          <Link href={`/admin/workers/${workerId}?edit=true`}>
             <button className="btn btn-primary">
               <span className="material-symbols-outlined">edit</span>
               Edit Worker
@@ -240,15 +172,10 @@ export default function WorkerDetailPage() {
         )}
       </div>
 
+      {/* Worker Information */}
       <div className="card bg-base-100 border border-base-300 p-6">
         {isEditMode ? (
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSave();
-            }}
-          >
+          <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="form-control">
                 <label className="label">
@@ -292,9 +219,7 @@ export default function WorkerDetailPage() {
                 <select
                   className="select select-bordered w-full"
                   value={formData.role}
-                  onChange={(e) =>
-                    setFormData({ ...formData, role: e.target.value as WorkerRole })
-                  }
+                  onChange={(e) => setFormData({ ...formData, role: e.target.value as WorkerRole })}
                   required
                 >
                   <option value="">Select role</option>
@@ -311,15 +236,13 @@ export default function WorkerDetailPage() {
                 </label>
                 <select
                   className="select select-bordered w-full"
-                  value={formData.warehouseId}
-                  onChange={(e) =>
-                    setFormData({ ...formData, warehouseId: e.target.value })
-                  }
+                  value={formData.warehouseName}
+                  onChange={(e) => setFormData({ ...formData, warehouseName: e.target.value })}
                   required
                 >
-                  <option value="">Select warehouse</option>
+                  <option value="">{isLoadingWarehouses ? "Loading warehouses..." : "Select warehouse"}</option>
                   {warehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
+                    <option key={warehouse.id} value={warehouse.name}>
                       {warehouse.name}
                     </option>
                   ))}
@@ -333,9 +256,7 @@ export default function WorkerDetailPage() {
                   type="time"
                   className="input input-bordered w-full"
                   value={formData.shiftStart}
-                  onChange={(e) =>
-                    setFormData({ ...formData, shiftStart: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, shiftStart: e.target.value })}
                   required
                 />
               </div>
@@ -347,22 +268,16 @@ export default function WorkerDetailPage() {
                   type="time"
                   className="input input-bordered w-full"
                   value={formData.shiftEnd}
-                  onChange={(e) =>
-                    setFormData({ ...formData, shiftEnd: e.target.value })
-                  }
+                  onChange={(e) => setFormData({ ...formData, shiftEnd: e.target.value })}
                   required
                 />
               </div>
             </div>
             <div className="flex justify-end gap-3 pt-4">
-              <Link href={`/admin/workers/${worker.id}`}>
-                <button type="button" className="btn btn-ghost">
-                  Cancel
-                </button>
+              <Link href={`/admin/workers/${workerId}`}>
+                <button type="button" className="btn btn-ghost">Cancel</button>
               </Link>
-              <button type="submit" className="btn btn-primary" disabled={isSaving}>
-                Save Changes
-              </button>
+              <button type="submit" className="btn btn-primary">Save Changes</button>
             </div>
           </form>
         ) : (
@@ -377,11 +292,11 @@ export default function WorkerDetailPage() {
             </div>
             <div>
               <label className="text-sm text-base-content/60">Email</label>
-              <p className="font-semibold">{worker.email || "-"}</p>
+              <p className="font-semibold">{worker.email}</p>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Phone</label>
-              <p className="font-semibold">{worker.phone || "-"}</p>
+              <p className="font-semibold">{worker.phone}</p>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Role</label>
@@ -401,9 +316,7 @@ export default function WorkerDetailPage() {
             </div>
             <div>
               <label className="text-sm text-base-content/60">Shift</label>
-              <p className="font-semibold">
-                {worker.shiftStart} - {worker.shiftEnd}
-              </p>
+              <p className="font-semibold">{worker.shiftStart} - {worker.shiftEnd}</p>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Tasks Today</label>
@@ -431,3 +344,4 @@ export default function WorkerDetailPage() {
     </div>
   );
 }
+

@@ -80,32 +80,6 @@ public class OrderItemController {
         }
     }
 
-    @PutMapping("/items/{itemId}")
-    public ResponseEntity<OrderItemDto> update(@PathVariable UUID itemId, @RequestBody UpdateOrderItemRequest request) {
-        try {
-            OrderItem existing = orderItemService.findById(itemId);
-            if (request.materialId() != null) existing.setMaterialId(UUID.fromString(request.materialId()));
-            if (request.quantity() != null) existing.setQuantity(request.quantity());
-            if (request.unitPrice() != null) existing.setUnitPrice(new java.math.BigDecimal(request.unitPrice()));
-            if (request.locationCode() != null) existing.setLocationCode(request.locationCode());
-
-            OrderItem updated = orderItemService.update(itemId, existing);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
-    @DeleteMapping("/items/{itemId}")
-    public ResponseEntity<Void> delete(@PathVariable UUID itemId) {
-        try {
-            orderItemService.deleteById(itemId);
-            return ResponseEntity.noContent().build();
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     private OrderItemDto toDto(OrderItem item) {
         return new OrderItemDto(
                 item.getId().toString(),
@@ -139,13 +113,6 @@ public class OrderItemController {
             String locationCode
     ) {}
 
-    public record UpdateOrderItemRequest(
-            String materialId,
-            Integer quantity,
-            String unitPrice,
-            String locationCode
-    ) {}
-
     public record PutawayItemDto(
             String itemId,
             String materialId,
@@ -155,3 +122,4 @@ public class OrderItemController {
             String status
     ) {}
 }
+

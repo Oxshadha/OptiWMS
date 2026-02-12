@@ -1,16 +1,51 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { inventoryApi } from "@/lib/api/inventory";
-import { materialsApi } from "@/lib/api/materials";
-import { qualityChecksApi, QualityCheck } from "@/lib/api/qualityChecks";
-import { usersApi } from "@/lib/api/users";
-import { showToast } from "@/lib/utils/toast";
+
+// Mock data - will be replaced with API calls
+const qualityChecks = [
+  {
+    id: "qc-1",
+    checkId: "QC-2025-001",
+    inboundOrderNumber: "PO-452368",
+    productName: "Wireless Earbuds",
+    sku: "SKU-1001",
+    quantityChecked: 50,
+    quantityPassed: 48,
+    quantityFailed: 2,
+    result: "partial",
+    checkedByName: "John Doe",
+    checkDate: "2025-12-15 10:30",
+    approvedByName: null,
+    approvalDate: null,
+    failedItems: [
+      { itemNumber: 1, reason: "Packaging damaged" },
+      { itemNumber: 2, reason: "Missing accessories" },
+    ],
+  },
+  {
+    id: "qc-2",
+    checkId: "QC-2025-002",
+    inboundOrderNumber: "PO-452369",
+    productName: "Smart Projector",
+    sku: "SKU-1002",
+    quantityChecked: 30,
+    quantityPassed: 30,
+    quantityFailed: 0,
+    result: "passed",
+    checkedByName: "Jane Smith",
+    checkDate: "2025-12-15 11:00",
+    approvedByName: "Manager A",
+    approvalDate: "2025-12-15 11:15",
+    failedItems: [],
+  },
+];
 
 const resultConfig = {
   passed: { label: "Passed", class: "badge-success" },
@@ -18,221 +53,24 @@ const resultConfig = {
   partial: { label: "Partial", class: "badge-warning" },
 };
 
-interface QualityCheckDetail {
-  id: string;
-  checkId: string;
-  inboundOrderNumber: string;
-  productName: string;
-  sku: string;
-  quantityChecked: number;
-  quantityPassed: number;
-  quantityFailed: number;
-  result: "passed" | "failed" | "partial";
-  checkedByName: string;
-  checkDate: string;
-  rejectionReason: string | null;
-  approvalStatus: string;
-  approvedByName: string | null;
-  approvedAt: string | null;
-}
-
-function toDisplayCheck(
-  check: QualityCheck,
-  material?: { materialCode?: string; description?: string },
-  checkerName?: string,
-  approverName?: string
-): QualityCheckDetail {
-  const qtyChecked = parseInt(check.qtyReceived || "0", 10) || 0;
-  const qtyPassed = parseInt(check.qtyPassed || "0", 10) || 0;
-  const qtyFailed = parseInt(check.qtyRejected || "0", 10) || 0;
-
-  let result: "passed" | "failed" | "partial" = "partial";
-  if (qtyFailed === 0) {
-    result = "passed";
-  } else if (qtyPassed === 0) {
-    result = "failed";
-  }
-
-  return {
-    id: check.id,
-    checkId: `QC-${check.id.substring(0, 8).toUpperCase()}`,
-    inboundOrderNumber: check.grnId
-      ? `GRN-${check.grnId.substring(0, 8).toUpperCase()}`
-      : "N/A",
-    productName: material?.description || "Unknown",
-    sku: material?.materialCode || check.materialId || "N/A",
-    quantityChecked: qtyChecked,
-    quantityPassed: qtyPassed,
-    quantityFailed: qtyFailed,
-    result,
-    checkedByName: checkerName || "Unknown",
-    checkDate: check.checkDate
-      ? new Date(check.checkDate).toLocaleString()
-      : "N/A",
-    rejectionReason: check.rejectionReason || null,
-    approvalStatus: check.approvalStatus || "PENDING",
-    approvedByName: approverName || null,
-    approvedAt: check.approvedAt ? new Date(check.approvedAt).toLocaleString() : null,
-  };
-}
-
 export default function QualityCheckDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { hasPermission, admin } = useAdmin();
+  const { hasPermission } = useAdmin();
   const checkId = params.id as string;
+  const check = qualityChecks.find((c) => c.id === checkId);
   const canApprove = hasPermission(ADMIN_ROUTES.QUALITY_CHECKS, "approve");
-
-  const [check, setCheck] = useState<QualityCheckDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showQuarantineModal, setShowQuarantineModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [quarantineLocation, setQuarantineLocation] = useState("");
-  const [actionLoading, setActionLoading] = useState(false);
 
-  useEffect(() => {
-    const loadCheck = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const apiCheck = await qualityChecksApi.getById(checkId);
-        const [material, checker, approver] = await Promise.all([
-          apiCheck.materialId
-            ? materialsApi.getById(apiCheck.materialId).catch(() => null)
-            : Promise.resolve(null),
-          apiCheck.checkedBy
-            ? usersApi.getById(apiCheck.checkedBy).catch(() => null)
-            : Promise.resolve(null),
-          apiCheck.approvedBy
-            ? usersApi.getById(apiCheck.approvedBy).catch(() => null)
-            : Promise.resolve(null),
-        ]);
-
-        const checkerName = checker
-          ? `${checker.firstName || ""} ${checker.lastName || ""}`.trim() ||
-            checker.username ||
-            checker.email ||
-            "Unknown"
-          : "Unknown";
-
-        const approverName = approver
-          ? `${approver.firstName || ""} ${approver.lastName || ""}`.trim() ||
-            approver.username ||
-            approver.email ||
-            "Unknown"
-          : undefined;
-
-        setCheck(
-          toDisplayCheck(
-            apiCheck,
-            material || undefined,
-            checkerName,
-            approverName
-          )
-        );
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to load quality check";
-        setError(message);
-        setCheck(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (checkId) {
-      loadCheck();
-    }
-  }, [checkId]);
-
-  const result = useMemo(() => {
-    if (!check) return null;
-    return resultConfig[check.result];
-  }, [check]);
-
-  const handleReject = async () => {
-    if (!check) return;
-    if (!rejectReason.trim()) {
-      showToast.warning("Please enter a rejection reason");
-      return;
-    }
-
-    try {
-      setActionLoading(true);
-      await qualityChecksApi.reject(check.id, rejectReason.trim(), admin?.id);
-      showToast.success("Quality check rejected");
-      setShowRejectModal(false);
-      router.push("/admin/quality-checks");
-    } catch (err) {
-      showToast.error(
-        err instanceof Error ? err.message : "Failed to reject quality check"
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleApprove = async () => {
-    if (!check) return;
-    try {
-      setActionLoading(true);
-      await qualityChecksApi.approve(check.id, admin?.id);
-      showToast.success("Quality check approved");
-      router.push("/admin/quality-checks");
-    } catch (err) {
-      showToast.error(
-        err instanceof Error ? err.message : "Failed to approve quality check"
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleQuarantine = async () => {
-    if (!check) return;
-    if (!quarantineLocation.trim()) {
-      showToast.warning("Please enter a location code");
-      return;
-    }
-
-    try {
-      setActionLoading(true);
-      await inventoryApi.quarantineBin(
-        check.sku,
-        quarantineLocation.trim().toUpperCase(),
-        check.id
-      );
-      showToast.success(
-        `Bin ${quarantineLocation.toUpperCase()} quarantined successfully`
-      );
-      setShowQuarantineModal(false);
-      setQuarantineLocation("");
-    } catch (err) {
-      showToast.error(
-        err instanceof Error ? err.message : "Error quarantining bin"
-      );
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <span className="loading loading-spinner loading-lg"></span>
-      </div>
-    );
-  }
-
-  if (error || !check || !result) {
+  if (!check) {
     return (
       <div className="space-y-6">
         <div className="alert alert-error">
-          <span>{error || "Quality check not found"}</span>
+          <span>Quality check not found</span>
           <Link href="/admin/quality-checks" className="btn btn-sm">
             Back to Quality Checks
           </Link>
@@ -241,22 +79,58 @@ export default function QualityCheckDetailPage() {
     );
   }
 
+  const result = resultConfig[check.result as keyof typeof resultConfig];
+
+  const handleApprove = () => {
+    // TODO: API call to approve quality check
+    console.log("Approving quality check:", checkId);
+    alert("Quality check approved successfully!");
+    router.push("/admin/quality-checks");
+  };
+
+  const handleReject = () => {
+    if (!rejectReason.trim()) {
+      alert("Please enter a rejection reason");
+      return;
+    }
+    // TODO: API call to reject quality check
+    console.log("Rejecting quality check:", checkId, rejectReason);
+    alert("Quality check rejected successfully!");
+    router.push("/admin/quality-checks");
+  };
+
+  const handleQuarantine = async () => {
+    if (!quarantineLocation.trim()) {
+      alert("Please enter a location code");
+      return;
+    }
+    try {
+      // TODO: Replace with actual API call
+      // await inventoryApi.quarantineBin(check.sku, quarantineLocation, checkId);
+      console.log("Quarantining bin:", quarantineLocation, "for QC:", checkId);
+      alert(`Bin ${quarantineLocation} quarantined successfully. Items will not be available for picking.`);
+      setShowQuarantineModal(false);
+      setQuarantineLocation("");
+    } catch (error) {
+      console.error("Error quarantining bin:", error);
+      alert("Error quarantining bin. Please try again.");
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <Link
-            href="/admin/quality-checks"
-            className="text-primary hover:underline mb-2 inline-block"
-          >
+          <Link href="/admin/quality-checks" className="text-primary hover:underline mb-2 inline-block">
             ← Back to Quality Checks
           </Link>
           <h1 className="text-3xl font-bold text-base-content">{check.checkId}</h1>
           <p className="text-sm text-base-content/60 mt-1">Quality Check Details</p>
         </div>
-        {canApprove && check.approvalStatus === "PENDING" && (
+        {canApprove && !check.approvedByName && (
           <div className="flex gap-3">
-            {check.quantityFailed > 0 && (
+            {check.failedItems && check.failedItems.length > 0 && (
               <button
                 className="btn btn-warning"
                 onClick={() => setShowQuarantineModal(true)}
@@ -278,6 +152,7 @@ export default function QualityCheckDetailPage() {
         )}
       </div>
 
+      {/* Quality Check Information */}
       <div className="card bg-base-100 border border-base-300 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -325,24 +200,44 @@ export default function QualityCheckDetailPage() {
             <p className="font-semibold">{check.checkDate}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Rejection Reason</label>
-            <p className="font-semibold">{check.rejectionReason || "-"}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Approval Status</label>
-            <p className="font-semibold">{check.approvalStatus}</p>
-          </div>
-          <div>
             <label className="text-sm text-base-content/60">Approved By</label>
-            <p className="font-semibold">{check.approvedByName || "-"}</p>
+            <p className="font-semibold">{check.approvedByName || "Pending"}</p>
           </div>
-          <div>
-            <label className="text-sm text-base-content/60">Approved At</label>
-            <p className="font-semibold">{check.approvedAt || "-"}</p>
-          </div>
+          {check.approvalDate && (
+            <div>
+              <label className="text-sm text-base-content/60">Approval Date</label>
+              <p className="font-semibold">{check.approvalDate}</p>
+            </div>
+          )}
         </div>
+
+        {/* Failed Items */}
+        {check.failedItems && check.failedItems.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-base-300">
+            <h3 className="font-semibold mb-4">Failed Items</h3>
+            <div className="overflow-x-auto">
+              <table className="table table-zebra w-full">
+                <thead>
+                  <tr>
+                    <th>Item Number</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {check.failedItems.map((item, idx) => (
+                    <tr key={idx}>
+                      <td>{item.itemNumber}</td>
+                      <td>{item.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Reject Modal */}
       <Modal
         isOpen={showRejectModal}
         onClose={() => {
@@ -354,7 +249,9 @@ export default function QualityCheckDetailPage() {
         <div className="space-y-4">
           <div className="alert alert-warning">
             <span className="material-symbols-outlined">warning</span>
-            <span>Are you sure you want to reject quality check {check.checkId}?</span>
+            <span>
+              Are you sure you want to reject quality check {check.checkId}?
+            </span>
           </div>
           <div className="form-control">
             <label className="label">
@@ -376,17 +273,17 @@ export default function QualityCheckDetailPage() {
                 setShowRejectModal(false);
                 setRejectReason("");
               }}
-              disabled={actionLoading}
             >
               Cancel
             </button>
-            <button className="btn btn-error" onClick={handleReject} disabled={actionLoading}>
+            <button className="btn btn-error" onClick={handleReject}>
               Reject Quality Check
             </button>
           </div>
         </div>
       </Modal>
 
+      {/* Quarantine Modal */}
       <Modal
         isOpen={showQuarantineModal}
         onClose={() => {
@@ -399,8 +296,7 @@ export default function QualityCheckDetailPage() {
           <div className="alert alert-warning">
             <span className="material-symbols-outlined">warning</span>
             <span>
-              Quarantining this bin prevents items from being picked. Use for damaged
-              items.
+              Quarantining this bin will prevent items from being picked. Use this for damaged items identified by Vehicle Inspector.
             </span>
           </div>
           <div className="form-control">
@@ -415,6 +311,11 @@ export default function QualityCheckDetailPage() {
               placeholder="e.g., ST-01-004-03-A"
               required
             />
+            <label className="label">
+              <span className="label-text-alt text-base-content/60">
+                Enter the bin location code where damaged items are stored
+              </span>
+            </label>
           </div>
           <div className="form-control">
             <label className="label">
@@ -436,15 +337,10 @@ export default function QualityCheckDetailPage() {
                 setShowQuarantineModal(false);
                 setQuarantineLocation("");
               }}
-              disabled={actionLoading}
             >
               Cancel
             </button>
-            <button
-              className="btn btn-warning"
-              onClick={handleQuarantine}
-              disabled={actionLoading}
-            >
+            <button className="btn btn-warning" onClick={handleQuarantine}>
               <span className="material-symbols-outlined">block</span>
               Quarantine Bin
             </button>
@@ -454,3 +350,4 @@ export default function QualityCheckDetailPage() {
     </div>
   );
 }
+

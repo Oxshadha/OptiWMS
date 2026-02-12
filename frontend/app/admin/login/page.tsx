@@ -212,6 +212,38 @@ export default function LoginPage() {
                 required
               />
             </div>
+            {formData.role === "warehouse_manager" && (
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Select Warehouse *</span>
+                </label>
+                {loadingWarehouses ? (
+                  <div className="flex items-center gap-2">
+                    <span className="loading loading-spinner loading-sm"></span>
+                    <span className="text-sm text-base-content/60">Loading warehouses...</span>
+                  </div>
+                ) : (
+                  <select
+                    className="select select-bordered w-full"
+                    value={formData.warehouse}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        warehouse: e.target.value,
+                      })
+                    }
+                    required
+                  >
+                    <option value="">Choose a warehouse...</option>
+                    {availableWarehouses.map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             <div className="form-control mt-6">
               <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
                 {isLoading ? (
