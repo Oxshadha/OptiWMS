@@ -14,7 +14,7 @@ import {
 } from "@/hooks/useTaskAssignment";
 import { Worker, validateTaskAssignment } from "@/lib/task-assignment";
 import { WorkerRole } from "@/lib/worker-roles";
-import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { tasksApi } from "@/lib/api/tasks-api";
 import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
 
@@ -24,6 +24,7 @@ interface TaskDisplay {
   taskNumber: string;
   taskType: string;
   workerName: string;
+  warehouseId?: string;
   warehouseName: string;
   priority: string;
   status: string;
@@ -132,7 +133,6 @@ export default function TasksPage() {
           
           // Map backend status to frontend status
           let status = task.status;
-          if (status === "pending") status = "assigned";
           if (status === "in_progress") status = "in_progress";
           if (status === "completed") status = "completed";
           if (status === "cancelled") status = "cancelled";
@@ -150,6 +150,7 @@ export default function TasksPage() {
             taskNumber: task.taskNumber,
             taskType: task.taskType,
             workerName,
+            warehouseId: task.warehouseId,
             warehouseName,
             priority: task.priority || "normal",
             status,
@@ -174,11 +175,7 @@ export default function TasksPage() {
 
   // Filter tasks by warehouse for warehouse managers
   const tasksForWarehouse = isWarehouseManager && assignedWarehouseId
-    ? tasks.filter((t) => {
-        const task = tasks.find((task) => task.id === t.id);
-        // Filter by warehouse ID if available
-        return true; // TODO: Add warehouse ID to TaskDisplay
-      })
+    ? tasks.filter((t) => t.warehouseId === assignedWarehouseId)
     : tasks;
 
   // Calculate summary from tasks
@@ -283,7 +280,11 @@ export default function TasksPage() {
       label: "Task Type",
       render: (task: TaskDisplay) => {
         const type =
-          taskTypeConfig[task.taskType as keyof typeof taskTypeConfig];
+          taskTypeConfig[task.taskType as keyof typeof taskTypeConfig] || {
+            label: task.taskType,
+            icon: "task",
+            class: "badge-outline",
+          };
         return (
           <div className="flex items-center gap-2">
             <span className={`badge ${type.class} whitespace-nowrap`}>
@@ -325,7 +326,10 @@ export default function TasksPage() {
       key: "status",
       label: "Status",
       render: (task: TaskDisplay) => {
-        const status = statusConfig[task.status as keyof typeof statusConfig];
+        const status = statusConfig[task.status as keyof typeof statusConfig] || {
+          label: task.status,
+          class: "badge-outline",
+        };
         return (
           <span className={`badge ${status.class} whitespace-nowrap`}>
             {status.label}
@@ -554,19 +558,18 @@ function TaskDetailModal({
           </div>
           <div>
             <label className="text-sm text-base-content/60">Task Type</label>
-            <p>
-              <span
-                className={`badge ${
-                  taskTypeConfig[task.taskType as keyof typeof taskTypeConfig]
-                    .class
-                }`}
-              >
-                {
-                  taskTypeConfig[task.taskType as keyof typeof taskTypeConfig]
-                    .label
-                }
-              </span>
-            </p>
+            {(() => {
+              const type = taskTypeConfig[task.taskType as keyof typeof taskTypeConfig] || {
+                label: task.taskType,
+                icon: "task",
+                class: "badge-outline",
+              };
+              return (
+                <p>
+                  <span className={`badge ${type.class}`}>{type.label}</span>
+                </p>
+              );
+            })()}
           </div>
           <div>
             <label className="text-sm text-base-content/60">Worker</label>
@@ -594,15 +597,17 @@ function TaskDetailModal({
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span
-                className={`badge ${
-                  statusConfig[task.status as keyof typeof statusConfig].class
-                }`}
-              >
-                {statusConfig[task.status as keyof typeof statusConfig].label}
-              </span>
-            </p>
+            {(() => {
+              const status = statusConfig[task.status as keyof typeof statusConfig] || {
+                label: task.status,
+                class: "badge-outline",
+              };
+              return (
+                <p>
+                  <span className={`badge ${status.class}`}>{status.label}</span>
+                </p>
+              );
+            })()}
           </div>
           <div>
             <label className="text-sm text-base-content/60">

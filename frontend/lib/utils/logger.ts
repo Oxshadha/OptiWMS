@@ -12,6 +12,7 @@
 
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const IS_DEVELOPMENT = process.env.NODE_ENV === 'development';
+const MONITORING_API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
 
 // Sensitive data patterns to filter out
 const SENSITIVE_PATTERNS = [
@@ -61,30 +62,50 @@ function sanitizeMessage(message: any): any {
  * Send error to monitoring service (implement based on your service)
  */
 function sendToMonitoring(level: string, message: string, ...args: any[]) {
-  // TODO: Implement error reporting service integration
-  // Examples:
-  // - Sentry: Sentry.captureException(new Error(message));
-  // - Datadog: DD_LOGS.logger.error(message, ...args);
-  // - Custom API: fetch('/api/logs', { method: 'POST', body: JSON.stringify({ level, message, args }) });
-  
-  // For now, just store critical errors in localStorage for later analysis
-  if (IS_PRODUCTION && (level === 'error' || level === 'warn')) {
-    try {
-      const logs = JSON.parse(localStorage.getItem('error_logs') || '[]');
-      logs.push({
-        level,
-        message: sanitizeMessage(message),
-        timestamp: new Date().toISOString(),
-        url: window.location.href,
-      });
-      // Keep only last 50 errors
-      if (logs.length > 50) {
-        logs.shift();
-      }
-      localStorage.setItem('error_logs', JSON.stringify(logs));
-    } catch (e) {
-      // Silently fail if localStorage is full or unavailable
+  const sanitizedMessage = String(sanitizeMessage(message));
+  const sanitizedArgs = sanitizeMessage(args);
+  const payload = {
+    level,
+    message: sanitizedMessage,
+    timestamp: new Date().toISOString(),
+    url: typeof window !== 'undefined' ? window.location.href : '',
+    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
+    context: 'frontend',
+    args: JSON.stringify(sanitizedArgs),
+  };
+
+  try {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+    void fetch(`${MONITORING_API_BASE}/monitoring/logs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {
+      // Fallback local queue if endpoint is temporarily unavailable.
+      persistLocalErrorLog(payload.level, payload.message, payload.timestamp, payload.url);
+    });
+  } catch {
+    persistLocalErrorLog(payload.level, payload.message, payload.timestamp, payload.url);
+  }
+}
+
+function persistLocalErrorLog(level: string, message: string, timestamp: string, url: string): void {
+  if (!(IS_PRODUCTION && (level === 'error' || level === 'warn'))) {
+    return;
+  }
+  try {
+    const logs = JSON.parse(localStorage.getItem('error_logs') || '[]');
+    logs.push({ level, message, timestamp, url });
+    if (logs.length > 50) {
+      logs.shift();
     }
+    localStorage.setItem('error_logs', JSON.stringify(logs));
+  } catch {
+    // ignore
   }
 }
 

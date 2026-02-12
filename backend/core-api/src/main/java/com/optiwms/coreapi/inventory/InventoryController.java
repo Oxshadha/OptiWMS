@@ -1,6 +1,10 @@
 package com.optiwms.coreapi.inventory;
 
 import com.optiwms.coreapp.inventory.InventoryService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -49,12 +53,8 @@ public class InventoryController {
 
     @GetMapping("/{id}")
     public ResponseEntity<InventoryItemDto> getById(@PathVariable UUID id) {
-        try {
-            var item = inventoryService.findById(id);
-            return ResponseEntity.ok(toDto(item));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        var item = inventoryService.findById(id);
+        return ResponseEntity.ok(toDto(item));
     }
 
     @GetMapping("/material/{materialId}")
@@ -80,18 +80,14 @@ public class InventoryController {
             @PathVariable UUID id,
             @RequestParam Integer quantityChange
     ) {
-        try {
-            var item = inventoryService.findById(id);
-            var newQuantity = (item.getQuantity() != null ? item.getQuantity() : 0) + quantityChange;
-            item.setQuantity(newQuantity);
-            if (item.getAvailableQuantity() != null) {
-                item.setAvailableQuantity(newQuantity - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
-            }
-            var updated = inventoryService.update(id, item);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        var item = inventoryService.findById(id);
+        var newQuantity = (item.getQuantity() != null ? item.getQuantity() : 0) + quantityChange;
+        item.setQuantity(newQuantity);
+        if (item.getAvailableQuantity() != null) {
+            item.setAvailableQuantity(newQuantity - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
         }
+        var updated = inventoryService.update(id, item);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @GetMapping("/quarantined")
@@ -105,111 +101,93 @@ public class InventoryController {
     }
 
     @PostMapping("/quarantined")
-    public ResponseEntity<Map<String, Object>> quarantineBin(@RequestBody QuarantineRequest request) {
-        try {
-            var items = inventoryService.findByLocationCode(request.locationCode());
-            if (items.isEmpty()) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "message", "No items found at location: " + request.locationCode()));
-            }
-            
-            // Quarantine all items at this location
-            for (var item : items) {
-                item.setStatus("quarantine");
-                inventoryService.update(item.getId(), item);
-            }
-            
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Items quarantined successfully",
-                "locationCode", request.locationCode(),
-                "itemsQuarantined", items.size()
-            ));
-        } catch (Exception e) {
+    public ResponseEntity<Map<String, Object>> quarantineBin(@Valid @RequestBody QuarantineRequest request) {
+        var items = inventoryService.findByLocationCode(request.locationCode());
+        if (items.isEmpty()) {
             return ResponseEntity.badRequest()
-                .body(Map.of("success", false, "message", e.getMessage()));
+                .body(Map.of("success", false, "message", "No items found at location: " + request.locationCode()));
         }
+
+        // Quarantine all items at this location
+        for (var item : items) {
+            item.setStatus("quarantine");
+            inventoryService.update(item.getId(), item);
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Items quarantined successfully",
+            "locationCode", request.locationCode(),
+            "itemsQuarantined", items.size()
+        ));
     }
 
     @PostMapping("/quarantined/{id}/release")
     public ResponseEntity<Map<String, Object>> releaseQuarantine(@PathVariable UUID id) {
-        try {
-            var item = inventoryService.findById(id);
-            if (!"quarantine".equals(item.getStatus())) {
-                return ResponseEntity.badRequest()
-                    .body(Map.of("success", false, "message", "Item is not in quarantine"));
-            }
-            item.setStatus("active");
-            inventoryService.update(id, item);
-            return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", "Item released from quarantine"
-            ));
-        } catch (Exception e) {
+        var item = inventoryService.findById(id);
+        if (!"quarantine".equals(item.getStatus())) {
             return ResponseEntity.badRequest()
-                .body(Map.of("success", false, "message", e.getMessage()));
+                .body(Map.of("success", false, "message", "Item is not in quarantine"));
         }
+        item.setStatus("active");
+        inventoryService.update(id, item);
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "Item released from quarantine"
+        ));
     }
 
     @PostMapping
-    public ResponseEntity<InventoryItemDto> create(@RequestBody CreateInventoryRequest request) {
-        try {
-            var item = new com.optiwms.domain.inventory.InventoryItem();
-            item.setMaterialId(request.materialId());
-            item.setWarehouseId(request.warehouseId());
-            item.setLocationCode(request.locationCode());
-            item.setLpnCode(request.lpnCode());
-            // Convert string quantities to Integer (actual pallet quantities are integers)
-            item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : 0);
-            item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) : 
-                (request.quantity() != null ? Integer.parseInt(request.quantity()) : 0));
-            item.setReservedQuantity(request.reservedQuantity() != null ? Integer.parseInt(request.reservedQuantity()) : 0);
-            item.setBufferStock(request.bufferStock() != null ? new java.math.BigDecimal(request.bufferStock()) : null);
-            item.setMaxStock(request.maxStock() != null ? new java.math.BigDecimal(request.maxStock()) : null);
-            item.setMinStock(request.minStock() != null ? new java.math.BigDecimal(request.minStock()) : null);
-            item.setReorderPoint(request.reorderPoint() != null ? new java.math.BigDecimal(request.reorderPoint()) : null);
-            item.setStackingQuantity(request.stackQuantity());
-            item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
-            item.setLeadTimeDays(request.leadTimeDays());
-            item.setStatus(request.status() != null ? request.status() : "active");
+    public ResponseEntity<InventoryItemDto> create(@Valid @RequestBody CreateInventoryRequest request) {
+        var item = new com.optiwms.domain.inventory.InventoryItem();
+        item.setMaterialId(request.materialId());
+        item.setWarehouseId(request.warehouseId());
+        item.setLocationCode(request.locationCode());
+        item.setLpnCode(request.lpnCode());
+        // Convert string quantities to Integer (actual pallet quantities are integers)
+        item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : 0);
+        item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) :
+            (request.quantity() != null ? Integer.parseInt(request.quantity()) : 0));
+        item.setReservedQuantity(request.reservedQuantity() != null ? Integer.parseInt(request.reservedQuantity()) : 0);
+        item.setBufferStock(request.bufferStock() != null ? new java.math.BigDecimal(request.bufferStock()) : null);
+        item.setMaxStock(request.maxStock() != null ? new java.math.BigDecimal(request.maxStock()) : null);
+        item.setMinStock(request.minStock() != null ? new java.math.BigDecimal(request.minStock()) : null);
+        item.setReorderPoint(request.reorderPoint() != null ? new java.math.BigDecimal(request.reorderPoint()) : null);
+        item.setStackingQuantity(request.stackQuantity());
+        item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
+        item.setLeadTimeDays(request.leadTimeDays());
+        item.setStatus(request.status() != null ? request.status() : "active");
 
-            var created = inventoryService.createOrUpdate(item);
-            return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        var created = inventoryService.createOrUpdate(item);
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<InventoryItemDto> update(@PathVariable UUID id, @RequestBody UpdateInventoryRequest request) {
-        try {
-            var item = new com.optiwms.domain.inventory.InventoryItem();
-            // Update warehouse if provided
-            if (request.warehouseId() != null) {
-                item.setWarehouseId(UUID.fromString(request.warehouseId()));
-            }
-            item.setLocationCode(request.locationCode());
-            if (request.lpnCode() != null) {
-                item.setLpnCode(request.lpnCode());
-            }
-            // Convert string quantities to Integer (actual pallet quantities are integers)
-            item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : null);
-            item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) : null);
-            item.setReservedQuantity(request.reservedQuantity() != null ? Integer.parseInt(request.reservedQuantity()) : null);
-            item.setBufferStock(request.bufferStock() != null ? new java.math.BigDecimal(request.bufferStock()) : null);
-            item.setMaxStock(request.maxStock() != null ? new java.math.BigDecimal(request.maxStock()) : null);
-            item.setMinStock(request.minStock() != null ? new java.math.BigDecimal(request.minStock()) : null);
-            item.setReorderPoint(request.reorderPoint() != null ? new java.math.BigDecimal(request.reorderPoint()) : null);
-            item.setStackingQuantity(request.stackingQuantity());
-            item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
-            item.setLeadTimeDays(request.leadTimeDays());
-            item.setStatus(request.status());
-
-            var updated = inventoryService.update(id, item);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+    public ResponseEntity<InventoryItemDto> update(@PathVariable UUID id, @Valid @RequestBody UpdateInventoryRequest request) {
+        var item = new com.optiwms.domain.inventory.InventoryItem();
+        // Update warehouse if provided
+        if (request.warehouseId() != null) {
+            item.setWarehouseId(UUID.fromString(request.warehouseId()));
         }
+        item.setLocationCode(request.locationCode());
+        if (request.lpnCode() != null) {
+            item.setLpnCode(request.lpnCode());
+        }
+        // Convert string quantities to Integer (actual pallet quantities are integers)
+        item.setQuantity(request.quantity() != null ? Integer.parseInt(request.quantity()) : null);
+        item.setAvailableQuantity(request.availableQuantity() != null ? Integer.parseInt(request.availableQuantity()) : null);
+        item.setReservedQuantity(request.reservedQuantity() != null ? Integer.parseInt(request.reservedQuantity()) : null);
+        item.setBufferStock(request.bufferStock() != null ? new java.math.BigDecimal(request.bufferStock()) : null);
+        item.setMaxStock(request.maxStock() != null ? new java.math.BigDecimal(request.maxStock()) : null);
+        item.setMinStock(request.minStock() != null ? new java.math.BigDecimal(request.minStock()) : null);
+        item.setReorderPoint(request.reorderPoint() != null ? new java.math.BigDecimal(request.reorderPoint()) : null);
+        item.setStackingQuantity(request.stackingQuantity());
+        item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
+        item.setLeadTimeDays(request.leadTimeDays());
+        item.setStatus(request.status());
+
+        var updated = inventoryService.update(id, item);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     // Helper method to convert domain to DTO with String quantities
@@ -299,43 +277,42 @@ public class InventoryController {
 
     public record QuarantineRequest(
             String sku,
-            String locationCode,
+            @NotBlank String locationCode,
             String qualityCheckId
     ) {}
 
     public record CreateInventoryRequest(
-            UUID materialId,
-            UUID warehouseId,
-            String locationCode,
+            @NotNull UUID materialId,
+            @NotNull UUID warehouseId,
+            @NotBlank String locationCode,
             String lpnCode,  // License Plate Number
-            String quantity,  // Accept as String, convert to BigDecimal
-            String availableQuantity,  // Accept as String
-            String reservedQuantity,  // Accept as String
-            String bufferStock,  // Accept as String
-            String maxStock,  // Accept as String
-            String minStock,  // Accept as String
-            String reorderPoint,  // Accept as String
+            @Pattern(regexp = "^-?\\d+$") String quantity,  // Accept as String, convert to Integer
+            @Pattern(regexp = "^-?\\d+$") String availableQuantity,  // Accept as String
+            @Pattern(regexp = "^-?\\d+$") String reservedQuantity,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String bufferStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String maxStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String minStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String reorderPoint,  // Accept as String
             Integer stackQuantity,
-            String moq,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            @Pattern(regexp = "(?i)active|inactive|quarantine|non_moving|low_stock|out_of_stock") String status
     ) {}
 
     public record UpdateInventoryRequest(
-            String warehouseId,  // Allow updating warehouse
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String warehouseId,  // Allow updating warehouse
             String locationCode,
             String lpnCode,  // License Plate Number
-            String quantity,  // Accept as String
-            String availableQuantity,  // Accept as String
-            String reservedQuantity,  // Accept as String
-            String bufferStock,  // Accept as String
-            String maxStock,  // Accept as String
-            String minStock,  // Accept as String
-            String reorderPoint,  // Accept as String
+            @Pattern(regexp = "^-?\\d+$") String quantity,  // Accept as String
+            @Pattern(regexp = "^-?\\d+$") String availableQuantity,  // Accept as String
+            @Pattern(regexp = "^-?\\d+$") String reservedQuantity,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String bufferStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String maxStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String minStock,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String reorderPoint,  // Accept as String
             Integer stackingQuantity,
-            String moq,  // Accept as String
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            @Pattern(regexp = "(?i)active|inactive|quarantine|non_moving|low_stock|out_of_stock") String status
     ) {}
 }
-

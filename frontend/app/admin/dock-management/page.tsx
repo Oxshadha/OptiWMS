@@ -107,6 +107,27 @@ export default function DockManagementPage() {
     return matchesSearch && matchesDate;
   });
 
+  const inboundOrderOptions = Array.from(
+    new Map(
+      [
+        ...appointments
+          .filter((apt) => apt.inboundOrderId && apt.inboundOrderNumber)
+          .map((apt) => ({
+            id: apt.inboundOrderId as string,
+            orderNumber: apt.inboundOrderNumber as string,
+            supplierName: apt.supplierName || "Unknown Supplier",
+          })),
+        ...yardTrailers
+          .filter((trailer) => trailer.inboundOrderId && trailer.inboundOrderNumber)
+          .map((trailer) => ({
+            id: trailer.inboundOrderId as string,
+            orderNumber: trailer.inboundOrderNumber as string,
+            supplierName: trailer.supplierName || "Unknown Supplier",
+          })),
+      ].map((order) => [order.id, order])
+    ).values()
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -149,7 +170,8 @@ export default function DockManagementPage() {
     }
   };
 
-  const formatTime = (dateString: string) => {
+  const formatTime = (dateString?: string | null) => {
+    if (!dateString) return "N/A";
     return new Date(dateString).toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
@@ -262,13 +284,13 @@ export default function DockManagementPage() {
     setFormErrors({});
   };
 
-  // Handle inbound order selection
   const handleInboundOrderSelect = (orderId: string) => {
-    // TODO: Fetch order details from API
-    // For now, just set the order ID
+    const selectedOrder = inboundOrderOptions.find((order) => order.id === orderId);
     setAppointmentForm((prev) => ({
       ...prev,
       inboundOrderId: orderId,
+      inboundOrderNumber: selectedOrder?.orderNumber || "",
+      supplierName: selectedOrder?.supplierName || prev.supplierName,
     }));
   };
 
@@ -357,7 +379,7 @@ export default function DockManagementPage() {
         scheduledEnd: new Date(appointmentForm.scheduledEnd).toISOString(),
         inboundOrderId: appointmentForm.inboundOrderId || undefined,
         outboundOrderId: undefined,
-        supplierId: undefined, // TODO: Get from order if available
+        supplierId: undefined,
         carrierName: appointmentForm.carrierName,
         trailerNumber: appointmentForm.trailerNumber,
         notes: appointmentForm.notes || undefined,
@@ -536,12 +558,14 @@ export default function DockManagementPage() {
                     <td>
                       <span
                         className={
-                          trailer.waitTimeMinutes > 60
+                          (trailer.waitTimeMinutes ?? 0) > 60
                             ? "text-error font-semibold"
                             : ""
                         }
                       >
-                        {trailer.waitTimeMinutes} min
+                        {trailer.waitTimeMinutes != null
+                          ? `${trailer.waitTimeMinutes} min`
+                          : "N/A"}
                       </span>
                     </td>
                     <td>
@@ -851,17 +875,11 @@ export default function DockManagementPage() {
                 onChange={(e) => handleInboundOrderSelect(e.target.value)}
               >
                 <option value="">No order linked</option>
-                {mockInboundOrders
-                  .filter(
-                    (order) =>
-                      order.status === "in_transit" ||
-                      order.status === "arrived"
-                  )
-                  .map((order) => (
-                    <option key={order.id} value={order.id}>
-                      {order.orderNumber} - {order.supplierName}
-                    </option>
-                  ))}
+                {inboundOrderOptions.map((order) => (
+                  <option key={order.id} value={order.id}>
+                    {order.orderNumber} - {order.supplierName}
+                  </option>
+                ))}
               </select>
               <label className="label">
                 <span className="label-text-alt">

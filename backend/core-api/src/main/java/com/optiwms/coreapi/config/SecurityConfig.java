@@ -78,6 +78,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/me/**").authenticated()
                         // Role-based access control
                         .requestMatchers("/api/users/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER")
+                        .requestMatchers("/api/sops/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "INBOUND_COORDINATOR")
                         .requestMatchers("/api/integration/**").hasRole("ADMIN")
                         .requestMatchers("/api/integration/locations/generate/**").hasRole("ADMIN")
                         // Allow workers to read materials by code (for SKU lookup in receiving)
@@ -127,5 +128,4 @@ public class SecurityConfig {
         return source;
     }
 }
-
 

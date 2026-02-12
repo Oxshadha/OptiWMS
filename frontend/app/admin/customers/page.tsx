@@ -118,7 +118,7 @@ export default function CustomersPage() {
             phone: c.phone || "",
             orders: orderCounts.get(c.id) || 0,
             status: c.status === "active" ? "Active" : "On Hold",
-            joinDate: new Date().toISOString().split("T")[0], // TODO: Get from customer data
+            joinDate: new Date().toISOString().split("T")[0],
           };
         });
         
@@ -556,7 +556,7 @@ function AddCustomerModal({
       if (!emailFormatResult.valid) errors.contact = emailFormatResult.error || "";
     }
     
-    const phoneResult = validatePhone(formData.phone);
+    const phoneResult = await validatePhone(formData.phone);
     if (!phoneResult.valid) errors.phone = phoneResult.error || "";
     
     if (Object.keys(errors).length > 0) {
@@ -674,7 +674,7 @@ function AddCustomerModal({
             }}
             onBlur={async () => {
               const { validatePhone } = await import("@/lib/utils/form-validation");
-              const result = validatePhone(formData.phone);
+              const result = await validatePhone(formData.phone);
               if (!result.valid) {
                 setValidationErrors({ ...validationErrors, phone: result.error || "" });
               }

@@ -3,20 +3,27 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.DeliveryPartner;
 import com.optiwms.infra.master.DeliveryPartnerEntity;
 import com.optiwms.infra.master.DeliveryPartnerRepository;
+import com.optiwms.infra.operations.ShipmentEntity;
+import com.optiwms.infra.operations.ShipmentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.HashSet;
 import java.util.stream.Collectors;
 
 @Service
 public class DeliveryPartnerService {
 
     private final DeliveryPartnerRepository repository;
+    private final ShipmentRepository shipmentRepository;
 
-    public DeliveryPartnerService(DeliveryPartnerRepository repository) {
+    public DeliveryPartnerService(DeliveryPartnerRepository repository, ShipmentRepository shipmentRepository) {
         this.repository = repository;
+        this.shipmentRepository = shipmentRepository;
     }
 
     public List<DeliveryPartner> listAll() {
@@ -99,6 +106,77 @@ public class DeliveryPartnerService {
         repository.deleteById(id);
     }
 
+    public DeliveryPartnerMetrics getMetrics(UUID partnerId) {
+        DeliveryPartner partner = findById(partnerId);
+
+        Set<UUID> uniqueShipmentIds = new HashSet<>();
+        List<ShipmentEntity> matchedShipments = new java.util.ArrayList<>();
+
+        if (partner.getCompanyName() != null && !partner.getCompanyName().isBlank()) {
+            shipmentRepository.findByCarrierIgnoreCase(partner.getCompanyName())
+                    .forEach(shipment -> {
+                        if (uniqueShipmentIds.add(shipment.getId())) {
+                            matchedShipments.add(shipment);
+                        }
+                    });
+        }
+
+        if (partner.getPartnerCode() != null && !partner.getPartnerCode().isBlank()) {
+            shipmentRepository.findByCarrierIgnoreCase(partner.getPartnerCode())
+                    .forEach(shipment -> {
+                        if (uniqueShipmentIds.add(shipment.getId())) {
+                            matchedShipments.add(shipment);
+                        }
+                    });
+        }
+
+        int totalShipments = !matchedShipments.isEmpty()
+                ? matchedShipments.size()
+                : (partner.getTotalShipments() != null ? partner.getTotalShipments() : 0);
+
+        long deliveredShipments = matchedShipments.stream()
+                .filter(s -> "delivered".equalsIgnoreCase(s.getStatus()))
+                .count();
+
+        long onTimeDelivered = matchedShipments.stream()
+                .filter(s -> "delivered".equalsIgnoreCase(s.getStatus()))
+                .filter(s -> s.getDeliveredAt() != null && s.getEta() != null)
+                .filter(s -> !s.getDeliveredAt().toLocalDate().isAfter(s.getEta()))
+                .count();
+
+        double computedOnTimeRate = deliveredShipments > 0
+                ? (onTimeDelivered * 100.0 / deliveredShipments)
+                : (partner.getOnTimeDeliveryRate() != null ? partner.getOnTimeDeliveryRate().doubleValue() : 0.0);
+
+        double averageCost = partner.getCostPerDelivery() != null
+                ? partner.getCostPerDelivery().doubleValue()
+                : 0.0;
+
+        return new DeliveryPartnerMetrics(
+                partner.getId(),
+                partner.getPartnerCode(),
+                partner.getCompanyName(),
+                totalShipments,
+                (int) deliveredShipments,
+                Math.round(computedOnTimeRate * 100.0) / 100.0,
+                averageCost,
+                partner.getCurrencyCode(),
+                LocalDate.now().toString()
+        );
+    }
+
+    public record DeliveryPartnerMetrics(
+            UUID partnerId,
+            String partnerCode,
+            String companyName,
+            Integer totalShipments,
+            Integer deliveredShipments,
+            Double onTimeDeliveryRate,
+            Double averageCostPerDelivery,
+            String currencyCode,
+            String generatedAt
+    ) {}
+
     private DeliveryPartner toDomain(DeliveryPartnerEntity entity) {
         DeliveryPartner p = new DeliveryPartner();
         p.setId(entity.getId());
@@ -122,4 +200,3 @@ public class DeliveryPartnerService {
         return p;
     }
 }
-

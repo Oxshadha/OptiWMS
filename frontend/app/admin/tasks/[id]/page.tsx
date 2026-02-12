@@ -1,50 +1,33 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { DetailModal } from "@/components/DetailModal";
+import { Modal } from "@/components/Modal";
+import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { usersApi, User } from "@/lib/api/users";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { useAdmin } from "@/contexts/AdminContext";
+import { showToast } from "@/lib/utils/toast";
 
-// Mock data - will be replaced with API calls
-const tasks = [
-  {
-    id: "task-1",
-    taskNumber: "TASK-452368",
-    taskType: "receiving",
-    workerName: "John Doe",
-    warehouseName: "Warehouse 1",
-    priority: "high",
-    status: "in_progress",
-    assignedDate: "2025-12-15 08:00",
-    startedAt: "2025-12-15 08:15",
-    completedAt: null,
-    duration: null,
-    items: [
-      { sku: "SKU-1001", name: "Wireless Earbuds", quantity: 50, location: "A-01-01" },
-      { sku: "SKU-1002", name: "Smart Projector", quantity: 10, location: "B-02-03" },
-    ],
-    instructions: "Handle with care. Check for damage before putaway.",
-    relatedOrder: "SO-1001",
-  },
-  {
-    id: "task-2",
-    taskNumber: "TASK-452369",
-    taskType: "picking",
-    workerName: "Jane Smith",
-    warehouseName: "Warehouse 1",
-    priority: "urgent",
-    status: "in_progress",
-    assignedDate: "2025-12-15 09:00",
-    startedAt: "2025-12-15 09:05",
-    completedAt: null,
-    duration: null,
-    items: [
-      { sku: "SKU-1001", name: "Wireless Earbuds", quantity: 2, location: "A-01-01" },
-    ],
-    instructions: "Priority order. Expedite shipping.",
-    relatedOrder: "SO-1002",
-  },
-];
+interface TaskDetailDisplay {
+  id: string;
+  taskNumber: string;
+  taskType: string;
+  workerId: string | null;
+  workerName: string;
+  warehouseName: string;
+  priority: string;
+  status: string;
+  assignedDate: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  duration: number | null;
+  locationCode: string | null;
+  referenceType: string | null;
+  referenceId: string | null;
+  notes: string | null;
+}
 
 const taskTypeConfig = {
   receiving: { label: "Receiving", icon: "input", class: "badge-primary" },
@@ -73,17 +56,186 @@ const priorityConfig = {
   urgent: { label: "Urgent", class: "badge-error" },
 };
 
+function toDisplayTask(
+  task: Task,
+  workerName: string,
+  warehouseName: string
+): TaskDetailDisplay {
+  const assignedDate = task.dueDate
+    ? new Date(task.dueDate).toLocaleString()
+    : "N/A";
+  const completedAt = task.completedAt
+    ? new Date(task.completedAt).toLocaleString()
+    : null;
+  const startedAt = task.status === "in_progress" ? assignedDate : null;
+
+  let duration: number | null = null;
+  if (task.completedAt && task.dueDate) {
+    const start = new Date(task.dueDate);
+    const end = new Date(task.completedAt);
+    duration = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+  }
+
+  return {
+    id: task.id,
+    taskNumber: task.taskNumber,
+    taskType: task.taskType,
+    workerId: task.assignedTo || null,
+    workerName,
+    warehouseName,
+    priority: task.priority || "normal",
+    status: task.status || "pending",
+    assignedDate,
+    startedAt,
+    completedAt,
+    duration,
+    locationCode: task.locationCode || null,
+    referenceType: task.referenceType || null,
+    referenceId: task.referenceId || null,
+    notes: task.notes || null,
+  };
+}
+
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { admin } = useAdmin();
   const taskId = params.id as string;
-  const task = tasks.find((t) => t.id === taskId);
 
-  if (!task) {
+  const [task, setTask] = useState<TaskDetailDisplay | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [workers, setWorkers] = useState<User[]>([]);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedWorkerId, setSelectedWorkerId] = useState("");
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const apiTask = await tasksApi.getById(taskId);
+      const [usersData, warehousesData] = await Promise.all([
+        usersApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
+
+      const workersOnly = usersData.filter((u) =>
+        (u.role || "").toLowerCase().includes("worker")
+      );
+      setWorkers(workersOnly);
+
+      const warehouseName = apiTask.warehouseId
+        ? warehousesData.find((w) => w.id === apiTask.warehouseId)?.name || "Unknown"
+        : "Unknown";
+      const workerName = apiTask.assignedTo
+        ? usersData.find((u) => u.id === apiTask.assignedTo)
+          ? `${usersData.find((u) => u.id === apiTask.assignedTo)?.firstName || ""} ${
+              usersData.find((u) => u.id === apiTask.assignedTo)?.lastName || ""
+            }`.trim() ||
+            usersData.find((u) => u.id === apiTask.assignedTo)?.username ||
+            "Unknown"
+          : "Unassigned"
+        : "Unassigned";
+
+      setTask(toDisplayTask(apiTask, workerName, warehouseName));
+      setSelectedWorkerId(apiTask.assignedTo || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load task");
+      setTask(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (taskId) {
+      loadData();
+    }
+  }, [taskId]);
+
+  const taskType = useMemo(() => {
+    if (!task) return null;
+    return (
+      taskTypeConfig[task.taskType as keyof typeof taskTypeConfig] || {
+        label: task.taskType,
+        icon: "task",
+        class: "badge-outline",
+      }
+    );
+  }, [task]);
+
+  const status = useMemo(() => {
+    if (!task) return null;
+    return (
+      statusConfig[task.status as keyof typeof statusConfig] || {
+        label: task.status,
+        class: "badge-outline",
+      }
+    );
+  }, [task]);
+
+  const priority = useMemo(() => {
+    if (!task) return null;
+    return (
+      priorityConfig[task.priority as keyof typeof priorityConfig] || {
+        label: task.priority,
+        class: "badge-outline",
+      }
+    );
+  }, [task]);
+
+  const handleCancelTask = async () => {
+    if (!task) return;
+    try {
+      setIsSubmitting(true);
+      await tasksApi.updateStatus(task.id, "cancelled");
+      showToast.success("Task cancelled");
+      await loadData();
+    } catch (err) {
+      showToast.error(err instanceof Error ? err.message : "Failed to cancel task");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAssignWorker = async () => {
+    if (!task) return;
+    if (!selectedWorkerId) {
+      showToast.warning("Please select a worker");
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      await tasksApi.assign(task.id, {
+        workerId: selectedWorkerId,
+        assignedBy: admin?.id || "admin",
+      });
+      showToast.success("Task reassigned");
+      setShowAssignModal(false);
+      await loadData();
+    } catch (err) {
+      showToast.error(err instanceof Error ? err.message : "Failed to reassign task");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
+
+  if (error || !task || !taskType || !status || !priority) {
     return (
       <div className="space-y-6">
         <div className="alert alert-error">
-          <span>Task not found</span>
+          <span>{error || "Task not found"}</span>
           <Link href="/admin/tasks" className="btn btn-sm">
             Back to Tasks
           </Link>
@@ -92,13 +244,12 @@ export default function TaskDetailPage() {
     );
   }
 
-  const type = taskTypeConfig[task.taskType as keyof typeof taskTypeConfig];
-  const status = statusConfig[task.status as keyof typeof statusConfig];
-  const priority = priorityConfig[task.priority as keyof typeof priorityConfig];
+  const canReassign = task.status === "pending" || task.status === "assigned";
+  const canCancel =
+    task.status === "pending" || task.status === "assigned" || task.status === "in_progress";
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <Link href="/admin/tasks" className="text-primary hover:underline mb-2 inline-block">
@@ -109,7 +260,6 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      {/* Task Information */}
       <div className="card bg-base-100 border border-base-300 p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -119,11 +269,11 @@ export default function TaskDetailPage() {
           <div>
             <label className="text-sm text-base-content/60">Task Type</label>
             <p>
-              <span className={`badge ${type.class}`}>
+              <span className={`badge ${taskType.class}`}>
                 <span className="material-symbols-outlined text-xs mr-1">
-                  {type.icon}
+                  {taskType.icon}
                 </span>
-                {type.label}
+                {taskType.label}
               </span>
             </p>
           </div>
@@ -163,78 +313,100 @@ export default function TaskDetailPage() {
               <p className="font-semibold">{task.completedAt}</p>
             </div>
           )}
-          {task.duration && (
+          {task.duration !== null && (
             <div>
               <label className="text-sm text-base-content/60">Duration</label>
               <p className="font-semibold">{task.duration} minutes</p>
             </div>
           )}
-          {task.relatedOrder && (
+          {task.locationCode && (
             <div>
-              <label className="text-sm text-base-content/60">Related Order</label>
-              <Link href={`/admin/orders?search=${task.relatedOrder}`} className="font-semibold text-primary hover:underline">
-                {task.relatedOrder}
-              </Link>
+              <label className="text-sm text-base-content/60">Location</label>
+              <p className="font-semibold font-mono">{task.locationCode}</p>
+            </div>
+          )}
+          {task.referenceType && task.referenceId && (
+            <div>
+              <label className="text-sm text-base-content/60">Related Reference</label>
+              <p className="font-semibold">
+                {task.referenceType}: {task.referenceId}
+              </p>
             </div>
           )}
         </div>
 
-        {task.instructions && (
+        {task.notes && (
           <div className="mt-6 pt-6 border-t border-base-300">
-            <label className="text-sm text-base-content/60">Instructions</label>
-            <p className="mt-2">{task.instructions}</p>
-          </div>
-        )}
-
-        {/* Items */}
-        {task.items && task.items.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-base-300">
-            <h3 className="font-semibold mb-4">Items</h3>
-            <div className="overflow-x-auto">
-              <table className="table table-zebra w-full">
-                <thead>
-                  <tr>
-                    <th>SKU</th>
-                    <th>Name</th>
-                    <th>Quantity</th>
-                    <th>Location</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {task.items.map((item, idx) => (
-                    <tr key={idx}>
-                      <td className="font-mono">{item.sku}</td>
-                      <td>{item.name}</td>
-                      <td>{item.quantity}</td>
-                      <td className="font-mono">{item.location}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <label className="text-sm text-base-content/60">Notes</label>
+            <p className="mt-2">{task.notes}</p>
           </div>
         )}
       </div>
 
-      {/* Actions */}
       <div className="flex justify-end gap-3">
         <Link href="/admin/tasks">
           <button className="btn btn-ghost">Back to Tasks</button>
         </Link>
-        {task.status === "pending" && (
-          <button className="btn btn-primary">
+        {canReassign && (
+          <button className="btn btn-primary" onClick={() => setShowAssignModal(true)}>
             <span className="material-symbols-outlined">person_add</span>
             Reassign Worker
           </button>
         )}
-        {task.status === "in_progress" && (
-          <button className="btn btn-error">
+        {canCancel && (
+          <button
+            className="btn btn-error"
+            onClick={handleCancelTask}
+            disabled={isSubmitting}
+          >
             <span className="material-symbols-outlined">cancel</span>
             Cancel Task
           </button>
         )}
       </div>
+
+      <Modal
+        isOpen={showAssignModal}
+        onClose={() => setShowAssignModal(false)}
+        title="Reassign Worker"
+      >
+        <div className="space-y-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Select Worker</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={selectedWorkerId}
+              onChange={(e) => setSelectedWorkerId(e.target.value)}
+            >
+              <option value="">Choose worker</option>
+              {workers.map((worker) => {
+                const name =
+                  `${worker.firstName || ""} ${worker.lastName || ""}`.trim() ||
+                  worker.username;
+                return (
+                  <option key={worker.id} value={worker.id}>
+                    {name}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <button
+              className="btn btn-ghost"
+              onClick={() => setShowAssignModal(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleAssignWorker} disabled={isSubmitting}>
+              Assign
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
-

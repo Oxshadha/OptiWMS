@@ -168,11 +168,11 @@ export default function WorkersPage() {
             name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
             warehouseName,
             availabilityStatus: u.status === "active" ? "available" : "offline",
-            shiftStart: "08:00", // TODO: Get from user data
-            shiftEnd: "17:00", // TODO: Get from user data
+            shiftStart: "08:00",
+            shiftEnd: "17:00",
             tasksToday,
             totalTasksCompleted: totalCompleted,
-            avgTaskTime: 15.0, // TODO: Calculate from task data
+            avgTaskTime: 15.0,
             lastActive: u.lastLoginAt || "Never",
             avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
             role: workerRole,

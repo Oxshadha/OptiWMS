@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -112,6 +113,30 @@ public class AnalyticsController {
         return ResponseEntity.ok(dtos);
     }
 
+    @GetMapping("/dwell-time")
+    public ResponseEntity<List<DwellTimeAnalysisDto>> getDwellTimeAnalysis(
+            @RequestParam(required = false) UUID workerId
+    ) {
+        List<AnalyticsService.DwellTimeAnalysis> analyses = service.getDwellTimeAnalysis(workerId);
+        List<DwellTimeAnalysisDto> dtos = analyses.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/location-velocity")
+    public ResponseEntity<List<LocationVelocityDto>> getLocationVelocity(
+            @RequestParam UUID warehouseId,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate
+    ) {
+        List<AnalyticsService.LocationVelocity> velocity = service.getLocationVelocity(warehouseId, startDate, endDate);
+        List<LocationVelocityDto> dtos = velocity.stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
     // Conversion methods
     private WorkerProductivityMetricsDto toDto(AnalyticsService.WorkerProductivityMetrics metrics) {
         return new WorkerProductivityMetricsDto(
@@ -187,6 +212,34 @@ public class AnalyticsController {
         );
     }
 
+    private DwellTimeAnalysisDto toDto(AnalyticsService.DwellTimeAnalysis analysis) {
+        return new DwellTimeAnalysisDto(
+                analysis.workerId,
+                analysis.workerName,
+                analysis.averageDwellTime,
+                analysis.maxDwellTime,
+                analysis.minDwellTime,
+                analysis.dwellTimeDistribution.stream()
+                        .map(bucket -> new DwellTimeBucketDto(bucket.timeRange, bucket.count))
+                        .collect(Collectors.toList())
+        );
+    }
+
+    private LocationVelocityDto toDto(AnalyticsService.LocationVelocity velocity) {
+        return new LocationVelocityDto(
+                velocity.locationId,
+                velocity.locationCode,
+                velocity.rackId,
+                velocity.warehouseId,
+                velocity.pickCount,
+                velocity.putawayCount,
+                velocity.totalMovements,
+                velocity.velocityPercentage,
+                velocity.last7Days,
+                velocity.last30Days
+        );
+    }
+
     // DTOs
     public record WorkerProductivityMetricsDto(
             UUID workerId,
@@ -248,5 +301,31 @@ public class AnalyticsController {
             java.time.LocalDateTime earnedAt,
             String metadata
     ) {}
-}
 
+    public record DwellTimeBucketDto(
+            String timeRange,
+            Integer count
+    ) {}
+
+    public record DwellTimeAnalysisDto(
+            UUID workerId,
+            String workerName,
+            Double averageDwellTime,
+            Long maxDwellTime,
+            Long minDwellTime,
+            List<DwellTimeBucketDto> dwellTimeDistribution
+    ) {}
+
+    public record LocationVelocityDto(
+            String locationId,
+            String locationCode,
+            String rackId,
+            UUID warehouseId,
+            Integer pickCount,
+            Integer putawayCount,
+            Integer totalMovements,
+            Double velocityPercentage,
+            Integer last7Days,
+            Integer last30Days
+    ) {}
+}
