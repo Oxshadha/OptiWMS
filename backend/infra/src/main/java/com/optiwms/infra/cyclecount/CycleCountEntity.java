@@ -46,6 +46,36 @@ public class CycleCountEntity {
     @Column(name = "variance", precision = 15, scale = 2)
     private BigDecimal variance;
 
+    @Column(name = "material_id", columnDefinition = "UUID")
+    private UUID materialId;
+
+    @Column(name = "expected_quantity", precision = 15, scale = 2)
+    private BigDecimal expectedQuantity;
+
+    @Column(name = "counted_quantity", precision = 15, scale = 2)
+    private BigDecimal countedQuantity;
+
+    @Column(name = "variance_percentage", precision = 10, scale = 4)
+    private BigDecimal variancePercentage;
+
+    @Column(name = "anomaly_level", length = 20)
+    private String anomalyLevel;
+
+    @Column(name = "anomaly_detected")
+    private Boolean anomalyDetected;
+
+    @Column(name = "approval_required")
+    private Boolean approvalRequired;
+
+    @Column(name = "approved_by", columnDefinition = "UUID")
+    private UUID approvedBy;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
+
+    @Column(name = "approval_notes", columnDefinition = "TEXT")
+    private String approvalNotes;
+
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
@@ -87,6 +117,12 @@ public class CycleCountEntity {
         if (varianceThreshold == null) {
             varianceThreshold = new BigDecimal("5.0"); // Default threshold: 5 units
         }
+        if (anomalyDetected == null) {
+            anomalyDetected = false;
+        }
+        if (approvalRequired == null) {
+            approvalRequired = false;
+        }
     }
 
     @PreUpdate
@@ -115,6 +151,26 @@ public class CycleCountEntity {
     public void setCountedAt(LocalDateTime countedAt) { this.countedAt = countedAt; }
     public BigDecimal getVariance() { return variance; }
     public void setVariance(BigDecimal variance) { this.variance = variance; }
+    public UUID getMaterialId() { return materialId; }
+    public void setMaterialId(UUID materialId) { this.materialId = materialId; }
+    public BigDecimal getExpectedQuantity() { return expectedQuantity; }
+    public void setExpectedQuantity(BigDecimal expectedQuantity) { this.expectedQuantity = expectedQuantity; }
+    public BigDecimal getCountedQuantity() { return countedQuantity; }
+    public void setCountedQuantity(BigDecimal countedQuantity) { this.countedQuantity = countedQuantity; }
+    public BigDecimal getVariancePercentage() { return variancePercentage; }
+    public void setVariancePercentage(BigDecimal variancePercentage) { this.variancePercentage = variancePercentage; }
+    public String getAnomalyLevel() { return anomalyLevel; }
+    public void setAnomalyLevel(String anomalyLevel) { this.anomalyLevel = anomalyLevel; }
+    public Boolean getAnomalyDetected() { return anomalyDetected; }
+    public void setAnomalyDetected(Boolean anomalyDetected) { this.anomalyDetected = anomalyDetected; }
+    public Boolean getApprovalRequired() { return approvalRequired; }
+    public void setApprovalRequired(Boolean approvalRequired) { this.approvalRequired = approvalRequired; }
+    public UUID getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(UUID approvedBy) { this.approvedBy = approvedBy; }
+    public LocalDateTime getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(LocalDateTime approvedAt) { this.approvedAt = approvedAt; }
+    public String getApprovalNotes() { return approvalNotes; }
+    public void setApprovalNotes(String approvalNotes) { this.approvalNotes = approvalNotes; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public LocalDateTime getCreatedAt() { return createdAt; }
@@ -132,4 +188,3 @@ public class CycleCountEntity {
     public BigDecimal getFinalVariance() { return finalVariance; }
     public void setFinalVariance(BigDecimal finalVariance) { this.finalVariance = finalVariance; }
 }
-

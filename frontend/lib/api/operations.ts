@@ -104,10 +104,25 @@ export interface CycleCount {
   materialId?: string;
   expectedQuantity?: string;
   countedQuantity?: string;
+  variancePercentage?: string;
+  anomalyLevel?: string;
+  anomalyDetected?: boolean;
+  approvalRequired?: boolean;
+  approvedBy?: string;
+  approvedAt?: string;
+  approvalNotes?: string;
   scheduledDate?: string;
   status: string;
   variance?: string | null;
   notes?: string;
+}
+
+export interface CycleCountResult {
+  success: boolean;
+  message: string;
+  variance?: string | null;
+  recountRequired?: boolean;
+  approvalRequired?: boolean;
 }
 
 export const operationsApi = {
@@ -186,6 +201,7 @@ export const operationsApi = {
     countNumber?: string;
     warehouseId: string;
     locationCode: string;
+    assignedWorkers?: string[];
     scheduledDate?: string;
     status?: string;
     notes?: string;
@@ -203,6 +219,27 @@ export const operationsApi = {
 
   reviewCycleCount: async (id: string, notes?: string): Promise<CycleCount> => {
     return apiClient.put<CycleCount>(`/operations/cycle-counts/${id}/review`, { notes });
+  },
+
+  recordCycleCount: async (
+    id: string,
+    request: { materialId: string; countedQuantity: string; countedBy: string }
+  ): Promise<CycleCountResult> => {
+    return apiClient.post<CycleCountResult>(`/operations/cycle-counts/${id}/record`, request);
+  },
+
+  approveCycleCountAdjustment: async (
+    id: string,
+    request: { approvedBy: string; notes?: string }
+  ): Promise<CycleCount> => {
+    return apiClient.post<CycleCount>(`/operations/cycle-counts/${id}/approve-adjustment`, request);
+  },
+
+  rejectCycleCountAdjustment: async (
+    id: string,
+    request: { approvedBy: string; notes?: string }
+  ): Promise<CycleCount> => {
+    return apiClient.post<CycleCount>(`/operations/cycle-counts/${id}/reject-adjustment`, request);
   },
 };
 

@@ -238,7 +238,9 @@ export default function CycleCountsPage() {
       key: "status",
       label: "Status",
       render: (count: CycleCountDisplay) => {
-        const status = statusConfig[count.status as keyof typeof statusConfig];
+        const status =
+          statusConfig[count.status as keyof typeof statusConfig] ||
+          { label: count.status, class: "badge-outline" };
         // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
         if (status.class === "badge-outline") {
           return (

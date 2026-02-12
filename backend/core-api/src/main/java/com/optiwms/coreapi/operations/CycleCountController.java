@@ -49,6 +49,10 @@ public class CycleCountController {
                             ? java.time.LocalDate.parse(request.scheduledDate())
                             : java.time.LocalDate.now()
             );
+            if (request.assignedWorkers() != null && !request.assignedWorkers().isEmpty()) {
+                UUID[] workerIds = request.assignedWorkers().stream().map(UUID::fromString).toArray(UUID[]::new);
+                cycleCount.setAssignedWorkers(workerIds);
+            }
             cycleCount.setStatus(request.status() != null ? request.status() : "scheduled");
             cycleCount.setNotes(request.notes());
 
@@ -127,11 +131,47 @@ public class CycleCountController {
             return ResponseEntity.ok(new CycleCountResultDto(
                     result.success(),
                     result.message(),
-                    result.variance().toString()
+                    result.variance().toString(),
+                    result.recountRequired(),
+                    result.approvalRequired()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()
-                    .body(new CycleCountResultDto(false, e.getMessage(), null));
+                    .body(new CycleCountResultDto(false, e.getMessage(), null, false, false));
+        }
+    }
+
+    @PostMapping("/{id}/approve-adjustment")
+    public ResponseEntity<CycleCountDto> approveAdjustment(
+            @PathVariable UUID id,
+            @RequestBody AdjustmentDecisionRequest request
+    ) {
+        try {
+            CycleCountService.CycleCount updated = service.approveAdjustment(
+                    id,
+                    UUID.fromString(request.approvedBy()),
+                    request.notes()
+            );
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/{id}/reject-adjustment")
+    public ResponseEntity<CycleCountDto> rejectAdjustment(
+            @PathVariable UUID id,
+            @RequestBody AdjustmentDecisionRequest request
+    ) {
+        try {
+            CycleCountService.CycleCount updated = service.rejectAdjustment(
+                    id,
+                    UUID.fromString(request.approvedBy()),
+                    request.notes()
+            );
+            return ResponseEntity.ok(toDto(updated));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 
@@ -142,7 +182,17 @@ public class CycleCountController {
                 count.getWarehouseId().toString(),
                 count.getLocationCode(),
                 count.getStatus(),
-                count.getVariance() != null ? count.getVariance().toString() : null
+                count.getVariance() != null ? count.getVariance().toString() : null,
+                count.getMaterialId() != null ? count.getMaterialId().toString() : null,
+                count.getExpectedQuantity() != null ? count.getExpectedQuantity().toString() : null,
+                count.getCountedQuantity() != null ? count.getCountedQuantity().toString() : null,
+                count.getVariancePercentage() != null ? count.getVariancePercentage().toString() : null,
+                count.getAnomalyLevel(),
+                count.getAnomalyDetected(),
+                count.getApprovalRequired(),
+                count.getApprovedBy() != null ? count.getApprovedBy().toString() : null,
+                count.getApprovedAt() != null ? count.getApprovedAt().toString() : null,
+                count.getApprovalNotes()
         );
     }
 
@@ -151,6 +201,7 @@ public class CycleCountController {
             String countNumber,
             String warehouseId,
             String locationCode,
+            List<String> assignedWorkers,
             String scheduledDate,
             String status,
             String notes
@@ -158,6 +209,24 @@ public class CycleCountController {
     public record UpdateCycleCountRequest(String scheduledDate, String status, String notes) {}
     public record CancelCycleCountRequest(String reason) {}
     public record ReviewCycleCountRequest(String notes) {}
-    public record CycleCountDto(String id, String countNumber, String warehouseId, String locationCode, String status, String variance) {}
-    public record CycleCountResultDto(boolean success, String message, String variance) {}
+    public record AdjustmentDecisionRequest(String approvedBy, String notes) {}
+    public record CycleCountDto(
+            String id,
+            String countNumber,
+            String warehouseId,
+            String locationCode,
+            String status,
+            String variance,
+            String materialId,
+            String expectedQuantity,
+            String countedQuantity,
+            String variancePercentage,
+            String anomalyLevel,
+            Boolean anomalyDetected,
+            Boolean approvalRequired,
+            String approvedBy,
+            String approvedAt,
+            String approvalNotes
+    ) {}
+    public record CycleCountResultDto(boolean success, String message, String variance, boolean recountRequired, boolean approvalRequired) {}
 }
