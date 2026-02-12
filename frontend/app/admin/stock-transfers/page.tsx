@@ -5,6 +5,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
+import { usersApi, User } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { StockTransferHeader } from "./components/StockTransferHeader";
@@ -25,6 +26,26 @@ export default function StockTransfersPage() {
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
 
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
+  const [workers, setWorkers] = useState<User[]>([]);
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [materials, setMaterials] = useState<Array<{ id: string; materialCode?: string; description?: string }>>([]);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    transferType: "intra_warehouse" as TransferType,
+    notes: "",
+    lines: [
+      {
+        materialId: "",
+        sourceWarehouseId: "",
+        sourceLocationCode: "",
+        destWarehouseId: "",
+        destLocationCode: "",
+        quantity: "1",
+        assignedWorkerId: "",
+      },
+    ],
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,14 +54,18 @@ export default function StockTransfersPage() {
       setLoading(true);
       setError(null);
 
-      const [transfersData, warehousesData, materialsData] = await Promise.all([
+      const [transfersData, warehousesData, materialsData, workersData] = await Promise.all([
         operationsApi.getStockTransfers(),
         warehousesApi.getAll(),
         materialsApi.getAll(),
+        usersApi.getAll(undefined, undefined, "active"),
       ]);
 
       const warehouseMap = new Map<string, string>();
       warehousesData.forEach((warehouse) => warehouseMap.set(warehouse.id, warehouse.name));
+      setWarehouses(warehousesData.map((warehouse) => ({ id: warehouse.id, name: warehouse.name })));
+      setMaterials(materialsData);
+      setWorkers(workersData.filter((u) => u.role === "worker" || u.role === "forklift_operator" || u.role === "warehouse_worker"));
 
       const materialMap = new Map<string, { name: string; sku: string }>();
       materialsData.forEach((material) => {
@@ -51,9 +76,13 @@ export default function StockTransfersPage() {
       });
 
       const displayTransfers: StockTransfer[] = transfersData.map((transfer) => {
-        const material = materialMap.get(transfer.materialId) || { name: "Unknown", sku: "N/A" };
-        const sourceWarehouse = warehouseMap.get(transfer.sourceWarehouseId);
-        const destWarehouse = warehouseMap.get(transfer.destWarehouseId);
+        const firstLine = transfer.lines?.[0];
+        const materialId = firstLine?.materialId || transfer.materialId || "";
+        const sourceWarehouseId = firstLine?.sourceWarehouseId || transfer.sourceWarehouseId || "";
+        const destWarehouseId = firstLine?.destWarehouseId || transfer.destWarehouseId || "";
+        const material = materialMap.get(materialId) || { name: "Unknown", sku: "N/A" };
+        const sourceWarehouse = warehouseMap.get(sourceWarehouseId);
+        const destWarehouse = warehouseMap.get(destWarehouseId);
 
         const isIntraWarehouse =
           transfer.transferType === "intra_warehouse" || transfer.sourceWarehouseId === transfer.destWarehouseId;
@@ -61,14 +90,14 @@ export default function StockTransfersPage() {
         return {
           id: transfer.id,
           transferNumber: transfer.transferNumber,
-          transferType: isIntraWarehouse ? "intra_warehouse" : "inter_warehouse",
+          transferType: (transfer.transferType as TransferType) || (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse"),
           sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
-          sourceLocationCode: transfer.sourceLocationCode,
+          sourceLocationCode: firstLine?.sourceLocationCode || transfer.sourceLocationCode || "-",
           destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
-          destLocationCode: transfer.destLocationCode,
+          destLocationCode: firstLine?.destLocationCode || transfer.destLocationCode || "-",
           itemSku: material.sku,
-          itemName: material.name,
-          quantity: parseInt(transfer.quantity) || 0,
+          itemName: transfer.lines && transfer.lines.length > 1 ? `${transfer.lines.length} items` : material.name,
+          quantity: transfer.lines?.reduce((sum, line) => sum + (line.requestedQuantity || 0), 0) || parseInt(transfer.quantity) || 0,
           status: (transfer.status as TransferStatus) || "draft",
           notes: transfer.notes,
           createdAt: new Date().toISOString(),
@@ -118,6 +147,7 @@ export default function StockTransfersPage() {
   const inTransitCount = transfersForWarehouse.filter((transfer) => transfer.status === "in_transit").length;
   const receivedCount = transfersForWarehouse.filter((transfer) => transfer.status === "received").length;
   const pendingCount = transfersForWarehouse.filter((transfer) => transfer.status === "draft").length;
+  const releasedCount = transfersForWarehouse.filter((transfer) => transfer.status === "released").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
@@ -141,6 +171,107 @@ export default function StockTransfersPage() {
 
   const handlePrintTransferSlip = (transfer: StockTransfer) => {
     showToast.warning(`Printing transfer slip: ${transfer.transferNumber}`);
+  };
+
+  const addLine = () => {
+    setCreateForm((prev) => ({
+      ...prev,
+      lines: [
+        ...prev.lines,
+        {
+          materialId: "",
+          sourceWarehouseId: prev.lines[0]?.sourceWarehouseId || "",
+          sourceLocationCode: "",
+          destWarehouseId: prev.lines[0]?.destWarehouseId || "",
+          destLocationCode: "",
+          quantity: "1",
+          assignedWorkerId: "",
+        },
+      ],
+    }));
+  };
+
+  const removeLine = (index: number) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      lines: prev.lines.filter((_, i) => i !== index),
+    }));
+  };
+
+  const updateLine = (index: number, key: string, value: string) => {
+    setCreateForm((prev) => ({
+      ...prev,
+      lines: prev.lines.map((line, i) => (i === index ? { ...line, [key]: value } : line)),
+    }));
+  };
+
+  const handleCreateTransfer = async () => {
+    try {
+      if (!admin?.id) {
+        showToast.error("Admin user context not loaded");
+        return;
+      }
+      if (createForm.lines.length === 0) {
+        showToast.error("Add at least one transfer line");
+        return;
+      }
+      const invalidLine = createForm.lines.find(
+        (line) =>
+          !line.materialId ||
+          !line.sourceWarehouseId ||
+          !line.sourceLocationCode ||
+          !line.destWarehouseId ||
+          !line.destLocationCode ||
+          !line.quantity
+      );
+      if (invalidLine) {
+        showToast.error("Please complete all required fields for each line");
+        return;
+      }
+
+      setCreating(true);
+      const created = await operationsApi.createMultiStockTransfer({
+        transferType: createForm.transferType,
+        status: "draft",
+        createdBy: admin.id,
+        notes: createForm.notes,
+        lines: createForm.lines.map((line, idx) => ({
+          lineNumber: idx + 1,
+          materialId: line.materialId,
+          sourceWarehouseId: line.sourceWarehouseId,
+          sourceLocationCode: line.sourceLocationCode,
+          destWarehouseId: line.destWarehouseId,
+          destLocationCode: line.destLocationCode,
+          quantity: line.quantity,
+          assignedWorkerId: line.assignedWorkerId || undefined,
+        })),
+      });
+
+      await operationsApi.releaseStockTransfer(created.id, admin.id);
+      showToast.success("Transfer order created and released");
+      setShowCreateModal(false);
+      setCreateForm({
+        transferType: "intra_warehouse",
+        notes: "",
+        lines: [
+          {
+            materialId: "",
+            sourceWarehouseId: "",
+            sourceLocationCode: "",
+            destWarehouseId: "",
+            destLocationCode: "",
+            quantity: "1",
+            assignedWorkerId: "",
+          },
+        ],
+      });
+      await loadData();
+    } catch (err) {
+      logger.error("Failed to create transfer:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to create transfer");
+    } finally {
+      setCreating(false);
+    }
   };
 
   if (loading) {
@@ -170,11 +301,12 @@ export default function StockTransfersPage() {
         onSearchChange={setSearchQuery}
         onStatusFilterChange={setStatusFilter}
         onTypeFilterChange={setTypeFilter}
+        onCreateTransfer={() => setShowCreateModal(true)}
       />
 
       <StockTransferStats
         totalTransfers={totalTransfers}
-        inTransitCount={inTransitCount}
+        inTransitCount={inTransitCount + releasedCount}
         receivedCount={receivedCount}
         pendingCount={pendingCount}
       />
@@ -193,6 +325,84 @@ export default function StockTransfersPage() {
         onCancelTransfer={handleCancelTransfer}
         onPrintSlip={handlePrintTransferSlip}
       />
+
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-base-100 rounded-xl w-full max-w-5xl max-h-[90vh] overflow-auto p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Create Multi-Item Stock Transfer</h2>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowCreateModal(false)}>Close</button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="form-control">
+                <span className="label-text">Transfer Type</span>
+                <select
+                  className="select select-bordered"
+                  value={createForm.transferType}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, transferType: e.target.value as TransferType }))}
+                >
+                  <option value="intra_warehouse">Intra Warehouse</option>
+                  <option value="inter_warehouse">Inter Warehouse</option>
+                </select>
+              </label>
+              <label className="form-control">
+                <span className="label-text">Notes</span>
+                <input
+                  className="input input-bordered"
+                  value={createForm.notes}
+                  onChange={(e) => setCreateForm((prev) => ({ ...prev, notes: e.target.value }))}
+                  placeholder="Optional transfer notes"
+                />
+              </label>
+            </div>
+
+            <div className="space-y-3">
+              {createForm.lines.map((line, index) => (
+                <div key={index} className="border border-base-300 rounded-lg p-3 grid grid-cols-1 md:grid-cols-7 gap-2">
+                  <select className="select select-bordered" value={line.materialId} onChange={(e) => updateLine(index, "materialId", e.target.value)}>
+                    <option value="">Material</option>
+                    {materials.map((m) => (
+                      <option key={m.id} value={m.id}>{m.materialCode || m.id} - {m.description || "Material"}</option>
+                    ))}
+                  </select>
+                  <select className="select select-bordered" value={line.sourceWarehouseId} onChange={(e) => updateLine(index, "sourceWarehouseId", e.target.value)}>
+                    <option value="">Source WH</option>
+                    {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                  <input className="input input-bordered" placeholder="Source Loc" value={line.sourceLocationCode} onChange={(e) => updateLine(index, "sourceLocationCode", e.target.value)} />
+                  <select className="select select-bordered" value={line.destWarehouseId} onChange={(e) => updateLine(index, "destWarehouseId", e.target.value)}>
+                    <option value="">Dest WH</option>
+                    {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+                  <input className="input input-bordered" placeholder="Dest Loc" value={line.destLocationCode} onChange={(e) => updateLine(index, "destLocationCode", e.target.value)} />
+                  <input className="input input-bordered" type="number" min="1" placeholder="Qty" value={line.quantity} onChange={(e) => updateLine(index, "quantity", e.target.value)} />
+                  <div className="flex gap-2">
+                    <select className="select select-bordered w-full" value={line.assignedWorkerId} onChange={(e) => updateLine(index, "assignedWorkerId", e.target.value)}>
+                      <option value="">Any Worker</option>
+                      {workers.map((worker) => (
+                        <option key={worker.id} value={worker.id}>
+                          {(worker.firstName || worker.username) + " " + (worker.lastName || "")}
+                        </option>
+                      ))}
+                    </select>
+                    {createForm.lines.length > 1 && (
+                      <button className="btn btn-error btn-outline" onClick={() => removeLine(index)}>X</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between">
+              <button className="btn btn-outline" onClick={addLine}>Add Line</button>
+              <button className={`btn btn-primary ${creating ? "loading" : ""}`} onClick={handleCreateTransfer} disabled={creating}>
+                Create & Release
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -73,25 +73,61 @@ export interface StockTransfer {
   id: string;
   transferNumber: string;
   transferType: string;
+  materialId?: string;
+  sourceWarehouseId?: string;
+  sourceLocationCode?: string;
+  destWarehouseId?: string;
+  destLocationCode?: string;
+  quantity: string;
+  status: string;
+  createdBy?: string;
+  releasedBy?: string;
+  releasedAt?: string;
+  notes?: string;
+  lines?: StockTransferLine[];
+}
+
+export interface StockTransferLine {
+  id: string;
+  transferId: string;
+  lineNumber: number;
   materialId: string;
   sourceWarehouseId: string;
   sourceLocationCode: string;
   destWarehouseId: string;
   destLocationCode: string;
-  quantity: string;
+  requestedQuantity: number;
+  movedQuantity: number;
   status: string;
+  assignedWorkerId?: string;
   notes?: string;
 }
 
 export interface CreateStockTransferRequest {
-  transferNumber: string;
+  transferNumber?: string;
   transferType: string;
+  materialId?: string;
+  sourceWarehouseId?: string;
+  sourceLocationCode?: string;
+  destWarehouseId?: string;
+  destLocationCode?: string;
+  quantity?: string;
+  status?: string;
+  createdBy?: string;
+  lines?: CreateStockTransferLineRequest[];
+  notes?: string;
+}
+
+export interface CreateStockTransferLineRequest {
+  lineNumber?: number;
   materialId: string;
   sourceWarehouseId: string;
   sourceLocationCode: string;
   destWarehouseId: string;
   destLocationCode: string;
   quantity: string;
+  assignedWorkerId?: string;
+  status?: string;
   notes?: string;
 }
 
@@ -178,6 +214,45 @@ export const operationsApi = {
 
   createStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
     return apiClient.post<StockTransfer>('/operations/stock-transfers', request);
+  },
+
+  createMultiStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>('/operations/stock-transfers/multi', request);
+  },
+
+  releaseStockTransfer: async (id: string, managerId: string): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/release`, { managerId });
+  },
+
+  getStockTransferLines: async (id: string): Promise<StockTransferLine[]> => {
+    return apiClient.get<StockTransferLine[]>(`/operations/stock-transfers/${id}/lines`);
+  },
+
+  getExecutableStockTransferLines: async (workerId: string, warehouseId?: string): Promise<StockTransferLine[]> => {
+    const params = new URLSearchParams({ workerId });
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    return apiClient.get<StockTransferLine[]>(`/operations/stock-transfers/lines/executable?${params.toString()}`);
+  },
+
+  assignStockTransferLine: async (lineId: string, workerId: string, assignedBy: string): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/assign`, { workerId, assignedBy });
+  },
+
+  executeStockTransferLine: async (
+    lineId: string,
+    request: {
+      workerId: string;
+      sourceScanLocation: string;
+      destScanLocation: string;
+      quantity: number;
+      notes?: string;
+    }
+  ): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/execute`, request);
+  },
+
+  skipStockTransferLine: async (lineId: string, workerId: string, reason: string): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/skip`, { workerId, reason });
   },
 
   dispatchStockTransfer: async (id: string, userId: string): Promise<StockTransfer> => {

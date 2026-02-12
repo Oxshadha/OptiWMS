@@ -4,13 +4,12 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "stock_transfers")
-public class StockTransferEntity {
+@Table(name = "stock_transfer_lines")
+public class StockTransferLineEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -18,11 +17,11 @@ public class StockTransferEntity {
     @Column(name = "id", columnDefinition = "UUID", updatable = false)
     private UUID id;
 
-    @Column(name = "transfer_number", unique = true, nullable = false, length = 50)
-    private String transferNumber;
+    @Column(name = "transfer_id", columnDefinition = "UUID", nullable = false)
+    private UUID transferId;
 
-    @Column(name = "transfer_type", nullable = false, length = 20)
-    private String transferType; // intra_warehouse, inter_warehouse
+    @Column(name = "line_number", nullable = false)
+    private Integer lineNumber;
 
     @Column(name = "material_id", columnDefinition = "UUID", nullable = false)
     private UUID materialId;
@@ -39,35 +38,20 @@ public class StockTransferEntity {
     @Column(name = "dest_location_code", length = 50)
     private String destLocationCode;
 
-    @Column(name = "quantity", nullable = false)
-    private Integer quantity;
+    @Column(name = "requested_quantity", nullable = false)
+    private Integer requestedQuantity;
 
-    @Column(name = "status", length = 20)
+    @Column(name = "moved_quantity", nullable = false)
+    private Integer movedQuantity;
+
+    @Column(name = "status", length = 30, nullable = false)
     private String status;
+
+    @Column(name = "assigned_worker_id", columnDefinition = "UUID")
+    private UUID assignedWorkerId;
 
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
-
-    @Column(name = "created_by", columnDefinition = "UUID")
-    private UUID createdBy;
-
-    @Column(name = "released_by", columnDefinition = "UUID")
-    private UUID releasedBy;
-
-    @Column(name = "released_at")
-    private LocalDateTime releasedAt;
-
-    @Column(name = "dispatched_by", columnDefinition = "UUID")
-    private UUID dispatchedBy;
-
-    @Column(name = "dispatched_at")
-    private LocalDateTime dispatchedAt;
-
-    @Column(name = "received_by", columnDefinition = "UUID")
-    private UUID receivedBy;
-
-    @Column(name = "received_at")
-    private LocalDateTime receivedAt;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -79,8 +63,11 @@ public class StockTransferEntity {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (movedQuantity == null) {
+            movedQuantity = 0;
+        }
         if (status == null) {
-            status = "draft";
+            status = "open";
         }
     }
 
@@ -89,13 +76,12 @@ public class StockTransferEntity {
         updatedAt = LocalDateTime.now();
     }
 
-    // Getters and Setters
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
-    public String getTransferNumber() { return transferNumber; }
-    public void setTransferNumber(String transferNumber) { this.transferNumber = transferNumber; }
-    public String getTransferType() { return transferType; }
-    public void setTransferType(String transferType) { this.transferType = transferType; }
+    public UUID getTransferId() { return transferId; }
+    public void setTransferId(UUID transferId) { this.transferId = transferId; }
+    public Integer getLineNumber() { return lineNumber; }
+    public void setLineNumber(Integer lineNumber) { this.lineNumber = lineNumber; }
     public UUID getMaterialId() { return materialId; }
     public void setMaterialId(UUID materialId) { this.materialId = materialId; }
     public UUID getSourceWarehouseId() { return sourceWarehouseId; }
@@ -106,26 +92,16 @@ public class StockTransferEntity {
     public void setDestWarehouseId(UUID destWarehouseId) { this.destWarehouseId = destWarehouseId; }
     public String getDestLocationCode() { return destLocationCode; }
     public void setDestLocationCode(String destLocationCode) { this.destLocationCode = destLocationCode; }
-    public Integer getQuantity() { return quantity; }
-    public void setQuantity(Integer quantity) { this.quantity = quantity; }
+    public Integer getRequestedQuantity() { return requestedQuantity; }
+    public void setRequestedQuantity(Integer requestedQuantity) { this.requestedQuantity = requestedQuantity; }
+    public Integer getMovedQuantity() { return movedQuantity; }
+    public void setMovedQuantity(Integer movedQuantity) { this.movedQuantity = movedQuantity; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public UUID getAssignedWorkerId() { return assignedWorkerId; }
+    public void setAssignedWorkerId(UUID assignedWorkerId) { this.assignedWorkerId = assignedWorkerId; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
-    public UUID getCreatedBy() { return createdBy; }
-    public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
-    public UUID getReleasedBy() { return releasedBy; }
-    public void setReleasedBy(UUID releasedBy) { this.releasedBy = releasedBy; }
-    public LocalDateTime getReleasedAt() { return releasedAt; }
-    public void setReleasedAt(LocalDateTime releasedAt) { this.releasedAt = releasedAt; }
-    public UUID getDispatchedBy() { return dispatchedBy; }
-    public void setDispatchedBy(UUID dispatchedBy) { this.dispatchedBy = dispatchedBy; }
-    public LocalDateTime getDispatchedAt() { return dispatchedAt; }
-    public void setDispatchedAt(LocalDateTime dispatchedAt) { this.dispatchedAt = dispatchedAt; }
-    public UUID getReceivedBy() { return receivedBy; }
-    public void setReceivedBy(UUID receivedBy) { this.receivedBy = receivedBy; }
-    public LocalDateTime getReceivedAt() { return receivedAt; }
-    public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
