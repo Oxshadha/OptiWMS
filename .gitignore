@@ -150,3 +150,6 @@ Desktop.ini
 
 # Cursor
 .cursor/
+
+# Gradle local files
+.gradle-local/
