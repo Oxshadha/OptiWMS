@@ -12,6 +12,8 @@ import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,6 +22,7 @@ import java.util.UUID;
 @Service
 public class PutawayService {
     private static final Pattern PUTAWAY_PROGRESS_PATTERN = Pattern.compile("PUTAWAY_PROGRESS=(\\d+)/(\\d+)");
+    private static final Pattern PUTAWAY_SKIP_REASON_PATTERN = Pattern.compile("(?m)^PUTAWAY_SKIP_REASON=.*(?:\\R|$)");
 
     private final TaskService taskService;
     private final InventoryService inventoryService;
@@ -70,7 +73,11 @@ public class PutawayService {
             orderIdForStatusUpdate = orderItem.getOrderId();
             var order = orderService.findById(orderIdForStatusUpdate);
             if (!"quality_approved".equals(order.getStatus()) && !"putaway_in_progress".equals(order.getStatus())) {
-                throw new RuntimeException("Order is not quality approved for putaway");
+                throw new RuntimeException(
+                        "Order status is '" + order.getStatus()
+                                + "'. Putaway allowed only for 'quality_approved' or 'putaway_in_progress'. "
+                                + "Ensure all quality checks for this GRN are approved."
+                );
             }
             if (actualMaterialId == null) {
                 actualMaterialId = orderItem.getMaterialId();
@@ -146,7 +153,8 @@ public class PutawayService {
                         "partial_allocation=true;location=" + finalLocationCode
                 ));
             }
-            taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), newCompletedQuantity, requiredQuantity));
+            String notesWithoutSkip = clearSkipReasonNote(task.getNotes());
+            taskService.updateNotes(taskId, upsertPutawayProgressNote(notesWithoutSkip, newCompletedQuantity, requiredQuantity));
             taskService.updateStatus(taskId, "in_progress");
             if (orderIdForStatusUpdate != null) {
                 var order = orderService.findById(orderIdForStatusUpdate);
@@ -162,7 +170,8 @@ public class PutawayService {
         }
 
         // Complete task with worker attribution for labor productivity analytics.
-        taskService.updateNotes(taskId, upsertPutawayProgressNote(task.getNotes(), requiredQuantity, requiredQuantity));
+        String notesWithoutSkip = clearSkipReasonNote(task.getNotes());
+        taskService.updateNotes(taskId, upsertPutawayProgressNote(notesWithoutSkip, requiredQuantity, requiredQuantity));
         if (workerId != null) {
             taskService.updateStatusWithWorker(taskId, "completed", workerId);
             operationEventService.recordCompleted(new OperationEventService.OperationEventData(
@@ -188,6 +197,43 @@ public class PutawayService {
         }
 
         return new PutawayResult(true, "Putaway completed successfully. Material assigned to location: " + finalLocationCode, taskId);
+    }
+
+    @Transactional
+    public PutawayResult skipPutawayItem(UUID taskId, String reason, UUID workerId) {
+        Task task = taskService.findById(taskId);
+        if (!"putaway".equals(task.getTaskType())) {
+            throw new RuntimeException("Task is not a putaway task");
+        }
+        if ("completed".equals(task.getStatus())) {
+            throw new RuntimeException("Completed task cannot be skipped");
+        }
+        if (reason == null || reason.trim().isEmpty()) {
+            throw new RuntimeException("Skip reason is required");
+        }
+
+        String normalizedReason = reason.trim();
+        if (normalizedReason.length() > 200) {
+            throw new RuntimeException("Skip reason must be 200 characters or less");
+        }
+
+        taskService.updateNotes(taskId, upsertSkipReasonNote(task.getNotes(), normalizedReason, workerId));
+        taskService.updateStatus(taskId, "pending");
+
+        if (task.getReferenceId() != null && "order_item".equals(task.getReferenceType())) {
+            OrderItemEntity orderItem = orderItemRepository.findById(task.getReferenceId()).orElse(null);
+            if (orderItem != null) {
+                try {
+                    var order = orderService.findById(orderItem.getOrderId());
+                    if ("quality_approved".equals(order.getStatus())) {
+                        orderService.updateStatus(orderItem.getOrderId(), "putaway_in_progress");
+                    }
+                } catch (RuntimeException ignored) {
+                }
+            }
+        }
+
+        return new PutawayResult(true, "Item skipped with reason. Continue with other pending items.", taskId);
     }
 
     /**
@@ -281,5 +327,28 @@ public class PutawayService {
             return matcher.replaceFirst(progress);
         }
         return existingNotes + "\n" + progress;
+    }
+
+    private String upsertSkipReasonNote(String existingNotes, String reason, UUID workerId) {
+        String encodedReason = URLEncoder.encode(reason, StandardCharsets.UTF_8);
+        String marker = "PUTAWAY_SKIP_REASON=" + encodedReason;
+        if (workerId != null) {
+            marker += ";workerId=" + workerId;
+        }
+        marker += ";at=" + java.time.LocalDateTime.now();
+
+        String base = clearSkipReasonNote(existingNotes);
+        if (base == null || base.isBlank()) {
+            return marker;
+        }
+        return base + "\n" + marker;
+    }
+
+    private String clearSkipReasonNote(String existingNotes) {
+        if (existingNotes == null || existingNotes.isBlank()) {
+            return existingNotes;
+        }
+        String cleaned = PUTAWAY_SKIP_REASON_PATTERN.matcher(existingNotes).replaceAll("");
+        return cleaned.strip();
     }
 }

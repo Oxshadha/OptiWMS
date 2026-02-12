@@ -63,6 +63,11 @@ export interface PutawayResponse {
   taskId?: string;
 }
 
+export interface SkipPutawayRequest {
+  reason: string;
+  workerId?: string;
+}
+
 // Stock Transfer Operations
 export interface StockTransfer {
   id: string;
@@ -145,6 +150,10 @@ export const operationsApi = {
   // Putaway
   completePutaway: async (taskId: string, request: CompletePutawayRequest): Promise<PutawayResponse> => {
     return apiClient.post<PutawayResponse>(`/operations/putaway/complete/${taskId}`, request);
+  },
+
+  skipPutaway: async (taskId: string, request: SkipPutawayRequest): Promise<PutawayResponse> => {
+    return apiClient.post<PutawayResponse>(`/operations/putaway/skip/${taskId}`, request);
   },
 
   // Stock Transfer
