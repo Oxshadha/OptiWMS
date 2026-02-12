@@ -2,6 +2,9 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.PackingService;
 import com.optiwms.domain.operations.PackingRecord;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -50,87 +53,67 @@ public class PackingController {
 
     @GetMapping("/{id}")
     public ResponseEntity<PackingRecordDto> getById(@PathVariable UUID id) {
-        try {
-            PackingRecord record = service.findById(id);
-            return ResponseEntity.ok(toDto(record));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        PackingRecord record = service.findById(id);
+        return ResponseEntity.ok(toDto(record));
     }
 
     @PostMapping
-    public ResponseEntity<PackingRecordDto> create(@RequestBody CreatePackingRecordRequest request) {
-        try {
-            PackingRecord record = new PackingRecord();
-            record.setOrderId(request.orderId() != null ? UUID.fromString(request.orderId()) : null);
-            record.setOrderNumber(request.orderNumber());
-            record.setPackagingTypeId(request.packagingTypeId() != null ? UUID.fromString(request.packagingTypeId()) : null);
-            record.setBoxType(request.boxType());
-            record.setBoxDimensions(request.boxDimensions());
-            record.setDunnageMaterials(request.dunnageMaterials());
-            record.setHasFragileItems(request.hasFragileItems());
-            record.setActualWeightKg(request.actualWeightKg() != null ? new BigDecimal(request.actualWeightKg()) : null);
-            record.setDimensionalWeightKg(request.dimensionalWeightKg() != null ? new BigDecimal(request.dimensionalWeightKg()) : null);
-            record.setChargeableWeightKg(request.chargeableWeightKg() != null ? new BigDecimal(request.chargeableWeightKg()) : null);
-            record.setTrackingNumber(request.trackingNumber());
-            record.setShippingLabelUrl(request.shippingLabelUrl());
-            record.setPackingSlipUrl(request.packingSlipUrl());
-            record.setPackingNotes(request.packingNotes());
-            record.setPackingPhotos(request.packingPhotos());
-            record.setPackerId(request.packerId() != null ? UUID.fromString(request.packerId()) : null);
-            record.setStatus(request.status() != null ? request.status() : "in_progress");
+    public ResponseEntity<PackingRecordDto> create(@Valid @RequestBody CreatePackingRecordRequest request) {
+        PackingRecord record = new PackingRecord();
+        record.setOrderId(request.orderId() != null ? UUID.fromString(request.orderId()) : null);
+        record.setOrderNumber(request.orderNumber());
+        record.setPackagingTypeId(request.packagingTypeId() != null ? UUID.fromString(request.packagingTypeId()) : null);
+        record.setBoxType(request.boxType());
+        record.setBoxDimensions(request.boxDimensions());
+        record.setDunnageMaterials(request.dunnageMaterials());
+        record.setHasFragileItems(request.hasFragileItems());
+        record.setActualWeightKg(request.actualWeightKg() != null ? new BigDecimal(request.actualWeightKg()) : null);
+        record.setDimensionalWeightKg(request.dimensionalWeightKg() != null ? new BigDecimal(request.dimensionalWeightKg()) : null);
+        record.setChargeableWeightKg(request.chargeableWeightKg() != null ? new BigDecimal(request.chargeableWeightKg()) : null);
+        record.setTrackingNumber(request.trackingNumber());
+        record.setShippingLabelUrl(request.shippingLabelUrl());
+        record.setPackingSlipUrl(request.packingSlipUrl());
+        record.setPackingNotes(request.packingNotes());
+        record.setPackingPhotos(request.packingPhotos());
+        record.setPackerId(request.packerId() != null ? UUID.fromString(request.packerId()) : null);
+        record.setStatus(request.status() != null ? request.status() : "in_progress");
 
-            PackingRecord created = service.create(record);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        PackingRecord created = service.create(record);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<PackingRecordDto> update(@PathVariable UUID id, @RequestBody UpdatePackingRecordRequest request) {
-        try {
-            PackingRecord record = service.findById(id);
-            if (request.boxType() != null) record.setBoxType(request.boxType());
-            if (request.boxDimensions() != null) record.setBoxDimensions(request.boxDimensions());
-            if (request.dunnageMaterials() != null) record.setDunnageMaterials(request.dunnageMaterials());
-            if (request.hasFragileItems() != null) record.setHasFragileItems(request.hasFragileItems());
-            if (request.actualWeightKg() != null) record.setActualWeightKg(new BigDecimal(request.actualWeightKg()));
-            if (request.dimensionalWeightKg() != null) record.setDimensionalWeightKg(new BigDecimal(request.dimensionalWeightKg()));
-            if (request.chargeableWeightKg() != null) record.setChargeableWeightKg(new BigDecimal(request.chargeableWeightKg()));
-            if (request.trackingNumber() != null) record.setTrackingNumber(request.trackingNumber());
-            if (request.packingNotes() != null) record.setPackingNotes(request.packingNotes());
-            if (request.status() != null) record.setStatus(request.status());
+    public ResponseEntity<PackingRecordDto> update(@PathVariable UUID id, @Valid @RequestBody UpdatePackingRecordRequest request) {
+        PackingRecord record = service.findById(id);
+        if (request.boxType() != null) record.setBoxType(request.boxType());
+        if (request.boxDimensions() != null) record.setBoxDimensions(request.boxDimensions());
+        if (request.dunnageMaterials() != null) record.setDunnageMaterials(request.dunnageMaterials());
+        if (request.hasFragileItems() != null) record.setHasFragileItems(request.hasFragileItems());
+        if (request.actualWeightKg() != null) record.setActualWeightKg(new BigDecimal(request.actualWeightKg()));
+        if (request.dimensionalWeightKg() != null) record.setDimensionalWeightKg(new BigDecimal(request.dimensionalWeightKg()));
+        if (request.chargeableWeightKg() != null) record.setChargeableWeightKg(new BigDecimal(request.chargeableWeightKg()));
+        if (request.trackingNumber() != null) record.setTrackingNumber(request.trackingNumber());
+        if (request.packingNotes() != null) record.setPackingNotes(request.packingNotes());
+        if (request.status() != null) record.setStatus(request.status());
 
-            PackingRecord updated = service.update(record);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        PackingRecord updated = service.update(record);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/status")
     public ResponseEntity<PackingRecordDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @Valid @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
-            PackingRecord updated = service.updateStatusWithWorker(id, request.status(), workerId);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
+        PackingRecord updated = service.updateStatusWithWorker(id, request.status(), workerId);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            service.deleteById(id);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private PackingRecordDto toDto(PackingRecord record) {
@@ -159,23 +142,23 @@ public class PackingController {
     }
 
     public record CreatePackingRecordRequest(
-            String orderId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String orderId,
             String orderNumber,
-            String packagingTypeId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String packagingTypeId,
             String boxType,
             String boxDimensions,
             String dunnageMaterials,
             Boolean hasFragileItems,
-            String actualWeightKg,
-            String dimensionalWeightKg,
-            String chargeableWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String actualWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String dimensionalWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String chargeableWeightKg,
             String trackingNumber,
             String shippingLabelUrl,
             String packingSlipUrl,
             String packingNotes,
             String packingPhotos,
-            String packerId,
-            String status
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String packerId,
+            @Pattern(regexp = "^[A-Za-z_]+$") String status
     ) {}
 
     public record UpdatePackingRecordRequest(
@@ -183,15 +166,18 @@ public class PackingController {
             String boxDimensions,
             String dunnageMaterials,
             Boolean hasFragileItems,
-            String actualWeightKg,
-            String dimensionalWeightKg,
-            String chargeableWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String actualWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String dimensionalWeightKg,
+            @Pattern(regexp = "^-?\\d+(\\.\\d+)?$") String chargeableWeightKg,
             String trackingNumber,
             String packingNotes,
-            String status
+            @Pattern(regexp = "^[A-Za-z_]+$") String status
     ) {}
 
-    public record UpdateStatusRequest(String status, String workerId) {}
+    public record UpdateStatusRequest(
+            @NotBlank @Pattern(regexp = "^[A-Za-z_]+$") String status,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String workerId
+    ) {}
 
     public record PackingRecordDto(
             String id,
@@ -216,4 +202,3 @@ public class PackingController {
             String completedAt
     ) {}
 }
-

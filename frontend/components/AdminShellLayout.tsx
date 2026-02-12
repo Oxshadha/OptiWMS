@@ -1,18 +1,15 @@
 "use client";
 
+import React from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
-import React from "react";
 import { RouteGuard } from "@/lib/auth/RouteGuard";
-import { useAdmin } from "@/contexts/AdminContext";
 
-export default function AdminLayout({
+export default function AdminShellLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const { admin, role } = useAdmin();
-
   return (
     <RouteGuard requiredRole="admin">
       <div className="min-h-screen bg-base-200">
@@ -25,4 +22,3 @@ export default function AdminLayout({
     </RouteGuard>
   );
 }
-

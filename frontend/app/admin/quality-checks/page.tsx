@@ -121,18 +121,35 @@ export default function QualityChecksPage() {
 
       // Build maps
       const materialsMap = new Map<string, { name: string; sku: string }>();
-      materialsData.forEach(m => materialsMap.set(m.id, { name: m.name, sku: m.sku || m.code }));
+      materialsData.forEach((m) =>
+        materialsMap.set(m.id, {
+          name: m.description || "Unknown",
+          sku: m.materialCode || m.id,
+        })
+      );
       
       const warehousesMap = new Map<string, string>();
       warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
       
       const usersMap = new Map<string, string>();
-      usersData.forEach(u => usersMap.set(u.id, u.name || u.email || "Unknown"));
+      usersData.forEach((u) => {
+        const displayName =
+          `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
+          u.username ||
+          u.email ||
+          "Unknown";
+        usersMap.set(u.id, displayName);
+      });
 
       // Transform API data to display format
       const displayChecks: QualityCheckDisplay[] = checksData.map((qc, index) => {
         const material = qc.materialId ? materialsMap.get(qc.materialId) : null;
-        const checkedBy = qc.checkedBy ? usersMap.get(qc.checkedBy) : "Unknown";
+        const checkedBy = qc.checkedBy
+          ? usersMap.get(qc.checkedBy) || "Unknown"
+          : "Unknown";
+        const approvedBy = qc.approvedBy
+          ? usersMap.get(qc.approvedBy) || "Unknown"
+          : null;
         
         const qtyReceived = parseInt(qc.qtyReceived) || 0;
         const qtyPassed = parseInt(qc.qtyPassed) || 0;
@@ -154,9 +171,9 @@ export default function QualityChecksPage() {
           result,
           checkedByName: checkedBy,
           checkDate: qc.checkDate ? new Date(qc.checkDate).toLocaleString() : new Date().toLocaleString(),
-          approvedByName: null, // TODO: Add approval tracking when available
-          approvalDate: null,
-          warehouseName: "Unknown", // TODO: Get from GRN when available
+          approvedByName: approvedBy,
+          approvalDate: qc.approvedAt ? new Date(qc.approvedAt).toLocaleString() : null,
+          warehouseName: "Unknown",
         };
       });
 
@@ -382,7 +399,7 @@ export default function QualityChecksPage() {
                 onClick={async () => {
                   if (confirm(`Approve quality check ${check.checkId}?`)) {
                     try {
-                      await qualityChecksApi.update(check.id, { status: "approved" });
+                      await qualityChecksApi.approve(check.id, admin?.id);
                       showToast.success("Quality check approved successfully!");
                       // Reload data
                       if (typeof window !== 'undefined') {
@@ -537,7 +554,7 @@ export default function QualityChecksPage() {
                 className="btn btn-error"
                 onClick={async () => {
                   if (!rejectReason.trim()) {
-                    alert("Please enter a rejection reason");
+                    showToast.warning("Please enter a rejection reason");
                     return;
                   }
                   try {
@@ -649,7 +666,7 @@ function QualityCheckDetailModal({
                 className="btn btn-primary"
                 onClick={async () => {
                   try {
-                    await qualityChecksApi.approve(check.id, admin?.id);
+                    await qualityChecksApi.approve(check.id);
                     showToast.success("Quality check approved successfully");
                     onClose();
                     // Reload data
@@ -671,4 +688,3 @@ function QualityCheckDetailModal({
     </DetailModal>
   );
 }
-

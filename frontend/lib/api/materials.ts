@@ -4,6 +4,7 @@ export interface Material {
   id: string;
   materialCode: string;
   description: string;
+  weightKg?: number;
   unitType?: string;
   storageType?: string;
   materialType?: string;
@@ -61,4 +62,3 @@ export const materialsApi = {
     return apiClient.postFormData<ImportResponse>('/master/materials/inventory/import', formData);
   },
 };
-

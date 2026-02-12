@@ -36,6 +36,15 @@ public class QualityCheckEntity {
     @Column(name = "rejection_reason", columnDefinition = "TEXT")
     private String rejectionReason;
 
+    @Column(name = "approval_status", length = 20)
+    private String approvalStatus;
+
+    @Column(name = "approved_by", columnDefinition = "UUID")
+    private UUID approvedBy;
+
+    @Column(name = "approved_at")
+    private OffsetDateTime approvedAt;
+
     @Column(name = "checked_by", columnDefinition = "UUID")
     private UUID checkedBy;
 
@@ -57,6 +66,12 @@ public class QualityCheckEntity {
     public void setQtyRejected(BigDecimal qtyRejected) { this.qtyRejected = qtyRejected; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+    public String getApprovalStatus() { return approvalStatus; }
+    public void setApprovalStatus(String approvalStatus) { this.approvalStatus = approvalStatus; }
+    public UUID getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(UUID approvedBy) { this.approvedBy = approvedBy; }
+    public OffsetDateTime getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(OffsetDateTime approvedAt) { this.approvedAt = approvedAt; }
     public UUID getCheckedBy() { return checkedBy; }
     public void setCheckedBy(UUID checkedBy) { this.checkedBy = checkedBy; }
     public OffsetDateTime getCheckDate() { return checkDate; }
@@ -69,4 +84,3 @@ public class QualityCheckEntity {
         }
     }
 }
-

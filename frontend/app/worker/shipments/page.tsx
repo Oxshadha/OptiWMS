@@ -8,6 +8,7 @@ import { QRScanner } from "@/components/QRScanner";
 import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
+import { addToSyncQueue } from "@/lib/indexeddb";
 
 export default function ShipmentsPage() {
   const { isOnline } = useOffline();
@@ -161,8 +162,18 @@ export default function ShipmentsPage() {
 
         showToast.success("Shipment processed successfully!");
       } else {
-        // Offline mode - save to sync queue
-        // TODO: Implement offline sync
+        await addToSyncQueue({
+          type: "operation",
+          action: "update",
+          data: {
+            operationType: "shipment",
+            action: "process",
+            shipmentId: selectedShipment.id,
+            orderId: selectedShipment.orderId,
+            deliveryDetails,
+            processedAt: new Date().toISOString(),
+          },
+        });
         showToast.warning("Offline mode - changes will sync when online");
       }
       
@@ -236,8 +247,6 @@ export default function ShipmentsPage() {
           </div>
           ))}
         </div>
-      )}
-
       {/* Process Shipment Modal */}
       {selectedShipment && (
         <Modal

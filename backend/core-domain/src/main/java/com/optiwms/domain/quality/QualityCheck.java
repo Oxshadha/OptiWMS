@@ -13,6 +13,9 @@ public class QualityCheck extends BaseEntity {
     private BigDecimal qtyPassed;
     private BigDecimal qtyRejected;
     private String rejectionReason;
+    private String approvalStatus;
+    private UUID approvedBy;
+    private OffsetDateTime approvedAt;
     private UUID checkedBy;
     private OffsetDateTime checkDate;
 
@@ -29,9 +32,14 @@ public class QualityCheck extends BaseEntity {
     public void setQtyRejected(BigDecimal qtyRejected) { this.qtyRejected = qtyRejected; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+    public String getApprovalStatus() { return approvalStatus; }
+    public void setApprovalStatus(String approvalStatus) { this.approvalStatus = approvalStatus; }
+    public UUID getApprovedBy() { return approvedBy; }
+    public void setApprovedBy(UUID approvedBy) { this.approvedBy = approvedBy; }
+    public OffsetDateTime getApprovedAt() { return approvedAt; }
+    public void setApprovedAt(OffsetDateTime approvedAt) { this.approvedAt = approvedAt; }
     public UUID getCheckedBy() { return checkedBy; }
     public void setCheckedBy(UUID checkedBy) { this.checkedBy = checkedBy; }
     public OffsetDateTime getCheckDate() { return checkDate; }
     public void setCheckDate(OffsetDateTime checkDate) { this.checkDate = checkDate; }
 }
-

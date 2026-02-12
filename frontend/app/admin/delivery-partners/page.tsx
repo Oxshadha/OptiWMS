@@ -425,10 +425,21 @@ export default function DeliveryPartnersPage() {
         </li>
         <li>
           <button
-            onClick={() => {
-              // TODO: Open performance metrics modal or navigate to metrics page
-              console.log("Viewing performance metrics for:", partner.id);
-              alert(`Performance metrics for ${partner.companyName}:\n\n- Total Shipments: 245\n- On-Time Delivery: 98.5%\n- Average Rating: ${partner.rating}\n- Cost Efficiency: High`);
+            onClick={async () => {
+              try {
+                const metrics = await deliveryPartnersApi.getMetrics(partner.id);
+                alert(
+                  `Performance metrics for ${metrics.companyName}:\n\n` +
+                  `- Total Shipments: ${metrics.totalShipments}\n` +
+                  `- Delivered Shipments: ${metrics.deliveredShipments}\n` +
+                  `- On-Time Delivery: ${metrics.onTimeDeliveryRate.toFixed(2)}%\n` +
+                  `- Average Cost: ${formatCurrency(metrics.averageCostPerDelivery, metrics.currencyCode)}\n` +
+                  `- Generated At: ${metrics.generatedAt}`
+                );
+              } catch (err) {
+                console.error("Failed to load partner metrics:", err);
+                showToast.error("Failed to load partner metrics");
+              }
             }}
           >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -1344,4 +1355,3 @@ function DeleteDeliveryPartnerModal({
     </Modal>
   );
 }
-

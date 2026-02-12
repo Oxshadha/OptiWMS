@@ -33,4 +33,3 @@ export const customersApi = {
     return apiClient.delete<void>(`/master/customers/${id}`);
   },
 };
-

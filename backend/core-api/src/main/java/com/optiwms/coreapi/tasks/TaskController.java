@@ -3,6 +3,10 @@ package com.optiwms.coreapi.tasks;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.tasks.Task;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -75,76 +79,56 @@ public class TaskController {
 
     @GetMapping("/{id}")
     public ResponseEntity<TaskDto> getById(@PathVariable UUID id) {
-        try {
-            Task task = taskService.findById(id);
-            return ResponseEntity.ok(toDto(task));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        Task task = taskService.findById(id);
+        return ResponseEntity.ok(toDto(task));
     }
 
     @PostMapping
-    public ResponseEntity<TaskDto> create(@RequestBody CreateTaskRequest request) {
-        try {
-            Task task = new Task();
-            task.setTaskNumber(request.taskNumber());
-            task.setTaskType(request.taskType());
-            task.setWarehouseId(UUID.fromString(request.warehouseId()));
-            task.setAssignedTo(request.assignedTo() != null ? UUID.fromString(request.assignedTo()) : null);
-            task.setPriority(request.priority() != null ? request.priority() : "normal");
-            task.setStatus(request.status() != null ? request.status() : "pending");
-            if (request.dueDate() != null && !request.dueDate().isEmpty()) {
-                task.setDueDate(LocalDateTime.parse(request.dueDate()));
-            }
-            task.setLocationCode(request.locationCode());
-            task.setReferenceType(request.referenceType());
-            task.setReferenceId(request.referenceId() != null ? UUID.fromString(request.referenceId()) : null);
-            task.setNotes(request.notes());
-
-            Task created = taskService.create(task);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+    public ResponseEntity<TaskDto> create(@Valid @RequestBody CreateTaskRequest request) {
+        Task task = new Task();
+        task.setTaskNumber(request.taskNumber());
+        task.setTaskType(request.taskType());
+        task.setWarehouseId(UUID.fromString(request.warehouseId()));
+        task.setAssignedTo(request.assignedTo() != null ? UUID.fromString(request.assignedTo()) : null);
+        task.setPriority(request.priority() != null ? request.priority() : "normal");
+        task.setStatus(request.status() != null ? request.status() : "pending");
+        if (request.dueDate() != null && !request.dueDate().isEmpty()) {
+            task.setDueDate(LocalDateTime.parse(request.dueDate()));
         }
+        task.setLocationCode(request.locationCode());
+        task.setReferenceType(request.referenceType());
+        task.setReferenceId(request.referenceId() != null ? UUID.fromString(request.referenceId()) : null);
+        task.setNotes(request.notes());
+
+        Task created = taskService.create(task);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}/status")
     public ResponseEntity<TaskDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @Valid @RequestBody UpdateStatusRequest request
     ) {
-        try {
-            Task updated = taskService.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = taskService.updateStatus(id, request.status());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PostMapping("/{id}/assign")
     public ResponseEntity<TaskDto> assignTask(
             @PathVariable UUID id,
-            @RequestBody AssignTaskRequest request
+            @Valid @RequestBody AssignTaskRequest request
     ) {
-        try {
-            Task updated = taskService.assignTask(id, UUID.fromString(request.workerId()), request.assignedBy());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = taskService.assignTask(id, UUID.fromString(request.workerId()), request.assignedBy());
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PostMapping("/{id}/claim")
     public ResponseEntity<TaskDto> claimTask(
             @PathVariable UUID id,
-            @RequestBody ClaimTaskRequest request
+            @Valid @RequestBody ClaimTaskRequest request
     ) {
-        try {
-            Task updated = workflowService.claimTask(id, UUID.fromString(request.workerId()));
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        Task updated = workflowService.claimTask(id, UUID.fromString(request.workerId()));
+        return ResponseEntity.ok(toDto(updated));
     }
 
     private TaskDto toDto(Task task) {
@@ -166,28 +150,28 @@ public class TaskController {
     }
 
     public record CreateTaskRequest(
-            String taskNumber,
-            String taskType,
-            String warehouseId,
-            String assignedTo,
-            String priority,
-            String status,
-            String dueDate,
+            @NotBlank @Size(max = 50) String taskNumber,
+            @NotBlank @Pattern(regexp = "^[A-Za-z_]+$") String taskType,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String warehouseId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String assignedTo,
+            @Pattern(regexp = "^[A-Za-z_]+$") String priority,
+            @Pattern(regexp = "^[A-Za-z_]+$") String status,
+            @Pattern(regexp = "^\\d{4}-\\d{2}-\\d{2}T.*$") String dueDate,
             String locationCode,
             String referenceType,
-            String referenceId,
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String referenceId,
             String notes
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(@NotBlank @Pattern(regexp = "^[A-Za-z_]+$") String status) {}
 
     public record AssignTaskRequest(
-            String workerId,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String workerId,
             String assignedBy,
             java.util.List<String> warnings
     ) {}
 
-    public record ClaimTaskRequest(String workerId) {}
+    public record ClaimTaskRequest(@NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String workerId) {}
 
     public record TaskDto(
             String id,
@@ -205,4 +189,3 @@ public class TaskController {
             String notes
     ) {}
 }
-

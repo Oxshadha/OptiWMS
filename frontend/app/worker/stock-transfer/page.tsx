@@ -78,7 +78,6 @@ export default function StockTransferPage() {
   const handleItemScan = (code: string) => {
     setFormData({ ...formData, sku: code });
     setShowItemScanner(false);
-    // TODO: Fetch item details from API/IndexedDB
   };
 
   const handleDispatch = async () => {
@@ -512,4 +511,3 @@ export default function StockTransferPage() {
     </div>
   );
 }
-

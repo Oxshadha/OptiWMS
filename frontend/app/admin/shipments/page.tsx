@@ -5,7 +5,7 @@ import clsx from "clsx";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import Link from "next/link";
-import { shipmentsApi, Shipment as ApiShipment } from "@/lib/api/shipments";
+import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -25,79 +25,6 @@ interface ShipmentDisplay {
   orders: string[];
   shipmentDate: string;
 }
-
-const mockShipments: ShipmentDisplay[] = [
-  { 
-    id: "SH-9001", 
-    carrier: "DHL", 
-    status: "In Transit", 
-    eta: "2025-12-16", 
-    tracking: "DHL123456", 
-    destination: "New York, NY", 
-    weight: "15.5 kg",
-    driverName: "John Smith",
-    driverPhone: "+1-555-0101",
-    vehicleNumber: "ABC-1234",
-    orders: ["SO-1001", "SO-1002"],
-    shipmentDate: "2025-12-15",
-  },
-  { 
-    id: "SH-9002", 
-    carrier: "FedEx", 
-    status: "Label Created", 
-    eta: "2025-12-17", 
-    tracking: "FDX789012", 
-    destination: "Los Angeles, CA", 
-    weight: "8.2 kg",
-    driverName: "",
-    driverPhone: "",
-    vehicleNumber: "",
-    orders: ["SO-1003"],
-    shipmentDate: "2025-12-16",
-  },
-  { 
-    id: "SH-9003", 
-    carrier: "UPS", 
-    status: "Delivered", 
-    eta: "2025-12-13", 
-    tracking: "1Z999AA101", 
-    destination: "Chicago, IL", 
-    weight: "22.1 kg",
-    driverName: "Mike Johnson",
-    driverPhone: "+1-555-0202",
-    vehicleNumber: "XYZ-5678",
-    orders: ["SO-1004"],
-    shipmentDate: "2025-12-12",
-  },
-  { 
-    id: "SH-9004", 
-    carrier: "DHL", 
-    status: "In Transit", 
-    eta: "2025-12-18", 
-    tracking: "DHL789456", 
-    destination: "Miami, FL", 
-    weight: "12.3 kg",
-    driverName: "Sarah Williams",
-    driverPhone: "+1-555-0303",
-    vehicleNumber: "DEF-9012",
-    orders: ["SO-1005"],
-    shipmentDate: "2025-12-17",
-  },
-  { 
-    id: "SH-9005", 
-    carrier: "USPS", 
-    status: "Delivered", 
-    eta: "2025-12-12", 
-    tracking: "940011189922", 
-    destination: "Seattle, WA", 
-    weight: "5.8 kg",
-    driverName: "Tom Brown",
-    driverPhone: "+1-555-0404",
-    vehicleNumber: "GHI-3456",
-    orders: ["SO-1006"],
-    shipmentDate: "2025-12-11",
-  },
-];
 
 const statusClass = (s: string) => {
   if (s === "Delivered") return "badge-success";
@@ -124,53 +51,74 @@ export default function ShipmentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [shipmentsData, ordersData] = await Promise.all([
+        shipmentsApi.getAll(),
+        ordersApi.getAllOutbound(),
+      ]);
+
+      const orderNumberById = new Map<string, string>();
+      ordersData.forEach((o) => {
+        orderNumberById.set(o.id, o.orderNumber || o.id);
+      });
+
+      // Transform API data to display format
+      const displayShipments: ShipmentDisplay[] = shipmentsData.map((s) => {
+        // Map status from API format to display format
+        let displayStatus = s.status || "Label Created";
+        if (displayStatus === "in_transit") displayStatus = "In Transit";
+        else if (displayStatus === "label_created") displayStatus = "Label Created";
+        else if (displayStatus === "ready_to_ship") displayStatus = "Ready to Ship";
+        else if (displayStatus === "delivered") displayStatus = "Delivered";
+        else if (displayStatus === "cancelled") displayStatus = "Cancelled";
+
+        const orderDisplay = s.orderId
+          ? orderNumberById.get(s.orderId) || s.orderId
+          : "";
+
+        return {
+          id: s.shipmentNumber || s.id,
+          carrier: s.carrier || "N/A",
+          status: displayStatus,
+          eta: s.eta || "",
+          tracking: s.trackingNumber || "",
+          destination: s.destination || "",
+          weight: s.weightKg ? `${s.weightKg} kg` : "N/A",
+          driverName: s.driverName || "",
+          driverPhone: s.driverPhone || "",
+          vehicleNumber: s.vehicleNumber || "",
+          orders: orderDisplay ? [orderDisplay] : [],
+          shipmentDate: s.shippedAt ? new Date(s.shippedAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
+        };
+      });
+
+      setShipments(displayShipments);
+    } catch (err) {
+      console.error("Failed to load shipments:", err);
+      setError(err instanceof Error ? err.message : "Failed to load shipments");
+      setShipments([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load shipments. Please try again.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Load data from API
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const shipmentsData = await shipmentsApi.getAll();
-        
-        // Transform API data to display format
-        const displayShipments: ShipmentDisplay[] = shipmentsData.map((s) => {
-          // Map status from API format to display format
-          let displayStatus = s.status || "Label Created";
-          if (displayStatus === "in_transit") displayStatus = "In Transit";
-          else if (displayStatus === "label_created") displayStatus = "Label Created";
-          else if (displayStatus === "ready_to_ship") displayStatus = "Ready to Ship";
-          else if (displayStatus === "delivered") displayStatus = "Delivered";
-          
-          return {
-            id: s.shipmentNumber || s.id,
-            carrier: s.carrier || "N/A",
-            status: displayStatus,
-            eta: s.eta || "",
-            tracking: s.trackingNumber || "",
-            destination: s.destination || "",
-            weight: s.weightKg ? `${s.weightKg} kg` : "N/A",
-            driverName: s.driverName || "",
-            driverPhone: s.driverPhone || "",
-            vehicleNumber: s.vehicleNumber || "",
-            orders: s.orderId ? [s.orderId] : [],
-            shipmentDate: s.shippedAt ? new Date(s.shippedAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
-          };
-        });
-        
-        setShipments(displayShipments);
-      } catch (err) {
-        console.error("Failed to load shipments:", err);
-        setError(err instanceof Error ? err.message : "Failed to load shipments");
-        setShipments([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load shipments. Please try again.");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handleReload = () => {
+      loadData();
+    };
+    window.addEventListener("reloadShipments", handleReload);
+    return () => window.removeEventListener("reloadShipments", handleReload);
   }, []);
 
   let filteredShipments = shipments.filter(s => {
@@ -619,8 +567,9 @@ function CreateShipmentModal({ onClose }: { onClose: () => void }) {
       const partner = deliveryPartners.find(p => p.id === formData.deliveryPartner);
       
       // Create a shipment for each selected order
-      const shipmentPromises = formData.selectedOrders.map(orderId =>
+      const shipmentPromises = formData.selectedOrders.map((orderId, index) =>
         shipmentsApi.create({
+          shipmentNumber: `SHP-${Date.now()}-${index + 1}`,
           orderId,
           carrier: partner?.companyName || partner?.partnerCode || formData.deliveryPartner,
           driverName: formData.driverName,
@@ -826,7 +775,7 @@ function ShipmentDetailModal({
 }: {
   isOpen: boolean;
   onClose: () => void;
-  shipment: typeof shipments[0];
+  shipment: ShipmentDisplay;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Shipment: ${shipment.id}`} size="lg">
@@ -915,7 +864,6 @@ function ShipmentDetailModal({
           <button 
             className="btn btn-primary"
             onClick={() => {
-              // TODO: Print manifest - replace with actual print functionality
               console.log("Printing manifest for:", shipment.id);
               const printWindow = window.open('', '_blank');
               if (printWindow) {

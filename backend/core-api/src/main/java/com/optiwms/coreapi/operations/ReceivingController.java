@@ -1,6 +1,10 @@
 package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.ReceivingService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,79 +24,65 @@ public class ReceivingController {
 
     @GetMapping("/order/{orderNumber}")
     public ResponseEntity<OrderDetailDto> getOrderByNumber(@PathVariable String orderNumber) {
-        try {
-            var order = receivingService.getOrderByNumber(orderNumber);
-            return ResponseEntity.ok(new OrderDetailDto(
-                    order.getId().toString(),
-                    order.getOrderNumber(),
-                    order.getOrderType(),
-                    order.getStatus(),
-                    order.getWarehouseId().toString()
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        var order = receivingService.getOrderByNumber(orderNumber);
+        return ResponseEntity.ok(new OrderDetailDto(
+                order.getId().toString(),
+                order.getOrderNumber(),
+                order.getOrderType(),
+                order.getStatus(),
+                order.getWarehouseId().toString()
+        ));
     }
 
     @PostMapping("/receive")
-    public ResponseEntity<ReceivingResponse> receiveOrder(@RequestBody ReceiveOrderRequest request) {
-        try {
-            List<ReceivingService.ReceivedItem> receivedItems = request.items().stream()
-                    .map(item -> new ReceivingService.ReceivedItem(
-                            UUID.fromString(item.materialId()),
-                            new BigDecimal(item.quantity()),
-                            item.locationCode()
-                    ))
-                    .toList();
+    public ResponseEntity<ReceivingResponse> receiveOrder(@Valid @RequestBody ReceiveOrderRequest request) {
+        List<ReceivingService.ReceivedItem> receivedItems = request.items().stream()
+                .map(item -> new ReceivingService.ReceivedItem(
+                        UUID.fromString(item.materialId()),
+                        new BigDecimal(item.quantity()),
+                        item.locationCode()
+                ))
+                .toList();
 
-            var result = receivingService.receiveOrder(
-                    request.orderNumber(), 
-                    receivedItems,
-                    request.notes(),
-                    request.photos(),
-                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
-                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
-            );
-            return ResponseEntity.ok(new ReceivingResponse(
-                    result.success(),
-                    result.message(),
-                    result.orderId().toString()
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest()
-                    .body(new ReceivingResponse(false, e.getMessage(), null));
-        }
+        var result = receivingService.receiveOrder(
+                request.orderNumber(),
+                receivedItems,
+                request.notes(),
+                request.photos(),
+                request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                request.workerId() != null ? UUID.fromString(request.workerId()) : null
+        );
+        return ResponseEntity.ok(new ReceivingResponse(
+                result.success(),
+                result.message(),
+                result.orderId().toString()
+        ));
     }
 
     @PostMapping("/blind-receive")
-    public ResponseEntity<ReceivingResponse> blindReceive(@RequestBody ReceiveOrderRequest request) {
-        try {
-            // Blind receive is same as regular receive but without order validation
-            List<ReceivingService.ReceivedItem> receivedItems = request.items().stream()
-                    .map(item -> new ReceivingService.ReceivedItem(
-                            UUID.fromString(item.materialId()),
-                            new BigDecimal(item.quantity()),
-                            item.locationCode()
-                    ))
-                    .toList();
+    public ResponseEntity<ReceivingResponse> blindReceive(@Valid @RequestBody ReceiveOrderRequest request) {
+        // Blind receive is same as regular receive but without order validation
+        List<ReceivingService.ReceivedItem> receivedItems = request.items().stream()
+                .map(item -> new ReceivingService.ReceivedItem(
+                        UUID.fromString(item.materialId()),
+                        new BigDecimal(item.quantity()),
+                        item.locationCode()
+                ))
+                .toList();
 
-            var result = receivingService.blindReceive(
-                    request.orderNumber(), 
-                    receivedItems,
-                    request.notes(),
-                    request.photos(),
-                    request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
-                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
-            );
-            return ResponseEntity.ok(new ReceivingResponse(
-                    result.success(),
-                    result.message(),
-                    result.orderId() != null ? result.orderId().toString() : null
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest()
-                    .body(new ReceivingResponse(false, e.getMessage(), null));
-        }
+        var result = receivingService.blindReceive(
+                request.orderNumber(),
+                receivedItems,
+                request.notes(),
+                request.photos(),
+                request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null,
+                request.workerId() != null ? UUID.fromString(request.workerId()) : null
+        );
+        return ResponseEntity.ok(new ReceivingResponse(
+                result.success(),
+                result.message(),
+                result.orderId() != null ? result.orderId().toString() : null
+        ));
     }
 
     public record OrderDetailDto(
@@ -104,17 +94,17 @@ public class ReceivingController {
     ) {}
 
     public record ReceiveOrderRequest(
-            String orderNumber,
-            List<ReceivedItemDto> items,
+            @NotBlank String orderNumber,
+            @NotEmpty List<@Valid ReceivedItemDto> items,
             String notes,
             List<String> photos,
-            String warehouseId,  // Worker's warehouse ID for blind receive
-            String workerId      // Worker ID for tracking
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String warehouseId,  // Worker's warehouse ID for blind receive
+            @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String workerId      // Worker ID for tracking
     ) {}
 
     public record ReceivedItemDto(
-            String materialId,
-            String quantity,
+            @NotBlank @Pattern(regexp = "^[0-9a-fA-F-]{36}$") String materialId,
+            @NotBlank @Pattern(regexp = "^\\d+(\\.\\d+)?$") String quantity,
             String locationCode
     ) {}
 
@@ -124,4 +114,3 @@ public class ReceivingController {
             String orderId
     ) {}
 }
-

@@ -98,6 +98,52 @@ public class ReturnService {
     }
 
     @Transactional
+    public ReturnRecord approve(UUID id, UUID approvedBy) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+        entity.setStatus("approved");
+        if (approvedBy != null) {
+            entity.setReceivedBy(approvedBy);
+        }
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public ReturnRecord submitInspection(UUID id, String overallResolution, String notes, UUID inspectedBy) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+
+        String resolution = overallResolution;
+        if (notes != null && !notes.isBlank()) {
+            resolution = (overallResolution == null || overallResolution.isBlank())
+                    ? notes
+                    : overallResolution + " | Notes: " + notes;
+        }
+
+        entity.setResolution(resolution);
+        entity.setStatus("inspected");
+        if (inspectedBy != null) {
+            entity.setInspectedBy(inspectedBy);
+        }
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
+    public ReturnRecord assignWorker(UUID id, UUID workerId) {
+        ReturnEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Return not found: " + id));
+        // No dedicated assignee field exists yet; persist assignment via receivedBy.
+        entity.setReceivedBy(workerId);
+        if ("pending".equals(entity.getStatus())) {
+            entity.setStatus("assigned");
+        }
+        ReturnEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public void deleteById(UUID id) {
         repository.deleteById(id);
     }
@@ -119,4 +165,3 @@ public class ReturnService {
         return r;
     }
 }
-
