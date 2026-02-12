@@ -59,5 +59,12 @@ export const returnsApi = {
   assignWorker: async (id: string, workerId: string): Promise<Return> => {
     return apiClient.put<Return>(`/returns/${id}/assign`, { workerId });
   },
-};
 
+  intakeOutbound: async (data: {
+    orderNumber: string;
+    reason?: string;
+    workerId?: string;
+  }): Promise<Return> => {
+    return apiClient.post<Return>('/returns/intake/outbound', data);
+  },
+};
