@@ -95,13 +95,10 @@ export interface CycleCount {
   countNumber: string;
   warehouseId: string;
   locationCode: string;
-  materialId?: string;
-  expectedQuantity?: string;
-  countedQuantity?: string;
-  scheduledDate?: string;
+  materialId: string;
+  expectedQuantity: string;
+  countedQuantity: string;
   status: string;
-  variance?: string | null;
-  notes?: string;
 }
 
 export const operationsApi = {
@@ -173,12 +170,10 @@ export const operationsApi = {
   },
 
   createCycleCount: async (request: {
-    countNumber?: string;
     warehouseId: string;
     locationCode: string;
-    scheduledDate?: string;
-    status?: string;
-    notes?: string;
+    materialId: string;
+    expectedQuantity: string;
   }): Promise<CycleCount> => {
     return apiClient.post<CycleCount>('/operations/cycle-counts', request);
   },

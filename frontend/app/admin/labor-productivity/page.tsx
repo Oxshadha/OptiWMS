@@ -203,29 +203,34 @@ export default function LaborProductivityPage() {
       <SummaryCards
         cards={[
           {
-            label: "Average PPH",
+            title: "Average PPH",
             value: summary.averagePPH.toFixed(1),
             icon: "trending_up",
+            trend: null,
           },
           {
-            label: "Avg Dwell Time",
+            title: "Avg Dwell Time",
             value: `${summary.averageDwellTime.toFixed(1)} min`,
             icon: "schedule",
+            trend: null,
           },
           {
-            label: "Avg Error Rate",
+            title: "Avg Error Rate",
             value: `${summary.averageErrorRate.toFixed(2)}%`,
             icon: "error_outline",
+            trend: null,
           },
           {
-            label: "Total Tasks",
+            title: "Total Tasks",
             value: summary.totalTasksCompleted.toString(),
             icon: "task",
+            trend: null,
           },
           {
-            label: "Top Performer",
+            title: "Top Performer",
             value: summary.topPerformer,
             icon: "emoji_events",
+            trend: null,
           },
         ]}
       />
@@ -307,3 +312,4 @@ export default function LaborProductivityPage() {
     </div>
   );
 }
+

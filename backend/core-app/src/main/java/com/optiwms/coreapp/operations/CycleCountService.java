@@ -47,36 +47,13 @@ public class CycleCountService {
     @Transactional
     public CycleCount create(CycleCount cycleCount) {
         CycleCountEntity entity = new CycleCountEntity();
-        entity.setCountNumber(
-                cycleCount.getCountNumber() != null && !cycleCount.getCountNumber().isBlank()
-                        ? cycleCount.getCountNumber()
-                        : generateCountNumber()
-        );
+        entity.setCountNumber(cycleCount.getCountNumber());
         entity.setWarehouseId(cycleCount.getWarehouseId());
         entity.setLocationCode(cycleCount.getLocationCode());
         entity.setScheduledDate(cycleCount.getScheduledDate());
         entity.setAssignedWorkers(cycleCount.getAssignedWorkers());
         entity.setStatus(cycleCount.getStatus() != null ? cycleCount.getStatus() : "scheduled");
         entity.setNotes(cycleCount.getNotes());
-
-        CycleCountEntity saved = repository.save(entity);
-        return toDomain(saved);
-    }
-
-    @Transactional
-    public CycleCount update(UUID id, java.time.LocalDate scheduledDate, String status, String notes) {
-        CycleCountEntity entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
-
-        if (scheduledDate != null) {
-            entity.setScheduledDate(scheduledDate);
-        }
-        if (status != null && !status.isBlank()) {
-            entity.setStatus(status);
-        }
-        if (notes != null) {
-            entity.setNotes(notes);
-        }
 
         CycleCountEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -211,10 +188,6 @@ public class CycleCountService {
         recountRepository.save(recount);
     }
 
-    private String generateCountNumber() {
-        return "CC-" + java.time.LocalDate.now() + "-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-    }
-
     private CycleCount toDomain(CycleCountEntity entity) {
         CycleCount count = new CycleCount();
         count.setId(entity.getId());
@@ -276,3 +249,4 @@ public class CycleCountService {
         }
     }
 }
+
