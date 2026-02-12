@@ -1,20 +1,30 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
+import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.coreapp.notifications.NotificationService;
+import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.orders.OrderItem;
+import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.operations.ReturnRecord;
 import com.optiwms.infra.operations.ReturnEntity;
 import com.optiwms.infra.operations.ReturnRepository;
 import com.optiwms.infra.operations.ReturnStatusHistoryEntity;
 import com.optiwms.infra.operations.ReturnStatusHistoryRepository;
+import com.optiwms.infra.orders.OrderItemEntity;
+import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -23,16 +33,28 @@ public class ReturnService {
 
     private final ReturnRepository repository;
     private final OrderService orderService;
+    private final OrderItemRepository orderItemRepository;
+    private final OutboundOrderWorkflowService outboundWorkflowService;
+    private final InboundOrderWorkflowService inboundWorkflowService;
+    private final InventoryService inventoryService;
     private final ReturnStatusHistoryRepository statusHistoryRepository;
     private final NotificationService notificationService;
 
     public ReturnService(
             ReturnRepository repository,
             OrderService orderService,
+            OrderItemRepository orderItemRepository,
+            OutboundOrderWorkflowService outboundWorkflowService,
+            InboundOrderWorkflowService inboundWorkflowService,
+            InventoryService inventoryService,
             ReturnStatusHistoryRepository statusHistoryRepository,
             NotificationService notificationService) {
         this.repository = repository;
         this.orderService = orderService;
+        this.orderItemRepository = orderItemRepository;
+        this.outboundWorkflowService = outboundWorkflowService;
+        this.inboundWorkflowService = inboundWorkflowService;
+        this.inventoryService = inventoryService;
         this.statusHistoryRepository = statusHistoryRepository;
         this.notificationService = notificationService;
     }
@@ -169,6 +191,7 @@ public class ReturnService {
         ReturnEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Return not found: " + id));
         transitionStatus(entity, status, changedBy, notes);
+        handleStatusSideEffects(entity, changedBy, notes);
         ReturnEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -222,6 +245,7 @@ public class ReturnService {
         if (approvedBy != null && entity.getInspectedBy() == null) {
             entity.setInspectedBy(approvedBy);
         }
+        handleStatusSideEffects(entity, approvedBy, "QC approved");
 
         ReturnEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -249,6 +273,7 @@ public class ReturnService {
         }
 
         transitionStatus(entity, "rejected", reviewedBy, "Return QC rejected");
+        handleStatusSideEffects(entity, reviewedBy, rejectionReason);
         ReturnEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -367,5 +392,294 @@ public class ReturnService {
         } catch (Exception ignored) {
             // Notification should not block workflow status update.
         }
+    }
+
+    private void handleStatusSideEffects(ReturnEntity entity, UUID actor, String notes) {
+        if (entity.getOriginalOrderId() == null) {
+            return;
+        }
+        Order sourceOrder;
+        try {
+            sourceOrder = orderService.findById(entity.getOriginalOrderId());
+        } catch (Exception e) {
+            return;
+        }
+
+        String flow = entity.getReturnFlow() != null ? entity.getReturnFlow().toLowerCase() : "unknown";
+        String status = entity.getStatus() != null ? entity.getStatus().toLowerCase() : "";
+
+        if ("inbound".equals(flow) && "supplier_accepted".equals(status)) {
+            UUID followupOrderId = createFollowupInboundOrder(sourceOrder, entity, notes);
+            if (followupOrderId != null) {
+                entity.setFollowupOrderId(followupOrderId);
+                entity.setResolution("replacement_inbound_created");
+                notifyReturnStage(entity, "Supplier Accepted Return",
+                        "Replacement inbound order created for return " + entity.getReturnNumber());
+            }
+            return;
+        }
+
+        if ("outbound".equals(flow) && "approved".equals(status)) {
+            UUID followupOrderId = createFollowupOutboundOrder(sourceOrder, entity, false, notes);
+            if (followupOrderId != null) {
+                entity.setFollowupOrderId(followupOrderId);
+                entity.setResolution("replacement_outbound_created");
+                notifyReturnStage(entity, "Outbound Return Approved",
+                        "Replacement outbound order created for return " + entity.getReturnNumber());
+            } else {
+                entity.setResolution("replacement_pending_no_stock");
+                notifyReturnStage(entity, "Replacement Pending",
+                        "Return approved but stock unavailable for immediate replacement: " + entity.getReturnNumber());
+            }
+            return;
+        }
+
+        if ("outbound".equals(flow) && "rejected".equals(status) && Boolean.TRUE.equals(entity.getFalseReturnRequest())) {
+            UUID followupOrderId = createFollowupOutboundOrder(sourceOrder, entity, true, notes);
+            if (followupOrderId != null) {
+                entity.setFollowupOrderId(followupOrderId);
+                entity.setResolution("false_return_reship_created");
+                notifyReturnStage(entity, "False Return Rejected",
+                        "Reshipment order created for false return request " + entity.getReturnNumber());
+            } else {
+                entity.setResolution("false_return_reship_pending_no_stock");
+                notifyReturnStage(entity, "False Return - Reship Pending",
+                        "False return marked; reship pending stock for " + entity.getReturnNumber());
+            }
+        }
+
+        if ("inbound".equals(flow) && "supplier_rejected".equals(status)) {
+            entity.setSupplierResponseStatus("rejected");
+            if (notes != null && !notes.isBlank()) {
+                entity.setSupplierResponseNotes(notes);
+            }
+            entity.setResolution("supplier_rejected_return");
+            notifyReturnStage(entity, "Supplier Rejected Return",
+                    "Supplier rejected inbound return " + entity.getReturnNumber());
+        }
+
+        if ("inbound".equals(flow) && "supplier_accepted".equals(status)) {
+            entity.setSupplierResponseStatus("accepted");
+            if (notes != null && !notes.isBlank()) {
+                entity.setSupplierResponseNotes(notes);
+            }
+        }
+
+        if ("outbound".equals(flow) && Boolean.TRUE.equals(entity.getFalseReturnRequest())) {
+            entity.setCustomerCareFlag(true);
+        }
+
+        if ("outbound".equals(sourceOrder.getOrderType()) && "rejected".equals(status)) {
+            orderService.updateStatus(sourceOrder.getId(), "shipped");
+        }
+        if ("outbound".equals(sourceOrder.getOrderType()) && "approved".equals(status)) {
+            orderService.updateStatus(sourceOrder.getId(), "returned");
+        }
+    }
+
+    private UUID createFollowupInboundOrder(Order sourceOrder, ReturnEntity returnEntity, String notes) {
+        String newOrderNumber = "IN-REPL-" + sourceOrder.getOrderNumber() + "-" + System.currentTimeMillis();
+        Order newOrder = new Order();
+        newOrder.setOrderNumber(newOrderNumber);
+        newOrder.setOrderType("inbound");
+        newOrder.setSupplierId(sourceOrder.getSupplierId());
+        newOrder.setWarehouseId(sourceOrder.getWarehouseId());
+        newOrder.setPriority(sourceOrder.getPriority());
+        newOrder.setOrderDate(java.time.LocalDate.now());
+        newOrder.setExpectedDate(sourceOrder.getExpectedDate());
+        newOrder.setStatus("pending");
+        newOrder.setNotes("Auto replacement for return " + returnEntity.getReturnNumber()
+                + (notes != null && !notes.isBlank() ? " | " + notes : ""));
+
+        Order created = orderService.create(newOrder);
+        duplicateOrderItems(sourceOrder.getId(), created.getId());
+        inboundWorkflowService.createReceivingTasksForOrder(created.getId());
+        return created.getId();
+    }
+
+    private UUID createFollowupOutboundOrder(Order sourceOrder, ReturnEntity returnEntity, boolean reship, String notes) {
+        if (!hasStockForOrder(sourceOrder)) {
+            return null;
+        }
+
+        String prefix = reship ? "OUT-RESHIP-" : "OUT-REPL-";
+        String newOrderNumber = prefix + sourceOrder.getOrderNumber() + "-" + System.currentTimeMillis();
+        Order newOrder = new Order();
+        newOrder.setOrderNumber(newOrderNumber);
+        newOrder.setOrderType("outbound");
+        newOrder.setCustomerId(sourceOrder.getCustomerId());
+        newOrder.setWarehouseId(sourceOrder.getWarehouseId());
+        newOrder.setPriority(sourceOrder.getPriority());
+        newOrder.setOrderDate(java.time.LocalDate.now());
+        newOrder.setExpectedDate(sourceOrder.getExpectedDate());
+        newOrder.setStatus("pending");
+        newOrder.setNotes((reship ? "Auto reship for false return " : "Auto replacement for return ")
+                + returnEntity.getReturnNumber()
+                + (notes != null && !notes.isBlank() ? " | " + notes : ""));
+
+        Order created = orderService.create(newOrder);
+        duplicateOrderItems(sourceOrder.getId(), created.getId());
+        outboundWorkflowService.createPickingTasksForOrder(created.getId());
+        return created.getId();
+    }
+
+    private void duplicateOrderItems(UUID sourceOrderId, UUID targetOrderId) {
+        List<OrderItemEntity> sourceItems = orderItemRepository.findByOrderId(sourceOrderId);
+        for (OrderItemEntity sourceItem : sourceItems) {
+            OrderItem item = new OrderItem();
+            item.setOrderId(targetOrderId);
+            item.setMaterialId(sourceItem.getMaterialId());
+            item.setQuantity(sourceItem.getQuantity());
+            item.setUnitPrice(sourceItem.getUnitPrice());
+            item.setLocationCode(sourceItem.getLocationCode());
+            item.setStatus("pending");
+            OrderItemEntity entity = new OrderItemEntity();
+            entity.setOrderId(item.getOrderId());
+            entity.setMaterialId(item.getMaterialId());
+            entity.setQuantity(item.getQuantity());
+            entity.setUnitPrice(item.getUnitPrice());
+            entity.setPickedQuantity(0);
+            entity.setPackedQuantity(0);
+            entity.setLocationCode(item.getLocationCode());
+            entity.setStatus(item.getStatus());
+            orderItemRepository.save(entity);
+        }
+    }
+
+    private boolean hasStockForOrder(Order sourceOrder) {
+        if (sourceOrder == null || sourceOrder.getId() == null) {
+            return false;
+        }
+        List<OrderItemEntity> items = orderItemRepository.findByOrderId(sourceOrder.getId());
+        for (OrderItemEntity item : items) {
+            List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(
+                    item.getMaterialId(),
+                    sourceOrder.getWarehouseId()
+            );
+            int totalAvailable = inventoryItems.stream()
+                    .mapToInt(inv -> inv.getAvailableQuantity() != null ? inv.getAvailableQuantity() : 0)
+                    .sum();
+            int required = item.getQuantity() != null ? item.getQuantity() : 0;
+            if (totalAvailable < required) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public List<SupplierQualityMetric> getSupplierQualityMetrics() {
+        List<ReturnEntity> allReturns = repository.findAll().stream()
+                .filter(ret -> "inbound".equalsIgnoreCase(ret.getReturnFlow()))
+                .collect(Collectors.toList());
+
+        Map<UUID, SupplierQualityMetricAccumulator> metrics = new HashMap<>();
+        for (ReturnEntity ret : allReturns) {
+            if (ret.getOriginalOrderId() == null) {
+                continue;
+            }
+            Order order;
+            try {
+                order = orderService.findById(ret.getOriginalOrderId());
+            } catch (Exception ex) {
+                continue;
+            }
+            UUID supplierId = order.getSupplierId();
+            if (supplierId == null) continue;
+            SupplierQualityMetricAccumulator acc = metrics.computeIfAbsent(supplierId, k -> new SupplierQualityMetricAccumulator());
+            acc.totalReturns++;
+            String status = ret.getStatus() != null ? ret.getStatus().toLowerCase() : "";
+            if ("supplier_accepted".equals(status)) acc.supplierAccepted++;
+            if ("supplier_rejected".equals(status)) acc.supplierRejected++;
+            if ("rejected".equals(ret.getQcOutcome())) acc.qualityRejected++;
+        }
+
+        return metrics.entrySet().stream()
+                .map(entry -> {
+                    UUID supplierId = entry.getKey();
+                    SupplierQualityMetricAccumulator acc = entry.getValue();
+                    double rejectionRate = acc.totalReturns == 0 ? 0.0 : (acc.supplierRejected * 100.0) / acc.totalReturns;
+                    return new SupplierQualityMetric(
+                            supplierId,
+                            acc.totalReturns,
+                            acc.qualityRejected,
+                            acc.supplierAccepted,
+                            acc.supplierRejected,
+                            rejectionRate
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    public List<CustomerReturnMetric> getCustomerReturnMetrics() {
+        List<ReturnEntity> allReturns = repository.findAll().stream()
+                .filter(ret -> "outbound".equalsIgnoreCase(ret.getReturnFlow()))
+                .collect(Collectors.toList());
+
+        Map<UUID, CustomerReturnMetricAccumulator> metrics = new HashMap<>();
+        for (ReturnEntity ret : allReturns) {
+            if (ret.getOriginalOrderId() == null) continue;
+            Order order;
+            try {
+                order = orderService.findById(ret.getOriginalOrderId());
+            } catch (Exception ex) {
+                continue;
+            }
+            UUID customerId = order.getCustomerId();
+            if (customerId == null) continue;
+            CustomerReturnMetricAccumulator acc = metrics.computeIfAbsent(customerId, k -> new CustomerReturnMetricAccumulator());
+            acc.totalReturnRequests++;
+            String status = ret.getStatus() != null ? ret.getStatus().toLowerCase() : "";
+            if ("approved".equals(status)) acc.approvedReturns++;
+            if (Boolean.TRUE.equals(ret.getFalseReturnRequest())) acc.falseReturnRequests++;
+            if ("rejected".equals(status) && !Boolean.TRUE.equals(ret.getFalseReturnRequest())) acc.actualRejectedReturns++;
+        }
+
+        return metrics.entrySet().stream()
+                .map(entry -> {
+                    UUID customerId = entry.getKey();
+                    CustomerReturnMetricAccumulator acc = entry.getValue();
+                    double falseRate = acc.totalReturnRequests == 0 ? 0.0 : (acc.falseReturnRequests * 100.0) / acc.totalReturnRequests;
+                    return new CustomerReturnMetric(
+                            customerId,
+                            acc.totalReturnRequests,
+                            acc.approvedReturns,
+                            acc.actualRejectedReturns,
+                            acc.falseReturnRequests,
+                            falseRate
+                    );
+                })
+                .collect(Collectors.toList());
+    }
+
+    public record SupplierQualityMetric(
+            UUID supplierId,
+            int totalReturns,
+            int qualityRejectedCases,
+            int supplierAcceptedCount,
+            int supplierRejectedCount,
+            double supplierRejectionRatePercent
+    ) {}
+
+    public record CustomerReturnMetric(
+            UUID customerId,
+            int totalReturnRequests,
+            int approvedReturns,
+            int actualRejectedReturns,
+            int falseReturnRequests,
+            double falseReturnRatePercent
+    ) {}
+
+    private static class SupplierQualityMetricAccumulator {
+        int totalReturns;
+        int qualityRejected;
+        int supplierAccepted;
+        int supplierRejected;
+    }
+
+    private static class CustomerReturnMetricAccumulator {
+        int totalReturnRequests;
+        int approvedReturns;
+        int actualRejectedReturns;
+        int falseReturnRequests;
     }
 }
