@@ -2,94 +2,26 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
-import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
-import { DetailModal } from "@/components/DetailModal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import React from "react";
 import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
+import { formatCurrency } from "./utils";
+import type { DeliveryPartnerDisplay } from "./types";
+import {
+  CreateDeliveryPartnerModal,
+  DeleteDeliveryPartnerModal,
+  DeliveryPartnerDetailModal,
+  EditDeliveryPartnerModal,
+} from "./components/DeliveryPartnerModals";
 
-// Helper function to format currency
-const formatCurrency = (amount: number, currencyCode?: string): string => {
-  const code = currencyCode || "USD";
-  switch (code.toUpperCase()) {
-    case "LKR":
-      return `Rs. ${amount.toFixed(2)}`;
-    case "USD":
-      return `$${amount.toFixed(2)}`;
-    case "EUR":
-      return `€${amount.toFixed(2)}`;
-    case "GBP":
-      return `£${amount.toFixed(2)}`;
-    case "INR":
-      return `₹${amount.toFixed(2)}`;
-    default:
-      return `${code} ${amount.toFixed(2)}`;
-  }
-};
-
-interface DeliveryPartnerDisplay {
-  id: string;
-  partnerCode: string;
-  companyName: string;
-  contactPerson: string;
-  email: string;
-  phone: string;
-  serviceAreas: string[];
-  type: "local" | "foreign";
-  rating: number;
-  costPerDelivery: number;
-  currencyCode?: string; // e.g., "USD", "LKR", "EUR"
-  status: string;
-}
-
-// Mock data - will be replaced with API calls
-const mockDeliveryPartners: DeliveryPartnerDisplay[] = [
-  {
-    id: "partner-1",
-    partnerCode: "DP-001",
-    companyName: "FastShip Express",
-    contactPerson: "Robert Brown",
-    email: "robert@fastship.com",
-    phone: "+1-555-0201",
-    serviceAreas: ["New York", "New Jersey", "Connecticut"],
-    type: "local" as const,
-    rating: 4.7,
-    costPerDelivery: 15.50,
-    status: "active",
-  },
-  {
-    id: "partner-2",
-    partnerCode: "DP-002",
-    companyName: "Global Logistics",
-    contactPerson: "Maria Garcia",
-    email: "maria@globallog.com",
-    phone: "+1-555-0202",
-    serviceAreas: ["California", "Nevada", "Arizona"],
-    type: "local" as const,
-    rating: 4.5,
-    costPerDelivery: 18.00,
-    status: "active",
-  },
-  {
-    id: "partner-3",
-    partnerCode: "DP-003",
-    companyName: "International Courier Services",
-    contactPerson: "David Lee",
-    email: "david@intlcourier.com",
-    phone: "+1-555-0203",
-    serviceAreas: ["International", "Cross-border"],
-    type: "foreign" as const,
-    rating: 4.2,
-    costPerDelivery: 45.75,
-    status: "active",
-  },
-];
 
 export default function DeliveryPartnersPage() {
+  const router = useRouter();
   const { hasPermission } = useAdmin();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -179,7 +111,7 @@ export default function DeliveryPartnersPage() {
 
       setDeliveryPartners(displayPartners);
     } catch (err) {
-      console.error("Failed to load delivery partners:", err);
+      logger.error("Failed to load delivery partners:", err);
       setError(err instanceof Error ? err.message : "Failed to load delivery partners");
       // Don't fallback to mock data - show error instead
       setDeliveryPartners([]);
@@ -191,17 +123,6 @@ export default function DeliveryPartnersPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  // Listen for reload events from modals
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadDeliveryPartners', handleReload);
-    return () => {
-      window.removeEventListener('reloadDeliveryPartners', handleReload);
-    };
   }, []);
 
   const summary = {
@@ -243,6 +164,9 @@ export default function DeliveryPartnersPage() {
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading delivery partners: {error}</span>
+        <button className="btn btn-sm" onClick={loadData}>
+          Retry
+        </button>
       </div>
     );
   }
@@ -415,8 +339,7 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              // Navigate to shipments page filtered by this partner
-              window.location.href = `/admin/shipments?partner=${partner.id}`;
+              router.push(`/admin/shipments?partner=${partner.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">local_shipping</span>
@@ -426,9 +349,7 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              // TODO: Open performance metrics modal or navigate to metrics page
-              console.log("Viewing performance metrics for:", partner.id);
-              alert(`Performance metrics for ${partner.companyName}:\n\n- Total Shipments: 245\n- On-Time Delivery: 98.5%\n- Average Rating: ${partner.rating}\n- Cost Efficiency: High`);
+              showToast.warning("Performance metrics dashboard coming soon");
             }}
           >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
@@ -561,6 +482,7 @@ export default function DeliveryPartnersPage() {
       <CreateDeliveryPartnerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
+        onSuccess={loadData}
       />
 
       {/* Delivery Partner Detail Modal */}
@@ -572,6 +494,11 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
+          onEdit={(partnerToEdit) => {
+            setShowDetailModal(false);
+            setSelectedPartner(partnerToEdit);
+            setShowEditModal(true);
+          }}
         />
       )}
 
@@ -584,6 +511,7 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
+          onUpdated={loadData}
         />
       )}
 
@@ -606,742 +534,13 @@ export default function DeliveryPartnersPage() {
               // Reload data
               await loadData();
             } catch (err) {
-              console.error("Failed to delete delivery partner:", err);
+              logger.error("Failed to delete delivery partner:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete delivery partner");
             }
           }}
           partner={selectedPartner}
         />
       )}
-
-      {/* Listen for edit event from detail modal */}
-      {typeof window !== 'undefined' && (
-        <EditDeliveryPartnerListener
-          onEdit={(partner) => {
-            setShowDetailModal(false);
-            setSelectedPartner(partner);
-            setShowEditModal(true);
-          }}
-        />
-      )}
     </div>
   );
 }
-
-// Edit Delivery Partner Event Listener Component
-function EditDeliveryPartnerListener({ onEdit }: { onEdit: (partner: DeliveryPartnerDisplay) => void }) {
-  React.useEffect(() => {
-    const handleEdit = (event: CustomEvent) => {
-      onEdit(event.detail);
-    };
-    window.addEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
-    return () => {
-      window.removeEventListener('editDeliveryPartner' as any, handleEdit as EventListener);
-    };
-  }, [onEdit]);
-  return null;
-}
-
-// Delivery Partner Detail Modal
-function DeliveryPartnerDetailModal({
-  isOpen,
-  onClose,
-  partner,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  partner: DeliveryPartnerDisplay;
-}) {
-  const { hasPermission } = useAdmin();
-  const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
-  
-  return (
-    <DetailModal isOpen={isOpen} onClose={onClose} title={`Delivery Partner: ${partner.companyName}`} size="lg">
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-base-content/60">Partner Code</label>
-            <p className="font-semibold">{partner.partnerCode}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Contact Person</label>
-            <p className="font-semibold">{partner.contactPerson}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Email</label>
-            <p className="font-semibold">{partner.email}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Phone</label>
-            <p className="font-semibold">{partner.phone}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Type</label>
-            <p>
-              <span
-                className={`badge ${
-                  partner.type === "local" ? "badge-success" : "badge-info"
-                }`}
-              >
-                {partner.type === "local" ? "Local" : "Foreign"}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Rating</label>
-            <p className="font-semibold">
-              <span className="text-warning">★</span> {partner.rating.toFixed(1)}
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Cost per Delivery</label>
-            <p className="font-semibold">
-              {formatCurrency(partner.costPerDelivery, partner.currencyCode)}
-              {partner.currencyCode && (
-                <span className="text-xs text-base-content/60 ml-2">({partner.currencyCode})</span>
-              )}
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span className={`badge ${partner.status === "active" ? "badge-success" : "badge-error"}`}>
-                {partner.status === "active" ? "Active" : "Inactive"}
-              </span>
-            </p>
-          </div>
-        </div>
-        <div>
-          <label className="text-sm text-base-content/60">Service Areas</label>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {partner.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">{area}</span>
-            ))}
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
-          {canEdit && (
-            <button 
-              className="btn btn-primary"
-              onClick={() => {
-                onClose();
-                // Trigger edit modal - will be handled by parent
-                if (typeof window !== 'undefined') {
-                  window.dispatchEvent(new CustomEvent('editDeliveryPartner', { detail: partner }));
-                }
-              }}
-            >
-              Edit Partner
-            </button>
-          )}
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-// Edit Delivery Partner Modal
-function EditDeliveryPartnerModal({
-  isOpen,
-  onClose,
-  partner,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  partner: DeliveryPartnerDisplay;
-}) {
-  const [formData, setFormData] = useState({
-    partnerCode: partner.partnerCode,
-    companyName: partner.companyName,
-    contactPerson: partner.contactPerson,
-    email: partner.email,
-    phone: partner.phone,
-    country: "", // Will be populated from partner data if available
-    type: partner.type,
-    serviceAreas: [...partner.serviceAreas],
-    costPerDelivery: partner.costPerDelivery.toString(),
-    currencyCode: partner.currencyCode || "USD",
-    rating: partner.rating.toString(),
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      // Prepare data for API
-      const updateData: Partial<ApiDeliveryPartner> = {
-        partnerCode: formData.partnerCode,
-        companyName: formData.companyName,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        country: formData.country || undefined,
-        currencyCode: formData.currencyCode || undefined,
-        serviceAreas: JSON.stringify(formData.serviceAreas),
-        costPerDelivery: formData.costPerDelivery ? formData.costPerDelivery : undefined,
-        rating: formData.rating ? formData.rating : undefined,
-      };
-
-      await deliveryPartnersApi.update(partner.id, updateData);
-      showToast.success("Delivery partner updated successfully");
-      onClose();
-      // Reload data - trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
-      }
-    } catch (err) {
-      console.error("Failed to update delivery partner:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to update delivery partner");
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Delivery Partner" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Partner Code *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.partnerCode}
-              onChange={(e) => setFormData({ ...formData, partnerCode: e.target.value })}
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Company Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.companyName}
-              onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Contact Person</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.contactPerson}
-              onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Email</span>
-            </label>
-            <input
-              type="email"
-              className="input input-bordered w-full"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className="input input-bordered w-full"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Country *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.country}
-            onChange={(e) =>
-              setFormData({ ...formData, country: e.target.value })
-            }
-            required
-          >
-            <option value="">Select country...</option>
-            <option value="United States">United States</option>
-            <option value="United Kingdom">United Kingdom</option>
-            <option value="Canada">Canada</option>
-            <option value="Australia">Australia</option>
-            <option value="Germany">Germany</option>
-            <option value="France">France</option>
-            <option value="China">China</option>
-            <option value="Japan">Japan</option>
-            <option value="India">India</option>
-            <option value="Sri Lanka">Sri Lanka</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Partner Type *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.type}
-            onChange={(e) =>
-              setFormData({ ...formData, type: e.target.value as "local" | "foreign" })
-            }
-            required
-          >
-            <option value="">Select type...</option>
-            <option value="local">Local</option>
-            <option value="foreign">Foreign</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Service Areas *</span>
-          </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {formData.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary gap-2">
-                {area}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData({
-                      ...formData,
-                      serviceAreas: formData.serviceAreas.filter((_, i) => i !== idx),
-                    });
-                  }}
-                  className="text-primary-content hover:text-error"
-                >
-                  <span className="material-symbols-outlined text-sm">close</span>
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className="input input-bordered flex-1"
-              placeholder="Enter service area and press Enter"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const input = e.currentTarget;
-                  if (input.value.trim()) {
-                    setFormData({
-                      ...formData,
-                      serviceAreas: [...formData.serviceAreas, input.value.trim()],
-                    });
-                    input.value = "";
-                  }
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Cost per Delivery</span>
-            </label>
-            <div className="input-group">
-              <span>$</span>
-              <input
-                type="number"
-                step="0.01"
-                className="input input-bordered w-full"
-                value={formData.costPerDelivery}
-                onChange={(e) => setFormData({ ...formData, costPerDelivery: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Rating (0-5)</span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="5"
-              className="input input-bordered w-full"
-              value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Update Partner
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Create Delivery Partner Modal
-function CreateDeliveryPartnerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [formData, setFormData] = useState({
-    partnerCode: "",
-    companyName: "",
-    contactPerson: "",
-    email: "",
-    phone: "",
-    address: "",
-    country: "",
-    type: "" as "local" | "foreign" | "",
-    serviceAreas: [] as string[],
-    costPerDelivery: "",
-    currencyCode: "USD",
-    rating: "",
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      // Prepare data for API
-      const createData: Omit<ApiDeliveryPartner, 'id'> = {
-        partnerCode: formData.partnerCode,
-        companyName: formData.companyName,
-        contactPerson: formData.contactPerson || undefined,
-        email: formData.email || undefined,
-        phone: formData.phone || undefined,
-        address: formData.address || undefined,
-        country: formData.country || undefined,
-        currencyCode: formData.currencyCode || undefined,
-        serviceAreas: JSON.stringify(formData.serviceAreas),
-        costPerDelivery: formData.costPerDelivery || undefined,
-        rating: formData.rating || undefined,
-        status: "active",
-      };
-
-      await deliveryPartnersApi.create(createData);
-      showToast.success("Delivery partner created successfully");
-      onClose();
-      // Reset form
-      setFormData({
-        partnerCode: "",
-        companyName: "",
-        contactPerson: "",
-        email: "",
-        phone: "",
-        address: "",
-        country: "",
-        type: "" as "local" | "foreign" | "",
-        serviceAreas: [],
-        costPerDelivery: "",
-        currencyCode: "USD",
-        rating: "",
-      });
-      // Reload data - trigger reload in parent
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadDeliveryPartners'));
-      }
-    } catch (err) {
-      console.error("Failed to create delivery partner:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to create delivery partner");
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Delivery Partner" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Partner Code *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.partnerCode}
-              onChange={(e) => setFormData({ ...formData, partnerCode: e.target.value })}
-              required
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Company Name *</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.companyName}
-              onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-              required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Contact Person</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              value={formData.contactPerson}
-              onChange={(e) => setFormData({ ...formData, contactPerson: e.target.value })}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Email</span>
-            </label>
-            <input
-              type="email"
-              className="input input-bordered w-full"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className="input input-bordered w-full"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Country *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.country}
-            onChange={(e) =>
-              setFormData({ ...formData, country: e.target.value })
-            }
-            required
-          >
-            <option value="">Select country...</option>
-            <option value="United States">United States</option>
-            <option value="United Kingdom">United Kingdom</option>
-            <option value="Canada">Canada</option>
-            <option value="Australia">Australia</option>
-            <option value="Germany">Germany</option>
-            <option value="France">France</option>
-            <option value="China">China</option>
-            <option value="Japan">Japan</option>
-            <option value="India">India</option>
-            <option value="Sri Lanka">Sri Lanka</option>
-            <option value="Other">Other</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Partner Type *</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.type}
-            onChange={(e) =>
-              setFormData({ ...formData, type: e.target.value as "local" | "foreign" })
-            }
-            required
-          >
-            <option value="">Select type...</option>
-            <option value="local">Local</option>
-            <option value="foreign">Foreign</option>
-          </select>
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Address</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered w-full"
-            rows={2}
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Service Areas *</span>
-          </label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {formData.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary gap-2">
-                {area}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData({
-                      ...formData,
-                      serviceAreas: formData.serviceAreas.filter((_, i) => i !== idx),
-                    });
-                  }}
-                  className="text-primary-content hover:text-error"
-                >
-                  <span className="material-symbols-outlined text-sm">close</span>
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className="input input-bordered flex-1"
-              placeholder="Enter service area and press Enter"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const input = e.currentTarget;
-                  if (input.value.trim()) {
-                    setFormData({
-                      ...formData,
-                      serviceAreas: [...formData.serviceAreas, input.value.trim()],
-                    });
-                    input.value = "";
-                  }
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Cost per Delivery</span>
-            </label>
-            <div className="input-group">
-              <select
-                className="select select-bordered"
-                value={formData.currencyCode}
-                onChange={(e) => setFormData({ ...formData, currencyCode: e.target.value })}
-              >
-                <option value="USD">USD ($)</option>
-                <option value="LKR">LKR (Rs.)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="INR">INR (₹)</option>
-              </select>
-              <input
-                type="number"
-                step="0.01"
-                className="input input-bordered w-full"
-                value={formData.costPerDelivery}
-                onChange={(e) => setFormData({ ...formData, costPerDelivery: e.target.value })}
-              />
-            </div>
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Rating (0-5)</span>
-            </label>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              max="5"
-              className="input input-bordered w-full"
-              value={formData.rating}
-              onChange={(e) => setFormData({ ...formData, rating: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Create Partner
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Delete Delivery Partner Modal
-function DeleteDeliveryPartnerModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  partner,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  partner: DeliveryPartnerDisplay;
-}) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Delete Delivery Partner" size="md">
-      <div className="space-y-4">
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">warning</span>
-          <div>
-            <h3 className="font-bold">
-              Warning: This action cannot be undone!
-            </h3>
-            <div className="text-sm">
-              You are about to delete <strong>{partner.companyName}</strong> (Partner
-              Code: {partner.partnerCode}). This will permanently remove the
-              delivery partner from the system and all associated data.
-            </div>
-          </div>
-        </div>
-        <div className="bg-base-200 rounded-lg p-4">
-          <p className="text-sm text-base-content/70">
-            <strong>Company Name:</strong> {partner.companyName}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Partner Code:</strong> {partner.partnerCode}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Type:</strong> {partner.type === "local" ? "Local" : "Foreign"}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Service Areas:</strong> {partner.serviceAreas.join(", ")}
-          </p>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-error" onClick={onConfirm}>
-            <span className="material-symbols-outlined">delete</span>
-            Delete Partner
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-

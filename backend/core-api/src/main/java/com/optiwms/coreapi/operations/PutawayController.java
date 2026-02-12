@@ -31,7 +31,29 @@ public class PutawayController {
                     request.locationCode(), 
                     request.lpn(),
                     request.quantity(),
-                    request.materialId() != null ? UUID.fromString(request.materialId()) : null
+                    request.materialId() != null ? UUID.fromString(request.materialId()) : null,
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
+            );
+            return ResponseEntity.ok(new PutawayResponse(
+                    result.success(),
+                    result.message(),
+                    result.taskId().toString()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new PutawayResponse(false, e.getMessage(), null));
+        }
+    }
+
+    @PostMapping("/skip/{taskId}")
+    public ResponseEntity<PutawayResponse> skipPutaway(
+            @PathVariable UUID taskId,
+            @RequestBody SkipPutawayRequest request) {
+        try {
+            var result = putawayService.skipPutawayItem(
+                    taskId,
+                    request.reason(),
+                    request.workerId() != null ? UUID.fromString(request.workerId()) : null
             );
             return ResponseEntity.ok(new PutawayResponse(
                     result.success(),
@@ -70,7 +92,9 @@ public class PutawayController {
             String locationCode, 
             String lpn,
             Integer quantity,
-            String materialId) {}
+            String materialId,
+            String workerId) {}
+    public record SkipPutawayRequest(String reason, String workerId) {}
     public record PutawayResponse(boolean success, String message, String taskId) {}
     
     public record SuggestLocationRequest(
@@ -84,4 +108,3 @@ public class PutawayController {
             String reason,
             boolean aiEnhanced) {}
 }
-

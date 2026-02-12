@@ -2,8 +2,10 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.domain.operations.ReturnRecord;
+import com.optiwms.infra.users.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -16,9 +18,11 @@ import java.util.stream.Collectors;
 public class ReturnController {
 
     private final ReturnService service;
+    private final UserRepository userRepository;
 
-    public ReturnController(ReturnService service) {
+    public ReturnController(ReturnService service, UserRepository userRepository) {
         this.service = service;
+        this.userRepository = userRepository;
     }
 
     @GetMapping
@@ -46,78 +50,154 @@ public class ReturnController {
 
     @GetMapping("/{id}")
     public ResponseEntity<ReturnDto> getById(@PathVariable UUID id) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            return ResponseEntity.ok(toDto(returnRecord));
-        } catch (RuntimeException e) {
-            return ResponseEntity.notFound().build();
-        }
+        ReturnRecord returnRecord = service.findById(id);
+        return ResponseEntity.ok(toDto(returnRecord));
+    }
+
+    @GetMapping("/metrics/suppliers")
+    public ResponseEntity<List<SupplierQualityMetricDto>> getSupplierMetrics() {
+        List<SupplierQualityMetricDto> dtos = service.getSupplierQualityMetrics().stream()
+                .map(metric -> new SupplierQualityMetricDto(
+                        metric.supplierId() != null ? metric.supplierId().toString() : null,
+                        metric.totalReturns(),
+                        metric.qualityRejectedCases(),
+                        metric.supplierAcceptedCount(),
+                        metric.supplierRejectedCount(),
+                        metric.supplierRejectionRatePercent()
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/metrics/customers")
+    public ResponseEntity<List<CustomerReturnMetricDto>> getCustomerMetrics() {
+        List<CustomerReturnMetricDto> dtos = service.getCustomerReturnMetrics().stream()
+                .map(metric -> new CustomerReturnMetricDto(
+                        metric.customerId() != null ? metric.customerId().toString() : null,
+                        metric.totalReturnRequests(),
+                        metric.approvedReturns(),
+                        metric.actualRejectedReturns(),
+                        metric.falseReturnRequests(),
+                        metric.falseReturnRatePercent()
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
     }
 
     @PostMapping
     public ResponseEntity<ReturnDto> create(@RequestBody CreateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = new ReturnRecord();
-            returnRecord.setReturnNumber(request.returnNumber());
-            returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
-            returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
-            returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
-            if (request.returnDate() != null && !request.returnDate().isEmpty()) {
-                returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
-            } else {
-                returnRecord.setReturnDate(LocalDate.now());
-            }
-            returnRecord.setReason(request.reason());
-            returnRecord.setStatus(request.status() != null ? request.status() : "pending");
-            returnRecord.setResolution(request.resolution());
-            returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
-            returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
-
-            ReturnRecord created = service.create(returnRecord);
-            return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+        ReturnRecord returnRecord = new ReturnRecord();
+        returnRecord.setReturnNumber(request.returnNumber());
+        returnRecord.setOriginalOrderId(request.originalOrderId() != null ? UUID.fromString(request.originalOrderId()) : null);
+        returnRecord.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
+        returnRecord.setWarehouseId(request.warehouseId() != null ? UUID.fromString(request.warehouseId()) : null);
+        if (request.returnDate() != null && !request.returnDate().isEmpty()) {
+            returnRecord.setReturnDate(LocalDate.parse(request.returnDate()));
+        } else {
+            returnRecord.setReturnDate(LocalDate.now());
         }
+        returnRecord.setReason(request.reason());
+        returnRecord.setStatus(request.status() != null ? request.status() : "pending");
+        returnRecord.setResolution(request.resolution());
+        returnRecord.setReceivedBy(request.receivedBy() != null ? UUID.fromString(request.receivedBy()) : null);
+        returnRecord.setInspectedBy(request.inspectedBy() != null ? UUID.fromString(request.inspectedBy()) : null);
+
+        ReturnRecord created = service.create(returnRecord);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+    }
+
+    @PostMapping("/intake/outbound")
+    public ResponseEntity<ReturnDto> intakeOutbound(
+            @RequestBody OutboundReturnIntakeRequest request,
+            Authentication authentication
+    ) {
+        UUID workerId = request.workerId() != null
+                ? UUID.fromString(request.workerId())
+                : resolveActorUserId(authentication);
+        ReturnRecord createdOrUpdated = service.intakeOutboundReturn(
+                request.orderNumber(),
+                request.reason(),
+                workerId
+        );
+        return ResponseEntity.status(HttpStatus.CREATED).body(toDto(createdOrUpdated));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<ReturnDto> update(@PathVariable UUID id, @RequestBody UpdateReturnRequest request) {
-        try {
-            ReturnRecord returnRecord = service.findById(id);
-            if (request.reason() != null) returnRecord.setReason(request.reason());
-            if (request.resolution() != null) returnRecord.setResolution(request.resolution());
-            if (request.status() != null) returnRecord.setStatus(request.status());
-            if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
-            if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
+        ReturnRecord returnRecord = service.findById(id);
+        if (request.reason() != null) returnRecord.setReason(request.reason());
+        if (request.resolution() != null) returnRecord.setResolution(request.resolution());
+        if (request.status() != null) returnRecord.setStatus(request.status());
+        if (request.receivedBy() != null) returnRecord.setReceivedBy(UUID.fromString(request.receivedBy()));
+        if (request.inspectedBy() != null) returnRecord.setInspectedBy(UUID.fromString(request.inspectedBy()));
 
-            ReturnRecord updated = service.update(returnRecord);
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        ReturnRecord updated = service.update(returnRecord);
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @PutMapping("/{id}/status")
     public ResponseEntity<ReturnDto> updateStatus(
             @PathVariable UUID id,
-            @RequestBody UpdateStatusRequest request
+            @RequestBody UpdateStatusRequest request,
+            Authentication authentication
     ) {
-        try {
-            ReturnRecord updated = service.updateStatus(id, request.status());
-            return ResponseEntity.ok(toDto(updated));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        UUID actor = resolveActorUserId(authentication);
+        ReturnRecord updated = service.updateStatus(id, request.status(), actor, request.notes());
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/approve")
+    public ResponseEntity<ReturnDto> approve(
+            @PathVariable UUID id,
+            @RequestBody ApproveReturnRequest request,
+            Authentication authentication
+    ) {
+        UUID approvedBy = request.approvedBy() != null
+                ? UUID.fromString(request.approvedBy())
+                : resolveActorUserId(authentication);
+        ReturnRecord updated = service.approve(id, approvedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/inspection")
+    public ResponseEntity<ReturnDto> submitInspection(
+            @PathVariable UUID id,
+            @RequestBody ReturnInspectionRequest request,
+            Authentication authentication
+    ) {
+        UUID inspectedBy = request.inspectedBy() != null
+                ? UUID.fromString(request.inspectedBy())
+                : resolveActorUserId(authentication);
+        ReturnRecord updated = service.submitInspection(id, request.overallResolution(), request.notes(), inspectedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/reject")
+    public ResponseEntity<ReturnDto> reject(
+            @PathVariable UUID id,
+            @RequestBody RejectReturnRequest request,
+            Authentication authentication
+    ) {
+        UUID reviewedBy = request.reviewedBy() != null
+                ? UUID.fromString(request.reviewedBy())
+                : resolveActorUserId(authentication);
+        ReturnRecord updated = service.reject(id, request.rejectionReason(), request.resolution(), reviewedBy);
+        return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PutMapping("/{id}/assign")
+    public ResponseEntity<ReturnDto> assignWorker(
+            @PathVariable UUID id,
+            @RequestBody AssignReturnWorkerRequest request
+    ) {
+        ReturnRecord updated = service.assignWorker(id, UUID.fromString(request.workerId()));
+        return ResponseEntity.ok(toDto(updated));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        try {
-            service.deleteById(id);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
+        service.deleteById(id);
+        return ResponseEntity.noContent().build();
     }
 
     private ReturnDto toDto(ReturnRecord returnRecord) {
@@ -132,7 +212,16 @@ public class ReturnController {
                 returnRecord.getStatus(),
                 returnRecord.getResolution(),
                 returnRecord.getReceivedBy() != null ? returnRecord.getReceivedBy().toString() : null,
-                returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy().toString() : null
+                returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy().toString() : null,
+                returnRecord.getReturnFlow(),
+                returnRecord.getQcOutcome(),
+                returnRecord.getSupplierResponseStatus(),
+                returnRecord.getSupplierResponseNotes(),
+                returnRecord.getFalseReturnRequest(),
+                returnRecord.getCustomerCareFlag(),
+                returnRecord.getFollowupOrderId() != null ? returnRecord.getFollowupOrderId().toString() : null,
+                returnRecord.getClosedAt() != null ? returnRecord.getClosedAt().toString() : null,
+                returnRecord.getLastStatusChangedAt() != null ? returnRecord.getLastStatusChangedAt().toString() : null
         );
     }
 
@@ -157,7 +246,29 @@ public class ReturnController {
             String inspectedBy
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(String status, String notes) {}
+
+    public record ApproveReturnRequest(String approvedBy) {}
+
+    public record ReturnInspectionRequest(
+            String overallResolution,
+            String notes,
+            String inspectedBy
+    ) {}
+
+    public record RejectReturnRequest(
+            String rejectionReason,
+            String resolution,
+            String reviewedBy
+    ) {}
+
+    public record AssignReturnWorkerRequest(String workerId) {}
+
+    public record OutboundReturnIntakeRequest(
+            String orderNumber,
+            String reason,
+            String workerId
+    ) {}
 
     public record ReturnDto(
             String id,
@@ -170,7 +281,42 @@ public class ReturnController {
             String status,
             String resolution,
             String receivedBy,
-            String inspectedBy
+            String inspectedBy,
+            String returnFlow,
+            String qcOutcome,
+            String supplierResponseStatus,
+            String supplierResponseNotes,
+            Boolean falseReturnRequest,
+            Boolean customerCareFlag,
+            String followupOrderId,
+            String closedAt,
+            String lastStatusChangedAt
     ) {}
-}
 
+    public record SupplierQualityMetricDto(
+            String supplierId,
+            int totalReturns,
+            int qualityRejectedCases,
+            int supplierAcceptedCount,
+            int supplierRejectedCount,
+            double supplierRejectionRatePercent
+    ) {}
+
+    public record CustomerReturnMetricDto(
+            String customerId,
+            int totalReturnRequests,
+            int approvedReturns,
+            int actualRejectedReturns,
+            int falseReturnRequests,
+            double falseReturnRatePercent
+    ) {}
+
+    private UUID resolveActorUserId(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+            return null;
+        }
+        return userRepository.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
+    }
+}

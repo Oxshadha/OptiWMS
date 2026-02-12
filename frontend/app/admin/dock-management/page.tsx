@@ -9,8 +9,13 @@ import {
   DockAppointment,
   YardTrailer,
 } from "@/lib/api/operations";
-import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { logger } from "@/lib/utils/logger";
+import { DockAppointmentModal } from "./components/DockAppointmentModal";
+import { DockDoorStatusCard } from "./components/DockDoorStatusCard";
+import { YardTrailerQueueCard } from "./components/YardTrailerQueueCard";
+import { AppointmentsCard } from "./components/AppointmentsCard";
+import { getDaysInMonth, getFirstDayOfMonth } from "./utils";
 
 export default function DockManagementPage() {
   const { hasPermission, role } = useAdmin();
@@ -71,7 +76,7 @@ export default function DockManagementPage() {
         }));
         setYardTrailers(enrichedTrailers);
       } catch (err) {
-        console.error("Failed to fetch dock management data:", err);
+        logger.error("Failed to fetch dock management data:", err);
         setError(err instanceof Error ? err.message : "Failed to load dock management data");
       } finally {
         setLoading(false);
@@ -107,6 +112,27 @@ export default function DockManagementPage() {
     return matchesSearch && matchesDate;
   });
 
+  const inboundOrderOptions = Array.from(
+    new Map(
+      [
+        ...appointments
+          .filter((apt) => apt.inboundOrderId && apt.inboundOrderNumber)
+          .map((apt) => ({
+            id: apt.inboundOrderId as string,
+            orderNumber: apt.inboundOrderNumber as string,
+            supplierName: apt.supplierName || "Unknown Supplier",
+          })),
+        ...yardTrailers
+          .filter((trailer) => trailer.inboundOrderId && trailer.inboundOrderNumber)
+          .map((trailer) => ({
+            id: trailer.inboundOrderId as string,
+            orderNumber: trailer.inboundOrderNumber as string,
+            supplierName: trailer.supplierName || "Unknown Supplier",
+          })),
+      ].map((order) => [order.id, order])
+    ).values()
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -123,69 +149,6 @@ export default function DockManagementPage() {
       </div>
     );
   }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "available":
-        return "badge-success";
-      case "occupied":
-        return "badge-error";
-      case "reserved":
-        return "badge-warning";
-      case "maintenance":
-        return "badge-error";
-      case "scheduled":
-        return "badge-info";
-      case "in_progress":
-        return "badge-primary";
-      case "completed":
-        return "badge-success";
-      case "waiting":
-        return "badge-warning";
-      case "assigned":
-        return "badge-info";
-      default:
-        return "badge-outline";
-    }
-  };
-
-  const formatTime = (dateString: string) => {
-    return new Date(dateString).toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // Calendar helper functions (matching Topbar style)
-  const getDaysInMonth = (month: number, year: number) => {
-    return new Date(year, month + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (month: number, year: number) => {
-    return new Date(year, month, 1).getDay();
-  };
-
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
 
   const today = new Date();
   const todayDate = today.getDate();
@@ -390,14 +353,14 @@ export default function DockManagementPage() {
           )
         );
       } catch (error) {
-        console.error("Failed to create appointment:", error);
+        logger.error("Failed to create appointment:", error);
         alert("Failed to create appointment. Please try again.");
         return;
       }
 
       handleCloseModal();
     } catch (error) {
-      console.error("Error creating appointment:", error);
+      logger.error("Error creating appointment:", error);
       setFormErrors({
         submit: "Failed to create appointment. Please try again.",
       });
@@ -461,603 +424,45 @@ export default function DockManagementPage() {
         ]}
       />
 
-      {/* Dock Doors Status */}
-      <div className="card bg-base-100 shadow-xl">
-        <div className="card-body">
-          <h2 className="card-title text-xl">Dock Door Status</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-            {dockDoors.map((door) => {
-              const appointment = appointments.find(
-                (apt) => apt.id === door.currentAppointmentId
-              );
-              return (
-                <div
-                  key={door.id}
-                  className="border border-base-300 rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-bold text-lg">{door.doorNumber}</h3>
-                    <span className={`badge ${getStatusColor(door.status)}`}>
-                      {door.status.charAt(0).toUpperCase() +
-                        door.status.slice(1).replace("_", " ")}
-                    </span>
-                  </div>
-                  {door.location && (
-                    <p className="text-sm text-base-content/60 mb-2">
-                      {door.location}
-                    </p>
-                  )}
-                  {appointment && (
-                    <div className="mt-2 pt-2 border-t border-base-300">
-                      <p className="text-xs text-base-content/60">
-                        Current Appointment:
-                      </p>
-                      <p className="text-sm font-semibold">
-                        {appointment.appointmentNumber}
-                      </p>
-                      <p className="text-xs text-base-content/60">
-                        {appointment.supplierName} - {appointment.trailerNumber}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      <DockDoorStatusCard dockDoors={dockDoors} appointments={appointments} />
 
-      {/* Yard Trailer Queue */}
-      <div className="card bg-base-100 shadow-xl">
-        <div className="card-body">
-          <h2 className="card-title text-xl">Yard Trailer Queue</h2>
-          <div className="overflow-x-auto mt-4">
-            <table className="table table-zebra">
-              <thead>
-                <tr>
-                  <th>Trailer Number</th>
-                  <th>Carrier</th>
-                  <th>PO Number</th>
-                  <th>Supplier</th>
-                  <th>Arrived</th>
-                  <th>Wait Time</th>
-                  <th>Status</th>
-                  <th>Assigned Dock</th>
-                </tr>
-              </thead>
-              <tbody>
-                {yardTrailers.map((trailer) => (
-                  <tr key={trailer.id}>
-                    <td className="font-semibold">{trailer.trailerNumber}</td>
-                    <td>{trailer.carrierName}</td>
-                    <td>{trailer.inboundOrderNumber || "N/A"}</td>
-                    <td>{trailer.supplierName || "N/A"}</td>
-                    <td>{formatTime(trailer.arrivedAt)}</td>
-                    <td>
-                      <span
-                        className={
-                          trailer.waitTimeMinutes > 60
-                            ? "text-error font-semibold"
-                            : ""
-                        }
-                      >
-                        {trailer.waitTimeMinutes} min
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={`badge ${getStatusColor(trailer.status)}`}
-                      >
-                        {trailer.status.charAt(0).toUpperCase() +
-                          trailer.status.slice(1)}
-                      </span>
-                    </td>
-                    <td>{trailer.assignedDockDoorNumber || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <YardTrailerQueueCard yardTrailers={yardTrailers} />
 
-      {/* Appointments Calendar */}
-      <div className="card bg-base-100 shadow-xl">
-        <div className="card-body">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="card-title text-xl">Scheduled Appointments</h2>
-            <div className="flex gap-2">
-              {/* Calendar Picker (Topbar Style) */}
-              <div className="relative">
-                <button
-                  className="btn btn-outline btn-sm"
-                  onClick={() => setShowCalendar(!showCalendar)}
-                >
-                  <span className="material-symbols-outlined text-sm">
-                    calendar_today
-                  </span>
-                  <span>{formatDate(selectedDate + "T00:00:00Z")}</span>
-                </button>
-                {showCalendar && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setShowCalendar(false)}
-                    ></div>
-                    <div className="absolute right-0 mt-2 w-80 rounded-xl bg-base-100 shadow-lg border border-base-200 z-50">
-                      <div className="p-4 border-b border-base-200">
-                        <div className="flex items-center justify-between mb-2">
-                          <button
-                            className="btn btn-ghost btn-sm btn-circle"
-                            onClick={() => navigateMonth("prev")}
-                          >
-                            <span className="material-symbols-outlined">
-                              chevron_left
-                            </span>
-                          </button>
-                          <div className="text-lg font-bold text-base-content">
-                            {monthNames[calendarMonth]} {calendarYear}
-                          </div>
-                          <button
-                            className="btn btn-ghost btn-sm btn-circle"
-                            onClick={() => navigateMonth("next")}
-                          >
-                            <span className="material-symbols-outlined">
-                              chevron_right
-                            </span>
-                          </button>
-                        </div>
-                        <div className="text-sm text-base-content/60">
-                          {new Date(selectedDate).toLocaleDateString("en-US", {
-                            weekday: "long",
-                            month: "long",
-                            day: "numeric",
-                          })}
-                        </div>
-                      </div>
-                      <div className="p-4">
-                        <div className="grid grid-cols-7 gap-1 mb-2">
-                          {[
-                            "Sun",
-                            "Mon",
-                            "Tue",
-                            "Wed",
-                            "Thu",
-                            "Fri",
-                            "Sat",
-                          ].map((day) => (
-                            <div
-                              key={day}
-                              className="text-center text-xs font-semibold text-base-content/60 py-1"
-                            >
-                              {day}
-                            </div>
-                          ))}
-                        </div>
-                        <div className="grid grid-cols-7 gap-1">
-                          {emptyDays.map((_, idx) => (
-                            <div
-                              key={`empty-${idx}`}
-                              className="aspect-square"
-                            ></div>
-                          ))}
-                          {days.map((day) => {
-                            const isToday =
-                              day === todayDate &&
-                              calendarMonth === currentMonth &&
-                              calendarYear === currentYear;
-                            const hasAppointments = appointmentsByDate[day];
-                            const isSelected =
-                              new Date(selectedDate).getDate() === day &&
-                              new Date(selectedDate).getMonth() ===
-                                calendarMonth &&
-                              new Date(selectedDate).getFullYear() ===
-                                calendarYear;
-                            return (
-                              <button
-                                key={day}
-                                onClick={() => handleDateSelect(day)}
-                                className={`
-                                  aspect-square flex flex-col items-center justify-center text-sm rounded-lg relative
-                                  ${
-                                    isSelected
-                                      ? "bg-primary text-primary-content font-bold"
-                                      : isToday
-                                      ? "bg-primary/20 text-primary font-semibold"
-                                      : "hover:bg-base-200 text-base-content"
-                                  }
-                                `}
-                              >
-                                <span>{day}</span>
-                                {hasAppointments && (
-                                  <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 flex gap-0.5">
-                                    {Array.from({
-                                      length: Math.min(hasAppointments, 3),
-                                    }).map((_, i) => (
-                                      <div
-                                        key={i}
-                                        className="w-1 h-1 rounded-full bg-primary"
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="mt-4 pt-4 border-t border-base-200 space-y-2 text-xs">
-                          <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full bg-primary"></div>
-                            <span className="text-base-content/70">
-                              Appointments
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-              <input
-                type="text"
-                placeholder="Search appointments..."
-                className="input input-bordered input-sm w-64"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="table table-zebra">
-              <thead>
-                <tr>
-                  <th>Appointment #</th>
-                  <th>Dock Door</th>
-                  <th>PO Number</th>
-                  <th>Supplier</th>
-                  <th>Carrier</th>
-                  <th>Trailer</th>
-                  <th>Time</th>
-                  <th>Status</th>
-                  {canEdit && <th>Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAppointments.map((apt) => (
-                  <tr key={apt.id}>
-                    <td className="font-semibold">{apt.appointmentNumber}</td>
-                    <td>{apt.dockDoorNumber}</td>
-                    <td>{apt.inboundOrderNumber || "N/A"}</td>
-                    <td>{apt.supplierName || "N/A"}</td>
-                    <td>{apt.carrierName || "N/A"}</td>
-                    <td>{apt.trailerNumber || "N/A"}</td>
-                    <td>
-                      {formatTime(apt.scheduledStart)} -{" "}
-                      {formatTime(apt.scheduledEnd)}
-                      <br />
-                      <span className="text-xs text-base-content/60">
-                        {formatDate(apt.scheduledStart)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${getStatusColor(apt.status)}`}>
-                        {apt.status.charAt(0).toUpperCase() +
-                          apt.status.slice(1).replace("_", " ")}
-                      </span>
-                    </td>
-                    {canEdit && (
-                      <td>
-                        <div className="flex gap-1">
-                          <button className="btn btn-xs btn-ghost" title="Edit">
-                            <span className="material-symbols-outlined text-sm">
-                              edit
-                            </span>
-                          </button>
-                          {apt.status === "scheduled" && (
-                            <button
-                              className="btn btn-xs btn-ghost text-error"
-                              title="Cancel"
-                            >
-                              <span className="material-symbols-outlined text-sm">
-                                cancel
-                              </span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filteredAppointments.length === 0 && (
-              <div className="text-center py-8 text-base-content/60">
-                No appointments scheduled for{" "}
-                {formatDate(selectedDate + "T00:00:00Z")}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <AppointmentsCard
+        canEdit={canEdit}
+        selectedDate={selectedDate}
+        showCalendar={showCalendar}
+        calendarMonth={calendarMonth}
+        calendarYear={calendarYear}
+        todayDate={todayDate}
+        currentMonth={currentMonth}
+        currentYear={currentYear}
+        days={days}
+        emptyDays={emptyDays}
+        appointmentsByDate={appointmentsByDate}
+        searchQuery={searchQuery}
+        filteredAppointments={filteredAppointments}
+        onToggleCalendar={() => setShowCalendar(!showCalendar)}
+        onCloseCalendar={() => setShowCalendar(false)}
+        onNavigateMonth={navigateMonth}
+        onDateSelect={handleDateSelect}
+        onSearchChange={setSearchQuery}
+      />
 
       {/* Schedule Appointment Modal */}
       {showAppointmentModal && (
-        <Modal
+        <DockAppointmentModal
           isOpen={showAppointmentModal}
           onClose={handleCloseModal}
-          title="Schedule Dock Appointment"
-          size="lg"
-        >
-          <div className="space-y-4">
-            {formErrors.submit && (
-              <div className="alert alert-error">
-                <span className="material-symbols-outlined">error</span>
-                <span>{formErrors.submit}</span>
-              </div>
-            )}
-
-            {/* Dock Door Selection */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">
-                  Dock Door <span className="text-error">*</span>
-                </span>
-              </label>
-              <select
-                className={`select select-bordered w-full ${
-                  formErrors.dockDoorId ? "select-error" : ""
-                }`}
-                value={appointmentForm.dockDoorId}
-                onChange={(e) =>
-                  setAppointmentForm((prev) => ({
-                    ...prev,
-                    dockDoorId: e.target.value,
-                  }))
-                }
-              >
-                <option value="">Select a dock door</option>
-                {dockDoors
-                  .filter(
-                    (door) =>
-                      door.status === "available" || door.status === "reserved"
-                  )
-                  .map((door) => (
-                    <option key={door.id} value={door.id}>
-                      {door.doorNumber}{" "}
-                      {door.location ? `(${door.location})` : ""} -{" "}
-                      {door.status}
-                    </option>
-                  ))}
-              </select>
-              {formErrors.dockDoorId && (
-                <label className="label">
-                  <span className="label-text-alt text-error">
-                    {formErrors.dockDoorId}
-                  </span>
-                </label>
-              )}
-            </div>
-
-            {/* Inbound Order Selection (Optional) */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">
-                  Inbound Order (Optional)
-                </span>
-              </label>
-              <select
-                className="select select-bordered w-full"
-                value={appointmentForm.inboundOrderId}
-                onChange={(e) => handleInboundOrderSelect(e.target.value)}
-              >
-                <option value="">No order linked</option>
-                {mockInboundOrders
-                  .filter(
-                    (order) =>
-                      order.status === "in_transit" ||
-                      order.status === "arrived"
-                  )
-                  .map((order) => (
-                    <option key={order.id} value={order.id}>
-                      {order.orderNumber} - {order.supplierName}
-                    </option>
-                  ))}
-              </select>
-              <label className="label">
-                <span className="label-text-alt">
-                  Linking an order will auto-fill supplier information
-                </span>
-              </label>
-            </div>
-
-            {/* Supplier Name */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">Supplier Name</span>
-              </label>
-              <input
-                type="text"
-                className="input input-bordered w-full"
-                placeholder="Enter supplier name"
-                value={appointmentForm.supplierName}
-                onChange={(e) =>
-                  setAppointmentForm((prev) => ({
-                    ...prev,
-                    supplierName: e.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Carrier Name */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">
-                  Carrier Name <span className="text-error">*</span>
-                </span>
-              </label>
-              <input
-                type="text"
-                className={`input input-bordered w-full ${
-                  formErrors.carrierName ? "input-error" : ""
-                }`}
-                placeholder="Enter carrier name"
-                value={appointmentForm.carrierName}
-                onChange={(e) =>
-                  setAppointmentForm((prev) => ({
-                    ...prev,
-                    carrierName: e.target.value,
-                  }))
-                }
-              />
-              {formErrors.carrierName && (
-                <label className="label">
-                  <span className="label-text-alt text-error">
-                    {formErrors.carrierName}
-                  </span>
-                </label>
-              )}
-            </div>
-
-            {/* Trailer Number */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">
-                  Trailer Number <span className="text-error">*</span>
-                </span>
-              </label>
-              <input
-                type="text"
-                className={`input input-bordered w-full ${
-                  formErrors.trailerNumber ? "input-error" : ""
-                }`}
-                placeholder="Enter trailer number"
-                value={appointmentForm.trailerNumber}
-                onChange={(e) =>
-                  setAppointmentForm((prev) => ({
-                    ...prev,
-                    trailerNumber: e.target.value,
-                  }))
-                }
-              />
-              {formErrors.trailerNumber && (
-                <label className="label">
-                  <span className="label-text-alt text-error">
-                    {formErrors.trailerNumber}
-                  </span>
-                </label>
-              )}
-            </div>
-
-            {/* Scheduled Time */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-semibold">
-                    Scheduled Start <span className="text-error">*</span>
-                  </span>
-                </label>
-                <input
-                  type="datetime-local"
-                  className={`input input-bordered w-full ${
-                    formErrors.scheduledStart ? "input-error" : ""
-                  }`}
-                  value={appointmentForm.scheduledStart}
-                  onChange={(e) =>
-                    setAppointmentForm((prev) => ({
-                      ...prev,
-                      scheduledStart: e.target.value,
-                    }))
-                  }
-                />
-                {formErrors.scheduledStart && (
-                  <label className="label">
-                    <span className="label-text-alt text-error">
-                      {formErrors.scheduledStart}
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text font-semibold">
-                    Scheduled End <span className="text-error">*</span>
-                  </span>
-                </label>
-                <input
-                  type="datetime-local"
-                  className={`input input-bordered w-full ${
-                    formErrors.scheduledEnd ? "input-error" : ""
-                  }`}
-                  value={appointmentForm.scheduledEnd}
-                  onChange={(e) =>
-                    setAppointmentForm((prev) => ({
-                      ...prev,
-                      scheduledEnd: e.target.value,
-                    }))
-                  }
-                />
-                {formErrors.scheduledEnd && (
-                  <label className="label">
-                    <span className="label-text-alt text-error">
-                      {formErrors.scheduledEnd}
-                    </span>
-                  </label>
-                )}
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-semibold">
-                  Notes (Optional)
-                </span>
-              </label>
-              <textarea
-                className="textarea textarea-bordered w-full"
-                placeholder="Add any additional notes or special instructions"
-                rows={3}
-                value={appointmentForm.notes}
-                onChange={(e) =>
-                  setAppointmentForm((prev) => ({
-                    ...prev,
-                    notes: e.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-end gap-2 pt-4 border-t border-base-300">
-              <button
-                className="btn btn-ghost"
-                onClick={handleCloseModal}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleSubmitAppointment}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    Scheduling...
-                  </>
-                ) : (
-                  <>
-                    <span className="material-symbols-outlined">schedule</span>
-                    Schedule Appointment
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </Modal>
+          dockDoors={dockDoors}
+          inboundOrderOptions={inboundOrderOptions}
+          appointmentForm={appointmentForm}
+          setAppointmentForm={setAppointmentForm}
+          formErrors={formErrors}
+          isSubmitting={isSubmitting}
+          onInboundOrderSelect={handleInboundOrderSelect}
+          onSubmit={handleSubmitAppointment}
+        />
       )}
     </div>
   );

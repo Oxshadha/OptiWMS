@@ -71,7 +71,9 @@ public class LocationSuggestionService {
                 // Verify location is still valid and available
                 try {
                     Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
-                    if (location != null && Boolean.TRUE.equals(location.getIsActive()) && 
+                    if (location != null
+                        && warehouseId.equals(location.getWarehouseId())
+                        && Boolean.TRUE.equals(location.getIsActive()) && 
                         ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
                         logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
                         return new LocationSuggestion(
@@ -129,7 +131,10 @@ public class LocationSuggestionService {
             for (InventoryItem item : existingInventory) {
                 try {
                     Location location = locationService.findByLocationCode(item.getLocationCode());
-                    if (location != null && Boolean.TRUE.equals(location.getIsActive()) && hasCapacity(location, quantity)) {
+                    if (location != null
+                        && warehouseId.equals(location.getWarehouseId())
+                        && Boolean.TRUE.equals(location.getIsActive())
+                        && hasCapacity(location, quantity, materialId)) {
                         return new LocationSuggestion(
                             location.getLocationCode(),
                             "Same material consolidation - existing location",
@@ -157,7 +162,7 @@ public class LocationSuggestionService {
                 return "storage".equals(locType) || "STORAGE".equals(zoneType);
             })
             .filter(loc -> isLocationAvailable(loc))
-            .filter(loc -> hasCapacity(loc, quantity))
+            .filter(loc -> hasCapacity(loc, quantity, materialId))
             .sorted(Comparator
                 .comparing((Location loc) -> isFastMoving ? getAccessibilityScore(loc) : 0)
                 .reversed()
@@ -196,7 +201,7 @@ public class LocationSuggestionService {
     /**
      * Check if location has capacity for quantity
      */
-    private boolean hasCapacity(Location location, Integer quantity) {
+    private boolean hasCapacity(Location location, Integer quantity, UUID materialId) {
         // Get current inventory at location
         List<InventoryItem> locationInventory = inventoryService.findByWarehouse(location.getWarehouseId())
             .stream()
@@ -207,9 +212,22 @@ public class LocationSuggestionService {
             .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
             .sum();
         
-        // Assume location capacity (can be enhanced with location.maxCapacity field)
-        int maxCapacity = 100; // Default capacity
-        return (currentQuantity + quantity) <= maxCapacity;
+        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
+            int capacityUnits = location.getCapacity().intValue();
+            if ((currentQuantity + quantity) > capacityUnits) {
+                return false;
+            }
+        }
+
+        boolean hasMaterialAlready = locationInventory.stream()
+            .anyMatch(item -> item.getMaterialId() != null && item.getMaterialId().equals(materialId));
+        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
+            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

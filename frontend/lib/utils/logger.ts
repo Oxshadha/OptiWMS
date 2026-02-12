@@ -2,7 +2,6 @@
  * Production-Safe Logging Utility
  * 
  * Usage:
- *   import { logger } from '@/lib/utils/logger';
  *   logger.log('Debug info'); // Only logs in development
  *   logger.error('Error occurred'); // Logs in dev, reports in production
  *   logger.warn('Warning message');

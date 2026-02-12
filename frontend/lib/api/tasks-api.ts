@@ -62,8 +62,8 @@ export const tasksApi = {
     return apiClient.post<Task>('/tasks', task);
   },
 
-  updateStatus: async (id: string, status: string): Promise<Task> => {
-    return apiClient.put<Task>(`/tasks/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, workerId?: string): Promise<Task> => {
+    return apiClient.put<Task>(`/tasks/${id}/status`, { status, workerId });
   },
 
   assign: async (id: string, request: AssignTaskRequest): Promise<Task> => {
@@ -74,4 +74,3 @@ export const tasksApi = {
     return apiClient.post<Task>(`/tasks/${id}/claim`, { workerId });
   },
 };
-

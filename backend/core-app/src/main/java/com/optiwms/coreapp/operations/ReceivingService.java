@@ -5,16 +5,21 @@ import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OrderStatusService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.coreapp.operations.PutawayTaskService;
+import com.optiwms.coreapp.quality.QualityCheckService;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.master.Material;
 import com.optiwms.domain.orders.Order;
+import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,6 +33,10 @@ public class ReceivingService {
     private final MaterialService materialService;
     private final WarehouseService warehouseService;
     private final PutawayTaskService putawayTaskService;
+    private final QualityCheckService qualityCheckService;
+    private final GrnService grnService;
+    private final TaskService taskService;
+    private final OperationEventService operationEventService;
 
     public ReceivingService(OrderService orderService,
                            OrderStatusService orderStatusService,
@@ -35,7 +44,11 @@ public class ReceivingService {
                            InventoryService inventoryService,
                            MaterialService materialService,
                            WarehouseService warehouseService,
-                           PutawayTaskService putawayTaskService) {
+                           PutawayTaskService putawayTaskService,
+                           QualityCheckService qualityCheckService,
+                           GrnService grnService,
+                           TaskService taskService,
+                           OperationEventService operationEventService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.orderItemRepository = orderItemRepository;
@@ -43,6 +56,10 @@ public class ReceivingService {
         this.materialService = materialService;
         this.warehouseService = warehouseService;
         this.putawayTaskService = putawayTaskService;
+        this.qualityCheckService = qualityCheckService;
+        this.grnService = grnService;
+        this.taskService = taskService;
+        this.operationEventService = operationEventService;
     }
 
     public Order getOrderByNumber(String orderNumber) {
@@ -57,7 +74,9 @@ public class ReceivingService {
             throw new RuntimeException("Order is not an inbound order");
         }
 
-        if (!"pending".equals(order.getStatus()) && !"received".equals(order.getStatus())) {
+        if (!"pending".equals(order.getStatus())
+                && !"received".equals(order.getStatus())
+                && !"partially_received".equals(order.getStatus())) {
             throw new RuntimeException("Order cannot be received in current status: " + order.getStatus());
         }
 
@@ -95,16 +114,34 @@ public class ReceivingService {
         // Store worker record in order (received_by, received_at)
         if (workerId != null && "inbound".equals(order.getOrderType())) {
             orderService.updateWorkerRecord(order.getId(), workerId, "received");
+            completeReceivingTasks(order.getId(), workerId);
+            int receivedTotal = receivedItems.stream()
+                    .filter(it -> it.quantity() != null)
+                    .mapToInt(it -> (int) Math.ceil(it.quantity().doubleValue()))
+                    .sum();
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "RECEIVING",
+                    workerId,
+                    null,
+                    order.getId(),
+                    null,
+                    warehouseId,
+                    null,
+                    receivedTotal,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    "mode=order"
+            ));
         }
 
-        // CRITICAL: Create putaway tasks automatically after receiving
-        // This ensures items get assigned to bin locations
-        try {
-            putawayTaskService.createPutawayTasksForReceivedOrder(order.getId(), warehouseId);
-        } catch (Exception e) {
-            // Log error but don't fail receiving
-            // Putaway tasks can be created manually if needed
-            System.err.println("Failed to create putaway tasks after receiving: " + e.getMessage());
+        // Create/find GRN for this inbound receipt and attach quality checks to GRN.
+        UUID grnId = grnService.getOrCreateForOrder(order, workerId, notes);
+        createPendingQualityChecks(grnId, receivedItems, workerId);
+
+        // Move fully received orders into quality queue.
+        Order refreshedOrder = orderService.findById(order.getId());
+        if ("received".equals(refreshedOrder.getStatus())) {
+            orderService.updateStatus(order.getId(), "quality_pending");
         }
 
         // Store notes and photos in order notes
@@ -169,8 +206,7 @@ public class ReceivingService {
             }
             updateInventory(itemWarehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
             
-            // CRITICAL: Create putaway task for blind received items
-            // This ensures items get assigned to bin locations
+            // Blind receiving has no quality gate context, so putaway task is created immediately.
             try {
                 Integer qtyInteger = (int) Math.ceil(receivedItem.quantity().doubleValue());
                 putawayTaskService.createPutawayTaskForBlindReceive(
@@ -203,7 +239,45 @@ public class ReceivingService {
         }
 
         UUID orderId = order != null ? order.getId() : null;
+        if (workerId != null) {
+            int receivedTotal = receivedItems.stream()
+                    .filter(it -> it.quantity() != null)
+                    .mapToInt(it -> (int) Math.ceil(it.quantity().doubleValue()))
+                    .sum();
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "RECEIVING",
+                    workerId,
+                    null,
+                    orderId,
+                    null,
+                    warehouseId,
+                    null,
+                    receivedTotal,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    "mode=blind"
+            ));
+        }
         return new ReceivingResult(true, "Items received successfully (blind receive)", orderId);
+    }
+
+    private void createPendingQualityChecks(UUID grnId, List<ReceivedItem> receivedItems, UUID checkedBy) {
+        for (ReceivedItem receivedItem : receivedItems) {
+            if (receivedItem.quantity() == null || receivedItem.quantity().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            QualityCheck qualityCheck = new QualityCheck();
+            qualityCheck.setGrnId(grnId);
+            qualityCheck.setMaterialId(receivedItem.materialId());
+            qualityCheck.setQtyReceived(receivedItem.quantity());
+            qualityCheck.setQtyPassed(BigDecimal.ZERO);
+            qualityCheck.setQtyRejected(BigDecimal.ZERO);
+            qualityCheck.setApprovalStatus("PENDING");
+            qualityCheck.setCheckedBy(checkedBy);
+            qualityCheck.setCheckDate(OffsetDateTime.now());
+            qualityCheckService.create(qualityCheck);
+        }
     }
 
     /**
@@ -218,18 +292,51 @@ public class ReceivingService {
         // Only validate if max weight is configured
         if (material.getMaxPalletWeightKg() != null && material.getMaxPalletWeightKg().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal maxWeight = material.getMaxPalletWeightKg();
-            
-            // Check if received quantity exceeds max weight
-            if (quantity.compareTo(maxWeight) > 0) {
+            BigDecimal effectiveWeight = calculateEffectiveWeightKg(quantity, material);
+
+            // Check if effective weight exceeds max pallet limit
+            if (effectiveWeight.compareTo(maxWeight) > 0) {
                 throw new RuntimeException(String.format(
                     "Weight limit exceeded for material %s: %.2f kg > %.2f kg (max). " +
                     "As per SOP, raw materials are limited to 1500kg and packing materials to 1000kg per pallet.",
                     material.getMaterialCode(),
-                    quantity.doubleValue(),
+                    effectiveWeight.doubleValue(),
                     maxWeight.doubleValue()
                 ));
             }
         }
+    }
+
+    private BigDecimal calculateEffectiveWeightKg(BigDecimal quantity, Material material) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // For weight-based receiving units (kg/g), quantity itself represents weight.
+        if (isWeightBasedUnit(material.getUnitType())) {
+            return quantity;
+        }
+
+        // For piece/box/pallet style units, compute weight = quantity * unit weight when available.
+        if (material.getWeightKg() != null && material.getWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            return quantity.multiply(material.getWeightKg());
+        }
+
+        // Fallback for legacy records where unit weight is not configured.
+        return quantity;
+    }
+
+    private boolean isWeightBasedUnit(String unitType) {
+        if (unitType == null) {
+            return false;
+        }
+        String normalized = unitType.trim().toLowerCase();
+        return "kg".equals(normalized)
+                || "kilogram".equals(normalized)
+                || "kilograms".equals(normalized)
+                || "g".equals(normalized)
+                || "gram".equals(normalized)
+                || "grams".equals(normalized);
     }
     
     private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
@@ -250,7 +357,13 @@ public class ReceivingService {
             inventoryItem = existing.get(0);
         }
 
-        inventoryItem.setLocationCode(locationCode != null ? locationCode : inventoryItem.getLocationCode());
+        String normalizedLocation = normalizeLocationCode(locationCode);
+        if (normalizedLocation != null) {
+            inventoryItem.setLocationCode(normalizedLocation);
+        } else if (existing.isEmpty()) {
+            // Keep new inventory rows nullable when receiving has no confirmed location yet.
+            inventoryItem.setLocationCode(null);
+        }
         Integer newQuantity = (inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0) + qtyInteger;
         inventoryItem.setQuantity(newQuantity);
         inventoryItem.setAvailableQuantity(newQuantity);
@@ -259,8 +372,24 @@ public class ReceivingService {
         inventoryService.createOrUpdate(inventoryItem);
     }
 
+    private String normalizeLocationCode(String locationCode) {
+        if (locationCode == null) {
+            return null;
+        }
+        String trimmed = locationCode.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void completeReceivingTasks(UUID orderId, UUID workerId) {
+        List<Task> receivingTasks = taskService.findByTaskTypeAndReference("receiving", "order", orderId);
+        for (Task task : receivingTasks) {
+            if (!"completed".equals(task.getStatus())) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
+            }
+        }
+    }
+
     public record ReceivedItem(UUID materialId, BigDecimal quantity, String locationCode) {}
 
     public record ReceivingResult(boolean success, String message, UUID orderId) {}
 }
-

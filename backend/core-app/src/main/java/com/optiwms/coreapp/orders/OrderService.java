@@ -6,13 +6,18 @@ import com.optiwms.infra.orders.OrderRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
 public class OrderService {
 
     private final OrderRepository repository;
+    private static final Map<String, Set<String>> OUTBOUND_TRANSITIONS = buildOutboundTransitions();
 
     public OrderService(OrderRepository repository) {
         this.repository = repository;
@@ -75,7 +80,19 @@ public class OrderService {
     public Order updateStatus(java.util.UUID id, String status) {
         OrderEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + id));
-        entity.setStatus(status);
+        String nextStatus = status == null ? null : status.toLowerCase().trim();
+        if (nextStatus == null || nextStatus.isBlank()) {
+            throw new RuntimeException("Order status cannot be empty");
+        }
+
+        String currentStatus = entity.getStatus() != null ? entity.getStatus().toLowerCase().trim() : "";
+        String orderType = entity.getOrderType() != null ? entity.getOrderType().toLowerCase().trim() : "";
+
+        if ("outbound".equals(orderType) && !isAllowedOutboundTransition(currentStatus, nextStatus)) {
+            throw new RuntimeException("Invalid outbound status transition: " + currentStatus + " -> " + nextStatus);
+        }
+
+        entity.setStatus(nextStatus);
         OrderEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -174,5 +191,40 @@ public class OrderService {
         order.setShippedAt(entity.getShippedAt());
         return order;
     }
-}
 
+    private static Map<String, Set<String>> buildOutboundTransitions() {
+        Map<String, Set<String>> transitions = new HashMap<>();
+        transitions.put("pending", setOf("pending", "allocated", "partially_allocated", "picking", "cancelled"));
+        transitions.put("partially_allocated", setOf("partially_allocated", "allocated", "picking", "cancelled"));
+        transitions.put("allocated", setOf("allocated", "picking", "cancelled"));
+        transitions.put("picking", setOf("picking", "picked", "cancelled"));
+        transitions.put("picked", setOf("picked", "packing", "cancelled"));
+        transitions.put("packing", setOf("packing", "ready_to_ship", "cancelled"));
+        transitions.put("ready_to_ship", setOf("ready_to_ship", "shipped", "cancelled"));
+        transitions.put("shipped", setOf("shipped", "delivered", "return_initiated"));
+        transitions.put("delivered", setOf("delivered", "return_initiated"));
+        transitions.put("return_initiated", setOf("return_initiated", "returned", "cancelled"));
+        transitions.put("returned", setOf("returned"));
+        transitions.put("cancelled", setOf("cancelled"));
+        return transitions;
+    }
+
+    private static Set<String> setOf(String... statuses) {
+        Set<String> values = new HashSet<>();
+        for (String status : statuses) {
+            values.add(status);
+        }
+        return values;
+    }
+
+    private boolean isAllowedOutboundTransition(String currentStatus, String nextStatus) {
+        if (currentStatus == null || currentStatus.isBlank()) {
+            return true;
+        }
+        Set<String> allowed = OUTBOUND_TRANSITIONS.get(currentStatus);
+        if (allowed == null) {
+            return currentStatus.equals(nextStatus);
+        }
+        return allowed.contains(nextStatus);
+    }
+}

@@ -1,71 +1,19 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import clsx from "clsx";
-import { DetailModal } from "@/components/DetailModal";
-import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { customersApi, Customer } from "@/lib/api/customers";
+import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
-
-// Display format for customers
-interface CustomerDisplay {
-  id: string;
-  originalId?: string; // Original UUID for API calls
-  name: string;
-  contact: string;
-  phone: string;
-  orders: number;
-  status: string;
-  joinDate: string;
-}
-
-const mockCustomers: CustomerDisplay[] = [
-  {
-    id: "CUST-001",
-    name: "Acme Corp",
-    contact: "alice@acme.com",
-    phone: "+1 234-567-8900",
-    orders: 42,
-    status: "Active",
-    joinDate: "2023-01-15",
-  },
-  {
-    id: "CUST-002",
-    name: "Bright Retail",
-    contact: "ops@bright.com",
-    phone: "+1 234-567-8901",
-    orders: 18,
-    status: "Active",
-    joinDate: "2023-03-22",
-  },
-  {
-    id: "CUST-003",
-    name: "Delta Mart",
-    contact: "supply@delta.com",
-    phone: "+1 234-567-8902",
-    orders: 9,
-    status: "On Hold",
-    joinDate: "2023-06-10",
-  },
-  {
-    id: "CUST-004",
-    name: "Echo Stores",
-    contact: "contact@echo.com",
-    phone: "+1 234-567-8903",
-    orders: 25,
-    status: "Active",
-    joinDate: "2023-02-08",
-  },
-];
-
-const statusClass = (s: string) => {
-  if (s === "Active") return "badge-success";
-  if (s === "On Hold") return "badge-warning";
-  return "badge-outline";
-};
+import { logger } from "@/lib/utils/logger";
+import { CustomerDisplay, statusClass } from "./types";
+import {
+  AddCustomerModal,
+  CustomerDetailModal,
+  CustomerEditModal,
+  DeleteCustomerModal,
+} from "./components/CustomerModals";
 
 export default function CustomersPage() {
   const { hasPermission } = useAdmin();
@@ -76,7 +24,6 @@ export default function CustomersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
@@ -124,7 +71,7 @@ export default function CustomersPage() {
         
         setCustomers(displayCustomers);
       } catch (err) {
-        console.error("Failed to load customers:", err);
+        logger.error("Failed to load customers:", err);
         setError(err instanceof Error ? err.message : "Failed to load customers");
         setCustomers([]);
         if (err instanceof Error && !err.message.includes("Not authenticated")) {
@@ -137,17 +84,6 @@ export default function CustomersPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
-
-  // Listen for reload events
-  useEffect(() => {
-    const handleReload = () => {
-      loadData();
-    };
-    window.addEventListener('reloadCustomers', handleReload);
-    return () => {
-      window.removeEventListener('reloadCustomers', handleReload);
-    };
   }, []);
 
   let filteredCustomers = customers.filter((c) => {
@@ -199,7 +135,7 @@ export default function CustomersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => window.location.reload()}
+            onClick={() => loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -372,6 +308,23 @@ export default function CustomersPage() {
       </div>
 
       {/* Customers Table */}
+      {error && (
+        <div className="alert alert-error">
+          <span className="material-symbols-outlined">error</span>
+          <span>{error}</span>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+            Retry
+          </button>
+        </div>
+      )}
+      {isLoading && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-center gap-3 text-base-content/70">
+            <span className="loading loading-spinner loading-md" />
+            <span>Loading customers...</span>
+          </div>
+        </div>
+      )}
       <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="table w-full">
@@ -387,7 +340,8 @@ export default function CustomersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredCustomers.map((c) => (
+              {!isLoading &&
+                filteredCustomers.map((c) => (
                 <tr key={c.id} className="hover:bg-base-200/50">
                   <td className="font-semibold text-primary">{c.id}</td>
                   <td className="font-medium">{c.name}</td>
@@ -446,7 +400,7 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
-        {filteredCustomers.length === 0 && (
+        {!isLoading && filteredCustomers.length === 0 && (
           <div className="p-12 text-center">
             <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
               group
@@ -469,6 +423,11 @@ export default function CustomersPage() {
             setShowDetailModal(false);
             setSelectedCustomer(null);
           }}
+          onEdit={(customer) => {
+            setShowDetailModal(false);
+            setSelectedCustomer(customer);
+            setShowEditModal(true);
+          }}
           customer={selectedCustomer}
         />
       )}
@@ -481,6 +440,7 @@ export default function CustomersPage() {
             setShowEditModal(false);
             setSelectedCustomer(null);
           }}
+          onUpdated={loadData}
           customer={selectedCustomer}
         />
       )}
@@ -489,6 +449,7 @@ export default function CustomersPage() {
       <AddCustomerModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
+        onSuccess={loadData}
       />
 
       {/* Delete Customer Modal */}
@@ -506,12 +467,9 @@ export default function CustomersPage() {
               showToast.success("Customer deleted successfully");
               setShowDeleteModal(false);
               setSelectedCustomer(null);
-              // Reload data
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent('reloadCustomers'));
-              }
+              await loadData();
             } catch (err) {
-              console.error("Failed to delete customer:", err);
+              logger.error("Failed to delete customer:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete customer");
             }
           }}
@@ -522,431 +480,3 @@ export default function CustomersPage() {
   );
 }
 
-// Add Customer Modal
-function AddCustomerModal({
-  isOpen,
-  onClose,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-}) {
-  const [formData, setFormData] = useState({
-    name: "",
-    contact: "",
-    phone: "",
-    status: "Active",
-  });
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Client-side validation before submitting
-    const { validateEmail, validatePhone, validateRequired } = await import("@/lib/utils/form-validation");
-    const errors: Record<string, string> = {};
-    
-    const nameResult = validateRequired(formData.name, "Customer Name");
-    if (!nameResult.valid) errors.name = nameResult.error || "";
-    
-    const emailResult = validateRequired(formData.contact, "Contact Email");
-    if (!emailResult.valid) {
-      errors.contact = emailResult.error || "";
-    } else {
-      const emailFormatResult = validateEmail(formData.contact);
-      if (!emailFormatResult.valid) errors.contact = emailFormatResult.error || "";
-    }
-    
-    const phoneResult = validatePhone(formData.phone);
-    if (!phoneResult.valid) errors.phone = phoneResult.error || "";
-    
-    if (Object.keys(errors).length > 0) {
-      setValidationErrors(errors);
-      showToast.error("Please fix the validation errors before submitting");
-      return;
-    }
-    
-    try {
-      const createData: Omit<Customer, 'id'> = {
-        name: formData.name,
-        email: formData.contact || undefined,
-        phone: formData.phone || undefined,
-        status: formData.status.toLowerCase(),
-      };
-
-      await customersApi.create(createData);
-      showToast.success("Customer added successfully");
-      onClose();
-      // Reset form
-      setFormData({
-        name: "",
-        contact: "",
-        phone: "",
-        status: "Active",
-      });
-      setValidationErrors({});
-      // Reload data
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadCustomers'));
-      }
-    } catch (err) {
-      console.error("Failed to add customer:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to add customer");
-    }
-  };
-
-  return (
-    <DetailModal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Add Customer"
-      size="md"
-    >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Customer Name *</span>
-          </label>
-          <input
-            type="text"
-            className={`input input-bordered w-full ${validationErrors.name ? 'input-error' : ''}`}
-            value={formData.name}
-            onChange={(e) => {
-              setFormData({ ...formData, name: e.target.value });
-              if (validationErrors.name) {
-                setValidationErrors({ ...validationErrors, name: "" });
-              }
-            }}
-            required
-          />
-          {validationErrors.name && (
-            <label className="label">
-              <span className="label-text-alt text-error">{validationErrors.name}</span>
-            </label>
-          )}
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Contact Email *</span>
-          </label>
-          <input
-            type="email"
-            className={`input input-bordered w-full ${validationErrors.contact ? 'input-error' : ''}`}
-            value={formData.contact}
-            onChange={async (e) => {
-              setFormData({ ...formData, contact: e.target.value });
-              if (validationErrors.contact) {
-                setValidationErrors({ ...validationErrors, contact: "" });
-              }
-            }}
-            onBlur={async () => {
-              const { validateEmail, validateRequired } = await import("@/lib/utils/form-validation");
-              const requiredResult = validateRequired(formData.contact, "Contact Email");
-              if (!requiredResult.valid) {
-                setValidationErrors({ ...validationErrors, contact: requiredResult.error || "" });
-              } else {
-                const emailResult = validateEmail(formData.contact);
-                if (!emailResult.valid) {
-                  setValidationErrors({ ...validationErrors, contact: emailResult.error || "" });
-                }
-              }
-            }}
-            required
-          />
-          {validationErrors.contact && (
-            <label className="label">
-              <span className="label-text-alt text-error">{validationErrors.contact}</span>
-            </label>
-          )}
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className={`input input-bordered w-full ${validationErrors.phone ? 'input-error' : ''}`}
-            value={formData.phone}
-            onChange={async (e) => {
-              setFormData({ ...formData, phone: e.target.value });
-              if (validationErrors.phone) {
-                setValidationErrors({ ...validationErrors, phone: "" });
-              }
-            }}
-            onBlur={async () => {
-              const { validatePhone } = await import("@/lib/utils/form-validation");
-              const result = validatePhone(formData.phone);
-              if (!result.valid) {
-                setValidationErrors({ ...validationErrors, phone: result.error || "" });
-              }
-            }}
-            placeholder="+94 77 123 4567 or 0771234567"
-          />
-          {validationErrors.phone && (
-            <label className="label">
-              <span className="label-text-alt text-error">{validationErrors.phone}</span>
-            </label>
-          )}
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Status</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.status}
-            onChange={(e) =>
-              setFormData({ ...formData, status: e.target.value })
-            }
-          >
-            <option value="Active">Active</option>
-            <option value="On Hold">On Hold</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Add Customer
-          </button>
-        </div>
-      </form>
-    </DetailModal>
-  );
-}
-
-// Customer Detail Modal
-function CustomerDetailModal({
-  isOpen,
-  onClose,
-  customer,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  customer: CustomerDisplay;
-}) {
-  return (
-    <DetailModal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={`Customer: ${customer.name}`}
-      size="lg"
-    >
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-base-content/60">Customer ID</label>
-            <p className="font-semibold">{customer.id}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Status</label>
-            <p>
-              <span className={`badge ${statusClass(customer.status)}`}>
-                {customer.status}
-              </span>
-            </p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">
-              Contact Email
-            </label>
-            <p className="font-semibold">{customer.contact}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Phone</label>
-            <p className="font-semibold">{customer.phone}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Total Orders</label>
-            <p className="font-semibold">{customer.orders}</p>
-          </div>
-          <div>
-            <label className="text-sm text-base-content/60">Join Date</label>
-            <p className="font-semibold">{customer.joinDate}</p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Close
-          </button>
-          <button className="btn btn-primary">Edit Customer</button>
-        </div>
-      </div>
-    </DetailModal>
-  );
-}
-
-// Customer Edit Modal
-function CustomerEditModal({
-  isOpen,
-  onClose,
-  customer,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  customer: CustomerDisplay;
-}) {
-  const [formData, setFormData] = useState({
-    name: customer.name,
-    contact: customer.contact,
-    phone: customer.phone,
-    status: customer.status,
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    try {
-      const customerId = customer.originalId || customer.id;
-      const updateData: Partial<Customer> = {
-        name: formData.name,
-        email: formData.contact || undefined,
-        phone: formData.phone || undefined,
-        status: formData.status.toLowerCase(),
-      };
-
-      await customersApi.update(customerId, updateData);
-      showToast.success("Customer updated successfully");
-      onClose();
-      // Reload data
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('reloadCustomers'));
-      }
-    } catch (err) {
-      console.error("Failed to update customer:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to update customer");
-    }
-  };
-
-  return (
-    <DetailModal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={`Edit Customer: ${customer.name}`}
-      size="md"
-    >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Customer Name *</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered w-full"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-          />
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Contact Email *</span>
-          </label>
-          <input
-            type="email"
-            className="input input-bordered w-full"
-            value={formData.contact}
-            onChange={(e) =>
-              setFormData({ ...formData, contact: e.target.value })
-            }
-            required
-          />
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Phone</span>
-          </label>
-          <input
-            type="tel"
-            className="input input-bordered w-full"
-            value={formData.phone}
-            onChange={(e) =>
-              setFormData({ ...formData, phone: e.target.value })
-            }
-          />
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Status</span>
-          </label>
-          <select
-            className="select select-bordered w-full"
-            value={formData.status}
-            onChange={(e) =>
-              setFormData({ ...formData, status: e.target.value })
-            }
-          >
-            <option value="Active">Active</option>
-            <option value="On Hold">On Hold</option>
-            <option value="Inactive">Inactive</option>
-          </select>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary">
-            Save Changes
-          </button>
-        </div>
-      </form>
-    </DetailModal>
-  );
-}
-
-// Delete Customer Modal
-function DeleteCustomerModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  customer,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  customer: CustomerDisplay;
-}) {
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Delete Customer" size="md">
-      <div className="space-y-4">
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">warning</span>
-          <div>
-            <h3 className="font-bold">
-              Warning: This action cannot be undone!
-            </h3>
-            <div className="text-sm">
-              You are about to delete <strong>{customer.name}</strong> (Customer
-              ID: {customer.id}). This will permanently remove the customer from
-              the system and all associated data.
-            </div>
-          </div>
-        </div>
-        <div className="bg-base-200 rounded-lg p-4">
-          <p className="text-sm text-base-content/70">
-            <strong>Customer Name:</strong> {customer.name}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Customer ID:</strong> {customer.id}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Contact:</strong> {customer.contact}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Total Orders:</strong> {customer.orders}
-          </p>
-        </div>
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn btn-error" onClick={onConfirm}>
-            <span className="material-symbols-outlined">delete</span>
-            Delete Customer
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}

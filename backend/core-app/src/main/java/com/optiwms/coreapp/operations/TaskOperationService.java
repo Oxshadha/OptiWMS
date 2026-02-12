@@ -31,14 +31,17 @@ public class TaskOperationService {
     private final TaskService taskService;
     private final OrderService orderService;
     private final LocationService locationService;
+    private final OperationEventService operationEventService;
 
     public TaskOperationService(
             TaskService taskService,
             OrderService orderService,
-            LocationService locationService) {
+            LocationService locationService,
+            OperationEventService operationEventService) {
         this.taskService = taskService;
         this.orderService = orderService;
         this.locationService = locationService;
+        this.operationEventService = operationEventService;
     }
 
     /**
@@ -137,18 +140,38 @@ public class TaskOperationService {
     @Transactional
     public void completeTask(UUID taskId, UUID workerId, String operationType) {
         Task task = taskService.findById(taskId);
+
+        UUID effectiveWorkerId = workerId != null ? workerId : task.getAssignedTo();
+        if (effectiveWorkerId != null) {
+            taskService.updateStatusWithWorker(taskId, "completed", effectiveWorkerId);
+        } else {
+            taskService.updateStatus(taskId, "completed");
+        }
         
-        // Update task status with worker record
-        taskService.updateStatusWithWorker(taskId, "completed", workerId);
-        
-        logger.info("Task {} completed by worker {} (operation: {})", taskId, workerId, operationType);
+        logger.info("Task {} completed by worker {} (operation: {})", taskId, effectiveWorkerId, operationType);
+
+        if (effectiveWorkerId != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    normalizeOperationType(operationType, task.getTaskType()),
+                    effectiveWorkerId,
+                    task.getId(),
+                    "order".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    task.getWarehouseId(),
+                    null,
+                    null,
+                    task.getStartedAt(),
+                    java.time.LocalDateTime.now(),
+                    null
+            ));
+        }
         
         // Store worker record in order if task references an order
         if (task.getReferenceId() != null && "order".equals(task.getReferenceType())) {
             // Map operation type to order field
             String orderOperation = mapOperationToOrderField(operationType);
-            if (orderOperation != null) {
-                orderService.updateWorkerRecord(task.getReferenceId(), workerId, orderOperation);
+            if (orderOperation != null && effectiveWorkerId != null) {
+                orderService.updateWorkerRecord(task.getReferenceId(), effectiveWorkerId, orderOperation);
             }
         }
     }
@@ -167,6 +190,13 @@ public class TaskOperationService {
         };
     }
 
+    private String normalizeOperationType(String operationType, String taskType) {
+        if (operationType != null && !operationType.isBlank()) {
+            return operationType.toUpperCase();
+        }
+        return taskType != null ? taskType.toUpperCase() : "TASK";
+    }
+
     /**
      * Update order status based on task completion.
      * Called when tasks are claimed or completed.
@@ -180,7 +210,9 @@ public class TaskOperationService {
             // For outbound orders: pending -> picking -> picked
             if ("outbound".equals(order.getOrderType())) {
                 if ("picking".equals(taskType)) {
-                    if ("pending".equals(currentStatus)) {
+                    if ("pending".equals(currentStatus)
+                            || "allocated".equals(currentStatus)
+                            || "partially_allocated".equals(currentStatus)) {
                         orderService.updateStatus(orderId, "picking");
                     }
                 }

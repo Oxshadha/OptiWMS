@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
+import { logger } from "@/lib/utils/logger";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function LoginPage() {
     password: "",
   });
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const [availableWarehouses, setAvailableWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [loadingWarehouses, setLoadingWarehouses] = useState(true);
@@ -28,7 +30,7 @@ export default function LoginPage() {
         const warehouses = await warehousesApi.getAll();
         setAvailableWarehouses(warehouses.map(w => ({ id: w.id, name: w.name })));
       } catch (error) {
-        console.error("Failed to load warehouses:", error);
+        logger.error("Failed to load warehouses:", error);
         // Fallback to empty array if API fails
         setAvailableWarehouses([]);
       } finally {
@@ -115,7 +117,7 @@ export default function LoginPage() {
               warehouseName = selectedWarehouse.name;
             }
           } catch (err) {
-            console.error("Error fetching warehouse:", err);
+            logger.error("Error fetching warehouse:", err);
           }
         }
 
@@ -132,7 +134,7 @@ export default function LoginPage() {
         };
         setAdmin(adminData);
       } catch (apiError) {
-        console.error("Error verifying admin role:", apiError);
+        logger.error("Error verifying admin role:", apiError);
         setError("Failed to verify user role. Please try again.");
         setIsLoading(false);
         return;
@@ -202,48 +204,29 @@ export default function LoginPage() {
               <label className="label">
                 <span className="label-text">Password</span>
               </label>
-              <input
-                type="password"
-                className="input input-bordered w-full"
-                value={formData.password}
-                onChange={(e) =>
-                  setFormData({ ...formData, password: e.target.value })
-                }
-                required
-              />
-            </div>
-            {formData.role === "warehouse_manager" && (
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Select Warehouse *</span>
-                </label>
-                {loadingWarehouses ? (
-                  <div className="flex items-center gap-2">
-                    <span className="loading loading-spinner loading-sm"></span>
-                    <span className="text-sm text-base-content/60">Loading warehouses...</span>
-                  </div>
-                ) : (
-                  <select
-                    className="select select-bordered w-full"
-                    value={formData.warehouse}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        warehouse: e.target.value,
-                      })
-                    }
-                    required
-                  >
-                    <option value="">Choose a warehouse...</option>
-                    {availableWarehouses.map((warehouse) => (
-                      <option key={warehouse.id} value={warehouse.id}>
-                        {warehouse.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  className="input input-bordered w-full pr-12"
+                  value={formData.password}
+                  onChange={(e) =>
+                    setFormData({ ...formData, password: e.target.value })
+                  }
+                  required
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
               </div>
-            )}
+            </div>
             <div className="form-control mt-6">
               <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
                 {isLoading ? (

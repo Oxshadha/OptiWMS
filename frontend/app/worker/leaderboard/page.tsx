@@ -5,6 +5,7 @@ import { useWorker } from "@/contexts/WorkerContext";
 import { analyticsApi, LeaderboardEntry } from "@/lib/api/analytics";
 import { Leaderboard } from "@/components/Leaderboard";
 import { workerAchievementsApi, WorkerAchievement } from "@/lib/api/workerAchievements";
+import { logger } from "@/lib/utils/logger";
 
 // Achievement type configuration
 const achievementConfig: Record<string, { name: string; description: string; icon: string }> = {
@@ -36,7 +37,7 @@ export default function LeaderboardPage() {
           setMyRank(rank >= 0 ? rank + 1 : null);
         }
       } catch (error) {
-        console.error("Error loading leaderboard:", error);
+        logger.error("Error loading leaderboard:", error);
         setLeaderboard([]);
       } finally {
         setLoading(false);
@@ -57,7 +58,7 @@ export default function LeaderboardPage() {
         const data = await workerAchievementsApi.getByWorkerId(worker.id);
         setAchievements(data);
       } catch (error) {
-        console.error("Error loading achievements:", error);
+        logger.error("Error loading achievements:", error);
         setAchievements([]);
       } finally {
         setLoadingAchievements(false);

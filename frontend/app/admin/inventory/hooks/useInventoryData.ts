@@ -1,0 +1,231 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { inventoryApi } from "@/lib/api/inventory";
+import { materialsApi } from "@/lib/api/materials";
+import { warehousesApi } from "@/lib/api/warehouses";
+import { InventoryDisplayItem } from "../types";
+import { logger } from "@/lib/utils/logger";
+
+type SortBy = "name" | "sku" | "qty" | "location" | null;
+type SortDirection = "asc" | "desc";
+
+interface UseInventoryDataParams {
+  isWarehouseManager: boolean;
+  assignedWarehouseId?: string;
+  activeCategory: string;
+  activeItemType: string;
+  activeWarehouse: string;
+  searchQuery: string;
+  sortBy: SortBy;
+  sortDirection: SortDirection;
+}
+
+export function useInventoryData({
+  isWarehouseManager,
+  assignedWarehouseId,
+  activeCategory,
+  activeItemType,
+  activeWarehouse,
+  searchQuery,
+  sortBy,
+  sortDirection,
+}: UseInventoryDataParams) {
+  const [inventoryItems, setInventoryItems] = useState<InventoryDisplayItem[]>([]);
+  const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const categories = useMemo(() => {
+    const uniqueCategories = Array.from(
+      new Set(inventoryItems.map((item) => item.category).filter(Boolean))
+    ).sort();
+    return ["All", ...uniqueCategories];
+  }, [inventoryItems]);
+
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      let materialTypeFilter: string | undefined = undefined;
+      if (activeItemType === "Raw Material") {
+        materialTypeFilter = "raw_material";
+      } else if (activeItemType === "Packaging") {
+        materialTypeFilter = "packaging_material";
+      } else if (activeItemType === "Product") {
+        materialTypeFilter = "product";
+      }
+
+      const [inventoryData, materialsData, warehousesData] = await Promise.all([
+        inventoryApi.getAll(materialTypeFilter),
+        materialsApi.getAll(),
+        warehousesApi.getAll(),
+      ]);
+
+      const materialsMap = new Map();
+      materialsData.forEach((m) => {
+        materialsMap.set(m.id, {
+          materialCode: m.materialCode,
+          description: m.description,
+          materialType: m.materialType,
+        });
+      });
+
+      const warehousesMap = new Map();
+      warehousesData.forEach((w) => {
+        warehousesMap.set(w.id, w.name);
+      });
+      setWarehouses(warehousesMap);
+
+      const displayItems: InventoryDisplayItem[] = inventoryData.map((item) => {
+        const material = materialsMap.get(item.materialId);
+        const warehouseName = warehousesMap.get(item.warehouseId) || "Unknown";
+        const qty = Math.ceil(parseFloat(item.quantity) || 0);
+        const availableQty = Math.ceil(parseFloat(item.availableQuantity) || 0);
+
+        let status: "Available" | "Low" | "Out of Stock" = "Available";
+        const reorderPoint = item.reorderPoint ? parseFloat(item.reorderPoint) : null;
+        const bufferStock = item.bufferStock ? parseFloat(item.bufferStock) : null;
+
+        if (item.status === "non_moving") {
+          status = "Out of Stock";
+        } else if (qty === 0) {
+          status = "Out of Stock";
+        } else if (reorderPoint != null && qty <= reorderPoint) {
+          status = "Low";
+        } else if (bufferStock != null && qty <= bufferStock) {
+          status = "Low";
+        } else if (qty < 10 || availableQty < 10) {
+          status = "Low";
+        }
+
+        const materialType = item.materialType || material?.materialType || "raw_material";
+        let itemType: "Product" | "Raw Material" | "Packaging";
+        if (materialType.toLowerCase().includes("packaging")) {
+          itemType = "Packaging";
+        } else if (materialType.toLowerCase().includes("product")) {
+          itemType = "Product";
+        } else {
+          itemType = "Raw Material";
+        }
+
+        return {
+          id: item.id,
+          sku: material?.materialCode || item.materialId,
+          name: material?.description || "Unknown Material",
+          qty,
+          location: item.locationCode || "N/A",
+          status,
+          category: "General",
+          warehouseName,
+          itemType,
+          materialId: item.materialId,
+          warehouseId: item.warehouseId,
+          reorderPoint: item.reorderPoint,
+          bufferStock: item.bufferStock,
+          maxStock: item.maxStock,
+          minStock: item.minStock,
+          moq: item.moq,
+          leadTimeDays: item.leadTimeDays,
+          stackingQuantity: item.stackingQuantity,
+          bufferDays: item.bufferDays,
+          leadTimeMonths: item.leadTimeMonths,
+          ropInDays: item.ropInDays,
+          varianceDemand: item.varianceDemand,
+          varianceLeadTimeDemand: item.varianceLeadTimeDemand,
+          difference: item.difference,
+          orderDeliveryDays: item.orderDeliveryDays,
+          orderQuantity: item.orderQuantity,
+          palletRequirement: item.palletRequirement,
+        };
+      });
+
+      setInventoryItems(displayItems);
+    } catch (err) {
+      logger.error("Failed to load inventory data", err);
+      setError("Failed to load inventory data. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeItemType]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData, assignedWarehouseId]);
+
+  const inventoryForWarehouse =
+    isWarehouseManager && assignedWarehouseId
+      ? inventoryItems.filter((item) => item.warehouseId === assignedWarehouseId)
+      : inventoryItems;
+
+  const inStockItems = useMemo(
+    () => inventoryForWarehouse.filter((item) => item.qty > 0),
+    [inventoryForWarehouse]
+  );
+
+  const filteredInventory = useMemo(() => {
+    let filtered = inStockItems.filter((item) => {
+      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+      const matchesItemType =
+        activeItemType === "All" ||
+        (activeItemType === "Product" && item.itemType === "Product") ||
+        (activeItemType === "Raw Material" && item.itemType === "Raw Material") ||
+        (activeItemType === "Packaging" && item.itemType === "Packaging");
+      const matchesWarehouse = activeWarehouse === "All" || item.warehouseId === activeWarehouse;
+      const query = searchQuery.trim().toLowerCase();
+      if (!query) return matchesCategory && matchesItemType && matchesWarehouse;
+      const matchesSearch =
+        item.name.toLowerCase().includes(query) ||
+        item.sku.toLowerCase().includes(query) ||
+        item.location.toLowerCase().includes(query) ||
+        item.status.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query) ||
+        item.warehouseName.toLowerCase().includes(query) ||
+        item.qty.toString().includes(query);
+      return matchesCategory && matchesItemType && matchesWarehouse && matchesSearch;
+    });
+
+    if (sortBy) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal: string | number = a[sortBy];
+        let bVal: string | number = b[sortBy];
+        if (sortBy === "qty") {
+          aVal = Number(aVal);
+          bVal = Number(bVal);
+        } else {
+          aVal = String(aVal).toLowerCase();
+          bVal = String(bVal).toLowerCase();
+        }
+        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [
+    inStockItems,
+    activeCategory,
+    activeItemType,
+    activeWarehouse,
+    searchQuery,
+    sortBy,
+    sortDirection,
+  ]);
+
+  const totalItems = Math.ceil(inStockItems.reduce((sum, item) => sum + item.qty, 0));
+  const lowStockItems = inStockItems.filter((item) => item.status === "Low").length;
+  const availableItems = inStockItems.filter((item) => item.status === "Available").length;
+
+  return {
+    categories,
+    warehouses,
+    filteredInventory,
+    totalItems,
+    lowStockItems,
+    availableItems,
+    isLoading,
+    error,
+    reload: loadData,
+  };
+}
+

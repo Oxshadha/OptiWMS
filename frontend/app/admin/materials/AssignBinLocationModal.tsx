@@ -7,6 +7,7 @@ import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations"
 import { locationsApi } from "@/lib/api/locations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface AssignBinLocationModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export function AssignBinLocationModal({
           setWarehouseId(warehousesData[0].id);
         }
       } catch (err) {
-        console.error("Failed to load warehouses:", err);
+        logger.error("Failed to load warehouses:", err);
         showToast.error("Failed to load warehouses");
       } finally {
         setIsLoading(false);
@@ -83,7 +84,7 @@ export function AssignBinLocationModal({
           setExistingLocations([]);
         }
       } catch (err) {
-        console.error("Failed to load locations:", err);
+        logger.error("Failed to load locations:", err);
         showToast.error("Failed to load storage locations");
       } finally {
         setIsLoading(false);
@@ -117,7 +118,7 @@ export function AssignBinLocationModal({
       setLocationCode("");
       setPriority(1);
     } catch (err: any) {
-      console.error("Failed to assign location:", err);
+      logger.error("Failed to assign location:", err);
       showToast.error(err?.response?.data?.message || "Failed to assign bin location");
     } finally {
       setIsSubmitting(false);
@@ -138,7 +139,7 @@ export function AssignBinLocationModal({
         priority: loc.priority,
       })));
     } catch (err: any) {
-      console.error("Failed to remove location:", err);
+      logger.error("Failed to remove location:", err);
       showToast.error("Failed to remove location");
     }
   };
@@ -292,7 +293,7 @@ export function BulkAssignBinLocationsModal({ isOpen, onClose, onSuccess }: Bulk
           setWarehouseId(warehousesData[0].id);
         }
       } catch (err) {
-        console.error("Failed to load warehouses:", err);
+        logger.error("Failed to load warehouses:", err);
         showToast.error("Failed to load warehouses");
       }
     };
@@ -317,7 +318,7 @@ export function BulkAssignBinLocationsModal({ isOpen, onClose, onSuccess }: Bulk
       onSuccess?.(); // Call success callback to refresh locations
       onClose();
     } catch (err: any) {
-      console.error("Failed to bulk assign:", err);
+      logger.error("Failed to bulk assign:", err);
       showToast.error(err?.response?.data?.message || err?.message || "Failed to assign bin locations");
     } finally {
       setIsSubmitting(false);

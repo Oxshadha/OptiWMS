@@ -8,7 +8,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -17,6 +21,7 @@ public class ShipmentService {
 
     private final ShipmentRepository repository;
     private final OrderService orderService;
+    private static final Map<String, Set<String>> STATUS_TRANSITIONS = buildShipmentTransitions();
 
     public ShipmentService(ShipmentRepository repository, OrderService orderService) {
         this.repository = repository;
@@ -80,10 +85,26 @@ public class ShipmentService {
 
     @Transactional
     public Shipment updateStatus(UUID id, String status, UUID workerId) {
+        return updateStatus(id, status, workerId, false);
+    }
+
+    @Transactional
+    public Shipment updateStatus(UUID id, String status, UUID workerId, boolean managerApproval) {
         ShipmentEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + id));
-        entity.setStatus(status);
-        if ("shipped".equals(status) && entity.getShippedAt() == null) {
+        String nextStatus = normalizeStatus(status);
+        String currentStatus = normalizeStatus(entity.getStatus());
+
+        if (!isAllowedTransition(currentStatus, nextStatus)) {
+            throw new RuntimeException("Invalid shipment status transition: " + currentStatus + " -> " + nextStatus);
+        }
+
+        if ("delivered".equals(nextStatus) && !managerApproval) {
+            throw new RuntimeException("Only admin or warehouse manager can confirm delivery");
+        }
+
+        entity.setStatus(nextStatus);
+        if ("shipped".equals(nextStatus) && entity.getShippedAt() == null) {
             entity.setShippedAt(LocalDateTime.now());
             
             // Update order status to "shipped" when shipment status is "shipped"
@@ -98,8 +119,13 @@ public class ShipmentService {
                     // Log but don't fail shipment update
                 }
             }
-        } else if ("delivered".equals(status) && entity.getDeliveredAt() == null) {
+        } else if ("delivered".equals(nextStatus) && entity.getDeliveredAt() == null) {
+            if (entity.getShippedAt() == null) {
+                throw new RuntimeException("Shipment must be marked as shipped before delivery confirmation");
+            }
             entity.setDeliveredAt(LocalDateTime.now());
+            entity.setDeliveryConfirmedBy(workerId);
+            entity.setDeliveryConfirmedAt(LocalDateTime.now());
             
             // Update order status to "delivered" when shipment is delivered
             if (entity.getOrderId() != null) {
@@ -116,7 +142,7 @@ public class ShipmentService {
 
     @Transactional
     public Shipment updateStatus(UUID id, String status) {
-        return updateStatus(id, status, null);
+        return updateStatus(id, status, null, false);
     }
 
     @Transactional
@@ -166,6 +192,8 @@ public class ShipmentService {
             s.setEta(entity.getEta());
             s.setShippedAt(entity.getShippedAt());
             s.setDeliveredAt(entity.getDeliveredAt());
+            s.setDeliveryConfirmedBy(entity.getDeliveryConfirmedBy());
+            s.setDeliveryConfirmedAt(entity.getDeliveryConfirmedAt());
             s.setCreatedAt(entity.getCreatedAt());
             return s;
         } catch (Exception e) {
@@ -175,5 +203,41 @@ public class ShipmentService {
             throw new RuntimeException("Failed to convert shipment entity to domain: " + e.getMessage(), e);
         }
     }
-}
 
+    private static Map<String, Set<String>> buildShipmentTransitions() {
+        Map<String, Set<String>> transitions = new HashMap<>();
+        transitions.put("label_created", setOf("label_created", "ready_to_ship", "shipped", "cancelled"));
+        transitions.put("ready_to_ship", setOf("ready_to_ship", "shipped", "cancelled"));
+        transitions.put("shipped", setOf("shipped", "in_transit", "delivered"));
+        transitions.put("in_transit", setOf("in_transit", "delivered"));
+        transitions.put("delivered", setOf("delivered"));
+        transitions.put("cancelled", setOf("cancelled"));
+        return transitions;
+    }
+
+    private static Set<String> setOf(String... statuses) {
+        Set<String> values = new HashSet<>();
+        for (String status : statuses) {
+            values.add(status);
+        }
+        return values;
+    }
+
+    private boolean isAllowedTransition(String currentStatus, String nextStatus) {
+        if (currentStatus == null || currentStatus.isBlank()) {
+            return true;
+        }
+        Set<String> allowed = STATUS_TRANSITIONS.get(currentStatus);
+        if (allowed == null) {
+            return currentStatus.equals(nextStatus);
+        }
+        return allowed.contains(nextStatus);
+    }
+
+    private String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            throw new RuntimeException("Shipment status cannot be empty");
+        }
+        return status.trim().toLowerCase();
+    }
+}

@@ -1,3 +1,4 @@
+import { logger } from "@/lib/utils/logger";
 /**
  * Sync Service for Offline-First PWA
  * 
@@ -56,10 +57,8 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         endpoint = "/operations";
         method = "POST";
         break;
-      case "stock_transfer":
-        endpoint = "/operations/stock-transfers";
-        method = item.action === "receive" ? "POST" : "PUT";
-        break;
+      default:
+        throw new Error(`Unsupported sync item type: ${String(item.type)}`);
     }
 
     // Make API call
@@ -101,7 +100,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
 
     // If retry count is too high, mark as permanently failed
     if (item.retryCount >= 5) {
-      console.error(`Sync item ${item.id} failed after ${item.retryCount} retries`);
+      logger.error(`Sync item ${item.id} failed after ${item.retryCount} retries`);
     }
 
     return false;
@@ -113,7 +112,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
  */
 export async function syncAll(): Promise<{ success: number; failed: number }> {
   if (!isOnline()) {
-    console.log("Offline - skipping sync");
+    logger.debug("Offline - skipping sync");
     return { success: 0, failed: 0 };
   }
 
@@ -167,4 +166,3 @@ export function startAutoSync(intervalMs: number = 30000): () => void {
     unsubscribe();
   };
 }
-

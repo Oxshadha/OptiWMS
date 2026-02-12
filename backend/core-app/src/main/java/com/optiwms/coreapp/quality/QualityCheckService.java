@@ -1,12 +1,19 @@
 package com.optiwms.coreapp.quality;
 
+import com.optiwms.coreapp.operations.PutawayTaskService;
+import com.optiwms.coreapp.operations.ReturnService;
+import com.optiwms.coreapp.operations.GrnService;
+import com.optiwms.coreapp.operations.OperationEventService;
+import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.domain.quality.QualityCheck;
+import com.optiwms.domain.operations.ReturnRecord;
 import com.optiwms.infra.quality.QualityCheckEntity;
 import com.optiwms.infra.quality.QualityCheckRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -16,9 +23,25 @@ import java.util.stream.Collectors;
 public class QualityCheckService {
 
     private final QualityCheckRepository repository;
+    private final OrderService orderService;
+    private final PutawayTaskService putawayTaskService;
+    private final ReturnService returnService;
+    private final GrnService grnService;
+    private final OperationEventService operationEventService;
 
-    public QualityCheckService(QualityCheckRepository repository) {
+    public QualityCheckService(
+            QualityCheckRepository repository,
+            OrderService orderService,
+            PutawayTaskService putawayTaskService,
+            ReturnService returnService,
+            GrnService grnService,
+            OperationEventService operationEventService) {
         this.repository = repository;
+        this.orderService = orderService;
+        this.putawayTaskService = putawayTaskService;
+        this.returnService = returnService;
+        this.grnService = grnService;
+        this.operationEventService = operationEventService;
     }
 
     public List<QualityCheck> listAll() {
@@ -29,6 +52,13 @@ public class QualityCheckService {
 
     public List<QualityCheck> findByGrnId(UUID grnId) {
         return repository.findByGrnId(grnId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<QualityCheck> findByOrderId(UUID orderId) {
+        return grnService.findByOrderId(orderId).stream()
+                .flatMap(grn -> repository.findByGrnId(grn.getId()).stream())
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -61,8 +91,132 @@ public class QualityCheckService {
         if (qualityCheck.getQtyPassed() != null) entity.setQtyPassed(qualityCheck.getQtyPassed());
         if (qualityCheck.getQtyRejected() != null) entity.setQtyRejected(qualityCheck.getQtyRejected());
         if (qualityCheck.getRejectionReason() != null) entity.setRejectionReason(qualityCheck.getRejectionReason());
+        if (qualityCheck.getApprovalStatus() != null) entity.setApprovalStatus(qualityCheck.getApprovalStatus());
+        if (qualityCheck.getApprovedBy() != null) entity.setApprovedBy(qualityCheck.getApprovedBy());
+        if (qualityCheck.getApprovedAt() != null) entity.setApprovedAt(qualityCheck.getApprovedAt());
         
         entity = repository.save(entity);
+        return toDomain(entity);
+    }
+
+    @Transactional
+    public QualityCheck approve(UUID id, UUID approvedBy) {
+        QualityCheckEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
+        entity.setApprovalStatus("APPROVED");
+        entity.setApprovedBy(approvedBy);
+        entity.setApprovedAt(OffsetDateTime.now());
+        entity.setRejectionReason(null);
+        if (entity.getQtyPassed() == null || entity.getQtyPassed().compareTo(BigDecimal.ZERO) <= 0) {
+            entity.setQtyPassed(entity.getQtyReceived() != null ? entity.getQtyReceived() : BigDecimal.ZERO);
+        }
+        entity.setQtyRejected(BigDecimal.ZERO);
+        entity = repository.save(entity);
+
+        if (entity.getGrnId() != null) {
+            UUID grnId = entity.getGrnId();
+            List<QualityCheckEntity> allChecks = repository.findByGrnId(grnId);
+            boolean allApproved = !allChecks.isEmpty()
+                    && allChecks.stream().allMatch(check -> "APPROVED".equalsIgnoreCase(check.getApprovalStatus()));
+
+            if (allApproved) {
+                UUID orderId = grnService.findById(grnId).getPoId();
+                if (orderId == null) {
+                    return toDomain(entity);
+                }
+                var order = orderService.findById(orderId);
+                orderService.updateStatus(orderId, "quality_approved");
+                putawayTaskService.createPutawayTasksForReceivedOrder(orderId, order.getWarehouseId());
+                grnService.updateStatus(grnId, "COMPLETED");
+            }
+        }
+
+        if (approvedBy != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "QUALITY_APPROVE",
+                    approvedBy,
+                    null,
+                    entity.getGrnId() != null ? grnService.findById(entity.getGrnId()).getPoId() : null,
+                    null,
+                    null,
+                    entity.getMaterialId(),
+                    entity.getQtyPassed() != null ? entity.getQtyPassed().intValue() : null,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    null
+            ));
+        }
+
+        return toDomain(entity);
+    }
+
+    @Transactional
+    public QualityCheck reject(UUID id, String rejectionReason, UUID reviewedBy) {
+        QualityCheckEntity entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Quality check not found: " + id));
+        entity.setApprovalStatus("REJECTED");
+        entity.setApprovedBy(reviewedBy);
+        entity.setApprovedAt(OffsetDateTime.now());
+        entity.setRejectionReason(rejectionReason);
+        if (entity.getQtyRejected() == null || entity.getQtyRejected().compareTo(BigDecimal.ZERO) <= 0) {
+            entity.setQtyRejected(entity.getQtyReceived() != null ? entity.getQtyReceived() : BigDecimal.ZERO);
+        }
+        entity.setQtyPassed(BigDecimal.ZERO);
+        entity = repository.save(entity);
+
+        if (entity.getGrnId() != null) {
+            UUID grnId = entity.getGrnId();
+            UUID orderId = grnService.findById(grnId).getPoId();
+            if (orderId == null) {
+                return toDomain(entity);
+            }
+            var order = orderService.findById(orderId);
+            orderService.updateStatus(orderId, "quality_rejected");
+
+            List<ReturnRecord> existingReturns = returnService.findByOrderId(orderId);
+            boolean hasOpenReturn = existingReturns.stream().anyMatch(ret -> {
+                String status = ret.getStatus();
+                return status == null
+                        || (!"completed".equalsIgnoreCase(status)
+                        && !"closed".equalsIgnoreCase(status)
+                        && !"cancelled".equalsIgnoreCase(status));
+            });
+
+            if (!hasOpenReturn) {
+                ReturnRecord returnRecord = new ReturnRecord();
+                returnRecord.setReturnNumber("RET-AUTO-" + System.currentTimeMillis());
+                returnRecord.setOriginalOrderId(orderId);
+                returnRecord.setCustomerId(order.getCustomerId());
+                returnRecord.setWarehouseId(order.getWarehouseId());
+                returnRecord.setReturnDate(LocalDate.now());
+                returnRecord.setReason(
+                        "Auto-created from quality rejection"
+                                + (rejectionReason != null && !rejectionReason.isBlank() ? ": " + rejectionReason : "")
+                );
+                returnRecord.setStatus("pending");
+                returnService.create(returnRecord);
+            }
+
+            orderService.updateStatus(orderId, "return_initiated");
+            grnService.updateStatus(grnId, "REJECTED");
+        }
+
+        if (reviewedBy != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "QUALITY_REJECT",
+                    reviewedBy,
+                    null,
+                    entity.getGrnId() != null ? grnService.findById(entity.getGrnId()).getPoId() : null,
+                    null,
+                    null,
+                    entity.getMaterialId(),
+                    entity.getQtyRejected() != null ? entity.getQtyRejected().intValue() : null,
+                    null,
+                    java.time.LocalDateTime.now(),
+                    rejectionReason
+            ));
+        }
+
         return toDomain(entity);
     }
 
@@ -80,6 +234,9 @@ public class QualityCheckService {
         check.setQtyPassed(entity.getQtyPassed());
         check.setQtyRejected(entity.getQtyRejected());
         check.setRejectionReason(entity.getRejectionReason());
+        check.setApprovalStatus(entity.getApprovalStatus());
+        check.setApprovedBy(entity.getApprovedBy());
+        check.setApprovedAt(entity.getApprovedAt());
         check.setCheckedBy(entity.getCheckedBy());
         check.setCheckDate(entity.getCheckDate());
         return check;
@@ -94,9 +251,11 @@ public class QualityCheckService {
         entity.setQtyPassed(check.getQtyPassed() != null ? check.getQtyPassed() : BigDecimal.ZERO);
         entity.setQtyRejected(check.getQtyRejected() != null ? check.getQtyRejected() : BigDecimal.ZERO);
         entity.setRejectionReason(check.getRejectionReason());
+        entity.setApprovalStatus(check.getApprovalStatus() != null ? check.getApprovalStatus() : "PENDING");
+        entity.setApprovedBy(check.getApprovedBy());
+        entity.setApprovedAt(check.getApprovedAt());
         entity.setCheckedBy(check.getCheckedBy());
         entity.setCheckDate(check.getCheckDate() != null ? check.getCheckDate() : OffsetDateTime.now());
         return entity;
     }
 }
-

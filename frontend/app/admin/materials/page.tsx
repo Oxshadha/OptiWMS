@@ -2,20 +2,19 @@
 
 import React, { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
-import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { materialsApi, type Material } from "@/lib/api/materials";
+import { type Material } from "@/lib/api/materials";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { locationsApi } from "@/lib/api/locations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { useMaterials, useCreateMaterial, useUpdateMaterial, useDeleteMaterial } from "@/lib/hooks/useQuery";
-import { showToast } from "@/lib/utils/toast";
-import { logger } from "@/lib/utils/logger";
 import { AssignBinLocationModal, BulkAssignBinLocationsModal } from "./AssignBinLocationModal";
 import { MaterialDetailModal } from "./MaterialDetailModal";
+import { CreateMaterialModal, EditMaterialModal, ImportMaterialModal } from "./MaterialModals";
+import { logger } from "@/lib/utils/logger";
 
 // Material type options (industry standard)
 const MATERIAL_TYPES = [
@@ -26,6 +25,13 @@ const MATERIAL_TYPES = [
 ] as const;
 
 type MaterialTypeFilter = typeof MATERIAL_TYPES[number]["value"];
+
+const cleanDisplayName = (description?: string) => {
+  if (!description) return "—";
+  // Legacy imports sometimes append metadata like: "Rice 5kg Bag,raw_material,kg,pallet"
+  const first = description.split(",")[0]?.trim();
+  return first || description;
+};
 
 export default function MaterialsPage() {
   const { hasPermission } = useAdmin();
@@ -57,7 +63,15 @@ export default function MaterialsPage() {
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
 
   // Use React Query for data fetching (centralized, cached)
-  const { data: allMaterials, isLoading, error, refetch } = useMaterials();
+  const {
+    data: allMaterialsData,
+    isLoading,
+    error,
+    refetch,
+  } = useMaterials();
+  const allMaterials: Material[] = Array.isArray(allMaterialsData)
+    ? allMaterialsData
+    : [];
   const createMutation = useCreateMaterial();
   const updateMutation = useUpdateMaterial();
   const deleteMutation = useDeleteMaterial();
@@ -69,7 +83,7 @@ export default function MaterialsPage() {
     try {
       // Get all warehouses
       const warehouses = await warehousesApi.getAll();
-      console.log("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
+      logger.debug("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
       if (warehouses.length === 0) return;
 
       // For each warehouse, get materials with locations
@@ -77,9 +91,9 @@ export default function MaterialsPage() {
       for (const warehouse of warehouses) {
         try {
           const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
-          console.log(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
+          logger.debug(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
           if (materialsWithLocs.length > 0) {
-            console.log("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
+            logger.debug("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
           }
           materialsWithLocs.forEach(m => {
             if (m.locationCode) {
@@ -87,13 +101,13 @@ export default function MaterialsPage() {
             }
           });
         } catch (err) {
-          console.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
+          logger.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
         }
       }
-      console.log("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
+      logger.debug("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
       setMaterialsWithLocations(locationMap);
     } catch (err) {
-      console.error("Failed to load material locations:", err);
+      logger.error("Failed to load material locations:", err);
     }
   };
 
@@ -190,7 +204,7 @@ export default function MaterialsPage() {
 
   // Debug logging
   React.useEffect(() => {
-    console.log("[MaterialsPage] State:", {
+    logger.debug("[MaterialsPage] State:", {
       isLoading,
       hasData: !!allMaterials,
       dataLength: allMaterials?.length || 0,
@@ -198,17 +212,17 @@ export default function MaterialsPage() {
       filteredLength: filteredMaterials.length,
     });
     if (allMaterials) {
-      console.log(`[MaterialsPage] ✅ Loaded ${allMaterials.length} materials from API`);
+      logger.debug(`[MaterialsPage] ✅ Loaded ${allMaterials.length} materials from API`);
       if (allMaterials.length > 0) {
-        console.log("[MaterialsPage] First material sample:", allMaterials[0]);
+        logger.debug("[MaterialsPage] First material sample:", allMaterials[0]);
       }
     }
     if (error) {
-      console.error("[MaterialsPage] ❌ Error loading materials:", error);
+      logger.error("[MaterialsPage] ❌ Error loading materials:", error);
       logger.error("[Materials] Error loading materials:", error);
     }
     if (isLoading) {
-      console.log("[MaterialsPage] ⏳ Loading materials...");
+      logger.debug("[MaterialsPage] ⏳ Loading materials...");
     }
   }, [allMaterials, error, isLoading, filteredMaterials.length]);
 
@@ -269,28 +283,24 @@ export default function MaterialsPage() {
       <SummaryCards
         cards={[
           {
-            title: "Total Products",
+            label: "Total Products",
             value: summaryStats.total.toString(),
             icon: "inventory_2",
-            trend: null,
           },
           {
-            title: "Raw Materials",
+            label: "Raw Materials",
             value: summaryStats.rawMaterials.toString(),
             icon: "science",
-            trend: null,
           },
           {
-            title: "Products",
+            label: "Products",
             value: summaryStats.products.toString(),
             icon: "category",
-            trend: null,
           },
           {
-            title: "Packaging",
+            label: "Packaging",
             value: summaryStats.packaging.toString(),
             icon: "inventory",
-            trend: null,
           },
         ]}
       />
@@ -345,16 +355,16 @@ export default function MaterialsPage() {
             columns={[
               {
                 key: "materialCode",
-                label: "Product Code",
+                label: "SKU Code",
                 render: (material: Material) => (
                   <span className="font-mono font-semibold text-primary">{material.materialCode}</span>
                 ),
               },
               {
                 key: "description",
-                label: "Description",
+                label: "Product Name",
                 render: (material: Material) => (
-                  <span className="text-base-content">{material.description || "—"}</span>
+                  <span className="text-base-content">{cleanDisplayName(material.description)}</span>
                 ),
               },
               {
@@ -612,356 +622,5 @@ export default function MaterialsPage() {
         />
       )}
     </div>
-  );
-}
-
-// Create Material Modal Component
-function CreateMaterialModal({
-  isOpen,
-  onClose,
-  onSubmit,
-  isLoading,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (material: Omit<Material, "id">) => Promise<void>;
-  isLoading: boolean;
-}) {
-  const [formData, setFormData] = useState({
-    materialCode: "",
-    description: "",
-    materialType: "raw_material" as string,
-    unitType: "",
-    storageType: "pallet",
-  });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formData.materialCode.trim() || !formData.description.trim()) {
-      showToast.error("Product code and description are required");
-      return;
-    }
-
-    await onSubmit({
-      materialCode: formData.materialCode.trim(),
-      description: formData.description.trim(),
-      materialType: formData.materialType || undefined,
-      unitType: formData.unitType || undefined,
-      storageType: formData.storageType || undefined,
-    });
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add Product to Catalog">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Product Code *</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered"
-            value={formData.materialCode}
-            onChange={(e) => setFormData({ ...formData, materialCode: e.target.value })}
-            required
-            disabled={isLoading}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Description *</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            required
-            disabled={isLoading}
-            rows={3}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Material Type</span>
-          </label>
-          <select
-            className="select select-bordered"
-            value={formData.materialType}
-            onChange={(e) => setFormData({ ...formData, materialType: e.target.value })}
-            disabled={isLoading}
-          >
-            <option value="raw_material">Raw Material</option>
-            <option value="product">Product</option>
-            <option value="packaging_material">Packaging</option>
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered"
-              placeholder="e.g., kg, pcs, pallet"
-              value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Storage Type</span>
-            </label>
-            <select
-              className="select select-bordered"
-              value={formData.storageType}
-              onChange={(e) => setFormData({ ...formData, storageType: e.target.value })}
-              disabled={isLoading}
-            >
-              <option value="pallet">Pallet</option>
-              <option value="bulk">Bulk</option>
-              <option value="loose">Loose</option>
-              <option value="cold">Cold Storage</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={isLoading}>
-            {isLoading ? (
-              <span className="loading loading-spinner loading-sm"></span>
-            ) : (
-              "Create Material"
-            )}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Edit Material Modal Component
-function EditMaterialModal({
-  isOpen,
-  onClose,
-  material,
-  onSubmit,
-  isLoading,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  material: Material;
-  onSubmit: (id: string, material: Partial<Material>) => Promise<void>;
-  isLoading: boolean;
-}) {
-  const [formData, setFormData] = useState({
-    materialCode: material.materialCode,
-    description: material.description || "",
-    materialType: material.materialType || "raw_material",
-    unitType: material.unitType || "",
-    storageType: material.storageType || "pallet",
-  });
-
-  useEffect(() => {
-    setFormData({
-      materialCode: material.materialCode,
-      description: material.description || "",
-      materialType: material.materialType || "raw_material",
-      unitType: material.unitType || "",
-      storageType: material.storageType || "pallet",
-    });
-  }, [material]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onSubmit(material.id, {
-      materialCode: formData.materialCode.trim(),
-      description: formData.description.trim(),
-      materialType: formData.materialType || undefined,
-      unitType: formData.unitType || undefined,
-      storageType: formData.storageType || undefined,
-    });
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Product">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Product Code *</span>
-          </label>
-          <input
-            type="text"
-            className="input input-bordered"
-            value={formData.materialCode}
-            onChange={(e) => setFormData({ ...formData, materialCode: e.target.value })}
-            required
-            disabled={isLoading}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Description *</span>
-          </label>
-          <textarea
-            className="textarea textarea-bordered"
-            value={formData.description}
-            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            required
-            disabled={isLoading}
-            rows={3}
-          />
-        </div>
-
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Material Type</span>
-          </label>
-          <select
-            className="select select-bordered"
-            value={formData.materialType}
-            onChange={(e) => setFormData({ ...formData, materialType: e.target.value })}
-            disabled={isLoading}
-          >
-            <option value="raw_material">Raw Material</option>
-            <option value="product">Product</option>
-            <option value="packaging_material">Packaging</option>
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
-            </label>
-            <input
-              type="text"
-              className="input input-bordered"
-              value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Storage Type</span>
-            </label>
-            <select
-              className="select select-bordered"
-              value={formData.storageType}
-              onChange={(e) => setFormData({ ...formData, storageType: e.target.value })}
-              disabled={isLoading}
-            >
-              <option value="pallet">Pallet</option>
-              <option value="bulk">Bulk</option>
-              <option value="loose">Loose</option>
-              <option value="cold">Cold Storage</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={isLoading}>
-            {isLoading ? (
-              <span className="loading loading-spinner loading-sm"></span>
-            ) : (
-              "Update Material"
-            )}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-// Import Material Modal Component
-function ImportMaterialModal({
-  isOpen,
-  onClose,
-  onSuccess,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [file, setFile] = useState<File | null>(null);
-  const [importing, setImporting] = useState(false);
-
-  const handleImport = async () => {
-    if (!file) {
-      showToast.error("Please select a file");
-      return;
-    }
-
-    try {
-      setImporting(true);
-      const result = await materialsApi.importCsv(file);
-      if (result.successCount > 0) {
-        showToast.success(`Successfully imported ${result.successCount} materials`);
-        onSuccess();
-      }
-      if (result.errorCount > 0) {
-        showToast.error(`${result.errorCount} materials failed to import`);
-      }
-    } catch (error: any) {
-      logger.error("[Materials] Import failed:", error);
-      showToast.error(error.message || "Failed to import materials");
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Import Products from CSV">
-      <div className="space-y-4">
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">CSV File</span>
-          </label>
-          <input
-            type="file"
-            accept=".csv"
-            className="file-input file-input-bordered w-full"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            disabled={importing}
-          />
-          <label className="label">
-            <span className="label-text-alt">
-              CSV should contain: material_code, description, material_type, unit_type, storage_type
-            </span>
-          </label>
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4">
-          <button className="btn btn-ghost" onClick={onClose} disabled={importing}>
-            Cancel
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleImport}
-            disabled={!file || importing}
-          >
-            {importing ? (
-              <span className="loading loading-spinner loading-sm"></span>
-            ) : (
-              "Import"
-            )}
-          </button>
-        </div>
-      </div>
-    </Modal>
   );
 }

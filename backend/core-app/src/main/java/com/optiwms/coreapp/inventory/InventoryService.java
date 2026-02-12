@@ -48,6 +48,12 @@ public class InventoryService {
                 .collect(Collectors.toList());
     }
 
+    public List<InventoryItem> findByMaterialWarehouseAndLocation(java.util.UUID materialId, java.util.UUID warehouseId, String locationCode) {
+        return repository.findByMaterialIdAndWarehouseIdAndLocationCode(materialId, warehouseId, locationCode).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public List<InventoryItem> findByLocationCode(String locationCode) {
         return repository.findByLocationCode(locationCode).stream()
                 .map(this::toDomain)
@@ -166,6 +172,39 @@ public class InventoryService {
     }
 
     @Transactional
+    public InventoryItem createNew(InventoryItem item) {
+        InventoryItemEntity entity = new InventoryItemEntity();
+        entity.setMaterialId(item.getMaterialId());
+        entity.setWarehouseId(item.getWarehouseId());
+        entity.setLocationCode(item.getLocationCode());
+        entity.setLpnCode(item.getLpnCode());
+        entity.setQuantity(item.getQuantity() != null ? item.getQuantity() : 0);
+        entity.setAvailableQuantity(item.getAvailableQuantity() != null ? item.getAvailableQuantity() : (item.getQuantity() != null ? item.getQuantity() : 0));
+        entity.setReservedQuantity(item.getReservedQuantity() != null ? item.getReservedQuantity() : 0);
+        entity.setBufferStock(item.getBufferStock());
+        entity.setMaxStock(item.getMaxStock());
+        entity.setMinStock(item.getMinStock());
+        entity.setReorderPoint(item.getReorderPoint());
+        entity.setStackingQuantity(item.getStackingQuantity());
+        entity.setMoq(item.getMoq());
+        entity.setLeadTimeDays(item.getLeadTimeDays());
+        entity.setBufferDays(item.getBufferDays());
+        entity.setLeadTimeMonths(item.getLeadTimeMonths());
+        entity.setRopInDays(item.getRopInDays());
+        entity.setVarianceDemand(item.getVarianceDemand());
+        entity.setVarianceLeadTimeDemand(item.getVarianceLeadTimeDemand());
+        entity.setDifference(item.getDifference());
+        entity.setOrderDeliveryDays(item.getOrderDeliveryDays());
+        entity.setOrderQuantity(item.getOrderQuantity());
+        entity.setPalletRequirement(item.getPalletRequirement());
+        entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
+        entity.setMaterialType(item.getMaterialType());
+
+        InventoryItemEntity saved = repository.save(entity);
+        return toDomain(saved);
+    }
+
+    @Transactional
     public List<InventoryItem> importInventory(List<InventoryItem> items) {
         return items.stream()
                 .map(this::createOrUpdate)
@@ -203,4 +242,3 @@ public class InventoryService {
         return item;
     }
 }
-

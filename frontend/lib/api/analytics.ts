@@ -14,6 +14,16 @@ export interface WorkerProductivityMetrics {
   onTimeCompletionRate: number; // percentage
 }
 
+interface WorkerProductivityMetricsRaw {
+  workerId: string;
+  workerName: string;
+  totalTasks: number;
+  completedTasks: number;
+  totalTimeMinutes: number;
+  averageTimeMinutes: number;
+  efficiency: number;
+}
+
 export interface DwellTimeAnalysis {
   workerId: string;
   workerName: string;
@@ -37,6 +47,13 @@ export interface LeaderboardEntry {
   errorRate: number;
   badge?: string;
   trend: 'up' | 'down' | 'stable';
+}
+
+interface LeaderboardEntryRaw {
+  rank: number;
+  workerId: string;
+  workerName: string;
+  taskCount: number;
 }
 
 // Location Velocity
@@ -133,20 +150,53 @@ export const analyticsApi = {
   getWorkerProductivity: async (
     workerId?: string,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    period?: 'weekly' | 'monthly'
   ): Promise<WorkerProductivityMetrics[]> => {
-    const params = new URLSearchParams();
-    if (workerId) params.append('workerId', workerId);
-    if (startDate) params.append('startDate', startDate);
-    if (endDate) params.append('endDate', endDate);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return apiClient.get<WorkerProductivityMetrics[]>(`/analytics/worker-productivity${query}`);
+    const selectedPeriod: 'weekly' | 'monthly' =
+      period ?? (startDate || endDate ? 'weekly' : 'monthly');
+    const raw = await apiClient.get<WorkerProductivityMetricsRaw[]>(
+      `/analytics/worker-productivity?period=${selectedPeriod}`
+    );
+    const filtered = workerId ? raw.filter((m) => m.workerId === workerId) : raw;
+    return filtered.map((m) => {
+      const totalHours = (m.totalTimeMinutes ?? 0) / 60;
+      const tasksCompleted = m.completedTasks ?? 0;
+      const picksPerHour = totalHours > 0 ? tasksCompleted / totalHours : tasksCompleted;
+      return {
+        workerId: m.workerId,
+        workerName: m.workerName || "Unknown",
+        period: selectedPeriod,
+        picksPerHour: Number.isFinite(picksPerHour) ? picksPerHour : 0,
+        averageDwellTime: m.averageTimeMinutes ?? 0,
+        errorRate: Math.max(0, 100 - (m.efficiency ?? 0)),
+        tasksCompleted,
+        totalPicks: tasksCompleted,
+        totalHours: totalHours > 0 ? totalHours : 0,
+        onTimeCompletionRate: m.efficiency ?? 0,
+      };
+    });
   },
 
   getWorkerLeaderboard: async (
     period: 'weekly' | 'monthly' = 'weekly'
   ): Promise<LeaderboardEntry[]> => {
-    return apiClient.get<LeaderboardEntry[]>(`/analytics/leaderboard?period=${period}`);
+    const raw = await apiClient.get<LeaderboardEntryRaw[]>(`/analytics/leaderboard?period=${period}`);
+    return raw.map((entry) => {
+      const tasks = entry.taskCount ?? 0;
+      return {
+        rank: entry.rank,
+        workerId: entry.workerId,
+        workerName: entry.workerName || "Unknown",
+        role: "worker",
+        score: tasks,
+        picksPerHour: tasks,
+        tasksCompleted: tasks,
+        errorRate: 0,
+        badge: entry.rank <= 3 ? `Top ${entry.rank}` : undefined,
+        trend: "stable",
+      };
+    });
   },
 
   getDwellTimeAnalysis: async (workerId?: string): Promise<DwellTimeAnalysis[]> => {
@@ -167,4 +217,3 @@ export const analyticsApi = {
     return apiClient.get<LocationVelocity[]>(`/analytics/location-velocity?${params.toString()}`);
   },
 };
-

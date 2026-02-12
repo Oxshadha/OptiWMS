@@ -54,6 +54,7 @@ export interface CompletePutawayRequest {
   lpn?: string;
   quantity?: number; // Optional - will be determined from order item if not provided
   materialId?: string; // Optional - will be determined from order item if not provided
+  workerId?: string;
 }
 
 export interface PutawayResponse {
@@ -62,30 +63,71 @@ export interface PutawayResponse {
   taskId?: string;
 }
 
+export interface SkipPutawayRequest {
+  reason: string;
+  workerId?: string;
+}
+
 // Stock Transfer Operations
 export interface StockTransfer {
   id: string;
   transferNumber: string;
   transferType: string;
+  materialId?: string;
+  sourceWarehouseId?: string;
+  sourceLocationCode?: string;
+  destWarehouseId?: string;
+  destLocationCode?: string;
+  quantity: string;
+  status: string;
+  createdBy?: string;
+  releasedBy?: string;
+  releasedAt?: string;
+  notes?: string;
+  lines?: StockTransferLine[];
+}
+
+export interface StockTransferLine {
+  id: string;
+  transferId: string;
+  lineNumber: number;
   materialId: string;
   sourceWarehouseId: string;
   sourceLocationCode: string;
   destWarehouseId: string;
   destLocationCode: string;
-  quantity: string;
+  requestedQuantity: number;
+  movedQuantity: number;
   status: string;
+  assignedWorkerId?: string;
   notes?: string;
 }
 
 export interface CreateStockTransferRequest {
-  transferNumber: string;
+  transferNumber?: string;
   transferType: string;
+  materialId?: string;
+  sourceWarehouseId?: string;
+  sourceLocationCode?: string;
+  destWarehouseId?: string;
+  destLocationCode?: string;
+  quantity?: string;
+  status?: string;
+  createdBy?: string;
+  lines?: CreateStockTransferLineRequest[];
+  notes?: string;
+}
+
+export interface CreateStockTransferLineRequest {
+  lineNumber?: number;
   materialId: string;
   sourceWarehouseId: string;
   sourceLocationCode: string;
   destWarehouseId: string;
   destLocationCode: string;
   quantity: string;
+  assignedWorkerId?: string;
+  status?: string;
   notes?: string;
 }
 
@@ -95,10 +137,28 @@ export interface CycleCount {
   countNumber: string;
   warehouseId: string;
   locationCode: string;
-  materialId: string;
-  expectedQuantity: string;
-  countedQuantity: string;
+  materialId?: string;
+  expectedQuantity?: string;
+  countedQuantity?: string;
+  variancePercentage?: string;
+  anomalyLevel?: string;
+  anomalyDetected?: boolean;
+  approvalRequired?: boolean;
+  approvedBy?: string;
+  approvedAt?: string;
+  approvalNotes?: string;
+  scheduledDate?: string;
   status: string;
+  variance?: string | null;
+  notes?: string;
+}
+
+export interface CycleCountResult {
+  success: boolean;
+  message: string;
+  variance?: string | null;
+  recountRequired?: boolean;
+  approvalRequired?: boolean;
 }
 
 export const operationsApi = {
@@ -143,6 +203,10 @@ export const operationsApi = {
     return apiClient.post<PutawayResponse>(`/operations/putaway/complete/${taskId}`, request);
   },
 
+  skipPutaway: async (taskId: string, request: SkipPutawayRequest): Promise<PutawayResponse> => {
+    return apiClient.post<PutawayResponse>(`/operations/putaway/skip/${taskId}`, request);
+  },
+
   // Stock Transfer
   getStockTransfers: async (): Promise<StockTransfer[]> => {
     return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
@@ -150,6 +214,45 @@ export const operationsApi = {
 
   createStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
     return apiClient.post<StockTransfer>('/operations/stock-transfers', request);
+  },
+
+  createMultiStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>('/operations/stock-transfers/multi', request);
+  },
+
+  releaseStockTransfer: async (id: string, managerId: string): Promise<StockTransfer> => {
+    return apiClient.post<StockTransfer>(`/operations/stock-transfers/${id}/release`, { managerId });
+  },
+
+  getStockTransferLines: async (id: string): Promise<StockTransferLine[]> => {
+    return apiClient.get<StockTransferLine[]>(`/operations/stock-transfers/${id}/lines`);
+  },
+
+  getExecutableStockTransferLines: async (workerId: string, warehouseId?: string): Promise<StockTransferLine[]> => {
+    const params = new URLSearchParams({ workerId });
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    return apiClient.get<StockTransferLine[]>(`/operations/stock-transfers/lines/executable?${params.toString()}`);
+  },
+
+  assignStockTransferLine: async (lineId: string, workerId: string, assignedBy: string): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/assign`, { workerId, assignedBy });
+  },
+
+  executeStockTransferLine: async (
+    lineId: string,
+    request: {
+      workerId: string;
+      sourceScanLocation: string;
+      destScanLocation: string;
+      quantity: number;
+      notes?: string;
+    }
+  ): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/execute`, request);
+  },
+
+  skipStockTransferLine: async (lineId: string, workerId: string, reason: string): Promise<StockTransferLine> => {
+    return apiClient.post<StockTransferLine>(`/operations/stock-transfers/lines/${lineId}/skip`, { workerId, reason });
   },
 
   dispatchStockTransfer: async (id: string, userId: string): Promise<StockTransfer> => {
@@ -170,10 +273,13 @@ export const operationsApi = {
   },
 
   createCycleCount: async (request: {
+    countNumber?: string;
     warehouseId: string;
     locationCode: string;
-    materialId: string;
-    expectedQuantity: string;
+    assignedWorkers?: string[];
+    scheduledDate?: string;
+    status?: string;
+    notes?: string;
   }): Promise<CycleCount> => {
     return apiClient.post<CycleCount>('/operations/cycle-counts', request);
   },
@@ -188,6 +294,27 @@ export const operationsApi = {
 
   reviewCycleCount: async (id: string, notes?: string): Promise<CycleCount> => {
     return apiClient.put<CycleCount>(`/operations/cycle-counts/${id}/review`, { notes });
+  },
+
+  recordCycleCount: async (
+    id: string,
+    request: { materialId: string; countedQuantity: string; countedBy: string }
+  ): Promise<CycleCountResult> => {
+    return apiClient.post<CycleCountResult>(`/operations/cycle-counts/${id}/record`, request);
+  },
+
+  approveCycleCountAdjustment: async (
+    id: string,
+    request: { approvedBy: string; notes?: string }
+  ): Promise<CycleCount> => {
+    return apiClient.post<CycleCount>(`/operations/cycle-counts/${id}/approve-adjustment`, request);
+  },
+
+  rejectCycleCountAdjustment: async (
+    id: string,
+    request: { approvedBy: string; notes?: string }
+  ): Promise<CycleCount> => {
+    return apiClient.post<CycleCount>(`/operations/cycle-counts/${id}/reject-adjustment`, request);
   },
 };
 

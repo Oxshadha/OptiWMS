@@ -77,4 +77,3 @@ export const ordersApi = {
     return apiClient.get<Order[]>(`/orders/warehouse/${warehouseId}/needs-receiving`);
   },
 };
-

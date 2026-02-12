@@ -59,6 +59,12 @@ public class ShipmentEntity {
     @Column(name = "delivered_at")
     private LocalDateTime deliveredAt;
 
+    @Column(name = "delivery_confirmed_by", columnDefinition = "UUID")
+    private UUID deliveryConfirmedBy;
+
+    @Column(name = "delivery_confirmed_at")
+    private LocalDateTime deliveryConfirmedAt;
+
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
 
@@ -91,6 +97,10 @@ public class ShipmentEntity {
     public void setShippedAt(LocalDateTime shippedAt) { this.shippedAt = shippedAt; }
     public LocalDateTime getDeliveredAt() { return deliveredAt; }
     public void setDeliveredAt(LocalDateTime deliveredAt) { this.deliveredAt = deliveredAt; }
+    public UUID getDeliveryConfirmedBy() { return deliveryConfirmedBy; }
+    public void setDeliveryConfirmedBy(UUID deliveryConfirmedBy) { this.deliveryConfirmedBy = deliveryConfirmedBy; }
+    public LocalDateTime getDeliveryConfirmedAt() { return deliveryConfirmedAt; }
+    public void setDeliveryConfirmedAt(LocalDateTime deliveryConfirmedAt) { this.deliveryConfirmedAt = deliveryConfirmedAt; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 
@@ -102,4 +112,3 @@ public class ShipmentEntity {
         }
     }
 }
-

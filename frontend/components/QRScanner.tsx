@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Modal } from "./Modal";
+import { logger } from "@/lib/utils/logger";
 
 interface QRScannerProps {
   isOpen: boolean;
@@ -62,7 +63,7 @@ export function QRScanner({ isOpen, onClose, onScan, title = "Scan QR Code", des
       // For production, use a library like html5-qrcode or jsQR
       startQRDetection();
     } catch (err) {
-      console.error("Error accessing camera:", err);
+      logger.error("Error accessing camera:", err);
       setError("Unable to access camera. Please check permissions.");
       setScanning(false);
     }
@@ -88,7 +89,7 @@ export function QRScanner({ isOpen, onClose, onScan, title = "Scan QR Code", des
         // For demo: simulate QR scan with manual input
         // In production, use jsQR or html5-qrcode library here
       } catch (err) {
-        console.error("Error scanning:", err);
+        logger.error("Error scanning:", err);
       }
     }, 500);
 

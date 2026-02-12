@@ -3,7 +3,9 @@ package com.optiwms.coreapp.orders;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.coreapp.operations.TaskOperationService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
+import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.master.MaterialService;
+import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.domain.master.Material;
@@ -29,6 +31,7 @@ public class OutboundOrderWorkflowService {
     private final TaskService taskService;
     private final OrderItemRepository orderItemRepository;
     private final MaterialLocationAssignmentService materialLocationService;
+    private final InventoryService inventoryService;
     private final MaterialService materialService;
     private final TaskOperationService taskOperationService;
 
@@ -37,12 +40,14 @@ public class OutboundOrderWorkflowService {
             TaskService taskService,
             OrderItemRepository orderItemRepository,
             MaterialLocationAssignmentService materialLocationService,
+            InventoryService inventoryService,
             MaterialService materialService,
             TaskOperationService taskOperationService) {
         this.orderService = orderService;
         this.taskService = taskService;
         this.orderItemRepository = orderItemRepository;
         this.materialLocationService = materialLocationService;
+        this.inventoryService = inventoryService;
         this.materialService = materialService;
         this.taskOperationService = taskOperationService;
     }
@@ -62,12 +67,20 @@ public class OutboundOrderWorkflowService {
             throw new RuntimeException("Order must have a warehouse assigned to create picking tasks");
         }
 
+        List<Task> existingPickingTasks = taskService.findByTaskTypeAndReference("picking", "order", orderId);
+        if (!existingPickingTasks.isEmpty()) {
+            return;
+        }
+
         // Get all order items
         List<OrderItemEntity> orderItems = orderItemRepository.findByOrderId(orderId);
         
         if (orderItems.isEmpty()) {
             return; // No items to pick
         }
+
+        boolean allItemsFullyAllocated = true;
+        boolean anyQuantityAllocated = false;
 
         // Create picking tasks with bin locations for each order item
         for (OrderItemEntity item : orderItems) {
@@ -112,6 +125,7 @@ public class OutboundOrderWorkflowService {
 
             // Create picking task for each location (or consolidate if quantity fits in one location)
             Integer remainingQuantity = item.getQuantity();
+            Integer allocatedForItem = 0;
             
             for (MaterialLocationAssignmentService.LocationInventory location : materialLocations) {
                 if (remainingQuantity <= 0) break;
@@ -148,6 +162,8 @@ public class OutboundOrderWorkflowService {
 
                 taskService.create(pickingTask);
                 remainingQuantity -= quantityToPick;
+                allocatedForItem += quantityToPick;
+                reserveInventoryForPick(order.getWarehouseId(), item.getMaterialId(), quantityToPick, location.locationCode());
             }
 
             // If still have remaining quantity, create additional tasks
@@ -178,10 +194,19 @@ public class OutboundOrderWorkflowService {
 
                 taskService.create(pickingTask);
             }
+
+            anyQuantityAllocated = anyQuantityAllocated || allocatedForItem > 0;
+            allItemsFullyAllocated = allItemsFullyAllocated && allocatedForItem >= item.getQuantity();
         }
 
-        // Update order status to indicate tasks are ready
-        orderService.updateStatus(orderId, "pending");
+        // Update order status to indicate reservation/allocation state
+        if (allItemsFullyAllocated) {
+            orderService.updateStatus(orderId, "allocated");
+        } else if (anyQuantityAllocated) {
+            orderService.updateStatus(orderId, "partially_allocated");
+        } else {
+            orderService.updateStatus(orderId, "pending");
+        }
     }
 
     /**
@@ -254,7 +279,10 @@ public class OutboundOrderWorkflowService {
                 !"ready_to_ship".equals(currentStatus) && !"shipped".equals(currentStatus)) {
                 orderService.updateStatus(orderId, "picked");
             }
-        } else if ("pending".equals(currentStatus) || "picking".equals(currentStatus)) {
+        } else if ("pending".equals(currentStatus)
+                || "allocated".equals(currentStatus)
+                || "partially_allocated".equals(currentStatus)
+                || "picking".equals(currentStatus)) {
             // Check if any picking has started
             List<Task> pickingTasks = taskService.findByType("picking").stream()
                     .filter(task -> orderId.equals(task.getReferenceId()))
@@ -266,10 +294,37 @@ public class OutboundOrderWorkflowService {
                                    "assigned".equals(task.getStatus()) || 
                                    "in_progress".equals(task.getStatus()));
             
-            if (anyTaskAssigned && "pending".equals(currentStatus)) {
+            if (anyTaskAssigned
+                    && ("pending".equals(currentStatus)
+                    || "allocated".equals(currentStatus)
+                    || "partially_allocated".equals(currentStatus))) {
                 orderService.updateStatus(orderId, "picking");
             }
         }
+    }
+
+    private void reserveInventoryForPick(UUID warehouseId, UUID materialId, Integer quantity, String locationCode) {
+        List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
+        if (inventoryItems.isEmpty()) {
+            return;
+        }
+
+        InventoryItem inventoryItem = inventoryItems.stream()
+                .filter(item -> locationCode != null && locationCode.equals(item.getLocationCode()))
+                .findFirst()
+                .orElse(inventoryItems.get(0));
+
+        int available = inventoryItem.getAvailableQuantity() != null ? inventoryItem.getAvailableQuantity() : 0;
+        if (available <= 0) {
+            return;
+        }
+
+        int reserveQty = Math.min(quantity, available);
+        int reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
+
+        inventoryItem.setAvailableQuantity(available - reserveQty);
+        inventoryItem.setReservedQuantity(reserved + reserveQty);
+        inventoryService.createOrUpdate(inventoryItem);
     }
 
     /**

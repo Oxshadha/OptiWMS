@@ -2,8 +2,10 @@
 
 import React from "react";
 import { usePathname } from "next/navigation";
-import AdminLayout from "../(admin)/layout";
 import { AdminProvider } from "@/contexts/AdminContext";
+import { Sidebar } from "@/components/Sidebar";
+import { Topbar } from "@/components/Topbar";
+import { RouteGuard } from "@/lib/auth/RouteGuard";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -15,7 +17,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminProvider>
-      <AdminLayout>{children}</AdminLayout>
+      <RouteGuard requiredRole="admin">
+        <div className="min-h-screen bg-base-200">
+          <Sidebar />
+          <div className="lg:ml-64 flex-1 flex flex-col min-h-screen">
+            <Topbar />
+            <main className="p-6 space-y-6">{children}</main>
+          </div>
+        </div>
+      </RouteGuard>
     </AdminProvider>
   );
 }

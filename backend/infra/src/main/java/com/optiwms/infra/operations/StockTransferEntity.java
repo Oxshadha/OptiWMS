@@ -48,6 +48,15 @@ public class StockTransferEntity {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "created_by", columnDefinition = "UUID")
+    private UUID createdBy;
+
+    @Column(name = "released_by", columnDefinition = "UUID")
+    private UUID releasedBy;
+
+    @Column(name = "released_at")
+    private LocalDateTime releasedAt;
+
     @Column(name = "dispatched_by", columnDefinition = "UUID")
     private UUID dispatchedBy;
 
@@ -103,6 +112,12 @@ public class StockTransferEntity {
     public void setStatus(String status) { this.status = status; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public UUID getCreatedBy() { return createdBy; }
+    public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
+    public UUID getReleasedBy() { return releasedBy; }
+    public void setReleasedBy(UUID releasedBy) { this.releasedBy = releasedBy; }
+    public LocalDateTime getReleasedAt() { return releasedAt; }
+    public void setReleasedAt(LocalDateTime releasedAt) { this.releasedAt = releasedAt; }
     public UUID getDispatchedBy() { return dispatchedBy; }
     public void setDispatchedBy(UUID dispatchedBy) { this.dispatchedBy = dispatchedBy; }
     public LocalDateTime getDispatchedAt() { return dispatchedAt; }
@@ -116,4 +131,3 @@ public class StockTransferEntity {
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }
-
