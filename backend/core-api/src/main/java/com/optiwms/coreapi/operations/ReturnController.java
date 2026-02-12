@@ -54,6 +54,36 @@ public class ReturnController {
         return ResponseEntity.ok(toDto(returnRecord));
     }
 
+    @GetMapping("/metrics/suppliers")
+    public ResponseEntity<List<SupplierQualityMetricDto>> getSupplierMetrics() {
+        List<SupplierQualityMetricDto> dtos = service.getSupplierQualityMetrics().stream()
+                .map(metric -> new SupplierQualityMetricDto(
+                        metric.supplierId() != null ? metric.supplierId().toString() : null,
+                        metric.totalReturns(),
+                        metric.qualityRejectedCases(),
+                        metric.supplierAcceptedCount(),
+                        metric.supplierRejectedCount(),
+                        metric.supplierRejectionRatePercent()
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/metrics/customers")
+    public ResponseEntity<List<CustomerReturnMetricDto>> getCustomerMetrics() {
+        List<CustomerReturnMetricDto> dtos = service.getCustomerReturnMetrics().stream()
+                .map(metric -> new CustomerReturnMetricDto(
+                        metric.customerId() != null ? metric.customerId().toString() : null,
+                        metric.totalReturnRequests(),
+                        metric.approvedReturns(),
+                        metric.actualRejectedReturns(),
+                        metric.falseReturnRequests(),
+                        metric.falseReturnRatePercent()
+                ))
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
     @PostMapping
     public ResponseEntity<ReturnDto> create(@RequestBody CreateReturnRequest request) {
         ReturnRecord returnRecord = new ReturnRecord();
@@ -261,6 +291,24 @@ public class ReturnController {
             String followupOrderId,
             String closedAt,
             String lastStatusChangedAt
+    ) {}
+
+    public record SupplierQualityMetricDto(
+            String supplierId,
+            int totalReturns,
+            int qualityRejectedCases,
+            int supplierAcceptedCount,
+            int supplierRejectedCount,
+            double supplierRejectionRatePercent
+    ) {}
+
+    public record CustomerReturnMetricDto(
+            String customerId,
+            int totalReturnRequests,
+            int approvedReturns,
+            int actualRejectedReturns,
+            int falseReturnRequests,
+            double falseReturnRatePercent
     ) {}
 
     private UUID resolveActorUserId(Authentication authentication) {
