@@ -2,6 +2,7 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.ShipmentService;
 import com.optiwms.domain.operations.Shipment;
+import com.optiwms.infra.users.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -19,9 +20,11 @@ import java.util.stream.Collectors;
 public class ShipmentController {
 
     private final ShipmentService service;
+    private final UserRepository userRepository;
 
-    public ShipmentController(ShipmentService service) {
+    public ShipmentController(ShipmentService service, UserRepository userRepository) {
         this.service = service;
+        this.userRepository = userRepository;
     }
 
     @GetMapping
@@ -97,7 +100,8 @@ public class ShipmentController {
             Authentication authentication
     ) {
         boolean managerApproval = isManagerOrAdmin(authentication);
-        Shipment updated = service.updateStatus(id, request.status(), null, managerApproval);
+        UUID actorUserId = resolveActorUserId(authentication);
+        Shipment updated = service.updateStatus(id, request.status(), actorUserId, managerApproval);
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -109,7 +113,8 @@ public class ShipmentController {
         if (!isManagerOrAdmin(authentication)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         }
-        Shipment updated = service.updateStatus(id, "delivered", null, true);
+        UUID actorUserId = resolveActorUserId(authentication);
+        Shipment updated = service.updateStatus(id, "delivered", actorUserId, true);
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -134,7 +139,9 @@ public class ShipmentController {
                 shipment.getStatus() != null ? shipment.getStatus() : "label_created",
                 shipment.getEta() != null ? shipment.getEta().toString() : null,
                 shipment.getShippedAt() != null ? shipment.getShippedAt().toString() : null,
-                shipment.getDeliveredAt() != null ? shipment.getDeliveredAt().toString() : null
+                shipment.getDeliveredAt() != null ? shipment.getDeliveredAt().toString() : null,
+                shipment.getDeliveryConfirmedBy() != null ? shipment.getDeliveryConfirmedBy().toString() : null,
+                shipment.getDeliveryConfirmedAt() != null ? shipment.getDeliveryConfirmedAt().toString() : null
         );
     }
 
@@ -180,7 +187,9 @@ public class ShipmentController {
             String status,
             String eta,
             String shippedAt,
-            String deliveredAt
+            String deliveredAt,
+            String deliveryConfirmedBy,
+            String deliveryConfirmedAt
     ) {}
 
     private boolean isManagerOrAdmin(Authentication authentication) {
@@ -194,5 +203,14 @@ public class ShipmentController {
             }
         }
         return false;
+    }
+
+    private UUID resolveActorUserId(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null || authentication.getName().isBlank()) {
+            return null;
+        }
+        return userRepository.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }
