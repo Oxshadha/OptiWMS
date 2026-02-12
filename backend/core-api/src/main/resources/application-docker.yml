@@ -35,16 +35,3 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
-optiwms:
-  seed:
-    default-admin:
-      # Keep disabled in container/prod by default.
-      # If you must enable temporarily, pass these env vars explicitly:
-      # SEED_DEFAULT_ADMIN=true
-      # SEED_DEFAULT_ADMIN_USERNAME=<secure-username>
-      # SEED_DEFAULT_ADMIN_EMAIL=<secure-email>
-      # SEED_DEFAULT_ADMIN_PASSWORD=<strong-password>
-      enabled: ${SEED_DEFAULT_ADMIN:false}
-      username: ${SEED_DEFAULT_ADMIN_USERNAME:}
-      email: ${SEED_DEFAULT_ADMIN_EMAIL:}
-      password: ${SEED_DEFAULT_ADMIN_PASSWORD:}

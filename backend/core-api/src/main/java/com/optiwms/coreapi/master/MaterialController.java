@@ -28,15 +28,7 @@ public class MaterialController {
                 ? materialService.findByMaterialType(materialType)
                 : materialService.listAll();
         var data = materials.stream()
-                .map(m -> new MaterialDto(
-                        m.getId(),
-                        m.getMaterialCode(),
-                        m.getDescription(),
-                        m.getUnitType(),
-                        m.getStorageType(),
-                        m.getMaterialType(),
-                        m.getWeightKg()
-                ))
+                .map(m -> new MaterialDto(m.getId(), m.getMaterialCode(), m.getDescription(), m.getUnitType(), m.getStorageType(), m.getMaterialType()))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -51,8 +43,7 @@ public class MaterialController {
                     material.getDescription(),
                     material.getUnitType(),
                     material.getStorageType(),
-                    material.getMaterialType(),
-                    material.getWeightKg()
+                    material.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -69,8 +60,7 @@ public class MaterialController {
                     material.getDescription(),
                     material.getUnitType(),
                     material.getStorageType(),
-                    material.getMaterialType(),
-                    material.getWeightKg()
+                    material.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -86,7 +76,6 @@ public class MaterialController {
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
             material.setMaterialType(request.materialType());
-            material.setWeightKg(request.weightKg());
 
             var created = materialService.create(material);
             return ResponseEntity.ok(new MaterialDto(
@@ -95,8 +84,7 @@ public class MaterialController {
                     created.getDescription(),
                     created.getUnitType(),
                     created.getStorageType(),
-                    created.getMaterialType(),
-                    created.getWeightKg()
+                    created.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -112,7 +100,6 @@ public class MaterialController {
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
             material.setMaterialType(request.materialType());
-            material.setWeightKg(request.weightKg());
 
             var updated = materialService.update(id, material);
             return ResponseEntity.ok(new MaterialDto(
@@ -121,8 +108,7 @@ public class MaterialController {
                     updated.getDescription(),
                     updated.getUnitType(),
                     updated.getStorageType(),
-                    updated.getMaterialType(),
-                    updated.getWeightKg()
+                    updated.getMaterialType()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -215,8 +201,7 @@ public class MaterialController {
             String description,
             String unitType,
             String storageType,
-            String materialType,
-            java.math.BigDecimal weightKg
+            String materialType
     ) {}
 
     public record ImportResponse(
@@ -230,8 +215,7 @@ public class MaterialController {
             String description,
             String unitType,
             String storageType,
-            String materialType,
-            java.math.BigDecimal weightKg
+            String materialType
     ) {}
 
     public record UpdateMaterialRequest(
@@ -239,7 +223,7 @@ public class MaterialController {
             String description,
             String unitType,
             String storageType,
-            String materialType,
-            java.math.BigDecimal weightKg
+            String materialType
     ) {}
 }
+

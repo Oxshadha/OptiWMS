@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const isWorkerRole = WORKER_ROLES.includes(normalizedRole);
 
         if (!isAdminRole && !isWorkerRole) {
-          console.warn('[AuthContext] Unknown role:', userInfo.role);
+          console.warn('[AuthContext] Unknown role:', userRole);
           setUser(null);
           setIsLoading(false);
           return;

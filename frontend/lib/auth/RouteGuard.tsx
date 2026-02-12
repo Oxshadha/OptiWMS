@@ -7,11 +7,13 @@ import { useAuth } from "./AuthContext";
 interface RouteGuardProps {
   children: ReactNode;
   requiredRole?: 'admin' | 'worker' | 'any';
+  redirectTo?: string;
 }
 
 export function RouteGuard({ 
   children, 
-  requiredRole = 'any'
+  requiredRole = 'any',
+  redirectTo 
 }: RouteGuardProps) {
   const { user, isAuthenticated, isLoading, isAdmin, isWorker, checkRouteAccess } = useAuth();
   const pathname = usePathname();
@@ -46,7 +48,7 @@ export function RouteGuard({
     // Check role requirement
     if (requiredRole === 'admin' && !isAdmin) {
       console.log('[RouteGuard] Admin role required but user is not admin');
-      router.replace('/worker');
+      router.replace('/worker/dashboard');
       return;
     }
 
@@ -64,7 +66,7 @@ export function RouteGuard({
       if (isAdmin) {
         router.replace('/admin/dashboard?error=unauthorized');
       } else if (isWorker) {
-        router.replace('/worker?error=unauthorized');
+        router.replace('/worker/dashboard?error=unauthorized');
       } else {
         router.replace('/admin/login');
       }

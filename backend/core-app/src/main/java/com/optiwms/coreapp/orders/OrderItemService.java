@@ -30,12 +30,6 @@ public class OrderItemService {
                 .collect(Collectors.toList());
     }
 
-    public OrderItem findById(UUID id) {
-        return repository.findById(id)
-                .map(this::toDomain)
-                .orElseThrow(() -> new RuntimeException("Order item not found: " + id));
-    }
-
     @org.springframework.transaction.annotation.Transactional
     public OrderItem create(OrderItem orderItem) {
         OrderItemEntity entity = new OrderItemEntity();
@@ -52,25 +46,6 @@ public class OrderItemService {
         return toDomain(saved);
     }
 
-    @org.springframework.transaction.annotation.Transactional
-    public OrderItem update(UUID id, OrderItem orderItem) {
-        OrderItemEntity entity = repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Order item not found: " + id));
-
-        if (orderItem.getMaterialId() != null) entity.setMaterialId(orderItem.getMaterialId());
-        if (orderItem.getQuantity() != null) entity.setQuantity(orderItem.getQuantity());
-        if (orderItem.getUnitPrice() != null) entity.setUnitPrice(orderItem.getUnitPrice());
-        if (orderItem.getLocationCode() != null) entity.setLocationCode(orderItem.getLocationCode());
-
-        OrderItemEntity saved = repository.save(entity);
-        return toDomain(saved);
-    }
-
-    @org.springframework.transaction.annotation.Transactional
-    public void deleteById(UUID id) {
-        repository.deleteById(id);
-    }
-
     private OrderItem toDomain(OrderItemEntity entity) {
         OrderItem domain = new OrderItem();
         domain.setId(entity.getId());
@@ -85,3 +60,4 @@ public class OrderItemService {
         return domain;
     }
 }
+
