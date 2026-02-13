@@ -1,172 +1,285 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Modal } from "@/components/Modal";
+import { QRScanner } from "@/components/QRScanner";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
-import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
-import { QRScanner } from "@/components/QRScanner";
 import { operationsApi } from "@/lib/api/operations";
-import { tasksApi } from "@/lib/api/tasks-api";
+import { orderItemsApi } from "@/lib/api/orderItems";
+import { ordersApi } from "@/lib/api/orders";
+import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { materialsApi } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
-import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { logger } from "@/lib/utils/logger";
 import { Pick } from "./types";
-import { CurrentPickCard } from "./components/CurrentPickCard";
-import {
-  NetworkStatusCard,
-  QuickActionsCard,
-  SavedPicksCard,
-  UpcomingPicksCard,
-} from "./components/PickingPanels";
+
+type OrderOption = { id: string; orderNumber: string; status: string };
+
+const parsePickQuantity = (notes?: string): number => {
+  if (!notes) return 1;
+  const match = notes.match(/Pick\s+(\d+)\s+units/i);
+  if (!match?.[1]) return 1;
+  const qty = Number(match[1]);
+  return Number.isFinite(qty) && qty > 0 ? qty : 1;
+};
+
+const parseMaterialCode = (notes?: string): string | null => {
+  if (!notes) return null;
+  const match = notes.match(/Pick\s+\d+\s+units\s+of\s+(.+?)\s+from\s+location/i);
+  if (!match?.[1]) return null;
+  return match[1].trim();
+};
+
+const parseSkipReason = (notes?: string): string | null => {
+  if (!notes) return null;
+  const match = notes.match(/PICKING_ISSUE=[^\n\r]*\|REASON=([^\n\r|]+)/i);
+  return match?.[1]?.trim() || null;
+};
+
+const normalizeLocation = (value: string): string => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+const sortPicks = (items: Pick[]): Pick[] => {
+  const completed = items.filter((p) => p.status === "completed");
+  const active = items.filter((p) => p.status !== "completed");
+  return [...active, ...completed];
+};
 
 export default function PickingPage() {
-  const { isOnline, dbReady } = useOffline();
-  const { worker } = useWorker();
+  const { isOnline } = useOffline();
+  const { worker, isLoading: workerContextLoading } = useWorker();
+
+  const [orders, setOrders] = useState<OrderOption[]>([]);
+  const [selectedOrder, setSelectedOrder] = useState<OrderOption | null>(null);
+  const [scannedOrderNumber, setScannedOrderNumber] = useState("");
+  const [showOrderScanner, setShowOrderScanner] = useState(false);
+  const [showLocationScanner, setShowLocationScanner] = useState(false);
+
   const [picks, setPicks] = useState<Pick[]>([]);
   const [pickedQty, setPickedQty] = useState(0);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [savedPicks, setSavedPicks] = useState<any[]>([]);
-  const [showLocationScanner, setShowLocationScanner] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
   const [scannedLocation, setScannedLocation] = useState("");
   const [locationVerified, setLocationVerified] = useState(false);
-  
-  const currentPick = picks.find((p) => p.status === "current");
-  const upcomingPicks = picks.filter((p) => p.status === "upcoming");
 
-  const transformTasksToPicks = async (tasks: any[]): Promise<Pick[]> => {
-    const transformedPicks: Pick[] = await Promise.all(
-      tasks.map(async (task, index) => {
-        let itemName = task.notes || "Item";
-        let sku = "N/A";
-        let materialId = "";
+  const [showIssueForm, setShowIssueForm] = useState(false);
+  const [availableQty, setAvailableQty] = useState(0);
+  const [issueReason, setIssueReason] = useState("");
 
-        if (task.referenceType === "order" && task.referenceId) {
-          try {
-            const { orderItemsApi } = await import("@/lib/api/orderItems");
-            const { materialsApi } = await import("@/lib/api/materials");
-            const orderItems = await orderItemsApi.getByOrderId(task.referenceId);
-            if (orderItems.length > 0) {
-              const firstItem = orderItems[0];
-              materialId = firstItem.materialId;
-              try {
-                const material = await materialsApi.getById(firstItem.materialId);
-                const display = formatMaterialDisplay(
-                  material.materialCode,
-                  material.description,
-                  material.id
-                );
-                sku = display.sku;
-                itemName = display.name;
-              } catch (err) {
-                logger.warn("Could not fetch material details:", err);
-              }
-            }
-          } catch (err) {
-            logger.warn("Could not fetch order items:", err);
-          }
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const [isLoadingPicks, setIsLoadingPicks] = useState(false);
+  const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
+
+  const currentPick = useMemo(() => picks.find((p) => p.status === "current") || null, [picks]);
+  const completedCount = useMemo(() => picks.filter((p) => p.status === "completed").length, [picks]);
+
+  const withCurrentFlag = (items: Pick[]): Pick[] => {
+    const normalized: Pick[] = items.map((p): Pick => ({
+      ...p,
+      status: p.status === "completed" ? "completed" : ("upcoming" as const),
+    }));
+    const firstPending = normalized.findIndex((p) => p.status !== "completed" && !p.skipReason);
+    const indexToUse = firstPending >= 0 ? firstPending : normalized.findIndex((p) => p.status !== "completed");
+    if (indexToUse >= 0) {
+      normalized[indexToUse] = { ...normalized[indexToUse], status: "current" };
+    }
+    return sortPicks(normalized);
+  };
+
+  const transformTasksToPicks = async (tasks: Task[], orderId: string, orderNumber: string): Promise<Pick[]> => {
+    const orderItems = await orderItemsApi.getByOrderId(orderId);
+    const materialByCode = new Map<string, string>();
+
+    const resolveMaterialId = async (task: Task): Promise<string> => {
+      const parsedCode = parseMaterialCode(task.notes || "");
+      if (parsedCode) {
+        if (materialByCode.has(parsedCode)) {
+          return materialByCode.get(parsedCode) || "";
         }
-
-        let qty = 1;
-        if (task.notes) {
-          const qtyMatch = task.notes.match(/Pick\s+(\d+)\s+units/i);
-          if (qtyMatch) {
-            qty = parseInt(qtyMatch[1], 10) || 1;
-          }
+        try {
+          const material = await materialsApi.getByCode(parsedCode);
+          materialByCode.set(parsedCode, material.id);
+          return material.id;
+        } catch {
+          // fallback below
         }
+      }
 
-        if (task.referenceType === "order" && task.referenceId) {
-          try {
-            const { orderItemsApi } = await import("@/lib/api/orderItems");
-            const orderItems = await orderItemsApi.getByOrderId(task.referenceId);
-            if (orderItems.length > 0 && orderItems[0].quantity) {
-              qty = Math.ceil(parseFloat(orderItems[0].quantity.toString())) || qty;
-            }
-          } catch (err) {
-            // keep parsed qty
-          }
-        }
+      if (orderItems.length === 1) {
+        return orderItems[0].materialId;
+      }
+      return "";
+    };
 
+    const picksFromTasks = await Promise.all(
+      tasks.map(async (task) => {
+        const materialId = await resolveMaterialId(task);
         return {
           id: task.id,
           taskId: task.id,
-          order: task.referenceId || `TASK-${task.taskNumber}`,
+          order: orderNumber,
+          orderId,
           location: task.locationCode || "",
-          item: itemName,
-          sku: sku,
-          materialId: materialId || task.referenceId || "",
-          qty: qty,
-          status: (index === 0 ? "current" : "upcoming") as "current" | "upcoming",
+          item: parseMaterialCode(task.notes || "") || "Item",
+          sku: parseMaterialCode(task.notes || "") || "N/A",
+          materialId,
+          qty: parsePickQuantity(task.notes || ""),
+          taskStatus: task.status,
+          skipReason: parseSkipReason(task.notes || "") || undefined,
+          status: task.status === "completed" ? "completed" : "upcoming",
           pickedLocations: [],
-        };
+        } as Pick;
       })
     );
 
-    return transformedPicks;
+    return withCurrentFlag(picksFromTasks);
   };
 
-  const loadPicksForWorker = async (warehouseId: string, workerId?: string) => {
-    const tasks = await tasksApi.getAll("picking", "pending", undefined, warehouseId, true);
-    const myTasks = workerId
-      ? await tasksApi.getAll("picking", undefined, workerId, warehouseId, false)
-      : [];
-    const myActiveTasks = myTasks.filter(
-      (t) => t.assignedTo === workerId && (t.status === "assigned" || t.status === "in_progress")
-    );
-    const allTasks = [...tasks, ...myActiveTasks];
-    const uniqueTasks = Array.from(new Map(allTasks.map((t) => [t.id, t])).values());
-    return transformTasksToPicks(uniqueTasks);
+  const loadOrdersNeedingPicking = async () => {
+    if (!worker?.warehouseId) return;
+    setIsLoadingOrders(true);
+    try {
+      const tasks = await tasksApi.getAll("picking", undefined, undefined, worker.warehouseId, false);
+      const activeTasks = tasks.filter((t) =>
+        t.referenceType === "order" &&
+        !!t.referenceId &&
+        ["pending", "assigned", "in_progress"].includes((t.status || "").toLowerCase())
+      );
+
+      const orderIds = Array.from(new Set(activeTasks.map((t) => t.referenceId!).filter(Boolean)));
+      const fetchedOrders = await Promise.all(
+        orderIds.map(async (orderId) => {
+          try {
+            const order = await ordersApi.getById(orderId);
+            if ((order.orderType || "").toLowerCase() !== "outbound") return null;
+            return { id: order.id, orderNumber: order.orderNumber, status: order.status };
+          } catch {
+            return null;
+          }
+        })
+      );
+      setOrders(fetchedOrders.filter((o): o is OrderOption => !!o));
+    } catch (error) {
+      logger.error("Failed to load outbound orders for picking:", error);
+      showToast.error("Failed to load outbound orders");
+    } finally {
+      setIsLoadingOrders(false);
+    }
   };
 
-  // Load picking tasks from API - filtered by warehouse and only available (unassigned) tasks
-  useEffect(() => {
-    const loadPickingTasks = async () => {
-      if (!worker?.warehouseId) {
-        setIsLoading(false);
+  const loadPicksForOrder = async (order: OrderOption) => {
+    if (!worker?.warehouseId) return;
+    setIsLoadingPicks(true);
+    try {
+      const tasks = await tasksApi.getAll("picking", undefined, undefined, worker.warehouseId, false);
+      const orderTasks = tasks.filter((t) =>
+        t.referenceType === "order" &&
+        t.referenceId === order.id &&
+        ["pending", "assigned", "in_progress", "completed"].includes((t.status || "").toLowerCase()) &&
+        (!t.assignedTo || !worker?.id || t.assignedTo === worker.id)
+      );
+
+      if (orderTasks.length === 0) {
+        showToast.error("No picking tasks found for this outbound order");
+        setPicks([]);
         return;
       }
 
-      try {
-        setIsLoading(true);
-        const transformedPicks = await loadPicksForWorker(worker.warehouseId, worker.id);
-        setPicks(transformedPicks);
-      } catch (error) {
-        logger.error("Failed to load picking tasks:", error);
-        showToast.error("Failed to load picking tasks");
-        // Fallback to empty array
-        setPicks([]);
-      } finally {
-        setIsLoading(false);
+      const transformed = await transformTasksToPicks(orderTasks, order.id, order.orderNumber);
+      setPicks(transformed);
+      const firstCurrent = transformed.find((p) => p.status === "current");
+      if (firstCurrent) {
+        setPickedQty(firstCurrent.qty);
       }
-    };
-    
-    if (isOnline && worker?.warehouseId) {
-      loadPickingTasks();
-      
-      // Poll for new tasks every 3 seconds (to catch newly created orders faster)
-      const pollInterval = setInterval(() => {
-        loadPickingTasks();
-      }, 3000);
-      
-      return () => clearInterval(pollInterval);
-    }
-    
-    if (dbReady) {
-      loadSavedPicks();
-    }
-  }, [dbReady, isOnline, worker?.warehouseId, worker?.id]);
-
-  const loadSavedPicks = async () => {
-    try {
-      const records = await getScanRecordsByTask("picking");
-      setSavedPicks(records);
+      setScannedLocation("");
+      setLocationVerified(false);
+      setShowIssueForm(false);
+      setAvailableQty(0);
+      setIssueReason("");
     } catch (error) {
-      logger.error("Error loading saved picks:", error);
+      logger.error("Failed to load picking tasks for order:", error);
+      showToast.error("Failed to load order picking tasks");
+    } finally {
+      setIsLoadingPicks(false);
     }
   };
 
-  // Claim a task when worker selects it (first come first serve)
+  useEffect(() => {
+    if (!isOnline || !worker?.warehouseId) return;
+    void loadOrdersNeedingPicking();
+    const interval = setInterval(() => {
+      void loadOrdersNeedingPicking();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isOnline, worker?.warehouseId]);
+
+  useEffect(() => {
+    if (!selectedOrder || !isOnline) return;
+    void loadPicksForOrder(selectedOrder);
+  }, [selectedOrder, isOnline]);
+
+  useEffect(() => {
+    if (!currentPick) return;
+    setPickedQty(currentPick.qty);
+    setScannedLocation("");
+    setLocationVerified(false);
+    setShowIssueForm(false);
+    setAvailableQty(0);
+    setIssueReason("");
+  }, [currentPick?.id]);
+
+  const handleOrderScan = (result: string) => {
+    const normalized = result.trim().toUpperCase();
+    setScannedOrderNumber(normalized);
+    setShowOrderScanner(false);
+    void handleOrderSubmit(normalized);
+  };
+
+  const handleOrderSubmit = async (value?: string) => {
+    const orderNumber = (value ?? scannedOrderNumber).trim().toUpperCase();
+    if (!orderNumber) {
+      showToast.error("Enter or scan outbound order number");
+      return;
+    }
+
+    let order = orders.find((o) => o.orderNumber === orderNumber);
+    if (!order) {
+      try {
+        const fetched = await ordersApi.getByOrderNumber(orderNumber);
+        if ((fetched.orderType || "").toLowerCase() !== "outbound") {
+          showToast.error("Only outbound orders can be picked");
+          return;
+        }
+        order = { id: fetched.id, orderNumber: fetched.orderNumber, status: fetched.status };
+      } catch {
+        showToast.error(`Outbound order ${orderNumber} not found`);
+        return;
+      }
+    }
+
+    setSelectedOrder(order);
+    setScannedOrderNumber("");
+  };
+
+  const handleSelectPick = (index: number) => {
+    setPicks((prev) =>
+      prev.map((pick, idx) => {
+        if (pick.status === "completed") return pick;
+        if (idx === index) return { ...pick, status: "current" };
+        return { ...pick, status: "upcoming" };
+      })
+    );
+  };
+
+  const markCurrentAs = (kind: "completed" | "upcoming", skipReason?: string) => {
+    setPicks((prev) => {
+      const next = prev.map((pick) =>
+        pick.id === currentPick?.id
+          ? { ...pick, status: kind, skipReason: skipReason || pick.skipReason }
+          : pick
+      );
+      return withCurrentFlag(next);
+    });
+  };
+
   const handleClaimTask = async (taskId: string) => {
     if (!worker?.id) {
       showToast.error("Worker information not available");
@@ -176,259 +289,388 @@ export default function PickingPage() {
     try {
       setClaimingTaskId(taskId);
       await tasksApi.claim(taskId, worker.id);
-      showToast.success("Task claimed successfully!");
-      
-      // Reload tasks to refresh the list
-      const loadPickingTasks = async () => {
-        if (!worker?.warehouseId) return;
-        const tasks = await tasksApi.getAll("picking", "pending", undefined, worker.warehouseId, true);
-        // Transform and set picks (same logic as in useEffect)
-        // ... (will be handled by useEffect dependency)
-      };
-      
-      if (isOnline) {
-        await loadPickingTasks();
-      }
-    } catch (error: any) {
-      showToast.error(error?.message || "Failed to claim task. It may have been taken by another worker.");
     } finally {
       setClaimingTaskId(null);
     }
   };
 
   const handleConfirmPick = async () => {
-    if (!currentPick || pickedQty === 0 || pickedQty > currentPick.qty) {
-      showToast.error("Please enter a valid quantity");
+    if (!currentPick) return;
+    if (!currentPick.materialId) {
+      showToast.error("Material mapping is missing for this task");
+      return;
+    }
+    if (pickedQty <= 0 || pickedQty > currentPick.qty) {
+      showToast.error(`Pick quantity must be between 1 and ${currentPick.qty}`);
+      return;
+    }
+    if (currentPick.location && !locationVerified) {
+      showToast.error("Please scan or verify pick location first");
       return;
     }
 
-    // Claim the task first if not already claimed
-    if (isOnline && worker?.id && !currentPick.taskId.includes("claimed")) {
-      try {
-        await handleClaimTask(currentPick.taskId);
-      } catch (error) {
-        showToast.error("Failed to claim task. Please try again.");
-        return;
-      }
-    }
-
-    setSaveStatus("saving");
-
     try {
-      if (isOnline) {
-        // Complete picking via API (with worker ID for tracking)
-        await operationsApi.completePicking(
-          currentPick.taskId, 
-          {
-            items: [{
+      if (worker?.id) {
+        await handleClaimTask(currentPick.taskId);
+      }
+      await operationsApi.completePicking(
+        currentPick.taskId,
+        {
+          items: [
+            {
               materialId: currentPick.materialId,
               quantity: pickedQty.toString(),
               locationCode: currentPick.location,
-            }],
-          },
-          worker?.id
-        );
-        
-        showToast.success("Pick confirmed successfully!");
-        
-        // Track picked location and mark as completed if all locations picked
-        setPicks(prev => {
-          const updated: Pick[] = prev.map((p): Pick => {
-            if (p.id === currentPick.id) {
-              // Track this location as picked
-              const pickedLocations = [...(p.pickedLocations || []), currentPick.location];
-              
-              // Check if this is a multi-location pick (same order, different locations)
-              const sameOrderPicks = prev.filter(pp => 
-                pp.order === p.order && 
-                pp.materialId === p.materialId && 
-                pp.status !== "completed"
-              );
-              
-              // If all locations for this material/order are picked, mark as completed
-              if (sameOrderPicks.length <= 1 || pickedLocations.length >= sameOrderPicks.length) {
-                return { ...p, status: "completed" as const, pickedLocations };
-              } else {
-                // Still more locations to pick
-                return { ...p, pickedLocations, status: "current" as const };
-              }
-            }
-            return p;
-          });
-          
-          // Set next upcoming task as current (if current is completed)
-          const current = updated.find(p => p.status === "current");
-          if (!current || current.status === "completed") {
-            const nextUpcoming = updated.find(p => p.status === "upcoming");
-            if (nextUpcoming) {
-              return updated.map((p): Pick =>
-                p.id === nextUpcoming.id ? { ...p, status: "current" as const } : p
-              );
-            }
-          }
-          return updated;
-        });
-      } else {
-        // Save pick record to IndexedDB (works offline)
-        const recordId = await saveScanRecord({
-          taskId: "picking",
-          location: currentPick.location,
-          sku: currentPick.sku,
-          item: currentPick.item,
-          qty: pickedQty,
-        });
+            },
+          ],
+        },
+        worker?.id
+      );
 
-        // Add to sync queue (will sync when online)
-        await addToSyncQueue({
-          type: "scan",
-          action: "create",
-          data: {
-            taskId: currentPick.taskId,
-            order: currentPick.order,
-            location: currentPick.location,
-            sku: currentPick.sku,
-            item: currentPick.item,
-            qty: pickedQty,
-            timestamp: Date.now(),
-          },
-        });
-        
-        showToast.success("Pick saved offline, will sync when online");
-      }
-
-      setSaveStatus("saved");
-      
-      // Reload saved picks
-      await loadSavedPicks();
-
-      // Reset form
-      setTimeout(() => {
-        setPickedQty(0);
-        setSaveStatus("idle");
-      }, 1500);
+      markCurrentAs("completed");
+      showToast.success("Pick confirmed");
     } catch (error) {
-      logger.error("Error saving pick:", error);
-      setSaveStatus("error");
-      showToast.error("Failed to save pick. Please try again.");
-      setTimeout(() => setSaveStatus("idle"), 2000);
+      logger.error("Error confirming pick:", error);
+      showToast.error("Failed to confirm pick");
     }
   };
 
-  // Manual refresh function
-  const handleRefresh = async () => {
-    if (!worker?.warehouseId) return;
-    setIsLoading(true);
+  const handleRaiseIssue = async () => {
+    if (!currentPick) return;
+    if (!currentPick.materialId) {
+      showToast.error("Cannot raise issue without material mapping");
+      return;
+    }
+    if (!issueReason.trim()) {
+      showToast.error("Issue reason is required");
+      return;
+    }
+    if (availableQty < 0 || availableQty > currentPick.qty) {
+      showToast.error(`Available quantity must be between 0 and ${currentPick.qty}`);
+      return;
+    }
     try {
-      const transformedPicks = await loadPicksForWorker(worker.warehouseId, worker.id);
-      setPicks(transformedPicks);
-      showToast.success("Tasks refreshed!");
+      await operationsApi.reportPickingIssue(
+        currentPick.taskId,
+        {
+          materialId: currentPick.materialId,
+          locationCode: currentPick.location || "",
+          requestedQuantity: currentPick.qty.toString(),
+          availableQuantity: availableQty.toString(),
+          reason: issueReason.trim(),
+        },
+        worker?.id
+      );
+      markCurrentAs("upcoming", issueReason.trim());
+      setShowIssueForm(false);
+      setIssueReason("");
+      setAvailableQty(0);
+      showToast.success("Issue raised and moved to next pick");
     } catch (error) {
-      logger.error("Failed to refresh tasks:", error);
-      showToast.error("Failed to refresh tasks");
-    } finally {
-      setIsLoading(false);
+      logger.error("Error raising picking issue:", error);
+      showToast.error("Failed to raise picking issue");
     }
   };
+
+  const verifyLocation = (value: string) => {
+    setScannedLocation(value);
+    if (!currentPick?.location) {
+      setLocationVerified(true);
+      return;
+    }
+    const matched =
+      normalizeLocation(value) === normalizeLocation(currentPick.location) ||
+      normalizeLocation(value).includes(normalizeLocation(currentPick.location)) ||
+      normalizeLocation(currentPick.location).includes(normalizeLocation(value));
+    setLocationVerified(matched);
+  };
+
+  if (workerContextLoading) {
+    return (
+      <div className="p-4 flex flex-col items-center justify-center h-64 gap-3">
+        <span className="loading loading-spinner loading-lg"></span>
+        <p className="text-sm text-base-content/60">Loading worker context...</p>
+      </div>
+    );
+  }
+
+  if (!worker?.warehouseId) {
+    return (
+      <div className="p-4">
+        <div className="alert alert-warning">No warehouse assigned to your account.</div>
+      </div>
+    );
+  }
+
+  if (!selectedOrder) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+          <h2 className="text-xl font-bold mb-4">Select Outbound Order</h2>
+          <label className="label">
+            <span className="label-text font-medium">Scan or Enter Outbound Order Number</span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="input input-bordered flex-1"
+              placeholder="OUT-001770976901690"
+              value={scannedOrderNumber}
+              onChange={(e) => setScannedOrderNumber(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void handleOrderSubmit();
+                }
+              }}
+            />
+            <button className="btn btn-primary" onClick={() => void handleOrderSubmit()}>
+              Load
+            </button>
+            <button className="btn btn-outline" onClick={() => setShowOrderScanner(true)}>
+              <span className="material-symbols-outlined">qr_code_scanner</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+          {isLoadingOrders ? (
+            <div className="flex justify-center py-8">
+              <span className="loading loading-spinner"></span>
+            </div>
+          ) : orders.length === 0 ? (
+            <div className="alert alert-info">No outbound orders currently have picking tasks.</div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-base-content/60">Ready to pick orders:</p>
+              {orders.map((order) => (
+                <button
+                  key={order.id}
+                  className="btn btn-outline w-full justify-start"
+                  onClick={() => setSelectedOrder(order)}
+                >
+                  <span className="material-symbols-outlined">local_shipping</span>
+                  <span className="font-mono font-bold">{order.orderNumber}</span>
+                  <span className="badge ml-auto">{order.status}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <Modal isOpen={showOrderScanner} onClose={() => setShowOrderScanner(false)} title="Scan Outbound Order">
+          <QRScanner isOpen={showOrderScanner} onClose={() => setShowOrderScanner(false)} onScan={handleOrderScan} />
+        </Modal>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
-      <NetworkStatusCard isOnline={isOnline} isLoading={isLoading} onRefresh={handleRefresh} />
+      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+        <div className="flex items-center justify-between">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              setSelectedOrder(null);
+              setPicks([]);
+            }}
+          >
+            <span className="material-symbols-outlined">arrow_back</span>
+            Back to Orders
+          </button>
+          <span className="badge badge-primary badge-lg">{selectedOrder.orderNumber}</span>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <progress className="progress progress-primary flex-1" value={completedCount} max={Math.max(picks.length, 1)} />
+          <span className="text-sm font-semibold">
+            {completedCount}/{picks.length}
+          </span>
+        </div>
+      </div>
 
-      {/* Current Pick */}
-      {currentPick && (
-        <CurrentPickCard
-          currentPick={currentPick}
-          upcomingPicks={upcomingPicks}
-          pickedQty={pickedQty}
-          scannedLocation={scannedLocation}
-          locationVerified={locationVerified}
-          saveStatus={saveStatus}
-          dbReady={dbReady}
-          onOpenLocationScanner={() => setShowLocationScanner(true)}
-          onScannedLocationChange={(entered) => {
-            setScannedLocation(entered);
-            if (entered && currentPick.location) {
-              const normalizedEntered = entered.toUpperCase().replace(/[^A-Z0-9]/g, "");
-              const normalizedTask = currentPick.location.toUpperCase().replace(/[^A-Z0-9]/g, "");
-              if (
-                normalizedEntered === normalizedTask ||
-                normalizedEntered.includes(normalizedTask) ||
-                normalizedTask.includes(normalizedEntered)
-              ) {
-                setLocationVerified(true);
-                showToast.success("Location verified!");
-              } else {
-                setLocationVerified(false);
-              }
+      {isLoadingPicks ? (
+        <div className="bg-base-100 rounded-xl p-6 border border-base-300 flex justify-center">
+          <span className="loading loading-spinner loading-lg"></span>
+        </div>
+      ) : currentPick ? (
+        <div className="bg-primary/10 border-2 border-primary rounded-xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-primary font-medium">Current Pick</div>
+            <span className="badge badge-primary">Active</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs text-base-content/60">Order</div>
+              <div className="font-bold">{currentPick.order}</div>
+            </div>
+            <div>
+              <div className="text-xs text-base-content/60">Location</div>
+              <div className="font-bold">{currentPick.location || "TBD"}</div>
+            </div>
+            <div>
+              <div className="text-xs text-base-content/60">Item</div>
+              <div className="font-semibold">{currentPick.item}</div>
+            </div>
+            <div>
+              <div className="text-xs text-base-content/60">Required Qty</div>
+              <div className="font-semibold">{currentPick.qty}</div>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="input input-bordered flex-1"
+              placeholder="Scan or enter pick location"
+              value={scannedLocation}
+              onChange={(e) => verifyLocation(e.target.value)}
+            />
+            <button className="btn btn-outline" onClick={() => setShowLocationScanner(true)}>
+              <span className="material-symbols-outlined">qr_code_scanner</span>
+            </button>
+          </div>
+          {currentPick.location ? (
+            <div className={`text-xs ${locationVerified ? "text-success" : "text-warning"}`}>
+              {locationVerified
+                ? `Location verified: ${currentPick.location}`
+                : `Verify exact location before pick: ${currentPick.location}`}
+            </div>
+          ) : (
+            <div className="text-xs text-info">Task has no fixed location. Confirm actual bin before picking.</div>
+          )}
+
+          <div>
+            <label className="label">
+              <span className="label-text">Picked Quantity</span>
+            </label>
+            <input
+              type="number"
+              className="input input-bordered w-full"
+              min={1}
+              max={currentPick.qty}
+              value={pickedQty}
+              onChange={(e) => setPickedQty(Number(e.target.value) || 0)}
+            />
+          </div>
+
+          <button
+            className="btn btn-primary w-full"
+            onClick={() => void handleConfirmPick()}
+            disabled={
+              pickedQty <= 0 ||
+              pickedQty > currentPick.qty ||
+              claimingTaskId === currentPick.taskId ||
+              (Boolean(currentPick.location) && !locationVerified)
+            }
+          >
+            Confirm Pick
+          </button>
+
+          {!showIssueForm ? (
+            <button className="btn btn-outline w-full" onClick={() => setShowIssueForm(true)}>
+              Raise Missing/Shortage Issue
+            </button>
+          ) : (
+            <div className="bg-base-100 border border-base-300 rounded-lg p-3 space-y-2">
+              <div className="text-sm font-semibold">Raise Picking Issue</div>
+              <input
+                type="number"
+                className="input input-bordered w-full"
+                min={0}
+                max={currentPick.qty}
+                placeholder="Available quantity at location"
+                value={availableQty}
+                onChange={(e) => setAvailableQty(Number(e.target.value) || 0)}
+              />
+              <textarea
+                className="textarea textarea-bordered w-full"
+                rows={2}
+                placeholder="Reason (e.g., bin empty, damaged, mismatch)"
+                value={issueReason}
+                onChange={(e) => setIssueReason(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <button className="btn btn-warning flex-1" onClick={() => void handleRaiseIssue()}>
+                  Submit Issue and Continue
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setShowIssueForm(false);
+                    setIssueReason("");
+                    setAvailableQty(0);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="alert alert-success">All pick tasks for this order are done.</div>
+      )}
+
+      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+        <div className="font-semibold mb-3">Pick Task List</div>
+        <div className="space-y-2">
+          {picks.map((pick, idx) => {
+            const isDone = pick.status === "completed";
+            const isCurrent = pick.status === "current";
+            const isSkipped = !!pick.skipReason && !isDone;
+            return (
+              <button
+                key={pick.id}
+                type="button"
+                className={`w-full p-3 rounded-lg border text-left ${
+                  isDone
+                    ? "bg-success/10 border-success opacity-70 cursor-not-allowed"
+                    : isCurrent
+                    ? "bg-primary/10 border-primary"
+                    : isSkipped
+                    ? "bg-warning/10 border-warning"
+                    : "bg-base-200 hover:border-primary/40"
+                }`}
+                disabled={isDone}
+                onClick={() => handleSelectPick(idx)}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold">
+                      {pick.location || "TBD"} • {pick.item}
+                    </div>
+                    <div className="text-xs text-base-content/60">Qty: {pick.qty}</div>
+                  </div>
+                  {isDone ? (
+                    <span className="badge badge-success">Done</span>
+                  ) : isCurrent ? (
+                    <span className="badge badge-primary">Current</span>
+                  ) : isSkipped ? (
+                    <span className="badge badge-warning">Issue Raised</span>
+                  ) : (
+                    <span className="badge badge-ghost">Pending</span>
+                  )}
+                </div>
+                {isSkipped && <div className="text-xs text-warning-content/80 mt-1">Reason: {pick.skipReason}</div>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <Modal isOpen={showLocationScanner} onClose={() => setShowLocationScanner(false)} title="Scan Pick Location">
+        <QRScanner
+          isOpen={showLocationScanner}
+          onClose={() => setShowLocationScanner(false)}
+          onScan={(result) => {
+            verifyLocation(result);
+            setShowLocationScanner(false);
+            if (currentPick?.location && normalizeLocation(result) !== normalizeLocation(currentPick.location)) {
+              showToast.error(`Location mismatch. Expected ${currentPick.location}`);
             }
           }}
-          onPickedQtyChange={setPickedQty}
-          onConfirmPick={handleConfirmPick}
         />
-      )}
-
-      {/* Claim Task Button for Current Pick */}
-      {currentPick && isOnline && worker?.id && (
-        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-          <button
-            onClick={() => handleClaimTask(currentPick.taskId)}
-            className="btn btn-primary w-full"
-            disabled={claimingTaskId === currentPick.taskId}
-          >
-            {claimingTaskId === currentPick.taskId ? (
-              <>
-                <span className="loading loading-spinner loading-sm"></span>
-                Claiming...
-              </>
-            ) : (
-              <>
-                <span className="material-symbols-outlined">lock</span>
-                Claim This Task (First Come First Serve)
-              </>
-            )}
-          </button>
-          <p className="text-xs text-base-content/60 mt-2 text-center">
-            Claim this task to lock it. Other workers won't see it once claimed.
-          </p>
-        </div>
-      )}
-
-      {/* Upcoming Picks */}
-      <UpcomingPicksCard upcomingPicks={upcomingPicks} />
-
-      {/* Saved Picks (from IndexedDB) */}
-      <SavedPicksCard savedPicks={savedPicks} />
-
-      {/* Quick Actions */}
-      <QuickActionsCard onOpenLocationScanner={() => setShowLocationScanner(true)} onRefreshSaved={loadSavedPicks} />
-
-      {/* QR Scanner */}
-      <QRScanner
-        isOpen={showLocationScanner}
-        onClose={() => setShowLocationScanner(false)}
-        onScan={(result) => {
-          setScannedLocation(result);
-          setShowLocationScanner(false);
-          
-          // Verify location matches task location
-          if (currentPick && currentPick.location) {
-            const normalizedScanned = result.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            const normalizedTask = currentPick.location.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            
-            if (normalizedScanned === normalizedTask || 
-                normalizedScanned.includes(normalizedTask) || 
-                normalizedTask.includes(normalizedScanned)) {
-              setLocationVerified(true);
-              showToast.success(`Location verified: ${currentPick.location}`);
-            } else {
-              setLocationVerified(false);
-              showToast.error(`Location mismatch! Expected: ${currentPick.location}, Scanned: ${result}`);
-            }
-          }
-        }}
-        title="Scan Bin Location QR Code"
-        description="Point camera at bin location QR code"
-      />
+      </Modal>
     </div>
   );
 }

@@ -44,8 +44,45 @@ public class PickingController {
         }
     }
 
+    @PostMapping("/issue/{taskId}")
+    public ResponseEntity<PickingIssueResponse> reportPickingIssue(
+            @PathVariable UUID taskId,
+            @RequestBody PickingIssueRequest request) {
+        try {
+            UUID materialId = UUID.fromString(request.materialId());
+            UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
+            var result = pickingService.reportPickingIssue(
+                    taskId,
+                    materialId,
+                    request.locationCode(),
+                    request.requestedQuantity() != null ? new BigDecimal(request.requestedQuantity()) : BigDecimal.ZERO,
+                    request.availableQuantity() != null ? new BigDecimal(request.availableQuantity()) : BigDecimal.ZERO,
+                    request.reason(),
+                    workerId
+            );
+
+            return ResponseEntity.ok(new PickingIssueResponse(
+                    result.success(),
+                    result.message(),
+                    result.anomalyId() != null ? result.anomalyId().toString() : null,
+                    result.taskId() != null ? result.taskId().toString() : null
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest()
+                    .body(new PickingIssueResponse(false, e.getMessage(), null, null));
+        }
+    }
+
     public record CompletePickingRequest(List<PickedItemDto> items, String workerId) {}
     public record PickedItemDto(String materialId, String quantity, String locationCode) {}
     public record PickingResponse(boolean success, String message, String taskId) {}
+    public record PickingIssueRequest(
+            String materialId,
+            String locationCode,
+            String requestedQuantity,
+            String availableQuantity,
+            String reason,
+            String workerId
+    ) {}
+    public record PickingIssueResponse(boolean success, String message, String anomalyId, String taskId) {}
 }
-

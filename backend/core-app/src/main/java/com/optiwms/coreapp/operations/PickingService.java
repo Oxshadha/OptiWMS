@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.anomalies.AnomalyService;
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
@@ -29,6 +30,7 @@ public class PickingService {
     private final InventoryService inventoryService;
     private final OutboundOrderWorkflowService workflowService;
     private final TaskOperationService taskOperationService;
+    private final AnomalyService anomalyService;
 
     public PickingService(TaskService taskService,
                          OrderService orderService,
@@ -36,7 +38,8 @@ public class PickingService {
                          OrderRepository orderRepository,
                          InventoryService inventoryService,
                          OutboundOrderWorkflowService workflowService,
-                         TaskOperationService taskOperationService) {
+                         TaskOperationService taskOperationService,
+                         AnomalyService anomalyService) {
         this.taskService = taskService;
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
@@ -44,6 +47,7 @@ public class PickingService {
         this.inventoryService = inventoryService;
         this.workflowService = workflowService;
         this.taskOperationService = taskOperationService;
+        this.anomalyService = anomalyService;
     }
 
     @Transactional
@@ -88,6 +92,86 @@ public class PickingService {
         return new PickingResult(true, "Picking completed successfully", taskId);
     }
 
+    @Transactional
+    public PickingIssueResult reportPickingIssue(
+            UUID taskId,
+            UUID materialId,
+            String locationCode,
+            BigDecimal requestedQuantity,
+            BigDecimal availableQuantity,
+            String reason,
+            UUID workerId
+    ) {
+        Task task = taskService.findById(taskId);
+        if (!"picking".equals(task.getTaskType())) {
+            throw new RuntimeException("Task is not a picking task");
+        }
+
+        BigDecimal safeRequested = requestedQuantity != null ? requestedQuantity : BigDecimal.ZERO;
+        BigDecimal safeAvailable = availableQuantity != null ? availableQuantity : BigDecimal.ZERO;
+        BigDecimal variance = safeRequested.compareTo(BigDecimal.ZERO) > 0
+                ? safeRequested.subtract(safeAvailable)
+                        .divide(safeRequested, 4, java.math.RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                : BigDecimal.ZERO;
+        if (variance.compareTo(BigDecimal.ZERO) < 0) {
+            variance = BigDecimal.ZERO;
+        }
+
+        String severity;
+        if (variance.compareTo(new BigDecimal("75")) >= 0) {
+            severity = "critical";
+        } else if (variance.compareTo(new BigDecimal("40")) >= 0) {
+            severity = "high";
+        } else if (variance.compareTo(new BigDecimal("20")) >= 0) {
+            severity = "medium";
+        } else {
+            severity = "low";
+        }
+
+        String summary = String.format(
+                "Picking issue on task %s at %s. Requested: %s, Available: %s. Reason: %s",
+                task.getTaskNumber(),
+                locationCode != null ? locationCode : "N/A",
+                safeRequested,
+                safeAvailable,
+                reason != null ? reason : "Not provided"
+        );
+
+        var anomaly = anomalyService.create(
+                "PICKING_SHORTAGE",
+                materialId,
+                task.getWarehouseId(),
+                safeAvailable,
+                safeRequested,
+                variance,
+                severity,
+                summary
+        );
+
+        String existingNotes = task.getNotes() != null ? task.getNotes() + "\n" : "";
+        String reasonValue = reason != null ? reason.trim() : "";
+        String updatedNotes = existingNotes + String.format(
+                "PICKING_ISSUE=%s|REQ=%s|AVL=%s|LOC=%s|REASON=%s|ANOMALY_ID=%s",
+                java.time.LocalDateTime.now(),
+                safeRequested,
+                safeAvailable,
+                locationCode != null ? locationCode : "",
+                reasonValue.replace("\n", " ").replace("\r", " "),
+                anomaly.getId()
+        );
+        taskService.updateNotes(taskId, updatedNotes);
+
+        if ("pending".equals(task.getStatus()) && workerId != null) {
+            taskService.assignTask(taskId, workerId, "system");
+        }
+        if (("pending".equals(task.getStatus()) || "assigned".equals(task.getStatus())) && workerId != null) {
+            taskService.updateStatusWithWorker(taskId, "in_progress", workerId);
+        }
+
+        return new PickingIssueResult(true, "Picking issue reported", anomaly.getId(), taskId);
+    }
+
     private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
         List<InventoryItem> existing = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         
@@ -121,4 +205,6 @@ public class PickingService {
     public record PickedItem(UUID materialId, BigDecimal quantity, String locationCode) {}
 
     public record PickingResult(boolean success, String message, UUID taskId) {}
+
+    public record PickingIssueResult(boolean success, String message, UUID anomalyId, UUID taskId) {}
 }
