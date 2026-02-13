@@ -61,7 +61,7 @@ export const authApi = {
       let errorMessage = 'Login failed';
       try {
         const errorData = await response.json();
-        errorMessage = errorData.message || errorData.error || `Login failed: ${response.status}`;
+        errorMessage = errorData?.message || errorData?.detail || errorData?.error || `Login failed: ${response.status}`;
       } catch (e) {
         const errorText = await response.text().catch(() => '');
         errorMessage = errorText || `Login failed: ${response.status} ${response.statusText}`;
@@ -179,4 +179,3 @@ export const authApi = {
     }
   },
 };
-

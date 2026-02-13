@@ -285,7 +285,7 @@ export function CreateWorkerModal({
         // Handle fetch API error response
         try {
           const errorData = await err.response.json();
-          errorMessage = errorData.error || errorData.message || errorMessage;
+          errorMessage = errorData?.message || errorData?.detail || errorData?.error || errorMessage;
         } catch (e) {
           // If response is not JSON, use status text
           errorMessage = `API Error: ${err.response.status} - ${err.response.statusText || errorMessage}`;

@@ -116,6 +116,7 @@ public class AnomalyService {
         anomaly.setReviewedBy(entity.getReviewedBy());
         anomaly.setReviewedAt(entity.getReviewedAt());
         anomaly.setResolutionNotes(entity.getResolutionNotes());
+        anomaly.setCreatedAt(entity.getCreatedAt());
         return anomaly;
     }
 }

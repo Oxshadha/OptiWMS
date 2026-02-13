@@ -1,13 +1,16 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.operations.PackingRecord;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.PackingRecordEntity;
 import com.optiwms.infra.operations.PackingRecordRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -18,49 +21,29 @@ public class PackingService {
     private final PackingRecordRepository repository;
     private final OrderService orderService;
     private final OperationEventService operationEventService;
+    private final TaskService taskService;
 
-    public PackingService(PackingRecordRepository repository, OrderService orderService, OperationEventService operationEventService) {
+    public PackingService(
+            PackingRecordRepository repository,
+            OrderService orderService,
+            OperationEventService operationEventService,
+            TaskService taskService) {
         this.repository = repository;
         this.orderService = orderService;
         this.operationEventService = operationEventService;
+        this.taskService = taskService;
     }
 
     @Transactional
     public PackingRecord updateStatusWithWorker(UUID id, String status, UUID workerId) {
         PackingRecordEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
-        entity.setStatus(status);
-        if ("completed".equals(status) && entity.getCompletedAt() == null) {
-            entity.setCompletedAt(LocalDateTime.now());
-            
-            // Update order status to "ready_to_ship" when packing is completed
-            if (entity.getOrderId() != null) {
-                try {
-                    orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
-                    // Store worker record
-                    if (workerId != null) {
-                        orderService.updateWorkerRecord(entity.getOrderId(), workerId, "packed");
-                    }
-                } catch (RuntimeException e) {
-                    // Log but don't fail packing update
-                }
-            }
-            if (workerId != null) {
-                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                        "PACKING",
-                        workerId,
-                        null,
-                        entity.getOrderId(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        entity.getStartedAt(),
-                        entity.getCompletedAt(),
-                        null
-                ));
-            }
+        String normalizedStatus = normalizePackingStatus(status);
+        entity.setStatus(normalizedStatus);
+        if (workerId != null) {
+            entity.setPackerId(workerId);
         }
+        handlePackedSideEffects(entity);
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -108,22 +91,30 @@ public class PackingService {
         entity.setOrderNumber(packingRecord.getOrderNumber());
         entity.setPackagingTypeId(packingRecord.getPackagingTypeId());
         entity.setBoxType(packingRecord.getBoxType());
-        entity.setBoxDimensions(packingRecord.getBoxDimensions());
-        entity.setDunnageMaterials(packingRecord.getDunnageMaterials());
+        entity.setBoxDimensions(normalizeJsonObjectText(packingRecord.getBoxDimensions()));
+        entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
         entity.setHasFragileItems(packingRecord.getHasFragileItems() != null ? packingRecord.getHasFragileItems() : false);
         entity.setActualWeightKg(packingRecord.getActualWeightKg());
         entity.setDimensionalWeightKg(packingRecord.getDimensionalWeightKg());
         entity.setChargeableWeightKg(packingRecord.getChargeableWeightKg());
-        entity.setTrackingNumber(packingRecord.getTrackingNumber());
+        entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), packingRecord.getOrderNumber()));
         entity.setShippingLabelUrl(packingRecord.getShippingLabelUrl());
         entity.setPackingSlipUrl(packingRecord.getPackingSlipUrl());
         entity.setPackingNotes(packingRecord.getPackingNotes());
-        entity.setPackingPhotos(packingRecord.getPackingPhotos());
+        entity.setPackingPhotos(normalizeJsonArrayText(packingRecord.getPackingPhotos()));
         entity.setPackerId(packingRecord.getPackerId());
-        entity.setStatus(packingRecord.getStatus() != null ? packingRecord.getStatus() : "in_progress");
+        String normalizedStatus = normalizePackingStatus(packingRecord.getStatus() != null ? packingRecord.getStatus() : "in_progress");
+        entity.setStatus(normalizedStatus);
         entity.setStartedAt(packingRecord.getStartedAt() != null ? packingRecord.getStartedAt() : LocalDateTime.now());
+        handlePackedSideEffects(entity);
 
         PackingRecordEntity saved = repository.save(entity);
+        if (saved.getOrderId() != null && ("in_progress".equals(saved.getStatus()) || "pending".equals(saved.getStatus()))) {
+            try {
+                orderService.updateStatus(saved.getOrderId(), "packing");
+            } catch (RuntimeException ignored) {
+            }
+        }
         return toDomain(saved);
     }
 
@@ -131,8 +122,9 @@ public class PackingService {
     public PackingRecord updateStatus(UUID id, String status) {
         PackingRecordEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
-        entity.setStatus(status);
-        if ("completed".equals(status) && entity.getCompletedAt() == null) {
+        String normalizedStatus = normalizePackingStatus(status);
+        entity.setStatus(normalizedStatus);
+        if ("packed".equals(normalizedStatus) && entity.getCompletedAt() == null) {
             entity.setCompletedAt(LocalDateTime.now());
             
             // Update order status to "ready_to_ship" when packing is completed
@@ -154,15 +146,27 @@ public class PackingService {
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + packingRecord.getId()));
 
         if (packingRecord.getBoxType() != null) entity.setBoxType(packingRecord.getBoxType());
-        if (packingRecord.getBoxDimensions() != null) entity.setBoxDimensions(packingRecord.getBoxDimensions());
-        if (packingRecord.getDunnageMaterials() != null) entity.setDunnageMaterials(packingRecord.getDunnageMaterials());
+        if (packingRecord.getBoxDimensions() != null) {
+            entity.setBoxDimensions(normalizeJsonObjectText(packingRecord.getBoxDimensions()));
+        }
+        if (packingRecord.getDunnageMaterials() != null) {
+            entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
+        }
         if (packingRecord.getHasFragileItems() != null) entity.setHasFragileItems(packingRecord.getHasFragileItems());
         if (packingRecord.getActualWeightKg() != null) entity.setActualWeightKg(packingRecord.getActualWeightKg());
         if (packingRecord.getDimensionalWeightKg() != null) entity.setDimensionalWeightKg(packingRecord.getDimensionalWeightKg());
         if (packingRecord.getChargeableWeightKg() != null) entity.setChargeableWeightKg(packingRecord.getChargeableWeightKg());
-        if (packingRecord.getTrackingNumber() != null) entity.setTrackingNumber(packingRecord.getTrackingNumber());
+        if (packingRecord.getTrackingNumber() != null) {
+            entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), entity.getOrderNumber()));
+        } else if (entity.getTrackingNumber() == null || entity.getTrackingNumber().isBlank()) {
+            entity.setTrackingNumber(normalizeTrackingNumber(null, entity.getOrderNumber()));
+        }
         if (packingRecord.getPackingNotes() != null) entity.setPackingNotes(packingRecord.getPackingNotes());
-        if (packingRecord.getStatus() != null) entity.setStatus(packingRecord.getStatus());
+        if (packingRecord.getPackerId() != null) entity.setPackerId(packingRecord.getPackerId());
+        if (packingRecord.getStatus() != null) {
+            entity.setStatus(normalizePackingStatus(packingRecord.getStatus()));
+        }
+        handlePackedSideEffects(entity);
 
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -198,5 +202,150 @@ public class PackingService {
         p.setCreatedAt(entity.getCreatedAt());
         p.setUpdatedAt(entity.getUpdatedAt());
         return p;
+    }
+
+    private String normalizePackingStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "pending";
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("completed".equals(normalized)) {
+            return "packed";
+        }
+        return normalized;
+    }
+
+    private String normalizeTrackingNumber(String trackingNumber, String orderNumber) {
+        if (trackingNumber != null && !trackingNumber.isBlank()) {
+            return trackingNumber.trim().toUpperCase();
+        }
+        return derivePackReference(orderNumber);
+    }
+
+    private String derivePackReference(String orderNumber) {
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return "PACK-" + System.currentTimeMillis();
+        }
+        String normalized = orderNumber.trim().toUpperCase();
+        if (normalized.startsWith("OUT-")) {
+            return "PACK-" + normalized.substring(4);
+        }
+        return "PACK-" + normalized.replaceFirst("^OUT", "").replaceFirst("^-+", "");
+    }
+
+    private String normalizeJsonArrayText(String value) {
+        if (value == null || value.isBlank()) {
+            return "[]";
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        List<String> parts = Arrays.stream(trimmed.split(","))
+                .map(String::trim)
+                .filter(part -> !part.isEmpty())
+                .collect(Collectors.toList());
+        return "["
+                + parts.stream()
+                .map(part -> "\"" + part.replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(","))
+                + "]";
+    }
+
+    private String normalizeJsonObjectText(String value) {
+        if (value == null || value.isBlank()) {
+            return "{}";
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        // Keep free-text dimensions as valid JSON payload instead of raw VARCHAR.
+        return "{\"value\":\"" + trimmed.replace("\"", "\\\"") + "\"}";
+    }
+
+    private void handlePackedSideEffects(PackingRecordEntity entity) {
+        if (!"packed".equals(entity.getStatus())) {
+            return;
+        }
+
+        if (entity.getCompletedAt() == null) {
+            entity.setCompletedAt(LocalDateTime.now());
+        }
+
+        if (entity.getOrderId() != null) {
+            try {
+                orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
+            } catch (RuntimeException ignored) {
+            }
+
+            if (entity.getPackerId() != null) {
+                try {
+                    orderService.updateWorkerRecord(entity.getOrderId(), entity.getPackerId(), "packed");
+                } catch (RuntimeException ignored) {
+                }
+            }
+
+            completePackingTasks(entity.getOrderId(), entity.getPackerId(), entity.getCompletedAt());
+        }
+
+        if (entity.getPackerId() != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "PACKING",
+                    entity.getPackerId(),
+                    null,
+                    entity.getOrderId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    entity.getStartedAt(),
+                    entity.getCompletedAt(),
+                    null
+            ));
+        }
+    }
+
+    private void completePackingTasks(UUID orderId, UUID workerId, LocalDateTime completedAt) {
+        List<Task> packingTasks = taskService.findByTaskTypeAndReference("packing", "order", orderId);
+        List<Task> openTasks = packingTasks.stream()
+                .filter(task -> {
+                    String status = task.getStatus() == null ? "" : task.getStatus().toLowerCase();
+                    return "pending".equals(status) || "assigned".equals(status) || "in_progress".equals(status);
+                })
+                .toList();
+
+        if (openTasks.isEmpty()) {
+            Task completedTask = new Task();
+            completedTask.setTaskNumber(generateTaskNumber("PACK", orderId));
+            completedTask.setTaskType("packing");
+            completedTask.setReferenceType("order");
+            completedTask.setReferenceId(orderId);
+            completedTask.setStatus("completed");
+            completedTask.setAssignedTo(workerId);
+            completedTask.setDueDate(completedAt);
+            Task created = taskService.create(completedTask);
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(created.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(created.getId(), "completed");
+            }
+            return;
+        }
+
+        for (Task task : openTasks) {
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(task.getId(), "completed");
+            }
+        }
+    }
+
+    private String generateTaskNumber(String prefix, UUID orderId) {
+        String ts = String.valueOf(System.currentTimeMillis());
+        String suffix = ts.substring(Math.max(0, ts.length() - 6));
+        String orderPart = orderId != null ? orderId.toString().substring(0, 8).toUpperCase() : "ORDER";
+        return prefix + "-" + orderPart + "-" + suffix;
     }
 }

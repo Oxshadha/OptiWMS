@@ -48,6 +48,21 @@ export interface PickingResponse {
   taskId?: string;
 }
 
+export interface PickingIssueRequest {
+  materialId: string;
+  locationCode: string;
+  requestedQuantity: string;
+  availableQuantity: string;
+  reason: string;
+}
+
+export interface PickingIssueResponse {
+  success: boolean;
+  message: string;
+  anomalyId?: string;
+  taskId?: string;
+}
+
 // Putaway Operations
 export interface CompletePutawayRequest {
   locationCode: string;
@@ -196,6 +211,11 @@ export const operationsApi = {
   completePicking: async (taskId: string, request: CompletePickingRequest, workerId?: string): Promise<PickingResponse> => {
     const requestWithWorker = { ...request, workerId };
     return apiClient.post<PickingResponse>(`/operations/picking/complete/${taskId}`, requestWithWorker);
+  },
+
+  reportPickingIssue: async (taskId: string, request: PickingIssueRequest, workerId?: string): Promise<PickingIssueResponse> => {
+    const requestWithWorker = { ...request, workerId };
+    return apiClient.post<PickingIssueResponse>(`/operations/picking/issue/${taskId}`, requestWithWorker);
   },
 
   // Putaway

@@ -61,14 +61,12 @@ public class ShipmentController {
         shipment.setCarrier(request.carrier());
         shipment.setTrackingNumber(request.trackingNumber());
         shipment.setDestination(request.destination());
-        shipment.setWeightKg(request.weightKg() != null ? new BigDecimal(request.weightKg()) : null);
+        shipment.setWeightKg(parseOptionalBigDecimal(request.weightKg()));
         shipment.setDriverName(request.driverName());
         shipment.setDriverPhone(request.driverPhone());
         shipment.setVehicleNumber(request.vehicleNumber());
         shipment.setStatus(request.status() != null ? request.status() : "label_created");
-        if (request.eta() != null && !request.eta().isEmpty()) {
-            shipment.setEta(LocalDate.parse(request.eta()));
-        }
+        shipment.setEta(parseOptionalDate(request.eta()));
 
         Shipment created = service.create(shipment);
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
@@ -80,14 +78,12 @@ public class ShipmentController {
         if (request.carrier() != null) shipment.setCarrier(request.carrier());
         if (request.trackingNumber() != null) shipment.setTrackingNumber(request.trackingNumber());
         if (request.destination() != null) shipment.setDestination(request.destination());
-        if (request.weightKg() != null) shipment.setWeightKg(new BigDecimal(request.weightKg()));
+        if (request.weightKg() != null) shipment.setWeightKg(parseOptionalBigDecimal(request.weightKg()));
         if (request.driverName() != null) shipment.setDriverName(request.driverName());
         if (request.driverPhone() != null) shipment.setDriverPhone(request.driverPhone());
         if (request.vehicleNumber() != null) shipment.setVehicleNumber(request.vehicleNumber());
         if (request.status() != null) shipment.setStatus(request.status());
-        if (request.eta() != null && !request.eta().isEmpty()) {
-            shipment.setEta(LocalDate.parse(request.eta()));
-        }
+        if (request.eta() != null) shipment.setEta(parseOptionalDate(request.eta()));
 
         Shipment updated = service.update(shipment);
         return ResponseEntity.ok(toDto(updated));
@@ -100,7 +96,9 @@ public class ShipmentController {
             Authentication authentication
     ) {
         boolean managerApproval = isManagerOrAdmin(authentication);
-        UUID actorUserId = resolveActorUserId(authentication);
+        UUID actorUserId = request.workerId() != null && !request.workerId().isBlank()
+                ? UUID.fromString(request.workerId())
+                : resolveActorUserId(authentication);
         Shipment updated = service.updateStatus(id, request.status(), actorUserId, managerApproval);
         return ResponseEntity.ok(toDto(updated));
     }
@@ -171,7 +169,7 @@ public class ShipmentController {
             String eta
     ) {}
 
-    public record UpdateStatusRequest(String status) {}
+    public record UpdateStatusRequest(String status, String workerId) {}
 
     public record ShipmentDto(
             String id,
@@ -212,5 +210,27 @@ public class ShipmentController {
         return userRepository.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
+    }
+
+    private BigDecimal parseOptionalBigDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            throw new IllegalArgumentException("Invalid weightKg value");
+        }
+    }
+
+    private LocalDate parseOptionalDate(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.trim());
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid eta date format. Use YYYY-MM-DD.");
+        }
     }
 }

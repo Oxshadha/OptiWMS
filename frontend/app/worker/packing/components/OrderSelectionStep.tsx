@@ -3,24 +3,53 @@ import type { Order } from "../types";
 interface OrderSelectionStepProps {
   loading: boolean;
   readyToPackOrders: Order[];
+  orderReference: string;
   onSelectOrder: (order: Order) => void;
+  onOrderReferenceChange: (value: string) => void;
+  onLoadOrderByReference: () => void;
   onOpenScanner: () => void;
 }
 
 export function OrderSelectionStep({
   loading,
   readyToPackOrders,
+  orderReference,
   onSelectOrder,
+  onOrderReferenceChange,
+  onLoadOrderByReference,
   onOpenScanner,
 }: OrderSelectionStepProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-base-content">Select Order to Pack</h2>
-        <button onClick={onOpenScanner} className="btn btn-primary btn-sm">
-          <span className="material-symbols-outlined">qr_code_scanner</span>
-          Scan Order
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={onOpenScanner} className="btn btn-primary btn-sm">
+            <span className="material-symbols-outlined">qr_code_scanner</span>
+            Scan Order
+          </button>
+        </div>
+      </div>
+
+      <div className="card bg-base-100 border border-base-300 p-4">
+        <div className="text-sm font-medium text-base-content mb-2">Fallback: Enter Order Reference</div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="input input-bordered flex-1"
+            placeholder="Enter order number (e.g., OUT-001770...)"
+            value={orderReference}
+            onChange={(e) => onOrderReferenceChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onLoadOrderByReference();
+              }
+            }}
+          />
+          <button className="btn btn-outline" onClick={onLoadOrderByReference}>
+            Load
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">

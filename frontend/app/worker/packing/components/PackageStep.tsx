@@ -3,6 +3,8 @@ import type { PackingData } from "../types";
 
 interface PackageStepProps {
   packingData: Partial<PackingData>;
+  recommendedPackagingId?: string | null;
+  recommendedDunnage?: string[];
   onBack: () => void;
   onNext: () => void;
   onSelectPackage: (packageId: string) => void;
@@ -13,6 +15,8 @@ interface PackageStepProps {
 
 export function PackageStep({
   packingData,
+  recommendedPackagingId,
+  recommendedDunnage = [],
   onBack,
   onNext,
   onSelectPackage,
@@ -32,6 +36,17 @@ export function PackageStep({
 
       <div className="card bg-base-100 border border-base-300 p-6">
         <h3 className="font-semibold text-base-content mb-4">Box Type</h3>
+        {recommendedPackagingId && (
+          <div className="alert alert-info mb-4">
+            <span className="material-symbols-outlined">tips_and_updates</span>
+            <div className="text-sm">
+              System recommendation:{" "}
+              <span className="font-semibold">
+                {packagingTypes.find((pkg) => pkg.id === recommendedPackagingId)?.name || recommendedPackagingId}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-3">
           {packagingTypes.map((pkg) => (
             <button
@@ -60,6 +75,11 @@ export function PackageStep({
 
       <div className="card bg-base-100 border border-base-300 p-6">
         <h3 className="font-semibold text-base-content mb-4">Dunnage Materials</h3>
+        {recommendedDunnage.length > 0 && (
+          <div className="text-xs text-base-content/60 mb-2">
+            Recommended: {recommendedDunnage.join(", ")}
+          </div>
+        )}
         <div className="space-y-2">
           {dunnageOptions.map((material) => (
             <label key={material} className="label cursor-pointer justify-start gap-3">
