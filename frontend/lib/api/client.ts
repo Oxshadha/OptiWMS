@@ -75,44 +75,57 @@ async function handleResponse<T>(response: Response): Promise<T> {
       }
     }
     
+    const extractErrorMessage = (errorData: any, fallback: string): string => {
+      // Important: prefer `message` over `error`.
+      // Spring responses commonly send { error: "Bad Request", message: "<real cause>" }.
+      // If we prioritize `error`, the root cause gets masked globally.
+      if (errorData?.message && typeof errorData.message === 'string') {
+        return errorData.message;
+      }
+      if (errorData?.detail && typeof errorData.detail === 'string') {
+        return errorData.detail;
+      }
+      if (errorData?.error && typeof errorData.error === 'string') {
+        const genericError = ['bad request', 'internal server error', 'forbidden', 'unauthorized']
+          .includes(errorData.error.toLowerCase().trim());
+        if (genericError && typeof fallback === 'string' && fallback.trim().length > 0) {
+          return fallback;
+        }
+        return errorData.error;
+      }
+      if (typeof errorData === 'string') {
+        return errorData;
+      }
+      return fallback;
+    };
+
     // Handle 403 Forbidden - User doesn't have permission
     if (response.status === 403) {
       logger.error("[API Client] 403 Forbidden - User doesn't have permission");
       let errorMessage = 'Access denied. You do not have permission to access this resource.';
       try {
         const errorData = await response.json();
-        if (errorData.message) {
-          errorMessage = errorData.message;
-        } else if (errorData.error) {
-          errorMessage = errorData.error;
-        }
+        errorMessage = extractErrorMessage(errorData, errorMessage);
       } catch (e) {
         // Use default message
       }
       throw new Error(`Access Denied: ${errorMessage}`);
     }
     
-    // Try to parse as JSON first, fallback to text
+    // Parse error body from text first (single read), then try JSON.
     let errorMessage = response.statusText;
     try {
-      const errorData = await response.json();
-      if (errorData.error) {
-        errorMessage = errorData.error;
-      } else if (errorData.message) {
-        errorMessage = errorData.message;
-      } else if (typeof errorData === 'string') {
-        errorMessage = errorData;
-      } else {
-        errorMessage = JSON.stringify(errorData);
+      const rawText = await response.text();
+      if (rawText && rawText.trim() !== '') {
+        try {
+          const errorData = JSON.parse(rawText);
+          errorMessage = extractErrorMessage(errorData, rawText);
+        } catch {
+          errorMessage = rawText;
+        }
       }
-    } catch (jsonError) {
-      // If not JSON, try to get text
-      try {
-        const errorText = await response.text();
-        errorMessage = errorText || response.statusText;
-      } catch (textError) {
-        errorMessage = response.statusText;
-      }
+    } catch {
+      errorMessage = response.statusText;
     }
     
     logger.error(`[API Client] Error response: ${errorMessage}`);
@@ -277,4 +290,3 @@ export const apiClient = {
     return handleResponse<T>(response);
   },
 };
-

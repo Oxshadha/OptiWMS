@@ -31,13 +31,15 @@ public class PackingController {
     ) {
         List<PackingRecord> records;
         if (orderId != null) {
-            records = service.findByOrderId(UUID.fromString(orderId));
+            UUID orderUuid = parseOptionalUuid(orderId);
+            records = orderUuid != null ? service.findByOrderId(orderUuid) : List.of();
         } else if (orderNumber != null) {
             records = service.findByOrderNumber(orderNumber);
         } else if (status != null) {
             records = service.findByStatus(status);
         } else if (packerId != null) {
-            records = service.findByPackerId(UUID.fromString(packerId));
+            UUID packerUuid = parseOptionalUuid(packerId);
+            records = packerUuid != null ? service.findByPackerId(packerUuid) : List.of();
         } else {
             records = service.listAll();
         }
@@ -57,22 +59,22 @@ public class PackingController {
     @PostMapping
     public ResponseEntity<PackingRecordDto> create(@RequestBody CreatePackingRecordRequest request) {
         PackingRecord record = new PackingRecord();
-        record.setOrderId(request.orderId() != null ? UUID.fromString(request.orderId()) : null);
+        record.setOrderId(parseOptionalUuid(request.orderId()));
         record.setOrderNumber(request.orderNumber());
-        record.setPackagingTypeId(request.packagingTypeId() != null ? UUID.fromString(request.packagingTypeId()) : null);
+        record.setPackagingTypeId(parseOptionalUuid(request.packagingTypeId()));
         record.setBoxType(request.boxType());
         record.setBoxDimensions(request.boxDimensions());
         record.setDunnageMaterials(request.dunnageMaterials());
         record.setHasFragileItems(request.hasFragileItems());
-        record.setActualWeightKg(request.actualWeightKg() != null ? new BigDecimal(request.actualWeightKg()) : null);
-        record.setDimensionalWeightKg(request.dimensionalWeightKg() != null ? new BigDecimal(request.dimensionalWeightKg()) : null);
-        record.setChargeableWeightKg(request.chargeableWeightKg() != null ? new BigDecimal(request.chargeableWeightKg()) : null);
+        record.setActualWeightKg(parseOptionalBigDecimal(request.actualWeightKg()));
+        record.setDimensionalWeightKg(parseOptionalBigDecimal(request.dimensionalWeightKg()));
+        record.setChargeableWeightKg(parseOptionalBigDecimal(request.chargeableWeightKg()));
         record.setTrackingNumber(request.trackingNumber());
         record.setShippingLabelUrl(request.shippingLabelUrl());
         record.setPackingSlipUrl(request.packingSlipUrl());
         record.setPackingNotes(request.packingNotes());
         record.setPackingPhotos(request.packingPhotos());
-        record.setPackerId(request.packerId() != null ? UUID.fromString(request.packerId()) : null);
+        record.setPackerId(parseOptionalUuid(request.packerId()));
         record.setStatus(request.status() != null ? request.status() : "in_progress");
 
         PackingRecord created = service.create(record);
@@ -86,11 +88,12 @@ public class PackingController {
         if (request.boxDimensions() != null) record.setBoxDimensions(request.boxDimensions());
         if (request.dunnageMaterials() != null) record.setDunnageMaterials(request.dunnageMaterials());
         if (request.hasFragileItems() != null) record.setHasFragileItems(request.hasFragileItems());
-        if (request.actualWeightKg() != null) record.setActualWeightKg(new BigDecimal(request.actualWeightKg()));
-        if (request.dimensionalWeightKg() != null) record.setDimensionalWeightKg(new BigDecimal(request.dimensionalWeightKg()));
-        if (request.chargeableWeightKg() != null) record.setChargeableWeightKg(new BigDecimal(request.chargeableWeightKg()));
+        if (request.actualWeightKg() != null) record.setActualWeightKg(parseOptionalBigDecimal(request.actualWeightKg()));
+        if (request.dimensionalWeightKg() != null) record.setDimensionalWeightKg(parseOptionalBigDecimal(request.dimensionalWeightKg()));
+        if (request.chargeableWeightKg() != null) record.setChargeableWeightKg(parseOptionalBigDecimal(request.chargeableWeightKg()));
         if (request.trackingNumber() != null) record.setTrackingNumber(request.trackingNumber());
         if (request.packingNotes() != null) record.setPackingNotes(request.packingNotes());
+        if (request.packerId() != null) record.setPackerId(parseOptionalUuid(request.packerId()));
         if (request.status() != null) record.setStatus(request.status());
 
         PackingRecord updated = service.update(record);
@@ -102,7 +105,7 @@ public class PackingController {
             @PathVariable UUID id,
             @RequestBody UpdateStatusRequest request
     ) {
-        UUID workerId = request.workerId() != null ? UUID.fromString(request.workerId()) : null;
+        UUID workerId = parseOptionalUuid(request.workerId());
         PackingRecord updated = service.updateStatusWithWorker(id, request.status(), workerId);
         return ResponseEntity.ok(toDto(updated));
     }
@@ -168,6 +171,7 @@ public class PackingController {
             String chargeableWeightKg,
             String trackingNumber,
             String packingNotes,
+            String packerId,
             String status
     ) {}
 
@@ -195,4 +199,26 @@ public class PackingController {
             String startedAt,
             String completedAt
     ) {}
+
+    private UUID parseOptionalUuid(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private BigDecimal parseOptionalBigDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
 }

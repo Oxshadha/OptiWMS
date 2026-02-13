@@ -32,9 +32,11 @@ public class PackingRecordEntity {
     private String boxType;
 
     @Column(name = "box_dimensions", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String boxDimensions; // JSON string
 
     @Column(name = "dunnage_materials", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String dunnageMaterials; // JSON string
 
     @Column(name = "has_fragile_items")
@@ -62,6 +64,7 @@ public class PackingRecordEntity {
     private String packingNotes;
 
     @Column(name = "packing_photos", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String packingPhotos; // JSON string
 
     @Column(name = "packer_id", columnDefinition = "UUID")
@@ -142,4 +145,3 @@ public class PackingRecordEntity {
         this.updatedAt = OffsetDateTime.now();
     }
 }
-
