@@ -73,6 +73,55 @@ function mapApiPackingRecord(
   };
 }
 
+function derivePackReference(orderNumber?: string): string {
+  const normalized = (orderNumber || "").trim().toUpperCase();
+  if (!normalized) return `PACK-${Date.now()}`;
+  if (normalized.startsWith("OUT-")) {
+    return `PACK-${normalized.substring(4)}`;
+  }
+  return `PACK-${normalized.replace(/^OUT/, "").replace(/^-+/, "")}`;
+}
+
+function mapOrderToFallbackPackingRecord(
+  order: {
+    id: string;
+    orderNumber: string;
+    customerId?: string;
+    warehouseId: string;
+    priority: string;
+    status: string;
+    orderDate?: string;
+  },
+  customersMap: Map<string, string>,
+  warehousesMap: Map<string, string>
+): PackingRecord | null {
+  const orderStatus = (order.status || "").toLowerCase();
+  let status: PackingStatus | null = null;
+  if (orderStatus === "packing") status = "in_progress";
+  else if (orderStatus === "ready_to_ship") status = "packed";
+  else if (orderStatus === "shipped") status = "shipped";
+  if (!status) return null;
+
+  const createdAt = order.orderDate || new Date().toISOString();
+  return {
+    id: `fallback-${order.id}`,
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    customer: order.customerId ? getLookupValue(customersMap, order.customerId, "Unknown") : "Unknown",
+    priority: (order.priority?.toLowerCase() === "express" ? "express" : "normal") as "express" | "normal",
+    packagingType: "",
+    actualWeight: 0,
+    dimensionalWeight: 0,
+    chargeableWeight: 0,
+    trackingNumber: derivePackReference(order.orderNumber),
+    status,
+    startedAt: status === "in_progress" ? createdAt : undefined,
+    completedAt: status === "packed" || status === "shipped" ? createdAt : undefined,
+    createdAt,
+    warehouseName: getLookupValue(warehousesMap, order.warehouseId, "Unknown"),
+  };
+}
+
 export default function PackingPage() {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -125,7 +174,16 @@ export default function PackingPage() {
         })
       );
 
-      setPackingRecords(recordsData.map((record) => mapApiPackingRecord(record, ordersMap, usersMap)));
+      const recordsFromPacking = recordsData.map((record) => mapApiPackingRecord(record, ordersMap, usersMap));
+      const existingOrderKeys = new Set(
+        recordsFromPacking.map((record) => `${record.orderId || ""}|${record.orderNumber || ""}`)
+      );
+      const fallbackRecords = ordersData
+        .map((order) => mapOrderToFallbackPackingRecord(order, customersMap, warehousesMap))
+        .filter((record): record is PackingRecord => !!record)
+        .filter((record) => !existingOrderKeys.has(`${record.orderId}|${record.orderNumber}`));
+
+      setPackingRecords([...recordsFromPacking, ...fallbackRecords]);
     } catch (err) {
       logger.error("Failed to load packing records:", err);
       setError(err instanceof Error ? err.message : "Failed to load packing records");
