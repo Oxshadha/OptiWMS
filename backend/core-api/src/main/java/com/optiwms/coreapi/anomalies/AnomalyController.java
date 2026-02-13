@@ -96,7 +96,8 @@ public class AnomalyController {
                 anomaly.getStatus(),
                 anomaly.getReviewedBy() != null ? anomaly.getReviewedBy().toString() : null,
                 anomaly.getReviewedAt() != null ? anomaly.getReviewedAt().toString() : null,
-                anomaly.getResolutionNotes()
+                anomaly.getResolutionNotes(),
+                anomaly.getCreatedAt() != null ? anomaly.getCreatedAt().toString() : null
         );
     }
 
@@ -121,7 +122,7 @@ public class AnomalyController {
             String status,
             String reviewedBy,
             String reviewedAt,
-            String resolutionNotes
+            String resolutionNotes,
+            String createdAt
     ) {}
 }
-

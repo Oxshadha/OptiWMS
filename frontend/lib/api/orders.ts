@@ -36,6 +36,10 @@ export const ordersApi = {
     return apiClient.post<Order>('/orders', order);
   },
 
+  createTasksByOrderId: async (id: string): Promise<{ success: boolean; message: string; tasksCreated: number }> => {
+    return apiClient.post<{ success: boolean; message: string; tasksCreated: number }>(`/orders/${id}/create-tasks`, {});
+  },
+
   updateStatus: async (id: string, status: string): Promise<Order> => {
     return apiClient.put<Order>(`/orders/${id}/status`, { status });
   },

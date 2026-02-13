@@ -16,6 +16,7 @@ export interface Anomaly {
   reviewedBy?: string;
   reviewedAt?: string;
   resolutionNotes?: string;
+  createdAt?: string;
 }
 
 export const anomaliesApi = {
@@ -44,4 +45,3 @@ export const anomaliesApi = {
     return apiClient.delete<void>(`/anomalies/${id}`);
   },
 };
-

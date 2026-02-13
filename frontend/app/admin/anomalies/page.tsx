@@ -14,41 +14,87 @@ import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
+type Severity = "low" | "medium" | "high" | "critical";
+type Status = "open" | "investigating" | "resolved" | "false_positive";
+type Domain = "cycle_count" | "picking" | "other";
+
 interface AnomalyDisplay {
   id: string;
   anomalyId: string;
   anomalyType: string;
-  severity: "low" | "medium" | "high" | "critical";
+  anomalyTypeLabel: string;
+  domain: Domain;
+  severity: Severity;
   description: string;
   warehouseName: string;
   relatedEntityType: string;
   relatedEntityId: string;
-  detectedBy: string;
+  detectedBy: "system" | "worker" | "manager";
   detectedAt: string;
-  status: string;
+  status: Status;
   resolvedBy: string | null;
   resolvedAt: string | null;
 }
 
-const severityConfig = {
+const severityConfig: Record<Severity, { label: string; class: string }> = {
   low: { label: "Low", class: "badge-outline" },
   medium: { label: "Medium", class: "badge-warning" },
   high: { label: "High", class: "badge-error" },
   critical: { label: "Critical", class: "badge-error" },
 };
 
-const statusConfig = {
+const statusConfig: Record<Status, { label: string; class: string }> = {
   open: { label: "Open", class: "badge-error" },
   investigating: { label: "Investigating", class: "badge-warning" },
   resolved: { label: "Resolved", class: "badge-success" },
   false_positive: { label: "False Positive", class: "badge-outline" },
 };
 
-const detectedByConfig = {
+const detectedByConfig: Record<AnomalyDisplay["detectedBy"], { label: string; icon: string }> = {
   system: { label: "System", icon: "computer" },
-  ai_service: { label: "AI Service", icon: "psychology" },
   worker: { label: "Worker", icon: "person" },
   manager: { label: "Manager", icon: "admin_panel_settings" },
+};
+
+const normalizeType = (type?: string): string => (type || "UNKNOWN").toUpperCase();
+
+const getAnomalyDomain = (type: string): Domain => {
+  const normalized = normalizeType(type);
+  if (normalized.includes("CYCLE_COUNT")) return "cycle_count";
+  if (normalized.includes("PICKING")) return "picking";
+  return "other";
+};
+
+const getTypeLabel = (type: string): string => type.toLowerCase().replace(/_/g, " ");
+
+const toSeverity = (severity?: string): Severity => {
+  const normalized = (severity || "").toUpperCase();
+  if (normalized === "CRITICAL") return "critical";
+  if (normalized === "HIGH") return "high";
+  if (normalized === "MEDIUM") return "medium";
+  return "low";
+};
+
+const toDisplayStatus = (status?: string): Status => {
+  const normalized = (status || "").toUpperCase();
+  if (normalized === "REVIEWED" || normalized === "INVESTIGATING") return "investigating";
+  if (normalized === "RESOLVED") return "resolved";
+  if (normalized === "FALSE_POSITIVE") return "false_positive";
+  return "open";
+};
+
+const toApiStatus = (status: Status): string => {
+  if (status === "open") return "DETECTED";
+  if (status === "investigating") return "REVIEWED";
+  if (status === "resolved") return "RESOLVED";
+  return "FALSE_POSITIVE";
+};
+
+const formatDate = (value?: string | null): string => {
+  if (!value) return "N/A";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return date.toISOString().slice(0, 10);
 };
 
 export default function AnomaliesPage() {
@@ -56,13 +102,16 @@ export default function AnomaliesPage() {
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
+
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<AnomalyDisplay | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [severityFilter, setSeverityFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [targetStatus, setTargetStatus] = useState<Status>("resolved");
 
-  // API state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [severityFilter, setSeverityFilter] = useState<"all" | Severity>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
+  const [domainFilter, setDomainFilter] = useState<"all" | Domain>("all");
+
   const [anomalies, setAnomalies] = useState<AnomalyDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +120,7 @@ export default function AnomaliesPage() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
         anomaliesApi.getAll(),
         warehousesApi.getAll(),
@@ -79,61 +128,39 @@ export default function AnomaliesPage() {
         usersApi.getAll(),
       ]);
 
-      // Build maps
       const warehousesMap = new Map<string, string>();
-      warehousesData.forEach(wh => warehousesMap.set(wh.id, wh.name));
-      
+      warehousesData.forEach((wh) => warehousesMap.set(wh.id, wh.name));
+
       const materialsMap = new Map<string, string>();
-      materialsData.forEach((m) =>
-        materialsMap.set(m.id, m.materialCode || m.description || m.id)
-      );
-      
+      materialsData.forEach((m) => materialsMap.set(m.id, m.materialCode || m.description || m.id));
+
       const usersMap = new Map<string, string>();
       usersData.forEach((u) => {
-        const displayName =
-          `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
-          u.username ||
-          u.email ||
-          "Unknown";
+        const displayName = `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username || u.email || "Unknown";
         usersMap.set(u.id, displayName);
       });
 
-      // Transform API data to display format
       const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
+        const domain = getAnomalyDomain(a.anomalyType);
         const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
         const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
-        
-        // Map severity from API to display format
-        let severity: "low" | "medium" | "high" | "critical" = "low";
-        const apiSeverity = (a.severity || "").toUpperCase();
-        if (apiSeverity === "CRITICAL") severity = "critical";
-        else if (apiSeverity === "HIGH") severity = "high";
-        else if (apiSeverity === "MEDIUM") severity = "medium";
-        else severity = "low";
-
-        // Map status from API to display format
-        let displayStatus = a.status || "open";
-        if (displayStatus === "DETECTED") displayStatus = "open";
-        else if (displayStatus === "RESOLVED") displayStatus = "resolved";
-        else if (displayStatus === "REVIEWED") displayStatus = "investigating";
+        const detectedBy: AnomalyDisplay["detectedBy"] = domain === "picking" ? "worker" : "system";
 
         return {
           id: a.id,
           anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
-          anomalyType: a.anomalyType || "unknown",
-          severity,
+          anomalyType: normalizeType(a.anomalyType),
+          anomalyTypeLabel: getTypeLabel(normalizeType(a.anomalyType)),
+          domain,
+          severity: toSeverity(a.severity),
           description: a.description || "No description",
           warehouseName,
-          relatedEntityType: a.materialId ? "product" : (a.locationId ? "location" : "unknown"),
+          relatedEntityType: a.materialId ? "material" : (a.locationId ? "location" : "unknown"),
           relatedEntityId,
-          detectedBy: a.reviewedBy
-            ? usersMap.get(a.reviewedBy) || "System"
-            : "AI Service",
-          detectedAt: a.reviewedAt || new Date().toISOString(),
-          status: displayStatus,
-          resolvedBy: a.reviewedBy
-            ? usersMap.get(a.reviewedBy) || "System"
-            : null,
+          detectedBy,
+          detectedAt: a.createdAt || a.reviewedAt || "",
+          status: toDisplayStatus(a.status),
+          resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "Manager" : null,
           resolvedAt: a.reviewedAt || null,
         };
       });
@@ -151,21 +178,19 @@ export default function AnomaliesPage() {
     }
   }, []);
 
-  // Load data from API
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  // Filter anomalies by warehouse for warehouse managers
   const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
     ? anomalies.filter((a) => a.warehouseName === assignedWarehouseName)
     : anomalies;
 
   const summary = {
     totalAnomalies: anomaliesForWarehouse.length,
-    critical: anomaliesForWarehouse.filter((a) => a.severity === "critical").length,
-    open: anomaliesForWarehouse.filter((a) => a.status === "open").length,
-    resolvedToday: anomaliesForWarehouse.filter((a) => a.status === "resolved").length,
+    cycleCount: anomaliesForWarehouse.filter((a) => a.domain === "cycle_count").length,
+    picking: anomaliesForWarehouse.filter((a) => a.domain === "picking").length,
+    open: anomaliesForWarehouse.filter((a) => a.status === "open" || a.status === "investigating").length,
   };
 
   const filteredAnomalies = anomaliesForWarehouse.filter((anomaly) => {
@@ -173,21 +198,29 @@ export default function AnomaliesPage() {
     const matchesSearch = !query || (
       anomaly.anomalyId.toLowerCase().includes(query) ||
       anomaly.description.toLowerCase().includes(query) ||
-      anomaly.anomalyType.toLowerCase().includes(query) ||
+      anomaly.anomalyTypeLabel.toLowerCase().includes(query) ||
       anomaly.severity.toLowerCase().includes(query) ||
       anomaly.warehouseName.toLowerCase().includes(query) ||
       anomaly.relatedEntityType.toLowerCase().includes(query) ||
       anomaly.relatedEntityId.toLowerCase().includes(query) ||
-      anomaly.detectedBy.toLowerCase().includes(query) ||
-      anomaly.detectedAt.toLowerCase().includes(query) ||
-      anomaly.status.toLowerCase().includes(query) ||
-      (anomaly.resolvedBy && anomaly.resolvedBy.toLowerCase().includes(query)) ||
-      (anomaly.resolvedAt && anomaly.resolvedAt.toLowerCase().includes(query))
+      anomaly.status.toLowerCase().includes(query)
     );
     const matchesSeverity = severityFilter === "all" || anomaly.severity === severityFilter;
     const matchesStatus = statusFilter === "all" || anomaly.status === statusFilter;
-    return matchesSearch && matchesSeverity && matchesStatus;
+    const matchesDomain = domainFilter === "all" || anomaly.domain === domainFilter;
+    return matchesSearch && matchesSeverity && matchesStatus && matchesDomain;
   });
+
+  const handleStatusUpdate = async (anomaly: AnomalyDisplay, nextStatus: Status, notes: string) => {
+    try {
+      await anomaliesApi.resolve(anomaly.id, toApiStatus(nextStatus), admin?.id, notes);
+      showToast.success(`Anomaly marked as ${statusConfig[nextStatus].label}`);
+      await loadData();
+    } catch (err) {
+      logger.error("Failed to update anomaly status:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update anomaly status");
+    }
+  };
 
   if (loading) {
     return (
@@ -207,30 +240,10 @@ export default function AnomaliesPage() {
   }
 
   const summaryCards = [
-    {
-      label: "Total Anomalies",
-      value: summary.totalAnomalies,
-      icon: "warning",
-      color: "primary" as const,
-    },
-    {
-      label: "Critical",
-      value: summary.critical,
-      icon: "error",
-      color: "error" as const,
-    },
-    {
-      label: "Open",
-      value: summary.open,
-      icon: "schedule",
-      color: "warning" as const,
-    },
-    {
-      label: "Resolved Today",
-      value: summary.resolvedToday,
-      icon: "check_circle",
-      color: "success" as const,
-    },
+    { label: "Total Anomalies", value: summary.totalAnomalies, icon: "warning", color: "primary" as const },
+    { label: "Cycle Count", value: summary.cycleCount, icon: "inventory_2", color: "warning" as const },
+    { label: "Picking", value: summary.picking, icon: "shopping_cart", color: "error" as const },
+    { label: "Open/Investigating", value: summary.open, icon: "schedule", color: "success" as const },
   ];
 
   const columns = [
@@ -238,12 +251,19 @@ export default function AnomaliesPage() {
       key: "anomalyId",
       label: "Anomaly ID",
       render: (anomaly: AnomalyDisplay) => (
-        <Link
-          href={`/admin/anomalies/${anomaly.id}`}
-          className="font-semibold text-primary hover:underline"
-        >
+        <Link href={`/admin/anomalies/${anomaly.id}`} className="font-semibold text-primary hover:underline">
           {anomaly.anomalyId}
         </Link>
+      ),
+      sortable: true,
+    },
+    {
+      key: "domain",
+      label: "Domain",
+      render: (anomaly: AnomalyDisplay) => (
+        <span className="badge badge-outline text-xs whitespace-nowrap">
+          {anomaly.domain === "cycle_count" ? "Cycle Count" : anomaly.domain === "picking" ? "Picking" : "Other"}
+        </span>
       ),
       sortable: true,
     },
@@ -251,8 +271,11 @@ export default function AnomaliesPage() {
       key: "anomalyType",
       label: "Type",
       render: (anomaly: AnomalyDisplay) => (
-        <span className="badge badge-outline capitalize text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
-          {anomaly.anomalyType.replace("_", " ")}
+        <span
+          className="badge badge-outline capitalize text-xs whitespace-nowrap"
+          style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
+        >
+          {anomaly.anomalyTypeLabel}
         </span>
       ),
       sortable: true,
@@ -260,15 +283,11 @@ export default function AnomaliesPage() {
     {
       key: "severity",
       label: "Severity",
-      render: (anomaly: typeof anomalies[0]) => {
-        const severity = severityConfig[anomaly.severity as keyof typeof severityConfig];
-        // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
+      render: (anomaly: AnomalyDisplay) => {
+        const severity = severityConfig[anomaly.severity];
         if (severity.class === "badge-outline") {
           return (
-            <span 
-              className="badge text-xs whitespace-nowrap" 
-              style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-            >
+            <span className="badge text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
               {severity.label}
             </span>
           );
@@ -277,16 +296,8 @@ export default function AnomaliesPage() {
       },
       sortable: true,
     },
-    {
-      key: "description",
-      label: "Description",
-      className: "max-w-md",
-    },
-    {
-      key: "warehouseName",
-      label: "Warehouse",
-      sortable: true,
-    },
+    { key: "description", label: "Description", className: "max-w-md" },
+    { key: "warehouseName", label: "Warehouse", sortable: true },
     {
       key: "relatedEntity",
       label: "Related Entity",
@@ -300,8 +311,8 @@ export default function AnomaliesPage() {
     {
       key: "detectedBy",
       label: "Detected By",
-      render: (anomaly: typeof anomalies[0]) => {
-        const detector = detectedByConfig[anomaly.detectedBy as keyof typeof detectedByConfig];
+      render: (anomaly: AnomalyDisplay) => {
+        const detector = detectedByConfig[anomaly.detectedBy];
         return (
           <div className="flex items-center gap-1">
             <span className="material-symbols-outlined text-sm">{detector.icon}</span>
@@ -314,22 +325,18 @@ export default function AnomaliesPage() {
     {
       key: "detectedAt",
       label: "Detected At",
-      render: (anomaly: typeof anomalies[0]) => anomaly.detectedAt.split(" ")[0],
+      render: (anomaly: AnomalyDisplay) => formatDate(anomaly.detectedAt),
       className: "text-base-content/70",
       sortable: true,
     },
     {
       key: "status",
       label: "Status",
-      render: (anomaly: typeof anomalies[0]) => {
-        const status = statusConfig[anomaly.status as keyof typeof statusConfig];
-        // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
+      render: (anomaly: AnomalyDisplay) => {
+        const status = statusConfig[anomaly.status];
         if (status.class === "badge-outline") {
           return (
-            <span 
-              className="badge text-xs whitespace-nowrap" 
-              style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-            >
+            <span className="badge text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
               {status.label}
             </span>
           );
@@ -340,15 +347,12 @@ export default function AnomaliesPage() {
     },
   ];
 
-  const renderActions = (anomaly: typeof anomalies[0]) => (
+  const renderActions = (anomaly: AnomalyDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
       </label>
-      <ul
-        tabIndex={0}
-        className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
-      >
+      <ul tabIndex={0} className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-56 border border-base-300 z-10">
         <li>
           <Link href={`/admin/anomalies/${anomaly.id}`}>
             <span className="material-symbols-outlined text-sm">visibility</span>
@@ -360,19 +364,21 @@ export default function AnomaliesPage() {
             <button
               onClick={() => {
                 setSelectedAnomaly(anomaly);
+                setTargetStatus("investigating");
                 setShowResolveModal(true);
               }}
             >
-              <span className="material-symbols-outlined text-sm">check</span>
+              <span className="material-symbols-outlined text-sm">manage_search</span>
               Mark as Investigating
             </button>
           </li>
         )}
-        {anomaly.status === "investigating" && canEdit && (
+        {(anomaly.status === "open" || anomaly.status === "investigating") && canEdit && (
           <li>
             <button
               onClick={() => {
                 setSelectedAnomaly(anomaly);
+                setTargetStatus("resolved");
                 setShowResolveModal(true);
               }}
             >
@@ -381,23 +387,30 @@ export default function AnomaliesPage() {
             </button>
           </li>
         )}
-        <li>
-          <button>
-            <span className="material-symbols-outlined text-sm">close</span>
-            Mark as False Positive
-          </button>
-        </li>
+        {(anomaly.status === "open" || anomaly.status === "investigating") && canEdit && (
+          <li>
+            <button
+              onClick={() => {
+                setSelectedAnomaly(anomaly);
+                setTargetStatus("false_positive");
+                setShowResolveModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">rule</span>
+              Mark as False Positive
+            </button>
+          </li>
+        )}
       </ul>
     </div>
   );
 
   return (
     <div className="space-y-6 overflow-hidden">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Anomalies</h1>
-          <p className="text-sm text-base-content/60 mt-1">Monitor and resolve system anomalies</p>
+          <p className="text-sm text-base-content/60 mt-1">Monitor cycle-count and operational anomalies</p>
         </div>
         <div className="flex gap-3">
           <div className="form-control">
@@ -414,60 +427,45 @@ export default function AnomaliesPage() {
               <span className="material-symbols-outlined">filter_list</span>
               <span>Filter</span>
             </label>
-            <ul
-              tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300 z-10"
-            >
-              <li className="menu-title">Severity</li>
-              <li>
-                <button onClick={() => setSeverityFilter("all")}>All Severity</button>
-              </li>
-              <li>
-                <button onClick={() => setSeverityFilter("critical")}>Critical</button>
-              </li>
-              <li>
-                <button onClick={() => setSeverityFilter("high")}>High</button>
-              </li>
-              <li>
-                <button onClick={() => setSeverityFilter("medium")}>Medium</button>
-              </li>
-              <li>
-                <button onClick={() => setSeverityFilter("low")}>Low</button>
-              </li>
+            <ul tabIndex={0} className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-72 border border-base-300 z-10">
+              <li className="menu-title">Domain</li>
+              <li><button onClick={() => setDomainFilter("all")}>All Domains</button></li>
+              <li><button onClick={() => setDomainFilter("cycle_count")}>Cycle Count</button></li>
+              <li><button onClick={() => setDomainFilter("picking")}>Picking</button></li>
+              <li><button onClick={() => setDomainFilter("other")}>Other</button></li>
+
+              <li className="menu-title mt-2">Severity</li>
+              <li><button onClick={() => setSeverityFilter("all")}>All Severity</button></li>
+              <li><button onClick={() => setSeverityFilter("critical")}>Critical</button></li>
+              <li><button onClick={() => setSeverityFilter("high")}>High</button></li>
+              <li><button onClick={() => setSeverityFilter("medium")}>Medium</button></li>
+              <li><button onClick={() => setSeverityFilter("low")}>Low</button></li>
+
               <li className="menu-title mt-2">Status</li>
-              <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
-              </li>
-              <li>
-                <button onClick={() => setStatusFilter("open")}>Open</button>
-              </li>
-              <li>
-                <button onClick={() => setStatusFilter("investigating")}>Investigating</button>
-              </li>
-              <li>
-                <button onClick={() => setStatusFilter("resolved")}>Resolved</button>
-              </li>
+              <li><button onClick={() => setStatusFilter("all")}>All Status</button></li>
+              <li><button onClick={() => setStatusFilter("open")}>Open</button></li>
+              <li><button onClick={() => setStatusFilter("investigating")}>Investigating</button></li>
+              <li><button onClick={() => setStatusFilter("resolved")}>Resolved</button></li>
+              <li><button onClick={() => setStatusFilter("false_positive")}>False Positive</button></li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={() => loadData()}>
+          <button className="btn btn-sm btn-ghost" onClick={() => void loadData()}>
             <span className="material-symbols-outlined">refresh</span>
             <span>Refresh</span>
           </button>
         </div>
       </div>
 
-      {/* Summary Cards */}
       <SummaryCards cards={summaryCards} />
 
-      {/* Anomalies Table */}
       <div className="overflow-hidden">
         <DataTable
           data={filteredAnomalies}
           columns={columns}
           keyExtractor={(anomaly) => anomaly.id}
           onRowClick={(anomaly) => {
-            // Open detail modal instead of navigation
             setSelectedAnomaly(anomaly);
+            setTargetStatus("resolved");
             setShowResolveModal(true);
           }}
           actions={renderActions}
@@ -476,7 +474,6 @@ export default function AnomaliesPage() {
         />
       </div>
 
-      {/* Resolve Anomaly Modal */}
       {selectedAnomaly && (
         <ResolveAnomalyModal
           isOpen={showResolveModal}
@@ -484,58 +481,45 @@ export default function AnomaliesPage() {
             setShowResolveModal(false);
             setSelectedAnomaly(null);
           }}
-          onResolved={loadData}
+          onResolved={async (notes) => {
+            await handleStatusUpdate(selectedAnomaly, targetStatus, notes);
+          }}
           anomaly={selectedAnomaly}
+          targetStatus={targetStatus}
         />
       )}
     </div>
   );
 }
 
-// Resolve Anomaly Modal
 function ResolveAnomalyModal({
   isOpen,
   onClose,
   onResolved,
   anomaly,
+  targetStatus,
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onResolved: () => Promise<void>;
+  onResolved: (notes: string) => Promise<void>;
   anomaly: AnomalyDisplay;
+  targetStatus: Status;
 }) {
   const [formData, setFormData] = useState({
     resolutionNotes: "",
     actionsTaken: "",
   });
 
-  const severityConfigLocal = severityConfig;
-
-  const { admin } = useAdmin();
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    
-    try {
-      const resolutionText = `${formData.actionsTaken}\n\nResolution Notes: ${formData.resolutionNotes}`.trim();
-      await anomaliesApi.resolve(
-        anomaly.id,
-        "resolved",
-        admin?.id,
-        resolutionText
-      );
-      showToast.success("Anomaly resolved successfully");
-      await onResolved();
-      onClose();
-      setFormData({ resolutionNotes: "", actionsTaken: "" });
-    } catch (err) {
-      logger.error("Failed to resolve anomaly:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to resolve anomaly");
-    }
+    const notes = `${formData.actionsTaken}\n\nResolution Notes: ${formData.resolutionNotes}`.trim();
+    await onResolved(notes);
+    onClose();
+    setFormData({ resolutionNotes: "", actionsTaken: "" });
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Resolve Anomaly" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={statusConfig[targetStatus].label} size="md">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="card bg-base-200 p-4 rounded-lg space-y-2">
           <div className="flex justify-between">
@@ -543,25 +527,16 @@ function ResolveAnomalyModal({
             <span className="font-semibold">{anomaly.anomalyId}</span>
           </div>
           <div className="flex justify-between">
+            <span className="text-base-content/60">Domain:</span>
+            <span className="capitalize">{anomaly.domain.replace("_", " ")}</span>
+          </div>
+          <div className="flex justify-between">
             <span className="text-base-content/60">Type:</span>
-            <span className="capitalize">{anomaly.anomalyType.replace("_", " ")}</span>
+            <span className="capitalize">{anomaly.anomalyTypeLabel}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Severity:</span>
-            {(() => {
-              const severity = severityConfigLocal[anomaly.severity as keyof typeof severityConfigLocal];
-              if (severity.class === "badge-outline") {
-                return (
-                  <span 
-                    className="badge text-xs whitespace-nowrap" 
-                    style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                  >
-                    {severity.label}
-                  </span>
-                );
-              }
-              return <span className={`badge ${severity.class}`}>{severity.label}</span>;
-            })()}
+            <span className={`badge ${severityConfig[anomaly.severity].class}`}>{severityConfig[anomaly.severity].label}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Description:</span>
@@ -578,7 +553,7 @@ function ResolveAnomalyModal({
             rows={4}
             value={formData.resolutionNotes}
             onChange={(e) => setFormData({ ...formData, resolutionNotes: e.target.value })}
-            placeholder="Describe how this anomaly was resolved..."
+            placeholder="Describe the decision and outcome..."
             required
           />
         </div>
@@ -592,7 +567,7 @@ function ResolveAnomalyModal({
             rows={3}
             value={formData.actionsTaken}
             onChange={(e) => setFormData({ ...formData, actionsTaken: e.target.value })}
-            placeholder="What actions were taken to resolve this issue?"
+            placeholder="What actions were taken?"
           />
         </div>
 
@@ -601,7 +576,7 @@ function ResolveAnomalyModal({
             Cancel
           </button>
           <button type="submit" className="btn btn-primary">
-            Mark as Resolved
+            Save
           </button>
         </div>
       </form>
