@@ -10,6 +10,7 @@ import { orderItemsApi } from "@/lib/api/orderItems";
 import { ordersApi } from "@/lib/api/orders";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { materialsApi } from "@/lib/api/materials";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { Pick } from "./types";
@@ -67,6 +68,16 @@ export default function PickingPage() {
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isLoadingPicks, setIsLoadingPicks] = useState(false);
   const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
+  const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | null>(null);
+  const [resolvingWarehouse, setResolvingWarehouse] = useState(false);
+
+  const warehouseDisplayName = worker?.warehouse || "";
+  const hasWarehouseName =
+    !!warehouseDisplayName &&
+    warehouseDisplayName !== "Unknown" &&
+    warehouseDisplayName !== "Unknown Warehouse" &&
+    warehouseDisplayName !== "Unassigned";
+  const effectiveWarehouseId = worker?.warehouseId || resolvedWarehouseId;
 
   const currentPick = useMemo(() => picks.find((p) => p.status === "current") || null, [picks]);
   const completedCount = useMemo(() => picks.filter((p) => p.status === "completed").length, [picks]);
@@ -134,10 +145,10 @@ export default function PickingPage() {
   };
 
   const loadOrdersNeedingPicking = async () => {
-    if (!worker?.warehouseId) return;
+    if (!effectiveWarehouseId) return;
     setIsLoadingOrders(true);
     try {
-      const tasks = await tasksApi.getAll("picking", undefined, undefined, worker.warehouseId, false);
+      const tasks = await tasksApi.getAll("picking", undefined, undefined, effectiveWarehouseId, false);
       const activeTasks = tasks.filter((t) =>
         t.referenceType === "order" &&
         !!t.referenceId &&
@@ -166,19 +177,63 @@ export default function PickingPage() {
   };
 
   const loadPicksForOrder = async (order: OrderOption) => {
-    if (!worker?.warehouseId) return;
+    if (!effectiveWarehouseId) return;
     setIsLoadingPicks(true);
     try {
-      const tasks = await tasksApi.getAll("picking", undefined, undefined, worker.warehouseId, false);
-      const orderTasks = tasks.filter((t) =>
-        t.referenceType === "order" &&
-        t.referenceId === order.id &&
-        ["pending", "assigned", "in_progress", "completed"].includes((t.status || "").toLowerCase()) &&
-        (!t.assignedTo || !worker?.id || t.assignedTo === worker.id)
-      );
+      const findOrderTasks = async (): Promise<Task[]> => {
+        const tasks = await tasksApi.getAll("picking", undefined, undefined, effectiveWarehouseId, false);
+        const activeStatuses = new Set(["pending", "assigned", "in_progress", "completed"]);
+        const workerVisible = (t: Task) => !t.assignedTo || !worker?.id || t.assignedTo === worker.id;
+
+        const direct = tasks.filter(
+          (t) =>
+            (t.referenceType || "").toLowerCase() === "order" &&
+            t.referenceId === order.id &&
+            activeStatuses.has((t.status || "").toLowerCase()) &&
+            workerVisible(t)
+        );
+        if (direct.length > 0) return direct;
+
+        const orderItems = await orderItemsApi.getByOrderId(order.id);
+        const orderItemIds = new Set(orderItems.map((item) => item.id));
+
+        const legacyOrderItem = tasks.filter(
+          (t) =>
+            (t.referenceType || "").toLowerCase() === "order_item" &&
+            !!t.referenceId &&
+            orderItemIds.has(t.referenceId) &&
+            activeStatuses.has((t.status || "").toLowerCase()) &&
+            workerVisible(t)
+        );
+        if (legacyOrderItem.length > 0) return legacyOrderItem;
+
+        const byPattern = tasks.filter((t) => {
+          const normalizedTaskNumber = (t.taskNumber || "").toUpperCase();
+          const normalizedNotes = (t.notes || "").toUpperCase();
+          const normalizedOrder = order.orderNumber.toUpperCase();
+          return (
+            (normalizedTaskNumber.includes(normalizedOrder) || normalizedNotes.includes(normalizedOrder)) &&
+            activeStatuses.has((t.status || "").toLowerCase()) &&
+            workerVisible(t)
+          );
+        });
+
+        return byPattern;
+      };
+
+      let orderTasks = await findOrderTasks();
+      if (orderTasks.length === 0) {
+        try {
+          // Auto-heal missing task generation for this outbound order
+          await ordersApi.createTasksByOrderId(order.id);
+          orderTasks = await findOrderTasks();
+        } catch (taskCreateErr) {
+          logger.warn("Could not auto-create picking tasks for order:", taskCreateErr);
+        }
+      }
 
       if (orderTasks.length === 0) {
-        showToast.error("No picking tasks found for this outbound order");
+        showToast.error("No outbound picking tasks found for this order in your warehouse");
         setPicks([]);
         return;
       }
@@ -203,13 +258,50 @@ export default function PickingPage() {
   };
 
   useEffect(() => {
-    if (!isOnline || !worker?.warehouseId) return;
+    const resolveWarehouseId = async () => {
+      if (worker?.warehouseId) {
+        setResolvedWarehouseId(worker.warehouseId);
+        return;
+      }
+      if (!hasWarehouseName) {
+        setResolvedWarehouseId(null);
+        return;
+      }
+
+      try {
+        setResolvingWarehouse(true);
+        const warehouses = await warehousesApi.getAll();
+        const matched = warehouses.find(
+          (w) => w.name.trim().toLowerCase() === warehouseDisplayName.trim().toLowerCase()
+        );
+        if (matched?.id) {
+          setResolvedWarehouseId(matched.id);
+          return;
+        }
+
+        const looseMatch = warehouses.find((w) =>
+          w.name.trim().toLowerCase().includes(warehouseDisplayName.trim().toLowerCase())
+        );
+        setResolvedWarehouseId(looseMatch?.id || null);
+      } catch (error) {
+        logger.error("Failed to resolve worker warehouse ID from name:", error);
+        setResolvedWarehouseId(null);
+      } finally {
+        setResolvingWarehouse(false);
+      }
+    };
+
+    void resolveWarehouseId();
+  }, [worker?.warehouseId, warehouseDisplayName, hasWarehouseName]);
+
+  useEffect(() => {
+    if (!isOnline || !effectiveWarehouseId) return;
     void loadOrdersNeedingPicking();
     const interval = setInterval(() => {
       void loadOrdersNeedingPicking();
     }, 5000);
     return () => clearInterval(interval);
-  }, [isOnline, worker?.warehouseId]);
+  }, [isOnline, effectiveWarehouseId]);
 
   useEffect(() => {
     if (!selectedOrder || !isOnline) return;
@@ -394,10 +486,22 @@ export default function PickingPage() {
     );
   }
 
-  if (!worker?.warehouseId) {
+  if (!effectiveWarehouseId && !hasWarehouseName) {
     return (
       <div className="p-4">
         <div className="alert alert-warning">No warehouse assigned to your account.</div>
+      </div>
+    );
+  }
+
+  if (!effectiveWarehouseId && hasWarehouseName) {
+    return (
+      <div className="p-4">
+        <div className="alert alert-info">
+          {resolvingWarehouse
+            ? "Resolving your warehouse access..."
+            : "Warehouse name exists but warehouse ID is not resolved yet. Refresh once, or contact admin to reassign warehouse."}
+        </div>
       </div>
     );
   }
