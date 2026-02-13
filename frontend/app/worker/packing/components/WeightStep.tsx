@@ -5,9 +5,11 @@ interface WeightStepProps {
   dimensionalWeight: number;
   onBack: () => void;
   onWeightChange: (weight: number) => void;
+  onTrackingNumberChange: (trackingNumber: string) => void;
   onPrintLabel: () => void;
   onPrintSlip: () => void;
-  onNext: () => void;
+  onComplete: () => void;
+  isSaving?: boolean;
 }
 
 export function WeightStep({
@@ -15,9 +17,11 @@ export function WeightStep({
   dimensionalWeight,
   onBack,
   onWeightChange,
+  onTrackingNumberChange,
   onPrintLabel,
   onPrintSlip,
-  onNext,
+  onComplete,
+  isSaving = false,
 }: WeightStepProps) {
   const chargeableWeight = Math.max(packingData.actualWeight || 0, dimensionalWeight);
 
@@ -45,6 +49,19 @@ export function WeightStep({
         />
       </div>
 
+      <div className="form-control">
+        <label className="label">
+          <span className="label-text font-medium">Packed Label / Tracking Reference</span>
+        </label>
+        <input
+          type="text"
+          className="input input-bordered w-full"
+          placeholder="PACK-12345"
+          value={packingData.trackingNumber || ""}
+          onChange={(e) => onTrackingNumberChange(e.target.value)}
+        />
+      </div>
+
       {packingData.boxDimensions && (
         <div className="card bg-base-200 p-4">
           <div className="text-sm text-base-content/60">Dimensional Weight:</div>
@@ -67,8 +84,12 @@ export function WeightStep({
         </div>
       </div>
 
-      <button onClick={onNext} disabled={!packingData.actualWeight || packingData.actualWeight <= 0} className="btn btn-primary w-full">
-        Complete Packing
+      <button
+        onClick={onComplete}
+        disabled={isSaving || !packingData.actualWeight || packingData.actualWeight <= 0}
+        className="btn btn-primary w-full"
+      >
+        {isSaving ? "Saving..." : "Complete Packing"}
       </button>
     </div>
   );

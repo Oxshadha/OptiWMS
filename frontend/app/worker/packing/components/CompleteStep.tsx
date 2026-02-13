@@ -36,11 +36,15 @@ export function CompleteStep({ order, packingData, dimensionalWeight, onConfirm 
               {Math.max(packingData.actualWeight || 0, dimensionalWeight).toFixed(2)} kg
             </span>
           </div>
+          <div className="flex justify-between">
+            <span className="text-base-content/60">Packed Label:</span>
+            <span className="font-semibold text-base-content">{packingData.trackingNumber || "Auto-generate"}</span>
+          </div>
         </div>
       </div>
 
       <button onClick={onConfirm} className="btn btn-primary w-full">
-        Confirm & Save
+        Confirm Packing & Move to Shipment
       </button>
     </div>
   );

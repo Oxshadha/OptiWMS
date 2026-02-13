@@ -27,6 +27,15 @@ export default function ShipmentsPage() {
     notes: "",
   });
 
+  const derivePackReference = (orderNumber?: string) => {
+    const normalized = (orderNumber || "").trim().toUpperCase();
+    if (!normalized) return `PACK-${Date.now()}`;
+    if (normalized.startsWith("OUT-")) {
+      return `PACK-${normalized.substring(4)}`;
+    }
+    return `PACK-${normalized.replace(/^OUT/, "").replace(/^-+/, "")}`;
+  };
+
   // Load shipments - filtered by worker's warehouse and ready_to_ship status
   useEffect(() => {
     const loadShipments = async () => {
@@ -98,6 +107,10 @@ export default function ShipmentsPage() {
 
   const handleProcessShipment = (shipment: typeof shipments[0]) => {
     setSelectedShipment(shipment);
+    setDeliveryDetails((current) => ({
+      ...current,
+      trackingNumber: current.trackingNumber || shipment.trackingNumber || derivePackReference(shipment.orderNumber),
+    }));
     setShowProcessModal(true);
   };
 
@@ -136,7 +149,7 @@ export default function ShipmentsPage() {
             shipmentNumber,
             orderId: selectedShipment.orderId,
             carrier: deliveryDetails.trackingNumber ? "Custom" : "N/A",
-            trackingNumber: deliveryDetails.trackingNumber || "",
+            trackingNumber: deliveryDetails.trackingNumber || derivePackReference(selectedShipment.orderNumber),
             destination: "N/A",
             weightKg: "",
             driverName: deliveryDetails.driverName,
@@ -150,7 +163,10 @@ export default function ShipmentsPage() {
             driverName: deliveryDetails.driverName,
             driverPhone: deliveryDetails.driverPhone,
             vehicleNumber: deliveryDetails.vehicleNumber,
-            trackingNumber: deliveryDetails.trackingNumber || selectedShipment.trackingNumber,
+            trackingNumber:
+              deliveryDetails.trackingNumber ||
+              selectedShipment.trackingNumber ||
+              derivePackReference(selectedShipment.orderNumber),
             status: "ready_to_ship",
           });
         }

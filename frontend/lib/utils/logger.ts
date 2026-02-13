@@ -34,6 +34,14 @@ function containsSensitiveData(message: string): boolean {
  * Sanitize message to remove sensitive data
  */
 function sanitizeMessage(message: any): any {
+  if (message instanceof Error) {
+    return {
+      name: message.name,
+      message: message.message,
+      stack: message.stack,
+    };
+  }
+
   if (typeof message === 'string') {
     if (containsSensitiveData(message)) {
       return '[REDACTED - Sensitive Data]';
