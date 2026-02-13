@@ -1,7 +1,9 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.operations.PackingRecord;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.PackingRecordEntity;
 import com.optiwms.infra.operations.PackingRecordRepository;
 import org.springframework.stereotype.Service;
@@ -19,11 +21,17 @@ public class PackingService {
     private final PackingRecordRepository repository;
     private final OrderService orderService;
     private final OperationEventService operationEventService;
+    private final TaskService taskService;
 
-    public PackingService(PackingRecordRepository repository, OrderService orderService, OperationEventService operationEventService) {
+    public PackingService(
+            PackingRecordRepository repository,
+            OrderService orderService,
+            OperationEventService operationEventService,
+            TaskService taskService) {
         this.repository = repository;
         this.orderService = orderService;
         this.operationEventService = operationEventService;
+        this.taskService = taskService;
     }
 
     @Transactional
@@ -32,37 +40,10 @@ public class PackingService {
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
         String normalizedStatus = normalizePackingStatus(status);
         entity.setStatus(normalizedStatus);
-        if ("packed".equals(normalizedStatus) && entity.getCompletedAt() == null) {
-            entity.setCompletedAt(LocalDateTime.now());
-            
-            // Update order status to "ready_to_ship" when packing is completed
-            if (entity.getOrderId() != null) {
-                try {
-                    orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
-                    // Store worker record
-                    if (workerId != null) {
-                        orderService.updateWorkerRecord(entity.getOrderId(), workerId, "packed");
-                    }
-                } catch (RuntimeException e) {
-                    // Log but don't fail packing update
-                }
-            }
-            if (workerId != null) {
-                operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                        "PACKING",
-                        workerId,
-                        null,
-                        entity.getOrderId(),
-                        null,
-                        null,
-                        null,
-                        null,
-                        entity.getStartedAt(),
-                        entity.getCompletedAt(),
-                        null
-                ));
-            }
+        if (workerId != null) {
+            entity.setPackerId(workerId);
         }
+        handlePackedSideEffects(entity);
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -110,7 +91,7 @@ public class PackingService {
         entity.setOrderNumber(packingRecord.getOrderNumber());
         entity.setPackagingTypeId(packingRecord.getPackagingTypeId());
         entity.setBoxType(packingRecord.getBoxType());
-        entity.setBoxDimensions(packingRecord.getBoxDimensions());
+        entity.setBoxDimensions(normalizeJsonObjectText(packingRecord.getBoxDimensions()));
         entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
         entity.setHasFragileItems(packingRecord.getHasFragileItems() != null ? packingRecord.getHasFragileItems() : false);
         entity.setActualWeightKg(packingRecord.getActualWeightKg());
@@ -125,9 +106,10 @@ public class PackingService {
         String normalizedStatus = normalizePackingStatus(packingRecord.getStatus() != null ? packingRecord.getStatus() : "in_progress");
         entity.setStatus(normalizedStatus);
         entity.setStartedAt(packingRecord.getStartedAt() != null ? packingRecord.getStartedAt() : LocalDateTime.now());
+        handlePackedSideEffects(entity);
 
         PackingRecordEntity saved = repository.save(entity);
-        if (saved.getOrderId() != null && "in_progress".equals(saved.getStatus())) {
+        if (saved.getOrderId() != null && ("in_progress".equals(saved.getStatus()) || "pending".equals(saved.getStatus()))) {
             try {
                 orderService.updateStatus(saved.getOrderId(), "packing");
             } catch (RuntimeException ignored) {
@@ -164,7 +146,9 @@ public class PackingService {
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + packingRecord.getId()));
 
         if (packingRecord.getBoxType() != null) entity.setBoxType(packingRecord.getBoxType());
-        if (packingRecord.getBoxDimensions() != null) entity.setBoxDimensions(packingRecord.getBoxDimensions());
+        if (packingRecord.getBoxDimensions() != null) {
+            entity.setBoxDimensions(normalizeJsonObjectText(packingRecord.getBoxDimensions()));
+        }
         if (packingRecord.getDunnageMaterials() != null) {
             entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
         }
@@ -178,9 +162,11 @@ public class PackingService {
             entity.setTrackingNumber(normalizeTrackingNumber(null, entity.getOrderNumber()));
         }
         if (packingRecord.getPackingNotes() != null) entity.setPackingNotes(packingRecord.getPackingNotes());
+        if (packingRecord.getPackerId() != null) entity.setPackerId(packingRecord.getPackerId());
         if (packingRecord.getStatus() != null) {
             entity.setStatus(normalizePackingStatus(packingRecord.getStatus()));
         }
+        handlePackedSideEffects(entity);
 
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -264,5 +250,102 @@ public class PackingService {
                 .map(part -> "\"" + part.replace("\"", "\\\"") + "\"")
                 .collect(Collectors.joining(","))
                 + "]";
+    }
+
+    private String normalizeJsonObjectText(String value) {
+        if (value == null || value.isBlank()) {
+            return "{}";
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        // Keep free-text dimensions as valid JSON payload instead of raw VARCHAR.
+        return "{\"value\":\"" + trimmed.replace("\"", "\\\"") + "\"}";
+    }
+
+    private void handlePackedSideEffects(PackingRecordEntity entity) {
+        if (!"packed".equals(entity.getStatus())) {
+            return;
+        }
+
+        if (entity.getCompletedAt() == null) {
+            entity.setCompletedAt(LocalDateTime.now());
+        }
+
+        if (entity.getOrderId() != null) {
+            try {
+                orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
+            } catch (RuntimeException ignored) {
+            }
+
+            if (entity.getPackerId() != null) {
+                try {
+                    orderService.updateWorkerRecord(entity.getOrderId(), entity.getPackerId(), "packed");
+                } catch (RuntimeException ignored) {
+                }
+            }
+
+            completePackingTasks(entity.getOrderId(), entity.getPackerId(), entity.getCompletedAt());
+        }
+
+        if (entity.getPackerId() != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "PACKING",
+                    entity.getPackerId(),
+                    null,
+                    entity.getOrderId(),
+                    null,
+                    null,
+                    null,
+                    null,
+                    entity.getStartedAt(),
+                    entity.getCompletedAt(),
+                    null
+            ));
+        }
+    }
+
+    private void completePackingTasks(UUID orderId, UUID workerId, LocalDateTime completedAt) {
+        List<Task> packingTasks = taskService.findByTaskTypeAndReference("packing", "order", orderId);
+        List<Task> openTasks = packingTasks.stream()
+                .filter(task -> {
+                    String status = task.getStatus() == null ? "" : task.getStatus().toLowerCase();
+                    return "pending".equals(status) || "assigned".equals(status) || "in_progress".equals(status);
+                })
+                .toList();
+
+        if (openTasks.isEmpty()) {
+            Task completedTask = new Task();
+            completedTask.setTaskNumber(generateTaskNumber("PACK", orderId));
+            completedTask.setTaskType("packing");
+            completedTask.setReferenceType("order");
+            completedTask.setReferenceId(orderId);
+            completedTask.setStatus("completed");
+            completedTask.setAssignedTo(workerId);
+            completedTask.setDueDate(completedAt);
+            Task created = taskService.create(completedTask);
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(created.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(created.getId(), "completed");
+            }
+            return;
+        }
+
+        for (Task task : openTasks) {
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(task.getId(), "completed");
+            }
+        }
+    }
+
+    private String generateTaskNumber(String prefix, UUID orderId) {
+        String ts = String.valueOf(System.currentTimeMillis());
+        String suffix = ts.substring(Math.max(0, ts.length() - 6));
+        String orderPart = orderId != null ? orderId.toString().substring(0, 8).toUpperCase() : "ORDER";
+        return prefix + "-" + orderPart + "-" + suffix;
     }
 }

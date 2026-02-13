@@ -139,26 +139,6 @@ export default function PackingPage() {
     return `PACK-${normalized.replace(/^OUT/, "").replace(/^-+/, "")}`;
   };
 
-  const parseStringList = (value?: string | null): string[] => {
-    if (!value) return [];
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    if (trimmed.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed.map((item) => String(item).trim()).filter(Boolean);
-        }
-      } catch {
-        // fallback to csv parsing below
-      }
-    }
-    return trimmed
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-  };
-
   const isUuid = (value?: string | null) => {
     if (!value) return false;
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -167,9 +147,6 @@ export default function PackingPage() {
   };
 
   const getPackingRecordsForOrder = async (order: Order) => {
-    if (isUuid(order.id)) {
-      return packingApi.getAll(order.id);
-    }
     return packingApi.getAll(undefined, order.orderNumber);
   };
 
@@ -243,7 +220,18 @@ export default function PackingPage() {
         ]);
         const allOutboundOrders = [...pickedOrders, ...packingOrders];
         const uniqueOrders = Array.from(new Map(allOutboundOrders.map((order) => [order.id, order])).values());
-        const warehouseOrders = uniqueOrders.filter((order) => order.warehouseId === effectiveWarehouseId);
+        const packedOrderIds = new Set(
+          packingRecords
+            .filter((record) => {
+              const status = (record.status || "").toLowerCase();
+              return status === "packed" || status === "shipped" || status === "completed";
+            })
+            .map((record) => record.orderId)
+            .filter((id): id is string => !!id)
+        );
+        const warehouseOrders = uniqueOrders.filter(
+          (order) => order.warehouseId === effectiveWarehouseId && !packedOrderIds.has(order.id)
+        );
         const recordByOrderId = new Map(
           packingRecords
             .filter((r) => r.orderId)
@@ -296,75 +284,25 @@ export default function PackingPage() {
   };
 
   const handleOrderSelect = (order: Order) => {
-    const openOrder = async () => {
-      setSelectedOrder(order);
-      setStep("verify");
-      setPackingInitWarning(null);
-      setPackingData((current) => ({
-        ...current,
-        trackingNumber: current.trackingNumber || derivePackReference(order.orderNumber),
-      }));
+    setSelectedOrder(order);
+    setStep("verify");
+    setPackingInitWarning(null);
+    setActivePackingRecordId(null);
 
-      if (!isOnline) return;
-      try {
-        const existingRecords = await getPackingRecordsForOrder(order);
-        const record = existingRecords[0];
-        const recommendation = inferPackingRecommendation(order.items);
-        setRecommendedPackagingId(recommendation.packagingId);
-        setRecommendedDunnage(recommendation.dunnage);
+    const recommendation = inferPackingRecommendation(order.items);
+    setRecommendedPackagingId(recommendation.packagingId);
+    setRecommendedDunnage(recommendation.dunnage);
 
-        if (record) {
-          setActivePackingRecordId(record.id);
-          setPackingData((current) => ({
-            ...current,
-            packagingType: record.boxType || recommendation.packagingId,
-            boxDimensions: parseBoxDimensions(record.boxDimensions) || current.boxDimensions,
-            dunnageMaterials: record.dunnageMaterials
-              ? parseStringList(record.dunnageMaterials)
-              : recommendation.dunnage,
-            hasFragileItems: record.hasFragileItems ?? recommendation.hasFragile,
-            actualWeight: record.actualWeightKg ? parseFloat(record.actualWeightKg) : current.actualWeight || 0,
-            trackingNumber:
-              record.trackingNumber ||
-              current.trackingNumber ||
-              derivePackReference(order.orderNumber),
-            packingNotes: record.packingNotes || current.packingNotes || "",
-          }));
-
-          if (record.status !== "in_progress" && record.status !== "packed") {
-            await packingApi.updateStatus(record.id, "in_progress", worker?.id);
-          }
-        } else {
-          const created = await packingApi.create({
-            orderId: order.id,
-            orderNumber: order.orderNumber,
-            boxType: recommendation.packagingId,
-            dunnageMaterials: JSON.stringify(recommendation.dunnage),
-            hasFragileItems: recommendation.hasFragile,
-            packerId: worker?.id,
-            trackingNumber: derivePackReference(order.orderNumber),
-            status: "in_progress",
-          });
-          setActivePackingRecordId(created.id);
-          setPackingData((current) => ({
-            ...current,
-            packagingType: current.packagingType || recommendation.packagingId,
-            dunnageMaterials:
-              current.dunnageMaterials && current.dunnageMaterials.length > 0
-                ? current.dunnageMaterials
-                : recommendation.dunnage,
-            hasFragileItems: current.hasFragileItems || recommendation.hasFragile,
-          }));
-        }
-      } catch (error) {
-        logger.error("Failed to initialize packing record:", error);
-        const message = "Packing workflow started in local mode. You can continue and confirm packing.";
-        setPackingInitWarning(message);
-        showToast.warning(message);
-      }
-    };
-
-    void openOrder();
+    setPackingData((current) => ({
+      ...current,
+      packagingType: current.packagingType || recommendation.packagingId,
+      dunnageMaterials:
+        current.dunnageMaterials && current.dunnageMaterials.length > 0
+          ? current.dunnageMaterials
+          : recommendation.dunnage,
+      hasFragileItems: current.hasFragileItems || recommendation.hasFragile,
+      trackingNumber: current.trackingNumber || derivePackReference(order.orderNumber),
+    }));
   };
 
   const handleOrderScan = (code: string) => {
@@ -559,6 +497,7 @@ export default function PackingPage() {
       chargeableWeightKg: createPackingPayload.chargeableWeightKg,
       trackingNumber: createPackingPayload.trackingNumber,
       packingNotes: createPackingPayload.packingNotes,
+      packerId: createPackingPayload.packerId,
       status: createPackingPayload.status,
     };
     if (isOnline) {
@@ -586,6 +525,7 @@ export default function PackingPage() {
                 orderId: createPackingPayload.orderId,
                 orderNumber: createPackingPayload.orderNumber,
                 trackingNumber: createPackingPayload.trackingNumber,
+                packerId: createPackingPayload.packerId,
                 status: "packed",
               } as any);
             }
@@ -594,10 +534,9 @@ export default function PackingPage() {
               const createdRecords = await getPackingRecordsForOrder(selectedOrder);
               createdId = createdRecords[0]?.id;
             }
-            if (!createdId) {
-              throw new Error("Packing record created but ID not returned by API");
+            if (createdId) {
+              setActivePackingRecordId(createdId);
             }
-            setActivePackingRecordId(createdId);
           }
         } else {
           let created;
@@ -609,6 +548,7 @@ export default function PackingPage() {
               orderId: createPackingPayload.orderId,
               orderNumber: createPackingPayload.orderNumber,
               trackingNumber: createPackingPayload.trackingNumber,
+              packerId: createPackingPayload.packerId,
               status: "packed",
             } as any);
           }
@@ -617,10 +557,9 @@ export default function PackingPage() {
             const createdRecords = await getPackingRecordsForOrder(selectedOrder);
             createdId = createdRecords[0]?.id;
           }
-          if (!createdId) {
-            throw new Error("Packing record created but ID not returned by API");
+          if (createdId) {
+            setActivePackingRecordId(createdId);
           }
-          setActivePackingRecordId(createdId);
         }
       } catch (packingError) {
         packingSaveFailed = true;
