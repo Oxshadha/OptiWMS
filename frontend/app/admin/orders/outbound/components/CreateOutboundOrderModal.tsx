@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, StepIndicator } from "@/components/Modal";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
+import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
 import { inventoryApi } from "@/lib/api/inventory";
@@ -55,9 +55,48 @@ export function CreateOutboundOrderModal({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  const filteredCustomers = useMemo(() => {
+    const query = customerSearch.trim().toLowerCase();
+    if (!query) return customers.slice(0, 20);
+    return customers
+      .filter((c) => {
+        const name = c.name?.toLowerCase() || "";
+        const code = c.code?.toLowerCase() || "";
+        const email = c.email?.toLowerCase() || "";
+        const phone = c.phone?.toLowerCase() || "";
+        return name.includes(query) || code.includes(query) || email.includes(query) || phone.includes(query);
+      })
+      .slice(0, 20);
+  }, [customers, customerSearch]);
+
+  const applyCustomerToForm = (customer: Customer) => {
+    const addressParts = (customer.address || "").split("\n");
+    setFormData((prev) => ({
+      ...prev,
+      customerName: customer.name || prev.customerName,
+      customerEmail: customer.email || "",
+      customerPhone: customer.phone || "",
+      deliveryAddressLine1: addressParts[0] || "",
+      deliveryAddressLine2: addressParts[1] || "",
+      deliveryCity: customer.city || "",
+      deliveryCountry: customer.country || "",
+      deliveryState: prev.deliveryState || "",
+      deliveryPostalCode: prev.deliveryPostalCode || "",
+      customCountry: "",
+    }));
+    setSelectedCustomerId(customer.id);
+    setCustomerSearch(customer.name || "");
+    setIsCustomerDropdownOpen(false);
+    setValidationErrors((prev) => ({ ...prev, customerName: "" }));
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -78,6 +117,17 @@ export function CreateOutboundOrderModal({
       }
     };
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!customerDropdownRef.current) return;
+      if (!customerDropdownRef.current.contains(event.target as Node)) {
+        setIsCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
   // Load order data when editing
@@ -116,6 +166,8 @@ export function CreateOutboundOrderModal({
               // Backend customer contract currently has no state/postalCode fields.
               deliveryState = "";
               deliveryPostalCode = "";
+              setSelectedCustomerId(customer.id);
+              setCustomerSearch(customer.name);
             } catch (err) {
               const isDev = process.env.NODE_ENV === 'development';
               if (isDev) {
@@ -199,6 +251,8 @@ export function CreateOutboundOrderModal({
         items: [],
       });
       setValidationErrors({});
+      setSelectedCustomerId(null);
+      setCustomerSearch("");
       setStep(1);
     }
   }, [editingOrder, isOpen]);
@@ -250,7 +304,7 @@ export function CreateOutboundOrderModal({
       }
 
       // Find or create customer
-      let customerId = customers.find((c) => c.name === formData.customerName)?.id;
+      let customerId = selectedCustomerId || customers.find((c) => c.name === formData.customerName)?.id;
       if (!customerId) {
         // Create new customer
         const newCustomer = await customersApi.create({
@@ -378,6 +432,8 @@ export function CreateOutboundOrderModal({
       items: [],
     });
     setValidationErrors({});
+    setSelectedCustomerId(null);
+    setCustomerSearch("");
     } catch (err) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
@@ -408,24 +464,66 @@ export function CreateOutboundOrderModal({
             <label className="label">
               <span className="label-text font-medium">Customer Name *</span>
             </label>
-            <input
-              type="text"
-              className={`input input-bordered w-full ${validationErrors.customerName ? 'input-error' : ''}`}
-              value={formData.customerName}
-              onChange={(e) => {
-                setFormData({ ...formData, customerName: e.target.value });
-                if (validationErrors.customerName) {
-                  setValidationErrors({ ...validationErrors, customerName: "" });
-                }
-              }}
-              onBlur={() => {
-                const result = validateRequired(formData.customerName, "Customer Name");
-                if (!result.valid) {
-                  setValidationErrors({ ...validationErrors, customerName: result.error || "" });
-                }
-              }}
-              required
-            />
+            <div className="relative" ref={customerDropdownRef}>
+              <input
+                type="text"
+                className={`input input-bordered w-full ${validationErrors.customerName ? 'input-error' : ''}`}
+                value={customerSearch}
+                onFocus={() => setIsCustomerDropdownOpen(true)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setCustomerSearch(value);
+                  setFormData({ ...formData, customerName: value });
+                  setSelectedCustomerId(null);
+                  setIsCustomerDropdownOpen(true);
+                  if (validationErrors.customerName) {
+                    setValidationErrors({ ...validationErrors, customerName: "" });
+                  }
+                }}
+                onBlur={() => {
+                  const result = validateRequired(formData.customerName, "Customer Name");
+                  if (!result.valid) {
+                    setValidationErrors({ ...validationErrors, customerName: result.error || "" });
+                  }
+                }}
+                placeholder="Select customer or type to search"
+                required
+              />
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                onClick={() => setIsCustomerDropdownOpen((prev) => !prev)}
+                title="Toggle customer list"
+              >
+                <span className="material-symbols-outlined text-sm">
+                  {isCustomerDropdownOpen ? "expand_less" : "expand_more"}
+                </span>
+              </button>
+
+              {isCustomerDropdownOpen && (
+                <div className="absolute z-20 mt-1 w-full rounded-lg border border-base-300 bg-base-100 shadow-md max-h-64 overflow-auto">
+                  {filteredCustomers.length > 0 ? (
+                    filteredCustomers.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        className="w-full text-left px-3 py-2 hover:bg-base-200 transition-colors"
+                        onClick={() => applyCustomerToForm(customer)}
+                      >
+                        <div className="font-medium">{customer.name}</div>
+                        <div className="text-xs text-base-content/70">
+                          {customer.code ? `${customer.code} · ` : ""}{customer.email || customer.phone || "No contact details"}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-base-content/70">
+                      No matching customer found. You can continue to create a new customer.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             {validationErrors.customerName && (
               <label className="label">
                 <span className="label-text-alt text-error">{validationErrors.customerName}</span>
