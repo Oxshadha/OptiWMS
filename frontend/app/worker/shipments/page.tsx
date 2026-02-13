@@ -7,6 +7,7 @@ import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
 import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -17,8 +18,11 @@ export default function ShipmentsPage() {
   const [showProcessModal, setShowProcessModal] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [scannedOrder, setScannedOrder] = useState("");
+  const [orderReference, setOrderReference] = useState("");
   const [shipments, setShipments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | null>(null);
+  const [resolvingWarehouse, setResolvingWarehouse] = useState(false);
   const [deliveryDetails, setDeliveryDetails] = useState({
     driverName: "",
     driverPhone: "",
@@ -36,10 +40,49 @@ export default function ShipmentsPage() {
     return `PACK-${normalized.replace(/^OUT/, "").replace(/^-+/, "")}`;
   };
 
+  const isUuid = (value?: string | null) => {
+    if (!value) return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    );
+  };
+
+  const effectiveWarehouseId = worker?.warehouseId || resolvedWarehouseId;
+
+  useEffect(() => {
+    const resolveWarehouse = async () => {
+      if (worker?.warehouseId) {
+        setResolvedWarehouseId(worker.warehouseId);
+        return;
+      }
+      if (!worker?.warehouse || worker.warehouse === "Unknown Warehouse") {
+        setResolvedWarehouseId(null);
+        return;
+      }
+      try {
+        setResolvingWarehouse(true);
+        const warehouses = await warehousesApi.getAll();
+        const exact = warehouses.find(
+          (w) => w.name.trim().toLowerCase() === worker.warehouse.trim().toLowerCase()
+        );
+        const loose = warehouses.find((w) =>
+          w.name.trim().toLowerCase().includes(worker.warehouse.trim().toLowerCase())
+        );
+        setResolvedWarehouseId(exact?.id || loose?.id || null);
+      } catch (error) {
+        logger.error("Failed to resolve worker warehouse for shipments:", error);
+        setResolvedWarehouseId(null);
+      } finally {
+        setResolvingWarehouse(false);
+      }
+    };
+    void resolveWarehouse();
+  }, [worker?.warehouseId, worker?.warehouse]);
+
   // Load shipments - filtered by worker's warehouse and ready_to_ship status
   useEffect(() => {
     const loadShipments = async () => {
-      if (!isOnline || !worker?.warehouseId) {
+      if (!isOnline) {
         setLoading(false);
         return;
       }
@@ -49,16 +92,31 @@ export default function ShipmentsPage() {
         // Fetch orders that are ready_to_ship for worker's warehouse
         const readyToShipOrders = await ordersApi.getAll("outbound", "ready_to_ship");
         
-        // Filter by worker's warehouse
-        const warehouseOrders = readyToShipOrders.filter(
-          order => order.warehouseId === worker.warehouseId
-        );
+        // Filter by worker's warehouse when available; otherwise allow list so work can proceed.
+        const warehouseOrders = effectiveWarehouseId
+          ? readyToShipOrders.filter((order) => order.warehouseId === effectiveWarehouseId)
+          : readyToShipOrders;
 
         // Fetch shipments for these orders
         const shipmentsData = await Promise.all(
           warehouseOrders.map(async (order) => {
             try {
               const orderShipments = await shipmentsApi.getByOrderId(order.id);
+              if (!orderShipments || orderShipments.length === 0) {
+                return [{
+                  id: `virtual-${order.id}`,
+                  shipmentNumber: `SH-${order.orderNumber}`,
+                  orderId: order.id,
+                  orderNumber: order.orderNumber,
+                  carrier: "N/A",
+                  status: "Ready to Ship",
+                  destination: "N/A",
+                  trackingNumber: derivePackReference(order.orderNumber),
+                  weightKg: "",
+                  orders: [order.orderNumber],
+                  isVirtual: true,
+                }];
+              }
               return orderShipments.map(shipment => ({
                 id: shipment.id,
                 shipmentNumber: shipment.shipmentNumber,
@@ -100,10 +158,63 @@ export default function ShipmentsPage() {
       }
     };
 
-    if (isOnline && worker?.warehouseId) {
+    if (isOnline && !resolvingWarehouse) {
       loadShipments();
     }
-  }, [isOnline, worker?.warehouseId]);
+  }, [isOnline, effectiveWarehouseId, resolvingWarehouse]);
+
+  const handleLoadOrderByReference = async () => {
+    const reference = orderReference.trim().toUpperCase();
+    if (!reference) {
+      showToast.error("Enter outbound order reference");
+      return;
+    }
+    try {
+      const order = await ordersApi.getByOrderNumber(reference);
+      if ((order.orderType || "").toLowerCase() !== "outbound") {
+        showToast.error("Only outbound orders can be shipped");
+        return;
+      }
+      if ((order.status || "").toLowerCase() !== "ready_to_ship") {
+        showToast.error(`Order status is ${order.status}. It must be ready_to_ship.`);
+        return;
+      }
+      if (effectiveWarehouseId && order.warehouseId !== effectiveWarehouseId) {
+        showToast.error("This order belongs to a different warehouse");
+        return;
+      }
+
+      let existingShipment: any | null = null;
+      setShipments((current) => {
+        existingShipment =
+          current.find((s) => s.orderId === order.id || s.orderNumber === order.orderNumber) || null;
+        if (existingShipment) return current;
+        const added = {
+          id: `virtual-${order.id}`,
+          shipmentNumber: `SH-${order.orderNumber}`,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          carrier: "N/A",
+          status: "Ready to Ship",
+          destination: "N/A",
+          trackingNumber: derivePackReference(order.orderNumber),
+          weightKg: "",
+          orders: [order.orderNumber],
+          isVirtual: true,
+        };
+        existingShipment = added;
+        return [added, ...current];
+      });
+      setOrderReference("");
+      showToast.success(`Loaded ${order.orderNumber} for shipment`);
+      if (existingShipment) {
+        handleProcessShipment(existingShipment);
+      }
+    } catch (error) {
+      logger.error("Failed to load shipment order by reference:", error);
+      showToast.error("Order not found or not ready to ship");
+    }
+  };
 
   const handleProcessShipment = (shipment: typeof shipments[0]) => {
     setSelectedShipment(shipment);
@@ -125,7 +236,7 @@ export default function ShipmentsPage() {
     if (selectedShipment && selectedShipment.orders.includes(result)) {
       // Order is valid
     } else {
-      alert("Scanned order is not part of this shipment");
+      showToast.error("Scanned order is not part of this shipment");
     }
   };
 
@@ -139,24 +250,32 @@ export default function ShipmentsPage() {
       showToast.error("No shipment selected");
       return;
     }
+    if (scannedOrder && !selectedShipment.orders.includes(scannedOrder)) {
+      showToast.error("Entered/scanned order does not match this shipment");
+      return;
+    }
 
     try {
       if (isOnline) {
+        const workerId = isUuid(worker?.id) ? worker?.id : undefined;
+        let shipmentIdToShip = selectedShipment.id as string;
+
         // If virtual shipment, create it first
         if (selectedShipment.isVirtual) {
           const shipmentNumber = `SH-${selectedShipment.orderNumber}-${Date.now()}`;
-          await shipmentsApi.create({
+          const created = await shipmentsApi.create({
             shipmentNumber,
             orderId: selectedShipment.orderId,
             carrier: deliveryDetails.trackingNumber ? "Custom" : "N/A",
             trackingNumber: deliveryDetails.trackingNumber || derivePackReference(selectedShipment.orderNumber),
             destination: "N/A",
-            weightKg: "",
+            weightKg: undefined,
             driverName: deliveryDetails.driverName,
             driverPhone: deliveryDetails.driverPhone,
             vehicleNumber: deliveryDetails.vehicleNumber,
             status: "label_created",
           });
+          shipmentIdToShip = created.id;
         } else {
           // Update existing shipment
           await shipmentsApi.update(selectedShipment.id, {
@@ -172,9 +291,7 @@ export default function ShipmentsPage() {
         }
 
         // Update shipment status to "shipped" (this will update order status automatically)
-        if (!selectedShipment.isVirtual) {
-          await shipmentsApi.updateStatus(selectedShipment.id, "shipped");
-        }
+        await shipmentsApi.updateStatus(shipmentIdToShip, "shipped", workerId);
 
         showToast.success("Shipment processed successfully!");
       } else {
@@ -199,7 +316,7 @@ export default function ShipmentsPage() {
       }
     } catch (error) {
       logger.error("Error processing shipment:", error);
-      alert("Error processing shipment. Please try again.");
+      showToast.error(error instanceof Error ? error.message : "Error processing shipment. Please try again.");
     }
   };
 
@@ -210,6 +327,32 @@ export default function ShipmentsPage() {
         <p className="text-sm text-base-content/60">
           View and manage shipment tasks. Enter delivery details when processing shipments.
         </p>
+        {!effectiveWarehouseId && (
+          <p className="text-xs text-warning mt-2">
+            Warehouse assignment missing. Showing ready-to-ship orders without warehouse filter.
+          </p>
+        )}
+      </div>
+
+      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+        <div className="text-sm font-medium text-base-content mb-2">Fallback: Enter Outbound Order Reference</div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            className="input input-bordered flex-1"
+            placeholder="OUT-001770..."
+            value={orderReference}
+            onChange={(e) => setOrderReference(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                void handleLoadOrderByReference();
+              }
+            }}
+          />
+          <button className="btn btn-outline" onClick={() => void handleLoadOrderByReference()}>
+            Load
+          </button>
+        </div>
       </div>
 
       <div className="space-y-3">
@@ -220,7 +363,7 @@ export default function ShipmentsPage() {
           >
             <div className="flex items-start justify-between mb-3">
               <div>
-                <div className="font-bold text-base-content">{shipment.id}</div>
+                <div className="font-bold text-base-content">{shipment.shipmentNumber || shipment.id}</div>
                 <div className="text-sm text-base-content/60">Order: {shipment.orderNumber}</div>
               </div>
               <span className={`badge ${
@@ -252,6 +395,20 @@ export default function ShipmentsPage() {
             </button>
           </div>
           ))}
+        {!loading && shipments.length === 0 && (
+          <div className="bg-base-100 rounded-xl p-6 border border-base-300 text-center">
+            <div className="text-base-content font-semibold mb-1">No shipment tasks available</div>
+            <div className="text-sm text-base-content/60">
+              Orders must be in <code>ready_to_ship</code> status in your warehouse to appear here.
+            </div>
+            <button
+              className="btn btn-outline btn-sm mt-3"
+              onClick={() => window.location.reload()}
+            >
+              Refresh
+            </button>
+          </div>
+        )}
         </div>
       {/* Process Shipment Modal */}
       {selectedShipment && (
@@ -268,7 +425,7 @@ export default function ShipmentsPage() {
             });
             setScannedOrder("");
           }}
-          title={`Process Shipment: ${selectedShipment.id}`}
+          title={`Process Shipment: ${selectedShipment.shipmentNumber || selectedShipment.id}`}
           size="lg"
         >
           <div className="p-6 space-y-4">

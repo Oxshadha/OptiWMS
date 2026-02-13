@@ -1,6 +1,8 @@
 package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.orders.OrderService;
+import com.optiwms.coreapp.tasks.TaskService;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.operations.ShipmentEntity;
 import com.optiwms.infra.operations.ShipmentRepository;
@@ -21,11 +23,19 @@ public class ShipmentService {
 
     private final ShipmentRepository repository;
     private final OrderService orderService;
+    private final TaskService taskService;
+    private final OperationEventService operationEventService;
     private static final Map<String, Set<String>> STATUS_TRANSITIONS = buildShipmentTransitions();
 
-    public ShipmentService(ShipmentRepository repository, OrderService orderService) {
+    public ShipmentService(
+            ShipmentRepository repository,
+            OrderService orderService,
+            TaskService taskService,
+            OperationEventService operationEventService) {
         this.repository = repository;
         this.orderService = orderService;
+        this.taskService = taskService;
+        this.operationEventService = operationEventService;
     }
 
     public List<Shipment> listAll() {
@@ -106,19 +116,7 @@ public class ShipmentService {
         entity.setStatus(nextStatus);
         if ("shipped".equals(nextStatus) && entity.getShippedAt() == null) {
             entity.setShippedAt(LocalDateTime.now());
-            
-            // Update order status to "shipped" when shipment status is "shipped"
-            if (entity.getOrderId() != null) {
-                try {
-                    orderService.updateStatus(entity.getOrderId(), "shipped");
-                    // Store worker record
-                    if (workerId != null) {
-                        orderService.updateWorkerRecord(entity.getOrderId(), workerId, "shipped");
-                    }
-                } catch (RuntimeException e) {
-                    // Log but don't fail shipment update
-                }
-            }
+            handleShippedSideEffects(entity, workerId);
         } else if ("delivered".equals(nextStatus) && entity.getDeliveredAt() == null) {
             if (entity.getShippedAt() == null) {
                 throw new RuntimeException("Shipment must be marked as shipped before delivery confirmation");
@@ -239,5 +237,82 @@ public class ShipmentService {
             throw new RuntimeException("Shipment status cannot be empty");
         }
         return status.trim().toLowerCase();
+    }
+
+    private void handleShippedSideEffects(ShipmentEntity entity, UUID workerId) {
+        if (entity.getOrderId() == null) {
+            return;
+        }
+
+        UUID warehouseId = null;
+        try {
+            var order = orderService.findById(entity.getOrderId());
+            warehouseId = order.getWarehouseId();
+            orderService.updateStatus(entity.getOrderId(), "shipped");
+            if (workerId != null) {
+                orderService.updateWorkerRecord(entity.getOrderId(), workerId, "shipped");
+            }
+        } catch (RuntimeException ignored) {
+        }
+
+        completeShipmentTasks(entity.getOrderId(), workerId);
+
+        if (workerId != null) {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    "SHIPMENT",
+                    workerId,
+                    null,
+                    entity.getOrderId(),
+                    null,
+                    warehouseId,
+                    null,
+                    null,
+                    null,
+                    entity.getShippedAt(),
+                    null
+            ));
+        }
+    }
+
+    private void completeShipmentTasks(UUID orderId, UUID workerId) {
+        List<Task> shipmentTasks = taskService.findByTaskTypeAndReference("shipment", "order", orderId);
+        List<Task> openTasks = shipmentTasks.stream()
+                .filter(task -> {
+                    String status = task.getStatus() == null ? "" : task.getStatus().toLowerCase();
+                    return "pending".equals(status) || "assigned".equals(status) || "in_progress".equals(status);
+                })
+                .toList();
+
+        if (openTasks.isEmpty()) {
+            Task completedTask = new Task();
+            completedTask.setTaskNumber(generateTaskNumber("SHIP", orderId));
+            completedTask.setTaskType("shipment");
+            completedTask.setReferenceType("order");
+            completedTask.setReferenceId(orderId);
+            completedTask.setStatus("completed");
+            completedTask.setAssignedTo(workerId);
+            Task created = taskService.create(completedTask);
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(created.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(created.getId(), "completed");
+            }
+            return;
+        }
+
+        for (Task task : openTasks) {
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
+            } else {
+                taskService.updateStatus(task.getId(), "completed");
+            }
+        }
+    }
+
+    private String generateTaskNumber(String prefix, UUID orderId) {
+        String ts = String.valueOf(System.currentTimeMillis());
+        String suffix = ts.substring(Math.max(0, ts.length() - 6));
+        String orderPart = orderId != null ? orderId.toString().substring(0, 8).toUpperCase() : "ORDER";
+        return prefix + "-" + orderPart + "-" + suffix;
     }
 }
