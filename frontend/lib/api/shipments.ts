@@ -44,8 +44,8 @@ export const shipmentsApi = {
     return apiClient.put<Shipment>(`/shipments/${id}`, shipment);
   },
 
-  updateStatus: async (id: string, status: string): Promise<Shipment> => {
-    return apiClient.put<Shipment>(`/shipments/${id}/status`, { status });
+  updateStatus: async (id: string, status: string, workerId?: string): Promise<Shipment> => {
+    return apiClient.put<Shipment>(`/shipments/${id}/status`, { status, workerId });
   },
 
   confirmDelivery: async (id: string): Promise<Shipment> => {

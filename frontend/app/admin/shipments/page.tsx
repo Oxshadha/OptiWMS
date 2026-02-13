@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import clsx from "clsx";
 import { shipmentsApi } from "@/lib/api/shipments";
+import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CreateShipmentModal, ShipmentDetailModal } from "./components/ShipmentModals";
@@ -29,7 +30,10 @@ export default function ShipmentsPage() {
       try {
         setLoading(true);
         setError(null);
-        const shipmentsData = await shipmentsApi.getAll();
+        const [shipmentsData, outboundOrders] = await Promise.all([
+          shipmentsApi.getAll(),
+          ordersApi.getAllOutbound(),
+        ]);
         
         // Transform API data to display format
         const displayShipments: ShipmentDisplay[] = shipmentsData.map((s) => {
@@ -58,7 +62,32 @@ export default function ShipmentsPage() {
           };
         });
         
-        setShipments(displayShipments);
+        const shipmentOrderIds = new Set(
+          shipmentsData
+            .map((shipment) => shipment.orderId)
+            .filter((orderId): orderId is string => !!orderId)
+        );
+
+        const fallbackReadyToShip: ShipmentDisplay[] = outboundOrders
+          .filter((order) => (order.status || "").toLowerCase() === "ready_to_ship")
+          .filter((order) => !shipmentOrderIds.has(order.id))
+          .map((order) => ({
+            shipmentId: `fallback-${order.id}`,
+            id: `SH-${order.orderNumber}`,
+            carrier: "Not Assigned",
+            status: "Ready to Ship",
+            eta: order.expectedDate || "",
+            tracking: `PACK-${order.orderNumber.replace(/^OUT-?/i, "")}`,
+            destination: "N/A",
+            weight: "N/A",
+            driverName: "",
+            driverPhone: "",
+            vehicleNumber: "",
+            orders: [order.orderNumber],
+            shipmentDate: order.orderDate || new Date().toISOString().split("T")[0],
+          }));
+        
+        setShipments([...displayShipments, ...fallbackReadyToShip]);
       } catch (err) {
         logger.error("Failed to load shipments:", err);
         setError(err instanceof Error ? err.message : "Failed to load shipments");
