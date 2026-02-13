@@ -5,9 +5,10 @@ interface VerifyItemsStepProps {
   order: Order;
   onBack: () => void;
   onScanItem: (index: number) => void;
+  onMarkItemVerified: (index: number) => void;
 }
 
-export function VerifyItemsStep({ order, onBack, onScanItem }: VerifyItemsStepProps) {
+export function VerifyItemsStep({ order, onBack, onScanItem, onMarkItemVerified }: VerifyItemsStepProps) {
   const allVerified = order.items.every((item) => item.verified);
 
   return (
@@ -42,10 +43,15 @@ export function VerifyItemsStep({ order, onBack, onScanItem }: VerifyItemsStepPr
                   {item.verified ? (
                     <span className="material-symbols-outlined text-success text-3xl">check_circle</span>
                   ) : (
-                    <button onClick={() => onScanItem(index)} className="btn btn-primary btn-sm">
-                      <span className="material-symbols-outlined">qr_code_scanner</span>
-                      Scan
-                    </button>
+                    <>
+                      <button onClick={() => onScanItem(index)} className="btn btn-primary btn-sm">
+                        <span className="material-symbols-outlined">qr_code_scanner</span>
+                        Scan
+                      </button>
+                      <button onClick={() => onMarkItemVerified(index)} className="btn btn-outline btn-sm">
+                        Confirm Manually
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

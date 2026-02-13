@@ -25,6 +25,7 @@ export interface PackingData {
   hasFragileItems: boolean;
   actualWeight: number;
   dimensionalWeight: number;
+  trackingNumber: string;
   packingNotes: string;
   photos: string[];
 }
