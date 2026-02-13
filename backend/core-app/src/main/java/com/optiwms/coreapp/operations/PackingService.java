@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -29,8 +30,9 @@ public class PackingService {
     public PackingRecord updateStatusWithWorker(UUID id, String status, UUID workerId) {
         PackingRecordEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
-        entity.setStatus(status);
-        if ("completed".equals(status) && entity.getCompletedAt() == null) {
+        String normalizedStatus = normalizePackingStatus(status);
+        entity.setStatus(normalizedStatus);
+        if ("packed".equals(normalizedStatus) && entity.getCompletedAt() == null) {
             entity.setCompletedAt(LocalDateTime.now());
             
             // Update order status to "ready_to_ship" when packing is completed
@@ -109,21 +111,28 @@ public class PackingService {
         entity.setPackagingTypeId(packingRecord.getPackagingTypeId());
         entity.setBoxType(packingRecord.getBoxType());
         entity.setBoxDimensions(packingRecord.getBoxDimensions());
-        entity.setDunnageMaterials(packingRecord.getDunnageMaterials());
+        entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
         entity.setHasFragileItems(packingRecord.getHasFragileItems() != null ? packingRecord.getHasFragileItems() : false);
         entity.setActualWeightKg(packingRecord.getActualWeightKg());
         entity.setDimensionalWeightKg(packingRecord.getDimensionalWeightKg());
         entity.setChargeableWeightKg(packingRecord.getChargeableWeightKg());
-        entity.setTrackingNumber(packingRecord.getTrackingNumber());
+        entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), packingRecord.getOrderNumber()));
         entity.setShippingLabelUrl(packingRecord.getShippingLabelUrl());
         entity.setPackingSlipUrl(packingRecord.getPackingSlipUrl());
         entity.setPackingNotes(packingRecord.getPackingNotes());
-        entity.setPackingPhotos(packingRecord.getPackingPhotos());
+        entity.setPackingPhotos(normalizeJsonArrayText(packingRecord.getPackingPhotos()));
         entity.setPackerId(packingRecord.getPackerId());
-        entity.setStatus(packingRecord.getStatus() != null ? packingRecord.getStatus() : "in_progress");
+        String normalizedStatus = normalizePackingStatus(packingRecord.getStatus() != null ? packingRecord.getStatus() : "in_progress");
+        entity.setStatus(normalizedStatus);
         entity.setStartedAt(packingRecord.getStartedAt() != null ? packingRecord.getStartedAt() : LocalDateTime.now());
 
         PackingRecordEntity saved = repository.save(entity);
+        if (saved.getOrderId() != null && "in_progress".equals(saved.getStatus())) {
+            try {
+                orderService.updateStatus(saved.getOrderId(), "packing");
+            } catch (RuntimeException ignored) {
+            }
+        }
         return toDomain(saved);
     }
 
@@ -131,8 +140,9 @@ public class PackingService {
     public PackingRecord updateStatus(UUID id, String status) {
         PackingRecordEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
-        entity.setStatus(status);
-        if ("completed".equals(status) && entity.getCompletedAt() == null) {
+        String normalizedStatus = normalizePackingStatus(status);
+        entity.setStatus(normalizedStatus);
+        if ("packed".equals(normalizedStatus) && entity.getCompletedAt() == null) {
             entity.setCompletedAt(LocalDateTime.now());
             
             // Update order status to "ready_to_ship" when packing is completed
@@ -155,14 +165,22 @@ public class PackingService {
 
         if (packingRecord.getBoxType() != null) entity.setBoxType(packingRecord.getBoxType());
         if (packingRecord.getBoxDimensions() != null) entity.setBoxDimensions(packingRecord.getBoxDimensions());
-        if (packingRecord.getDunnageMaterials() != null) entity.setDunnageMaterials(packingRecord.getDunnageMaterials());
+        if (packingRecord.getDunnageMaterials() != null) {
+            entity.setDunnageMaterials(normalizeJsonArrayText(packingRecord.getDunnageMaterials()));
+        }
         if (packingRecord.getHasFragileItems() != null) entity.setHasFragileItems(packingRecord.getHasFragileItems());
         if (packingRecord.getActualWeightKg() != null) entity.setActualWeightKg(packingRecord.getActualWeightKg());
         if (packingRecord.getDimensionalWeightKg() != null) entity.setDimensionalWeightKg(packingRecord.getDimensionalWeightKg());
         if (packingRecord.getChargeableWeightKg() != null) entity.setChargeableWeightKg(packingRecord.getChargeableWeightKg());
-        if (packingRecord.getTrackingNumber() != null) entity.setTrackingNumber(packingRecord.getTrackingNumber());
+        if (packingRecord.getTrackingNumber() != null) {
+            entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), entity.getOrderNumber()));
+        } else if (entity.getTrackingNumber() == null || entity.getTrackingNumber().isBlank()) {
+            entity.setTrackingNumber(normalizeTrackingNumber(null, entity.getOrderNumber()));
+        }
         if (packingRecord.getPackingNotes() != null) entity.setPackingNotes(packingRecord.getPackingNotes());
-        if (packingRecord.getStatus() != null) entity.setStatus(packingRecord.getStatus());
+        if (packingRecord.getStatus() != null) {
+            entity.setStatus(normalizePackingStatus(packingRecord.getStatus()));
+        }
 
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -198,5 +216,53 @@ public class PackingService {
         p.setCreatedAt(entity.getCreatedAt());
         p.setUpdatedAt(entity.getUpdatedAt());
         return p;
+    }
+
+    private String normalizePackingStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "pending";
+        }
+        String normalized = status.trim().toLowerCase();
+        if ("completed".equals(normalized)) {
+            return "packed";
+        }
+        return normalized;
+    }
+
+    private String normalizeTrackingNumber(String trackingNumber, String orderNumber) {
+        if (trackingNumber != null && !trackingNumber.isBlank()) {
+            return trackingNumber.trim().toUpperCase();
+        }
+        return derivePackReference(orderNumber);
+    }
+
+    private String derivePackReference(String orderNumber) {
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return "PACK-" + System.currentTimeMillis();
+        }
+        String normalized = orderNumber.trim().toUpperCase();
+        if (normalized.startsWith("OUT-")) {
+            return "PACK-" + normalized.substring(4);
+        }
+        return "PACK-" + normalized.replaceFirst("^OUT", "").replaceFirst("^-+", "");
+    }
+
+    private String normalizeJsonArrayText(String value) {
+        if (value == null || value.isBlank()) {
+            return "[]";
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        List<String> parts = Arrays.stream(trimmed.split(","))
+                .map(String::trim)
+                .filter(part -> !part.isEmpty())
+                .collect(Collectors.toList());
+        return "["
+                + parts.stream()
+                .map(part -> "\"" + part.replace("\"", "\\\"") + "\"")
+                .collect(Collectors.joining(","))
+                + "]";
     }
 }
