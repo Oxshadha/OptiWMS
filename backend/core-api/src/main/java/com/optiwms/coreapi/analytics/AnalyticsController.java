@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -112,6 +113,18 @@ public class AnalyticsController {
         return ResponseEntity.ok(dtos);
     }
 
+    // Location Velocity
+    @GetMapping("/location-velocity")
+    public ResponseEntity<List<LocationVelocityDto>> getLocationVelocity(
+            @RequestParam UUID warehouseId,
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate
+    ) {
+        List<AnalyticsService.LocationVelocity> rows = service.getLocationVelocity(warehouseId, startDate, endDate);
+        List<LocationVelocityDto> dtos = rows.stream().map(this::toDto).collect(Collectors.toList());
+        return ResponseEntity.ok(dtos);
+    }
+
     // Conversion methods
     private WorkerProductivityMetricsDto toDto(AnalyticsService.WorkerProductivityMetrics metrics) {
         return new WorkerProductivityMetricsDto(
@@ -141,7 +154,9 @@ public class AnalyticsController {
                 kpis.totalItems,
                 kpis.lowStockItems,
                 kpis.totalTasks,
-                kpis.completedTasks
+                kpis.completedTasks,
+                kpis.totalOrdersThisPeriod,
+                kpis.completedOrdersThisPeriod
         );
     }
 
@@ -187,6 +202,21 @@ public class AnalyticsController {
         );
     }
 
+    private LocationVelocityDto toDto(AnalyticsService.LocationVelocity row) {
+        return new LocationVelocityDto(
+                row.locationId,
+                row.locationCode,
+                row.rackId,
+                row.warehouseId,
+                row.pickCount,
+                row.putawayCount,
+                row.totalMovements,
+                row.velocityPercentage,
+                row.last7Days,
+                row.last30Days
+        );
+    }
+
     // DTOs
     public record WorkerProductivityMetricsDto(
             UUID workerId,
@@ -211,7 +241,9 @@ public class AnalyticsController {
             Long totalItems,
             Long lowStockItems,
             Long totalTasks,
-            Long completedTasks
+            Long completedTasks,
+            Long totalOrdersThisPeriod,
+            Long completedOrdersThisPeriod
     ) {}
 
     public record OrderChartDataDto(
@@ -248,5 +280,17 @@ public class AnalyticsController {
             java.time.LocalDateTime earnedAt,
             String metadata
     ) {}
-}
 
+    public record LocationVelocityDto(
+            String locationId,
+            String locationCode,
+            String rackId,
+            UUID warehouseId,
+            Integer pickCount,
+            Integer putawayCount,
+            Integer totalMovements,
+            BigDecimal velocityPercentage,
+            Integer last7Days,
+            Integer last30Days
+    ) {}
+}

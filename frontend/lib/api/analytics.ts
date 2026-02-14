@@ -78,6 +78,8 @@ export interface DashboardKPIs {
   lowStockItems: number;
   totalTasks: number;
   completedTasks: number;
+  totalOrdersThisPeriod?: number;
+  completedOrdersThisPeriod?: number;
 }
 
 // Order Chart Data
