@@ -5,9 +5,60 @@ import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { usersApi, type User } from "@/lib/api/users";
+import { locationsApi, type Location } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
 import { CycleCountDisplay, countTypeConfig, statusConfig } from "../types";
 import { logger } from "@/lib/utils/logger";
+
+interface SectionOption {
+  value: string;
+  label: string;
+}
+
+const CYCLE_COUNT_ASSIGNABLE_ROLES = new Set([
+  "cycle_count_worker",
+]);
+
+function getSectionOptions(locations: Location[]): SectionOption[] {
+  const areaSet = new Set<string>();
+  const locationCodePrefixSet = new Set<string>();
+  locations.forEach((location) => {
+    const area = location.area?.trim();
+    if (area) {
+      areaSet.add(area);
+      return;
+    }
+    const code = location.locationCode?.trim();
+    if (!code) {
+      return;
+    }
+    const prefix = code.split("-")[0]?.trim();
+    if (prefix) {
+      locationCodePrefixSet.add(prefix);
+    }
+  });
+
+  const areaOptions = Array.from(areaSet)
+    .sort((a, b) => a.localeCompare(b))
+    .map((area) => ({
+      value: `AREA:${area}`,
+      label: `Area ${area}`,
+    }));
+  const prefixOptions = Array.from(locationCodePrefixSet)
+    .sort((a, b) => a.localeCompare(b))
+    .map((prefix) => ({
+      value: `AREA:${prefix}`,
+      label: `Section ${prefix}`,
+    }));
+
+  return [...areaOptions, ...prefixOptions];
+}
+
+function toWorkerLabel(user: User): string {
+  const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+  return fullName || user.username || user.employeeId || user.id;
+}
 
 // Cycle Count Detail Modal
 export function CycleCountDetailModal({
@@ -158,6 +209,9 @@ export function ScheduleCycleCountModal({
 
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+  const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
+  const [availableWorkers, setAvailableWorkers] = useState<User[]>([]);
+  const [isLoadingWorkers, setIsLoadingWorkers] = useState(false);
 
   useEffect(() => {
     const loadWarehouses = async () => {
@@ -176,14 +230,55 @@ export function ScheduleCycleCountModal({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const selectedWarehouseId = formData.warehouseId;
+    if (!selectedWarehouseId) {
+      setSectionOptions([]);
+      setAvailableWorkers([]);
+      setFormData((prev) => ({ ...prev, sectionId: "", workers: [] }));
+      return;
+    }
+
+    const loadWarehouseScopedData = async () => {
+      try {
+        const [locations, users] = await Promise.all([
+          locationsApi.getByWarehouse(selectedWarehouseId),
+          usersApi.getAll(undefined, selectedWarehouseId, "active"),
+        ]);
+        const workerUsers = users.filter((u) => CYCLE_COUNT_ASSIGNABLE_ROLES.has(u.role?.toLowerCase?.() || ""));
+        setSectionOptions(getSectionOptions(locations));
+        setAvailableWorkers(workerUsers);
+      } catch (err) {
+        logger.error("Failed to load warehouse sections/workers:", err);
+        setSectionOptions([]);
+        setAvailableWorkers([]);
+      } finally {
+        setIsLoadingWorkers(false);
+      }
+    };
+
+    setIsLoadingWorkers(true);
+    loadWarehouseScopedData();
+  }, [formData.warehouseId]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
+      if (formData.countType === "section" && !formData.sectionId) {
+        showToast.error("Please select a section for specific section cycle count.");
+        return;
+      }
+      if (formData.assignmentMethod === "manual" && formData.workers.length === 0) {
+        showToast.error("Please select at least one worker for manual assignment.");
+        return;
+      }
+
       await operationsApi.createCycleCount({
         countNumber: "",
         warehouseId: formData.warehouseId,
-        locationCode: formData.countType === "full" ? "ALL" : (formData.sectionId || "A-01-01"),
+        locationCode: formData.countType === "full" ? "ALL" : formData.sectionId,
+        assignedWorkers: formData.assignmentMethod === "manual" ? formData.workers : undefined,
         scheduledDate: formData.scheduledDate,
         status: "scheduled",
         notes: formData.notes || undefined,
@@ -219,7 +314,9 @@ export function ScheduleCycleCountModal({
           <select
             className="select select-bordered w-full"
             value={formData.warehouseId}
-            onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouseId: e.target.value, sectionId: "", workers: [] })
+            }
             required
             disabled={isLoadingWarehouses}
           >
@@ -242,7 +339,7 @@ export function ScheduleCycleCountModal({
                 className="radio radio-primary"
                 value="full"
                 checked={formData.countType === "full"}
-                onChange={(e) => setFormData({ ...formData, countType: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, countType: e.target.value, sectionId: "" })}
               />
               <span className="label-text">Full Warehouse</span>
             </label>
@@ -251,12 +348,12 @@ export function ScheduleCycleCountModal({
                 type="radio"
                 name="countType"
                 className="radio radio-primary"
-                value="section"
-                checked={formData.countType === "section"}
-                onChange={(e) => setFormData({ ...formData, countType: e.target.value })}
-              />
-              <span className="label-text">Specific Section</span>
-            </label>
+              value="section"
+              checked={formData.countType === "section"}
+              onChange={(e) => setFormData({ ...formData, countType: e.target.value, sectionId: "" })}
+            />
+            <span className="label-text">Specific Section</span>
+          </label>
           </div>
         </div>
 
@@ -271,10 +368,14 @@ export function ScheduleCycleCountModal({
               onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}
               required={formData.countType === "section"}
             >
-              <option value="">Select section</option>
-              <option value="A-01-01">Section A - Electronics</option>
-              <option value="B-01-01">Section B - Appliances</option>
-              <option value="C-01-01">Section C - Home Decor</option>
+              <option value="">
+                {sectionOptions.length > 0 ? "Select section" : "No sections found for this warehouse"}
+              </option>
+              {sectionOptions.map((section) => (
+                <option key={section.value} value={section.value}>
+                  {section.label}
+                </option>
+              ))}
             </select>
           </div>
         )}
@@ -328,26 +429,30 @@ export function ScheduleCycleCountModal({
               <span className="label-text font-medium">Select Workers *</span>
             </label>
             <div className="space-y-2">
-              {["John Doe", "Jane Smith", "Mike Johnson", "Sarah Lee"].map((worker) => (
-                <label key={worker} className="label cursor-pointer justify-start gap-3">
+              {availableWorkers.map((worker) => (
+                <label key={worker.id} className="label cursor-pointer justify-start gap-3">
                   <input
                     type="checkbox"
                     className="checkbox checkbox-primary"
-                    checked={formData.workers.includes(worker)}
+                    checked={formData.workers.includes(worker.id)}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setFormData({ ...formData, workers: [...formData.workers, worker] });
+                        setFormData({ ...formData, workers: [...formData.workers, worker.id] });
                       } else {
                         setFormData({
                           ...formData,
-                          workers: formData.workers.filter((w) => w !== worker),
+                          workers: formData.workers.filter((w) => w !== worker.id),
                         });
                       }
                     }}
                   />
-                  <span className="label-text">{worker}</span>
+                  <span className="label-text">{toWorkerLabel(worker)}</span>
                 </label>
               ))}
+              {isLoadingWorkers && <span className="text-xs text-base-content/60">Loading workers...</span>}
+              {!isLoadingWorkers && availableWorkers.length === 0 && (
+                <span className="text-xs text-base-content/60">No active workers in selected warehouse.</span>
+              )}
             </div>
           </div>
         )}
@@ -416,6 +521,9 @@ export function CreateAdHocCountModal({
 
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [isLoadingWarehouses, setIsLoadingWarehouses] = useState(false);
+  const [sectionOptions, setSectionOptions] = useState<SectionOption[]>([]);
+  const [availableWorkers, setAvailableWorkers] = useState<User[]>([]);
+  const [isLoadingWorkers, setIsLoadingWorkers] = useState(false);
 
   useEffect(() => {
     const loadWarehouses = async () => {
@@ -434,18 +542,59 @@ export function CreateAdHocCountModal({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    const selectedWarehouseId = formData.warehouseId;
+    if (!selectedWarehouseId) {
+      setSectionOptions([]);
+      setAvailableWorkers([]);
+      setFormData((prev) => ({ ...prev, sectionId: "", workers: [] }));
+      return;
+    }
+
+    const loadWarehouseScopedData = async () => {
+      try {
+        const [locations, users] = await Promise.all([
+          locationsApi.getByWarehouse(selectedWarehouseId),
+          usersApi.getAll(undefined, selectedWarehouseId, "active"),
+        ]);
+        const workerUsers = users.filter((u) => CYCLE_COUNT_ASSIGNABLE_ROLES.has(u.role?.toLowerCase?.() || ""));
+        setSectionOptions(getSectionOptions(locations));
+        setAvailableWorkers(workerUsers);
+      } catch (err) {
+        logger.error("Failed to load warehouse sections/workers:", err);
+        setSectionOptions([]);
+        setAvailableWorkers([]);
+      } finally {
+        setIsLoadingWorkers(false);
+      }
+    };
+
+    setIsLoadingWorkers(true);
+    loadWarehouseScopedData();
+  }, [formData.warehouseId]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     
     try {
+      if (formData.countType === "section" && !formData.sectionId) {
+        showToast.error("Please select a section for specific section cycle count.");
+        return;
+      }
+      if (formData.assignmentMethod === "manual" && formData.workers.length === 0) {
+        showToast.error("Please select at least one worker for manual assignment.");
+        return;
+      }
+
       // Create ad-hoc cycle count
       await operationsApi.createCycleCount({
-        countNumber: "",
+        countNumber: `ADH-${Date.now()}`,
         warehouseId: formData.warehouseId,
-        locationCode: formData.countType === "full" ? "ALL" : (formData.sectionId || "A-01-01"),
+        locationCode: formData.countType === "full" ? "ALL" : formData.sectionId,
+        assignedWorkers: formData.assignmentMethod === "manual" ? formData.workers : undefined,
         scheduledDate: new Date().toISOString().split("T")[0],
         status: formData.startNow ? "in_progress" : "scheduled",
-        notes: formData.notes || undefined,
+        notes: [formData.notes?.trim(), "source=ad_hoc"].filter(Boolean).join(" | "),
       });
       
       showToast.success("Ad-hoc cycle count created successfully");
@@ -477,7 +626,9 @@ export function CreateAdHocCountModal({
           <select
             className="select select-bordered w-full"
             value={formData.warehouseId}
-            onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+            onChange={(e) =>
+              setFormData({ ...formData, warehouseId: e.target.value, sectionId: "", workers: [] })
+            }
             required
             disabled={isLoadingWarehouses}
           >
@@ -509,12 +660,12 @@ export function CreateAdHocCountModal({
                 type="radio"
                 name="countType"
                 className="radio radio-primary"
-                value="section"
-                checked={formData.countType === "section"}
-                onChange={(e) => setFormData({ ...formData, countType: e.target.value })}
-              />
-              <span className="label-text">Specific Section</span>
-            </label>
+              value="section"
+              checked={formData.countType === "section"}
+              onChange={(e) => setFormData({ ...formData, countType: e.target.value, sectionId: "" })}
+            />
+            <span className="label-text">Specific Section</span>
+          </label>
           </div>
         </div>
 
@@ -529,10 +680,14 @@ export function CreateAdHocCountModal({
               onChange={(e) => setFormData({ ...formData, sectionId: e.target.value })}
               required={formData.countType === "section"}
             >
-              <option value="">Select section</option>
-              <option value="A-01-01">Section A - Electronics</option>
-              <option value="B-01-01">Section B - Appliances</option>
-              <option value="C-01-01">Section C - Home Decor</option>
+              <option value="">
+                {sectionOptions.length > 0 ? "Select section" : "No sections found for this warehouse"}
+              </option>
+              {sectionOptions.map((section) => (
+                <option key={section.value} value={section.value}>
+                  {section.label}
+                </option>
+              ))}
             </select>
           </div>
         )}
@@ -585,26 +740,30 @@ export function CreateAdHocCountModal({
               <span className="label-text font-medium">Select Workers *</span>
             </label>
             <div className="space-y-2">
-              {["John Doe", "Jane Smith", "Mike Johnson", "Sarah Lee"].map((worker) => (
-                <label key={worker} className="label cursor-pointer justify-start gap-3">
+              {availableWorkers.map((worker) => (
+                <label key={worker.id} className="label cursor-pointer justify-start gap-3">
                   <input
                     type="checkbox"
                     className="checkbox checkbox-primary"
-                    checked={formData.workers.includes(worker)}
+                    checked={formData.workers.includes(worker.id)}
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setFormData({ ...formData, workers: [...formData.workers, worker] });
+                        setFormData({ ...formData, workers: [...formData.workers, worker.id] });
                       } else {
                         setFormData({
                           ...formData,
-                          workers: formData.workers.filter((w) => w !== worker),
+                          workers: formData.workers.filter((w) => w !== worker.id),
                         });
                       }
                     }}
                   />
-                  <span className="label-text">{worker}</span>
+                  <span className="label-text">{toWorkerLabel(worker)}</span>
                 </label>
               ))}
+              {isLoadingWorkers && <span className="text-xs text-base-content/60">Loading workers...</span>}
+              {!isLoadingWorkers && availableWorkers.length === 0 && (
+                <span className="text-xs text-base-content/60">No active workers in selected warehouse.</span>
+              )}
             </div>
           </div>
         )}
@@ -648,17 +807,67 @@ export function EditScheduleModal({
   count: CycleCountDisplay;
   onUpdated: () => Promise<void>;
 }) {
+  const [availableWorkers, setAvailableWorkers] = useState<User[]>([]);
+  const [isLoadingWorkers, setIsLoadingWorkers] = useState(false);
+  const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string>(count.warehouseId || "");
   const [formData, setFormData] = useState({
     scheduledDate: count.scheduledDate || "",
-    assignedWorkers: [...count.assignedWorkers],
+    assignedWorkers: [...(count.assignedWorkerIds || [])],
     notes: "",
   });
+
+  useEffect(() => {
+    setFormData({
+      scheduledDate: count.scheduledDate || "",
+      assignedWorkers: [...(count.assignedWorkerIds || [])],
+      notes: "",
+    });
+    setResolvedWarehouseId(count.warehouseId || "");
+  }, [count.id, count.scheduledDate, count.assignedWorkerIds, count.warehouseId]);
+
+  useEffect(() => {
+    const loadEditableData = async () => {
+      if (!isOpen) {
+        return;
+      }
+      try {
+        const detail = await operationsApi.getCycleCountById(count.id);
+        const warehouseId = detail.warehouseId || count.warehouseId || "";
+        setResolvedWarehouseId(warehouseId);
+        const assignedIds = detail.assignedWorkers || count.assignedWorkerIds || [];
+        setFormData((prev) => ({
+          ...prev,
+          scheduledDate: detail.scheduledDate || prev.scheduledDate,
+          assignedWorkers: [...assignedIds],
+        }));
+
+        if (!warehouseId) {
+          setAvailableWorkers([]);
+          return;
+        }
+        setIsLoadingWorkers(true);
+        const users = await usersApi.getAll(undefined, warehouseId, "active");
+        const eligibleWorkers = users.filter((u) =>
+          CYCLE_COUNT_ASSIGNABLE_ROLES.has(u.role?.toLowerCase?.() || "")
+        );
+        setAvailableWorkers(eligibleWorkers);
+      } catch (err) {
+        logger.error("Failed to load cycle count edit data:", err);
+        setAvailableWorkers([]);
+      } finally {
+        setIsLoadingWorkers(false);
+      }
+    };
+
+    loadEditableData();
+  }, [isOpen, count.id, count.assignedWorkerIds, count.warehouseId]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
       await operationsApi.updateCycleCount(count.id, {
         scheduledDate: formData.scheduledDate,
+        assignedWorkers: formData.assignedWorkers,
         notes: formData.notes || undefined,
       });
       showToast.success("Schedule updated successfully");
@@ -690,26 +899,34 @@ export function EditScheduleModal({
             <span className="label-text font-medium">Assigned Workers</span>
           </label>
           <div className="space-y-2">
-            {["John Doe", "Jane Smith", "Mike Johnson", "Sarah Lee"].map((worker) => (
-              <label key={worker} className="label cursor-pointer justify-start gap-3">
+            {availableWorkers.map((worker) => (
+              <label key={worker.id} className="label cursor-pointer justify-start gap-3">
                 <input
                   type="checkbox"
                   className="checkbox checkbox-primary"
-                  checked={formData.assignedWorkers.includes(worker)}
+                  checked={formData.assignedWorkers.includes(worker.id)}
                   onChange={(e) => {
                     if (e.target.checked) {
-                      setFormData({ ...formData, assignedWorkers: [...formData.assignedWorkers, worker] });
+                      setFormData({ ...formData, assignedWorkers: [...formData.assignedWorkers, worker.id] });
                     } else {
                       setFormData({
                         ...formData,
-                        assignedWorkers: formData.assignedWorkers.filter((w) => w !== worker),
+                        assignedWorkers: formData.assignedWorkers.filter((w) => w !== worker.id),
                       });
                     }
                   }}
                 />
-                <span className="label-text">{worker}</span>
+                <span className="label-text">{toWorkerLabel(worker)}</span>
               </label>
             ))}
+            {isLoadingWorkers && <span className="text-xs text-base-content/60">Loading workers...</span>}
+            {!isLoadingWorkers && availableWorkers.length === 0 && (
+              <span className="text-xs text-base-content/60">
+                {resolvedWarehouseId
+                  ? "No cycle count workers found in this warehouse."
+                  : "Warehouse not found for this cycle count."}
+              </span>
+            )}
           </div>
         </div>
         <div className="form-control">

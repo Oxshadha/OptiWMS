@@ -80,6 +80,30 @@ export default function TasksPage() {
           duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
         }
 
+        const notePairs = new Map<string, string>();
+        (task.notes || "")
+          .split(";")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .forEach((part) => {
+            const [k, ...rest] = part.split("=");
+            if (!k || rest.length === 0) return;
+            notePairs.set(k.trim().toLowerCase(), rest.join("=").trim());
+          });
+        const cycleCountRef =
+          notePairs.get("count") ||
+          (task.referenceType === "cycle_count" ? task.referenceId : null);
+        const scope = notePairs.get("scope") || task.locationCode || null;
+        const role = notePairs.get("role") || null;
+        const details =
+          task.taskType === "cycle_count"
+            ? [cycleCountRef ? `Count ${cycleCountRef}` : null, scope ? `Scope ${scope}` : null, role ? `Role ${role}` : null]
+                .filter(Boolean)
+                .join(" | ")
+            : [task.referenceType ? `Ref ${task.referenceType}` : null, task.referenceId ? task.referenceId.slice(0, 8) : null]
+                .filter(Boolean)
+                .join(": ");
+
         return {
           id: task.id,
           taskNumber: task.taskNumber,
@@ -93,6 +117,11 @@ export default function TasksPage() {
           startedAt: task.dueDate || null,
           completedAt: task.completedAt || null,
           duration,
+          locationCode: task.locationCode || null,
+          referenceType: task.referenceType || null,
+          referenceId: task.referenceId || null,
+          notes: task.notes || null,
+          details,
         };
       });
 
@@ -133,6 +162,9 @@ export default function TasksPage() {
       task.taskType.toLowerCase().includes(query) ||
       task.priority.toLowerCase().includes(query) ||
       task.status.toLowerCase().includes(query) ||
+      (task.details && task.details.toLowerCase().includes(query)) ||
+      (task.notes && task.notes.toLowerCase().includes(query)) ||
+      (task.referenceId && task.referenceId.toLowerCase().includes(query)) ||
       task.assignedDate.toLowerCase().includes(query) ||
       (task.startedAt && task.startedAt.toLowerCase().includes(query)) ||
       (task.completedAt && task.completedAt.toLowerCase().includes(query)) ||
@@ -233,6 +265,15 @@ export default function TasksPage() {
         );
       },
       sortable: true,
+    },
+    {
+      key: "details",
+      label: "Details",
+      render: (task: TaskDisplay) => (
+        <span className="text-xs text-base-content/70">
+          {task.details || "-"}
+        </span>
+      ),
     },
     {
       key: "workerName",
@@ -469,4 +510,3 @@ export default function TasksPage() {
     </div>
   );
 }
-

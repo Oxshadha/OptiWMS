@@ -11,6 +11,11 @@ export interface TaskDisplay {
   startedAt: string | null;
   completedAt: string | null;
   duration: number | null;
+  locationCode?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  notes?: string | null;
+  details?: string;
 }
 
 export const taskTypeConfig = {

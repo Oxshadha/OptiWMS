@@ -152,6 +152,7 @@ export interface CycleCount {
   countNumber: string;
   warehouseId: string;
   locationCode: string;
+  assignedWorkers?: string[];
   materialId?: string;
   expectedQuantity?: string;
   countedQuantity?: string;
@@ -163,6 +164,8 @@ export interface CycleCount {
   approvedAt?: string;
   approvalNotes?: string;
   scheduledDate?: string;
+  countedBy?: string;
+  countedAt?: string;
   status: string;
   variance?: string | null;
   notes?: string;
@@ -290,6 +293,10 @@ export const operationsApi = {
   // Cycle Count
   getCycleCounts: async (): Promise<CycleCount[]> => {
     return apiClient.get<CycleCount[]>('/operations/cycle-counts');
+  },
+
+  getCycleCountById: async (id: string): Promise<CycleCount> => {
+    return apiClient.get<CycleCount>(`/operations/cycle-counts/${id}`);
   },
 
   createCycleCount: async (request: {
