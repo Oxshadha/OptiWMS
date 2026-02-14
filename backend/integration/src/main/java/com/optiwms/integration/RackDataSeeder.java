@@ -251,11 +251,12 @@ public class RackDataSeeder implements CommandLineRunner {
                     for (int binIdx = 0; binIdx < binsPerLevel; binIdx++) {
                         LocationEntity location = new LocationEntity();
                         location.setWarehouseId(warehouseId);
-                        // Include warehouse code in location code to ensure uniqueness across warehouses
-                        location.setLocationCode(String.format("%s-%s-%02d-%03d-%d-%s", areaCode, warehouseCode, aisle, bay, level, binPositions[binIdx]));
+                        // Must match DB constraint chk_location_code_format: AREA-ROW-BAY-LEVEL-POS
+                        // Example: C-01-01-1-A
+                        location.setLocationCode(String.format("%s-%02d-%02d-%d-%s", areaCode, aisle, bay, level, binPositions[binIdx]));
                         location.setArea(areaCode);
                         location.setRowNumber(String.format("%02d", aisle));
-                        location.setBayNumber(String.format("%03d", bay));
+                        location.setBayNumber(String.format("%02d", bay));
                         location.setLevelNumber(level);
                         location.setBinPosition(binPositions[binIdx]);
                         location.setLocationType(getLocationTypeForArea(areaCode));
@@ -338,4 +339,3 @@ public class RackDataSeeder implements CommandLineRunner {
         };
     }
 }
-
