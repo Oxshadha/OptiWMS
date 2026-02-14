@@ -153,3 +153,8 @@ Desktop.ini
 
 #LOCAL GRADLE CACHE
 backend/.gradle-local/
+
+*.md
+!README.md
+
+*.csv
