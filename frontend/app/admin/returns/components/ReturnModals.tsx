@@ -8,6 +8,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { returnsApi, Return as ApiReturn } from "@/lib/api/returns";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { ordersApi } from "@/lib/api/orders";
+import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import type { ReturnDisplay } from "../types";
@@ -236,6 +237,13 @@ export function ReturnDetailModal({
       }
     : null;
 
+  const counterpartyLabel =
+    returnItem.counterpartyType === "supplier"
+      ? "Supplier"
+      : returnItem.counterpartyType === "customer"
+        ? "Customer"
+        : "Counterparty";
+
   return (
     <DetailModal
       isOpen={isOpen}
@@ -275,8 +283,8 @@ export function ReturnDetailModal({
             </p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Customer Name</label>
-            <p className="font-semibold">{returnItem.customerName}</p>
+            <label className="text-sm text-base-content/60">{counterpartyLabel}</label>
+            <p className="font-semibold">{returnItem.counterpartyName}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Warehouse</label>
@@ -336,6 +344,13 @@ export function InspectReturnModal({
   onSuccess: () => Promise<void>;
   returnItem: ReturnDisplay;
 }) {
+  const counterpartyLabel =
+    returnItem.counterpartyType === "supplier"
+      ? "Supplier"
+      : returnItem.counterpartyType === "customer"
+        ? "Customer"
+        : "Counterparty";
+
   const [inspectionData, setInspectionData] = useState({
     items: [
       {
@@ -387,7 +402,7 @@ export function InspectReturnModal({
           <h4 className="font-semibold text-base-content mb-2">Return Information</h4>
           <div className="text-sm space-y-1">
             <div>Order: {returnItem.originalOrder}</div>
-            <div>Customer: {returnItem.customerName}</div>
+            <div>{counterpartyLabel}: {returnItem.counterpartyName}</div>
             <div>Reason: {returnItem.reason}</div>
           </div>
         </div>
@@ -576,17 +591,37 @@ export function AssignWorkerModal({
   onSuccess: () => Promise<void>;
   returnItem: ReturnDisplay;
 }) {
-  const availableWorkers = [
-    { id: "worker-1", name: "John Doe", warehouseName: "Warehouse 1", status: "available" },
-    { id: "worker-2", name: "Jane Smith", warehouseName: "Warehouse 1", status: "available" },
-    { id: "worker-3", name: "Mike Johnson", warehouseName: "Warehouse 2", status: "busy" },
-    { id: "worker-4", name: "Sarah Lee", warehouseName: "Warehouse 1", status: "available" },
-  ];
-
-  const workersForWarehouse = availableWorkers.filter(
-    (w) => w.warehouseName === returnItem.warehouse
-  );
+  const counterpartyLabel =
+    returnItem.counterpartyType === "supplier"
+      ? "Supplier"
+      : returnItem.counterpartyType === "customer"
+        ? "Customer"
+        : "Counterparty";
+  const [workersForWarehouse, setWorkersForWarehouse] = useState<Array<{ id: string; name: string; status: string }>>([]);
+  const [loadingWorkers, setLoadingWorkers] = useState(false);
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
+
+  useEffect(() => {
+    const loadWorkers = async () => {
+      if (!isOpen || !returnItem.warehouseId) return;
+      try {
+        setLoadingWorkers(true);
+        const users = await usersApi.getAll("returns_worker", returnItem.warehouseId, "active");
+        const mapped = users.map((user) => ({
+          id: user.id,
+          name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || user.employeeId || user.id,
+          status: user.status || "active",
+        }));
+        setWorkersForWarehouse(mapped);
+      } catch (error) {
+        logger.error("Failed to load return workers:", error);
+        setWorkersForWarehouse([]);
+      } finally {
+        setLoadingWorkers(false);
+      }
+    };
+    void loadWorkers();
+  }, [isOpen, returnItem.warehouseId]);
 
   const handleSubmit = async () => {
     if (!selectedWorkerId) {
@@ -625,7 +660,7 @@ export function AssignWorkerModal({
           <h4 className="font-semibold text-base-content mb-2">Return Information</h4>
           <div className="text-sm space-y-1">
             <div>Order: {returnItem.originalOrder}</div>
-            <div>Customer: {returnItem.customerName}</div>
+            <div>{counterpartyLabel}: {returnItem.counterpartyName}</div>
             <div>Warehouse: {returnItem.warehouse}</div>
             <div>Reason: {returnItem.reason}</div>
           </div>
@@ -644,10 +679,15 @@ export function AssignWorkerModal({
             <option value="">Choose a worker...</option>
             {workersForWarehouse.map((worker) => (
               <option key={worker.id} value={worker.id}>
-                {worker.name} {worker.status === "busy" ? "(Busy)" : ""}
+                {worker.name}
               </option>
             ))}
           </select>
+          {loadingWorkers && (
+            <label className="label">
+              <span className="label-text-alt">Loading workers...</span>
+            </label>
+          )}
           {workersForWarehouse.length === 0 && (
             <label className="label">
               <span className="label-text-alt text-warning">

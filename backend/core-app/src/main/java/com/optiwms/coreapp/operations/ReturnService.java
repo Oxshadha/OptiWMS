@@ -4,12 +4,14 @@ import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.coreapp.notifications.NotificationService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.orders.OrderItem;
 import com.optiwms.domain.inventory.InventoryItem;
 import com.optiwms.domain.operations.ReturnRecord;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.ReturnEntity;
 import com.optiwms.infra.operations.ReturnRepository;
 import com.optiwms.infra.operations.ReturnStatusHistoryEntity;
@@ -39,6 +41,8 @@ public class ReturnService {
     private final InventoryService inventoryService;
     private final ReturnStatusHistoryRepository statusHistoryRepository;
     private final NotificationService notificationService;
+    private final TaskService taskService;
+    private final OperationEventService operationEventService;
 
     public ReturnService(
             ReturnRepository repository,
@@ -48,7 +52,9 @@ public class ReturnService {
             InboundOrderWorkflowService inboundWorkflowService,
             InventoryService inventoryService,
             ReturnStatusHistoryRepository statusHistoryRepository,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            TaskService taskService,
+            OperationEventService operationEventService) {
         this.repository = repository;
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
@@ -57,6 +63,8 @@ public class ReturnService {
         this.inventoryService = inventoryService;
         this.statusHistoryRepository = statusHistoryRepository;
         this.notificationService = notificationService;
+        this.taskService = taskService;
+        this.operationEventService = operationEventService;
     }
 
     public List<ReturnRecord> listAll() {
@@ -119,6 +127,8 @@ public class ReturnService {
         ReturnEntity saved = repository.save(entity);
         recordStatusHistory(saved.getId(), null, saved.getStatus(), returnRecord.getReceivedBy(), "Return created");
         notifyReturnStage(saved, "Return Created", "Return " + saved.getReturnNumber() + " created with status " + saved.getStatus());
+        syncReturnTasks(saved, returnRecord.getReceivedBy());
+        recordReturnOperation(saved, returnRecord.getReceivedBy(), "return_created");
         return toDomain(saved);
     }
 
@@ -172,6 +182,8 @@ public class ReturnService {
 
         transitionStatus(entity, "received", receivedBy, "Outbound return received at worker intake");
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, receivedBy);
+        recordReturnOperation(saved, receivedBy, "return_received");
 
         String currentStatus = order.getStatus() != null ? order.getStatus().toLowerCase() : "";
         if ("shipped".equals(currentStatus) || "delivered".equals(currentStatus)) {
@@ -193,6 +205,7 @@ public class ReturnService {
         transitionStatus(entity, status, changedBy, notes);
         handleStatusSideEffects(entity, changedBy, notes);
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, changedBy);
         return toDomain(saved);
     }
 
@@ -207,6 +220,8 @@ public class ReturnService {
         }
 
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, workerId);
+        recordReturnOperation(saved, workerId, "return_worker_assigned");
         return toDomain(saved);
     }
 
@@ -231,6 +246,8 @@ public class ReturnService {
         transitionStatus(entity, "inspecting", inspectedBy, "Return moved to inspection");
 
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, inspectedBy);
+        recordReturnOperation(saved, inspectedBy, "return_inspection_submitted");
         return toDomain(saved);
     }
 
@@ -248,6 +265,8 @@ public class ReturnService {
         handleStatusSideEffects(entity, approvedBy, "QC approved");
 
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, approvedBy);
+        recordReturnOperation(saved, approvedBy, "return_approved");
         return toDomain(saved);
     }
 
@@ -275,6 +294,8 @@ public class ReturnService {
         transitionStatus(entity, "rejected", reviewedBy, "Return QC rejected");
         handleStatusSideEffects(entity, reviewedBy, rejectionReason);
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, reviewedBy);
+        recordReturnOperation(saved, reviewedBy, "return_rejected");
         return toDomain(saved);
     }
 
@@ -301,6 +322,7 @@ public class ReturnService {
         }
 
         ReturnEntity saved = repository.save(entity);
+        syncReturnTasks(saved, returnRecord.getInspectedBy() != null ? returnRecord.getInspectedBy() : returnRecord.getReceivedBy());
         return toDomain(saved);
     }
 
@@ -347,6 +369,139 @@ public class ReturnService {
                 || "approved".equals(normalized));
     }
 
+    private String generateTaskNumber(String prefix, String ref) {
+        return prefix + "-" + ref + "-" + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+    }
+
+    private boolean isReturnTerminalStatus(String status) {
+        if (status == null) return false;
+        String s = status.toLowerCase();
+        return "approved".equals(s)
+                || "rejected".equals(s)
+                || "completed".equals(s)
+                || "closed".equals(s)
+                || "cancelled".equals(s)
+                || "restocked".equals(s)
+                || "disposed".equals(s)
+                || "supplier_accepted".equals(s)
+                || "supplier_rejected".equals(s);
+    }
+
+    private boolean isWorkerReturnTask(Task task) {
+        return task.getNotes() != null && task.getNotes().contains("role=worker");
+    }
+
+    private boolean isManagerReturnTask(Task task) {
+        return task.getNotes() != null && task.getNotes().contains("role=manager");
+    }
+
+    private List<Task> findReturnTasks(UUID returnId) {
+        return taskService.findByTaskTypeAndReference("returns", "return", returnId);
+    }
+
+    private void syncReturnTasks(ReturnEntity entity, UUID actor) {
+        String status = entity.getStatus() != null ? entity.getStatus().toLowerCase() : "pending";
+        List<Task> existing = findReturnTasks(entity.getId());
+        List<Task> workerTasks = existing.stream().filter(this::isWorkerReturnTask).toList();
+        List<Task> managerTasks = existing.stream().filter(this::isManagerReturnTask).toList();
+
+        if (isReturnTerminalStatus(status)) {
+            closeTasks(workerTasks, actor);
+            closeTasks(managerTasks, actor);
+            return;
+        }
+
+        if ("inspecting".equals(status)) {
+            closeTasks(workerTasks, entity.getReceivedBy() != null ? entity.getReceivedBy() : actor);
+            ensureManagerTask(entity, managerTasks, actor);
+            return;
+        }
+
+        // pending / received / other in-progress worker stages
+        ensureWorkerTask(entity, workerTasks, actor);
+        closeTasks(managerTasks, actor);
+    }
+
+    private void ensureWorkerTask(ReturnEntity entity, List<Task> workerTasks, UUID actor) {
+        String status = entity.getStatus() != null ? entity.getStatus().toLowerCase() : "pending";
+        String targetStatus;
+        if ("received".equals(status)) {
+            targetStatus = entity.getReceivedBy() != null ? "in_progress" : "pending";
+        } else {
+            targetStatus = entity.getReceivedBy() != null ? "assigned" : "pending";
+        }
+        if (workerTasks.isEmpty()) {
+            Task task = new Task();
+            task.setTaskNumber(generateTaskNumber("RET", entity.getReturnNumber()));
+            task.setTaskType("returns");
+            task.setWarehouseId(entity.getWarehouseId());
+            task.setAssignedTo(entity.getReceivedBy());
+            task.setPriority("normal");
+            task.setStatus(targetStatus);
+            task.setDueDate((entity.getReturnDate() != null ? entity.getReturnDate() : java.time.LocalDate.now()).atStartOfDay());
+            task.setReferenceType("return");
+            task.setReferenceId(entity.getId());
+            task.setNotes("role=worker;flow=" + entity.getReturnFlow() + ";return=" + entity.getReturnNumber() + ";stage=" + status);
+            taskService.create(task);
+            return;
+        }
+        for (Task task : workerTasks) {
+            if (entity.getReceivedBy() != null && task.getAssignedTo() == null) {
+                taskService.assignTask(task.getId(), entity.getReceivedBy(), "system");
+            }
+            if (!targetStatus.equals(task.getStatus()) && !"completed".equals(task.getStatus()) && !"cancelled".equals(task.getStatus())) {
+                if (actor != null) {
+                    taskService.updateStatusWithWorker(task.getId(), targetStatus, actor);
+                } else {
+                    taskService.updateStatus(task.getId(), targetStatus);
+                }
+            }
+        }
+    }
+
+    private void ensureManagerTask(ReturnEntity entity, List<Task> managerTasks, UUID actor) {
+        if (managerTasks.isEmpty()) {
+            Task task = new Task();
+            task.setTaskNumber(generateTaskNumber("RETREV", entity.getReturnNumber()));
+            task.setTaskType("returns");
+            task.setWarehouseId(entity.getWarehouseId());
+            task.setAssignedTo(entity.getInspectedBy());
+            task.setPriority("high");
+            task.setStatus(entity.getInspectedBy() != null ? "assigned" : "pending");
+            task.setDueDate(LocalDateTime.now().plusHours(4));
+            task.setReferenceType("return");
+            task.setReferenceId(entity.getId());
+            task.setNotes("role=manager;flow=" + entity.getReturnFlow() + ";return=" + entity.getReturnNumber() + ";stage=inspection_decision");
+            taskService.create(task);
+            return;
+        }
+        for (Task task : managerTasks) {
+            if (entity.getInspectedBy() != null && task.getAssignedTo() == null) {
+                taskService.assignTask(task.getId(), entity.getInspectedBy(), "system");
+            }
+            if (!"pending".equals(task.getStatus()) && !"assigned".equals(task.getStatus()) && !"in_progress".equals(task.getStatus())) {
+                if (actor != null) {
+                    taskService.updateStatusWithWorker(task.getId(), "pending", actor);
+                } else {
+                    taskService.updateStatus(task.getId(), "pending");
+                }
+            }
+        }
+    }
+
+    private void closeTasks(List<Task> tasks, UUID closedBy) {
+        for (Task task : tasks) {
+            if ("completed".equals(task.getStatus()) || "cancelled".equals(task.getStatus())) {
+                continue;
+            }
+            if (closedBy != null) {
+                taskService.updateStatusWithWorker(task.getId(), "completed", closedBy);
+            } else {
+                taskService.updateStatus(task.getId(), "completed");
+            }
+        }
+    }
+
     private void transitionStatus(ReturnEntity entity, String nextStatus, UUID changedBy, String notes) {
         String fromStatus = entity.getStatus();
         String normalizedNext = nextStatus == null ? "" : nextStatus.trim().toLowerCase();
@@ -391,6 +546,29 @@ public class ReturnService {
             notificationService.create(notification);
         } catch (Exception ignored) {
             // Notification should not block workflow status update.
+        }
+    }
+
+    private void recordReturnOperation(ReturnEntity entity, UUID workerId, String operationType) {
+        if (entity == null || workerId == null) {
+            return;
+        }
+        try {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    operationType,
+                    workerId,
+                    null,
+                    entity.getOriginalOrderId(),
+                    null,
+                    entity.getWarehouseId(),
+                    null,
+                    null,
+                    null,
+                    LocalDateTime.now(),
+                    "{\"returnId\":\"" + entity.getId() + "\",\"returnNumber\":\"" + entity.getReturnNumber() + "\",\"status\":\"" + entity.getStatus() + "\"}"
+            ));
+        } catch (Exception ignored) {
+            // Analytics event failures must not block return workflow.
         }
     }
 

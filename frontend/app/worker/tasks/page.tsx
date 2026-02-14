@@ -22,6 +22,8 @@ const taskTypeConfig: Record<string, { icon: string; type: string }> = {
   cycle_count: { icon: "calculate", type: "warning" },
   packing: { icon: "inventory", type: "success" },
   stock_transfer: { icon: "swap_horiz", type: "info" },
+  returns: { icon: "keyboard_return", type: "warning" },
+  shipment: { icon: "local_shipping", type: "primary" },
 };
 
 export default function WorkerTasksPage() {
@@ -43,9 +45,9 @@ export default function WorkerTasksPage() {
       try {
         // Fetch tasks assigned to this worker (pending and in_progress)
         const allTasks = await tasksApi.getAll(undefined, undefined, worker.id);
-        // Filter to only show pending and in_progress tasks
+        // Show actionable task states for worker flow.
         const activeTasks = allTasks.filter(
-          task => task.status === "pending" || task.status === "in_progress"
+          task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
         );
         setTasks(activeTasks);
       } catch (error) {
@@ -113,7 +115,7 @@ export default function WorkerTasksPage() {
       try {
         const allTasks = await tasksApi.getAll(undefined, undefined, worker.id);
         const activeTasks = allTasks.filter(
-          task => task.status === "pending" || task.status === "in_progress"
+          task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
         );
         setTasks(activeTasks);
         showToast.success("Tasks refreshed");
