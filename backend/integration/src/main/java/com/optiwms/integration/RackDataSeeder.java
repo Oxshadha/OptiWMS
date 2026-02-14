@@ -6,6 +6,7 @@ import com.optiwms.infra.master.LocationRepository;
 import com.optiwms.infra.master.WarehouseRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ import java.util.UUID;
  */
 @Component
 @Order(20) // Run after warehouse seeding
+@ConditionalOnProperty(name = "optiwms.seed.racks", havingValue = "true", matchIfMissing = true)
 public class RackDataSeeder implements CommandLineRunner {
 
     private final LocationRepository locationRepository;
@@ -251,9 +253,10 @@ public class RackDataSeeder implements CommandLineRunner {
                     for (int binIdx = 0; binIdx < binsPerLevel; binIdx++) {
                         LocationEntity location = new LocationEntity();
                         location.setWarehouseId(warehouseId);
+                        String locationAreaCode = toLocationAreaCode(areaCode);
                         // Must match DB constraint chk_location_code_format: AREA-ROW-BAY-LEVEL-POS
                         // Example: C-01-01-1-A
-                        location.setLocationCode(String.format("%s-%02d-%02d-%d-%s", areaCode, aisle, bay, level, binPositions[binIdx]));
+                        location.setLocationCode(String.format("%s-%02d-%02d-%d-%s", locationAreaCode, aisle, bay, level, binPositions[binIdx]));
                         location.setArea(areaCode);
                         location.setRowNumber(String.format("%02d", aisle));
                         location.setBayNumber(String.format("%02d", bay));
@@ -308,6 +311,29 @@ public class RackDataSeeder implements CommandLineRunner {
         }
 
         return rackCount;
+    }
+
+    /**
+     * Maps legacy multi-letter area codes to single-letter location code prefixes
+     * required by DB constraint chk_location_code_format.
+     */
+    private String toLocationAreaCode(String areaCode) {
+        if (areaCode == null || areaCode.isBlank()) {
+            return "C";
+        }
+        return switch (areaCode.toUpperCase()) {
+            case "ST" -> "C"; // Storage
+            case "RM" -> "A"; // Raw materials
+            case "FG" -> "B"; // Finished goods
+            case "PK" -> "D"; // Picking
+            case "PA" -> "E"; // Putaway
+            case "RC" -> "F"; // Receiving
+            case "SH" -> "G"; // Shipping
+            default -> {
+                String upper = areaCode.toUpperCase();
+                yield upper.substring(0, 1);
+            }
+        };
     }
 
     /**
