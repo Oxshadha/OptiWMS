@@ -15,6 +15,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.UUID;
 
 /**
@@ -88,6 +90,12 @@ public class RackDataSeeder implements CommandLineRunner {
         int totalRacks = 0;
         int totalLocations = 0;
         int totalLevels = 0;
+        Set<String> usedLocationCodes = new HashSet<>(
+            locationRepository.findAll().stream()
+                .map(LocationEntity::getLocationCode)
+                .filter(code -> code != null && !code.isBlank())
+                .toList()
+        );
 
         for (var warehouse : warehouses) {
             // Check if warehouse already has locations
@@ -152,43 +160,43 @@ public class RackDataSeeder implements CommandLineRunner {
             // Generate racks for different storage areas (only if area doesn't exist)
             // Keep old areas for backward compatibility, but prefer realistic zones
             if (!existingAreas.contains("ST") && !hasRealisticZones) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "ST", "Storage", 20, 4);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "ST", "Storage", 20, 4, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 5 * 3; // 5 levels * 3 bins per level
             }
 
             if (!existingAreas.contains("RM")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "RM", "Raw Materials Storage", 10, 4);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "RM", "Raw Materials Storage", 10, 4, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 5 * 3;
             }
 
             if (!existingAreas.contains("FG")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "FG", "Finished Goods Storage", 15, 4);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "FG", "Finished Goods Storage", 15, 4, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 5 * 3;
             }
 
             if (!existingAreas.contains("PK")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "PK", "Picking Area", 5, 3);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "PK", "Picking Area", 5, 3, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 3 * 2; // 3 levels * 2 bins
             }
 
             if (!existingAreas.contains("PA")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "PA", "Putaway Area", 5, 3);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "PA", "Putaway Area", 5, 3, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 3 * 2; // 3 levels * 2 bins
             }
 
             if (!existingAreas.contains("RC")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "RC", "Reception Area", 3, 2);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "RC", "Reception Area", 3, 2, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 2 * 2; // 2 levels * 2 bins (lower for reception)
             }
 
             if (!existingAreas.contains("SH")) {
-                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "SH", "Shipping Area", 3, 2);
+                int racks = generateStorageRacks(warehouse.getId(), warehouse.getCode(), "SH", "Shipping Area", 3, 2, usedLocationCodes);
                 totalRacks += racks;
                 totalLocations += racks * 2 * 2; // 2 levels * 2 bins (lower for shipping)
             }
@@ -208,7 +216,14 @@ public class RackDataSeeder implements CommandLineRunner {
      * @param numAisles Number of aisles
      * @param racksPerAisle Number of racks per aisle
      */
-    private int generateStorageRacks(UUID warehouseId, String warehouseCode, String areaCode, String areaName, int numAisles, int racksPerAisle) {
+    private int generateStorageRacks(
+            UUID warehouseId,
+            String warehouseCode,
+            String areaCode,
+            String areaName,
+            int numAisles,
+            int racksPerAisle,
+            Set<String> usedLocationCodes) {
         int rackCount = 0;
 
         // Industry-standard level capacities (higher level = lower capacity)
@@ -254,11 +269,19 @@ public class RackDataSeeder implements CommandLineRunner {
                         LocationEntity location = new LocationEntity();
                         location.setWarehouseId(warehouseId);
                         String locationAreaCode = toLocationAreaCode(areaCode);
+                        int locationRow = findNextAvailableRow(
+                                usedLocationCodes, locationAreaCode, aisle, bay, level, binPositions[binIdx]
+                        );
                         // Must match DB constraint chk_location_code_format: AREA-ROW-BAY-LEVEL-POS
                         // Example: C-01-01-1-A
-                        location.setLocationCode(String.format("%s-%02d-%02d-%d-%s", locationAreaCode, aisle, bay, level, binPositions[binIdx]));
+                        String locationCode = String.format(
+                                "%s-%02d-%02d-%d-%s",
+                                locationAreaCode, locationRow, bay, level, binPositions[binIdx]
+                        );
+                        location.setLocationCode(locationCode);
+                        usedLocationCodes.add(locationCode);
                         location.setArea(areaCode);
-                        location.setRowNumber(String.format("%02d", aisle));
+                        location.setRowNumber(String.format("%02d", locationRow));
                         location.setBayNumber(String.format("%02d", bay));
                         location.setLevelNumber(level);
                         location.setBinPosition(binPositions[binIdx]);
@@ -311,6 +334,24 @@ public class RackDataSeeder implements CommandLineRunner {
         }
 
         return rackCount;
+    }
+
+    private int findNextAvailableRow(
+            Set<String> usedLocationCodes,
+            String areaCode,
+            int preferredRow,
+            int bay,
+            int level,
+            String binPosition) {
+        int row = preferredRow;
+        for (int attempts = 0; attempts < 99; attempts++) {
+            String candidate = String.format("%s-%02d-%02d-%d-%s", areaCode, row, bay, level, binPosition);
+            if (!usedLocationCodes.contains(candidate)) {
+                return row;
+            }
+            row = (row % 99) + 1;
+        }
+        throw new RuntimeException("Could not allocate unique location code for area " + areaCode);
     }
 
     /**
