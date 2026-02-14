@@ -96,6 +96,77 @@ npm run dev
 
 Frontend runs at `http://localhost:3000`.
 
+Windows equivalents:
+
+```powershell
+cd backend
+.\gradlew.bat :core-api:bootRun
+```
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+## First-Run Troubleshooting
+
+### 1) Frontend build error: `Module not found: Can't resolve '@tanstack/react-query'`
+
+Run dependency install in `frontend`:
+
+```bash
+cd frontend
+npm install
+```
+
+Windows clean reinstall (if still failing):
+
+```powershell
+cd frontend
+rmdir /s /q node_modules
+del package-lock.json
+npm install
+```
+
+### 2) Cannot login with default admin (`admin@optiwms.com` / `admin123`)
+
+Reason: if admin already exists in DB, seeder does not overwrite password.
+
+Option A (SQL):
+
+```sql
+DELETE FROM users WHERE username='admin' OR email='admin@optiwms.com';
+```
+
+Option B (Docker command):
+
+```bash
+docker exec -it <postgres_container_name> psql -U postgres -d optiwms -c "DELETE FROM users WHERE username='admin' OR email='admin@optiwms.com';"
+```
+
+Then restart backend. Seeder recreates default admin for local development.
+
+### 3) Backend startup fails during synthetic rack seeding
+
+If startup fails in `RackDataSeeder` (location-code uniqueness/constraint issues), start backend with rack seeding disabled:
+
+macOS/Linux:
+
+```bash
+cd backend
+./gradlew :core-api:bootRun --args="--optiwms.seed.racks=false"
+```
+
+Windows:
+
+```powershell
+cd backend
+.\gradlew.bat :core-api:bootRun --args="--optiwms.seed.racks=false"
+```
+
+This does not block normal API development; it only skips synthetic rack generation at startup.
+
 ## Default Bootstrap Credentials (Dev Only)
 
 Created by `backend/integration/src/main/java/com/optiwms/integration/UserSeederService.java`:
@@ -180,4 +251,4 @@ Services:
 
 ## License
 
-Set your project license here (e.g., MIT, Apache-2.0, proprietary).
+
