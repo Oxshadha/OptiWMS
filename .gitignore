@@ -158,3 +158,5 @@ backend/.gradle-local/
 !README.md
 
 *.csv
+
+*.sh
