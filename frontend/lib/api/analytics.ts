@@ -101,7 +101,6 @@ export interface InventoryOverview {
   activeItems: number;
   lowStockItems: number;
   outOfStockItems: number;
-  totalValue: number;
 }
 
 export const analyticsApi = {

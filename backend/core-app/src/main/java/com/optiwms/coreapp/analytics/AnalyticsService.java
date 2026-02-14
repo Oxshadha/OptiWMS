@@ -290,34 +290,11 @@ public class AnalyticsService {
                 .filter(i -> "out_of_stock".equals(i.getStatus()))
                 .count();
 
-        Map<UUID, BigDecimal> unitPriceByMaterial = new HashMap<>();
-        Map<UUID, LocalDateTime> latestPriceAt = new HashMap<>();
-        for (OrderItemEntity item : orderItemRepository.findAll()) {
-            if (item.getMaterialId() == null || item.getUnitPrice() == null) {
-                continue;
-            }
-            LocalDateTime at = item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.MIN;
-            LocalDateTime current = latestPriceAt.get(item.getMaterialId());
-            if (current == null || at.isAfter(current)) {
-                latestPriceAt.put(item.getMaterialId(), at);
-                unitPriceByMaterial.put(item.getMaterialId(), item.getUnitPrice());
-            }
-        }
-
-        BigDecimal totalValueDecimal = BigDecimal.ZERO;
-        for (InventoryItemEntity i : inventory) {
-            int qty = i.getQuantity() != null ? i.getQuantity() : 0;
-            BigDecimal unitPrice = unitPriceByMaterial.getOrDefault(i.getMaterialId(), BigDecimal.ZERO);
-            totalValueDecimal = totalValueDecimal.add(unitPrice.multiply(BigDecimal.valueOf(qty)));
-        }
-        Integer totalValue = totalValueDecimal.setScale(0, RoundingMode.HALF_UP).intValue();
-
         return new InventoryOverview(
                 totalItems,
                 activeItems,
                 lowStockItems,
-                outOfStockItems,
-                totalValue
+                outOfStockItems
         );
     }
 
@@ -693,15 +670,13 @@ public class AnalyticsService {
         public Long activeItems;
         public Long lowStockItems;
         public Long outOfStockItems;
-        public Integer totalValue;
 
         public InventoryOverview(Long totalItems, Long activeItems, Long lowStockItems,
-                                Long outOfStockItems, Integer totalValue) {
+                                Long outOfStockItems) {
             this.totalItems = totalItems;
             this.activeItems = activeItems;
             this.lowStockItems = lowStockItems;
             this.outOfStockItems = outOfStockItems;
-            this.totalValue = totalValue;
         }
     }
 
