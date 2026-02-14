@@ -72,6 +72,9 @@ public class CycleCountController {
             CycleCountService.CycleCount updated = service.update(
                     id,
                     request.scheduledDate() != null ? java.time.LocalDate.parse(request.scheduledDate()) : null,
+                    request.assignedWorkers() != null
+                            ? request.assignedWorkers().stream().map(UUID::fromString).toArray(UUID[]::new)
+                            : null,
                     request.status(),
                     request.notes()
             );
@@ -90,6 +93,7 @@ public class CycleCountController {
             CycleCountService.CycleCount updated = service.update(
                     id,
                     null,
+                    null,
                     "cancelled",
                     request.reason()
             );
@@ -107,6 +111,7 @@ public class CycleCountController {
         try {
             CycleCountService.CycleCount updated = service.update(
                     id,
+                    null,
                     null,
                     null,
                     request.notes()
@@ -181,6 +186,10 @@ public class CycleCountController {
                 count.getCountNumber(),
                 count.getWarehouseId().toString(),
                 count.getLocationCode(),
+                count.getScheduledDate() != null ? count.getScheduledDate().toString() : null,
+                count.getAssignedWorkers() != null
+                        ? java.util.Arrays.stream(count.getAssignedWorkers()).map(UUID::toString).toList()
+                        : java.util.List.of(),
                 count.getStatus(),
                 count.getVariance() != null ? count.getVariance().toString() : null,
                 count.getMaterialId() != null ? count.getMaterialId().toString() : null,
@@ -192,7 +201,10 @@ public class CycleCountController {
                 count.getApprovalRequired(),
                 count.getApprovedBy() != null ? count.getApprovedBy().toString() : null,
                 count.getApprovedAt() != null ? count.getApprovedAt().toString() : null,
-                count.getApprovalNotes()
+                count.getApprovalNotes(),
+                count.getCountedBy() != null ? count.getCountedBy().toString() : null,
+                count.getCountedAt() != null ? count.getCountedAt().toString() : null,
+                count.getNotes()
         );
     }
 
@@ -206,7 +218,12 @@ public class CycleCountController {
             String status,
             String notes
     ) {}
-    public record UpdateCycleCountRequest(String scheduledDate, String status, String notes) {}
+    public record UpdateCycleCountRequest(
+            String scheduledDate,
+            List<String> assignedWorkers,
+            String status,
+            String notes
+    ) {}
     public record CancelCycleCountRequest(String reason) {}
     public record ReviewCycleCountRequest(String notes) {}
     public record AdjustmentDecisionRequest(String approvedBy, String notes) {}
@@ -215,6 +232,8 @@ public class CycleCountController {
             String countNumber,
             String warehouseId,
             String locationCode,
+            String scheduledDate,
+            List<String> assignedWorkers,
             String status,
             String variance,
             String materialId,
@@ -226,7 +245,10 @@ public class CycleCountController {
             Boolean approvalRequired,
             String approvedBy,
             String approvedAt,
-            String approvalNotes
+            String approvalNotes,
+            String countedBy,
+            String countedAt,
+            String notes
     ) {}
     public record CycleCountResultDto(boolean success, String message, String variance, boolean recountRequired, boolean approvalRequired) {}
 }

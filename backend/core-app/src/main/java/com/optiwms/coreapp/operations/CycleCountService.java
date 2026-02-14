@@ -2,7 +2,9 @@ package com.optiwms.coreapp.operations;
 
 import com.optiwms.coreapp.anomalies.AnomalyService;
 import com.optiwms.coreapp.inventory.InventoryService;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.cyclecount.CycleCountAuditLogEntity;
 import com.optiwms.infra.cyclecount.CycleCountAuditLogRepository;
 import com.optiwms.infra.cyclecount.CycleCountEntity;
@@ -14,7 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,19 +33,22 @@ public class CycleCountService {
     private final InventoryService inventoryService;
     private final AnomalyService anomalyService;
     private final OperationEventService operationEventService;
+    private final TaskService taskService;
 
     public CycleCountService(CycleCountRepository repository,
                             CycleCountRecountRepository recountRepository,
                             CycleCountAuditLogRepository auditLogRepository,
                             InventoryService inventoryService,
                             AnomalyService anomalyService,
-                            OperationEventService operationEventService) {
+                            OperationEventService operationEventService,
+                            TaskService taskService) {
         this.repository = repository;
         this.recountRepository = recountRepository;
         this.auditLogRepository = auditLogRepository;
         this.inventoryService = inventoryService;
         this.anomalyService = anomalyService;
         this.operationEventService = operationEventService;
+        this.taskService = taskService;
     }
 
     public List<CycleCount> listAll() {
@@ -74,16 +81,20 @@ public class CycleCountService {
         entity.setNotes(cycleCount.getNotes());
 
         CycleCountEntity saved = repository.save(entity);
+        syncWorkerTasks(saved);
         return toDomain(saved);
     }
 
     @Transactional
-    public CycleCount update(UUID id, java.time.LocalDate scheduledDate, String status, String notes) {
+    public CycleCount update(UUID id, java.time.LocalDate scheduledDate, UUID[] assignedWorkers, String status, String notes) {
         CycleCountEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Cycle count not found: " + id));
 
         if (scheduledDate != null) {
             entity.setScheduledDate(scheduledDate);
+        }
+        if (assignedWorkers != null) {
+            entity.setAssignedWorkers(assignedWorkers.length == 0 ? null : assignedWorkers);
         }
         if (status != null && !status.isBlank()) {
             entity.setStatus(status);
@@ -93,6 +104,7 @@ public class CycleCountService {
         }
 
         CycleCountEntity saved = repository.save(entity);
+        syncWorkerTasks(saved);
         return toDomain(saved);
     }
 
@@ -108,8 +120,8 @@ public class CycleCountService {
         // Find inventory at location
         List<InventoryItem> inventory = inventoryService.findByWarehouse(entity.getWarehouseId());
         InventoryItem item = inventory.stream()
-                .filter(inv -> inv.getMaterialId().equals(materialId) && 
-                             (entity.getLocationCode() == null || entity.getLocationCode().equals(inv.getLocationCode())))
+                .filter(inv -> inv.getMaterialId().equals(materialId)
+                        && matchesCountScope(entity.getLocationCode(), inv.getLocationCode()))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Inventory not found for material at location"));
 
@@ -135,18 +147,34 @@ public class CycleCountService {
         entity.setCountedBy(countedBy);
         entity.setCountedAt(LocalDateTime.now());
 
+        operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                "CYCLE_COUNT",
+                countedBy,
+                null,
+                null,
+                null,
+                entity.getWarehouseId(),
+                materialId,
+                countedQtyInteger,
+                null,
+                LocalDateTime.now(),
+                "status=" + entity.getStatus() + ";anomaly=" + anomalyDetected
+        ));
+
         // Get variance threshold (default 5 units if not set)
         BigDecimal threshold = entity.getVarianceThreshold() != null ? 
             entity.getVarianceThreshold() : new BigDecimal("5.0");
 
         // Check if recount is required (variance exceeds threshold)
-        if (varianceDecimal.abs().compareTo(threshold) > 0 && !Boolean.TRUE.equals(entity.getRecountRequired())) {
+        if (varianceDecimal.abs().compareTo(threshold) >= 0 && !Boolean.TRUE.equals(entity.getRecountRequired())) {
             // First count with large variance - require recount
             entity.setRecountRequired(true);
             entity.setApprovalRequired(false);
             entity.setPreviousVariance(varianceDecimal);
             entity.setStatus("recount_required"); // New status
             repository.save(entity);
+            syncWorkerTaskAfterCount(entity, countedBy, false);
+            ensureManagerReviewTaskClosed(entity);
 
             saveCycleCountAudit(
                     entity.getId(),
@@ -184,7 +212,66 @@ public class CycleCountService {
             saveRecountHistory(id, currentRecountCount + 1, countedQuantity, varianceDecimal, countedBy, 
                 String.format("Recount #%d", currentRecountCount));
 
-            // After 2 recounts (3 total counts), accept the variance
+            // If recount resolves variance, complete immediately.
+            if (variance == 0) {
+                entity.setRecountRequired(false);
+                entity.setApprovalRequired(false);
+                entity.setFinalVariance(varianceDecimal);
+                entity.setStatus("completed");
+                repository.save(entity);
+                syncWorkerTaskAfterCount(entity, countedBy, true);
+                ensureManagerReviewTaskClosed(entity);
+                saveCycleCountAudit(
+                        entity.getId(),
+                        "RECOUNT_RESOLVED",
+                        countedBy,
+                        previousStatus,
+                        entity.getStatus(),
+                        expectedQuantityDecimal,
+                        countedQuantityDecimal,
+                        varianceDecimal,
+                        String.format("Recount #%d resolved variance to zero", currentRecountCount)
+                );
+                return new CycleCountResult(
+                    true,
+                    String.format("Recount #%d matched system quantity. Count completed.", currentRecountCount),
+                    varianceDecimal,
+                    false,
+                    false
+                );
+            }
+
+            // Any discrepancy >= threshold after recount requires manager decision.
+            if (varianceDecimal.abs().compareTo(threshold) >= 0) {
+                entity.setRecountRequired(false);
+                entity.setApprovalRequired(true);
+                entity.setFinalVariance(varianceDecimal);
+                entity.setStatus("pending_approval");
+                repository.save(entity);
+                syncWorkerTaskAfterCount(entity, countedBy, true);
+                ensureManagerReviewTaskOpen(entity);
+                maybeCreateAnomaly(entity);
+                saveCycleCountAudit(
+                        entity.getId(),
+                        "RECOUNT_PENDING_APPROVAL",
+                        countedBy,
+                        previousStatus,
+                        entity.getStatus(),
+                        expectedQuantityDecimal,
+                        countedQuantityDecimal,
+                        varianceDecimal,
+                        String.format("Recount #%d variance >= threshold; manager decision required", currentRecountCount)
+                );
+                return new CycleCountResult(
+                    true,
+                    String.format("Recount #%d recorded. Variance >= threshold. Awaiting manager decision.", currentRecountCount),
+                    varianceDecimal,
+                    false,
+                    true
+                );
+            }
+
+            // After 2 recounts (3 total counts), accept below-threshold variance
             if (currentRecountCount >= 2) {
                 entity.setRecountRequired(false);
                 entity.setFinalVariance(varianceDecimal);
@@ -192,6 +279,8 @@ public class CycleCountService {
                     entity.setApprovalRequired(false);
                     entity.setStatus("completed");
                     repository.save(entity);
+                    syncWorkerTaskAfterCount(entity, countedBy, true);
+                    ensureManagerReviewTaskClosed(entity);
                     saveCycleCountAudit(
                             entity.getId(),
                             "COUNT_RECORDED",
@@ -203,23 +292,12 @@ public class CycleCountService {
                             varianceDecimal,
                             "Recount completed with zero variance"
                     );
-                    operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                            "CYCLE_COUNT",
-                            countedBy,
-                            null,
-                            null,
-                            null,
-                            entity.getWarehouseId(),
-                            materialId,
-                            countedQtyInteger,
-                            null,
-                            LocalDateTime.now(),
-                            "approval_required=false;recount=true"
-                    ));
                 } else {
                     entity.setApprovalRequired(true);
                     entity.setStatus("pending_approval");
                     repository.save(entity);
+                    syncWorkerTaskAfterCount(entity, countedBy, true);
+                    ensureManagerReviewTaskOpen(entity);
                     maybeCreateAnomaly(entity);
                     saveCycleCountAudit(
                             entity.getId(),
@@ -242,9 +320,11 @@ public class CycleCountService {
                     entity.getApprovalRequired() != null && entity.getApprovalRequired()
                 );
             } else {
-                // Still need more recounts
+                // Below threshold but still non-zero before max recounts: keep recount flow.
                 entity.setApprovalRequired(false);
                 repository.save(entity);
+                syncWorkerTaskAfterCount(entity, countedBy, false);
+                ensureManagerReviewTaskClosed(entity);
                 saveCycleCountAudit(
                         entity.getId(),
                         "RECOUNT_RECORDED",
@@ -273,6 +353,8 @@ public class CycleCountService {
             entity.setApprovalRequired(false);
             entity.setStatus("completed");
             repository.save(entity);
+            syncWorkerTaskAfterCount(entity, countedBy, true);
+            ensureManagerReviewTaskClosed(entity);
             saveCycleCountAudit(
                     entity.getId(),
                     "COUNT_RECORDED",
@@ -284,23 +366,12 @@ public class CycleCountService {
                     varianceDecimal,
                     "Cycle count matched system quantity"
             );
-            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
-                    "CYCLE_COUNT",
-                    countedBy,
-                    null,
-                    null,
-                    null,
-                    entity.getWarehouseId(),
-                    materialId,
-                    countedQtyInteger,
-                    null,
-                    LocalDateTime.now(),
-                    "approval_required=false;variance=0"
-            ));
         } else {
             entity.setApprovalRequired(true);
             entity.setStatus("pending_approval");
             repository.save(entity);
+            syncWorkerTaskAfterCount(entity, countedBy, true);
+            ensureManagerReviewTaskOpen(entity);
             maybeCreateAnomaly(entity);
             saveCycleCountAudit(
                     entity.getId(),
@@ -344,7 +415,7 @@ public class CycleCountService {
         List<InventoryItem> inventory = inventoryService.findByWarehouse(entity.getWarehouseId());
         InventoryItem item = inventory.stream()
                 .filter(inv -> inv.getMaterialId().equals(materialId) &&
-                        (locationCode == null || locationCode.equals(inv.getLocationCode())))
+                        matchesCountScope(locationCode, inv.getLocationCode()))
                 .findFirst()
                 .orElseThrow(() -> new RuntimeException("Inventory not found for cycle count adjustment"));
 
@@ -360,6 +431,7 @@ public class CycleCountService {
         entity.setApprovalNotes(notes);
         entity.setStatus("completed");
         entity = repository.save(entity);
+        ensureManagerReviewTaskClosed(entity, approvedBy);
 
         saveCycleCountAudit(
                 entity.getId(),
@@ -410,6 +482,8 @@ public class CycleCountService {
         entity.setApprovalNotes(notes);
         entity.setStatus("recount_required");
         entity = repository.save(entity);
+        ensureManagerReviewTaskClosed(entity, approvedBy);
+        syncWorkerTasks(entity);
 
         saveCycleCountAudit(
                 entity.getId(),
@@ -513,6 +587,163 @@ public class CycleCountService {
 
     private String generateCountNumber() {
         return "CC-" + java.time.LocalDate.now() + "-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    private String generateTaskNumber(String prefix, String reference) {
+        return prefix + "-" + reference + "-" + java.util.UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+    }
+
+    private boolean isWorkerTask(Task task) {
+        return task.getNotes() != null && task.getNotes().contains("role=worker");
+    }
+
+    private boolean isManagerTask(Task task) {
+        return task.getNotes() != null && task.getNotes().contains("role=manager");
+    }
+
+    private void syncWorkerTasks(CycleCountEntity entity) {
+        List<Task> existing = taskService.findByTaskTypeAndReference("cycle_count", "cycle_count", entity.getId());
+        List<Task> workerTasks = existing.stream().filter(this::isWorkerTask).toList();
+        Set<UUID> assignedWorkerIds = entity.getAssignedWorkers() == null
+                ? Set.of()
+                : Arrays.stream(entity.getAssignedWorkers()).collect(Collectors.toSet());
+
+        if (assignedWorkerIds.isEmpty()) {
+            if (workerTasks.isEmpty()) {
+                Task task = new Task();
+                task.setTaskNumber(generateTaskNumber("CC", entity.getCountNumber()));
+                task.setTaskType("cycle_count");
+                task.setWarehouseId(entity.getWarehouseId());
+                task.setAssignedTo(null);
+                task.setPriority("normal");
+                task.setStatus("pending");
+                task.setDueDate(entity.getScheduledDate() != null ? entity.getScheduledDate().atStartOfDay() : LocalDateTime.now().plusDays(1));
+                task.setLocationCode(entity.getLocationCode());
+                task.setReferenceType("cycle_count");
+                task.setReferenceId(entity.getId());
+                task.setNotes("role=worker;count=" + entity.getCountNumber() + ";scope=" + entity.getLocationCode());
+                taskService.create(task);
+            }
+            return;
+        }
+
+        for (UUID workerId : assignedWorkerIds) {
+            boolean exists = workerTasks.stream().anyMatch(t -> workerId.equals(t.getAssignedTo()));
+            if (!exists) {
+                Task task = new Task();
+                task.setTaskNumber(generateTaskNumber("CC", entity.getCountNumber()));
+                task.setTaskType("cycle_count");
+                task.setWarehouseId(entity.getWarehouseId());
+                task.setAssignedTo(workerId);
+                task.setPriority("normal");
+                task.setStatus("assigned");
+                task.setDueDate(entity.getScheduledDate() != null ? entity.getScheduledDate().atStartOfDay() : LocalDateTime.now().plusDays(1));
+                task.setLocationCode(entity.getLocationCode());
+                task.setReferenceType("cycle_count");
+                task.setReferenceId(entity.getId());
+                task.setNotes("role=worker;count=" + entity.getCountNumber() + ";scope=" + entity.getLocationCode());
+                taskService.create(task);
+            }
+        }
+
+        for (Task task : workerTasks) {
+            if (task.getAssignedTo() != null
+                    && !assignedWorkerIds.contains(task.getAssignedTo())
+                    && !"completed".equals(task.getStatus())
+                    && !"cancelled".equals(task.getStatus())) {
+                taskService.updateStatus(task.getId(), "cancelled");
+            }
+        }
+    }
+
+    private void syncWorkerTaskAfterCount(CycleCountEntity entity, UUID countedBy, boolean markCompleted) {
+        List<Task> existing = taskService.findByTaskTypeAndReference("cycle_count", "cycle_count", entity.getId());
+        Task workerTask = existing.stream()
+                .filter(this::isWorkerTask)
+                .filter(t -> countedBy.equals(t.getAssignedTo()))
+                .findFirst()
+                .orElse(null);
+
+        if (workerTask == null) {
+            Task task = new Task();
+            task.setTaskNumber(generateTaskNumber("CC", entity.getCountNumber()));
+            task.setTaskType("cycle_count");
+            task.setWarehouseId(entity.getWarehouseId());
+            task.setAssignedTo(countedBy);
+            task.setPriority("normal");
+            task.setStatus(markCompleted ? "completed" : "in_progress");
+            task.setDueDate(entity.getScheduledDate() != null ? entity.getScheduledDate().atStartOfDay() : LocalDateTime.now().plusDays(1));
+            task.setLocationCode(entity.getLocationCode());
+            task.setReferenceType("cycle_count");
+            task.setReferenceId(entity.getId());
+            task.setNotes("role=worker;count=" + entity.getCountNumber() + ";scope=" + entity.getLocationCode());
+            taskService.create(task);
+            return;
+        }
+
+        if (markCompleted) {
+            taskService.updateStatusWithWorker(workerTask.getId(), "completed", countedBy);
+        } else {
+            taskService.updateStatusWithWorker(workerTask.getId(), "in_progress", countedBy);
+        }
+    }
+
+    private void ensureManagerReviewTaskOpen(CycleCountEntity entity) {
+        List<Task> existing = taskService.findByTaskTypeAndReference("cycle_count", "cycle_count", entity.getId());
+        Task managerTask = existing.stream().filter(this::isManagerTask).findFirst().orElse(null);
+        if (managerTask == null) {
+            Task task = new Task();
+            task.setTaskNumber(generateTaskNumber("CCREV", entity.getCountNumber()));
+            task.setTaskType("cycle_count");
+            task.setWarehouseId(entity.getWarehouseId());
+            task.setAssignedTo(null);
+            task.setPriority("high");
+            task.setStatus("pending");
+            task.setDueDate(LocalDateTime.now().plusHours(4));
+            task.setLocationCode(entity.getLocationCode());
+            task.setReferenceType("cycle_count");
+            task.setReferenceId(entity.getId());
+            task.setNotes("role=manager;action=approve_adjustment;count=" + entity.getCountNumber());
+            taskService.create(task);
+            return;
+        }
+        if ("completed".equals(managerTask.getStatus()) || "cancelled".equals(managerTask.getStatus())) {
+            taskService.updateStatus(managerTask.getId(), "pending");
+        }
+    }
+
+    private void ensureManagerReviewTaskClosed(CycleCountEntity entity) {
+        ensureManagerReviewTaskClosed(entity, null);
+    }
+
+    private void ensureManagerReviewTaskClosed(CycleCountEntity entity, UUID closedBy) {
+        List<Task> existing = taskService.findByTaskTypeAndReference("cycle_count", "cycle_count", entity.getId());
+        existing.stream()
+                .filter(this::isManagerTask)
+                .filter(task -> !"completed".equals(task.getStatus()) && !"cancelled".equals(task.getStatus()))
+                .forEach(task -> {
+                    if (closedBy != null) {
+                        taskService.updateStatusWithWorker(task.getId(), "completed", closedBy);
+                    } else {
+                        taskService.updateStatus(task.getId(), "completed");
+                    }
+                });
+    }
+
+    private boolean matchesCountScope(String countLocationCode, String inventoryLocationCode) {
+        if (countLocationCode == null || countLocationCode.isBlank() || "ALL".equalsIgnoreCase(countLocationCode)) {
+            return true;
+        }
+        if (inventoryLocationCode == null || inventoryLocationCode.isBlank()) {
+            return false;
+        }
+        String scope = countLocationCode.trim();
+        String inventoryCode = inventoryLocationCode.trim();
+        if (scope.regionMatches(true, 0, "AREA:", 0, 5)) {
+            String area = scope.substring(5).trim().toUpperCase();
+            return inventoryCode.toUpperCase().startsWith(area + "-");
+        }
+        return scope.equalsIgnoreCase(inventoryCode);
     }
 
     private CycleCount toDomain(CycleCountEntity entity) {

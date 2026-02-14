@@ -78,6 +78,8 @@ export interface DashboardKPIs {
   lowStockItems: number;
   totalTasks: number;
   completedTasks: number;
+  totalOrdersThisPeriod?: number;
+  completedOrdersThisPeriod?: number;
 }
 
 // Order Chart Data
@@ -99,7 +101,6 @@ export interface InventoryOverview {
   activeItems: number;
   lowStockItems: number;
   outOfStockItems: number;
-  totalValue: number;
 }
 
 export const analyticsApi = {
