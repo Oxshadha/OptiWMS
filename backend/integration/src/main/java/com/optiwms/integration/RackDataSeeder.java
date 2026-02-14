@@ -225,6 +225,7 @@ public class RackDataSeeder implements CommandLineRunner {
             int racksPerAisle,
             Set<String> usedLocationCodes) {
         int rackCount = 0;
+        boolean capacityExhausted = false;
 
         // Industry-standard level capacities (higher level = lower capacity)
         // Level 1 (ground): 2000 kg, 2 pallets, accessibility 10
@@ -240,6 +241,7 @@ public class RackDataSeeder implements CommandLineRunner {
             {500, 1, 2}    // Level 5
         };
 
+        outer:
         for (int aisle = 1; aisle <= numAisles; aisle++) {
             for (int bay = 1; bay <= racksPerAisle; bay++) {
                 // Calculate rack-level accessibility (lower racks = more accessible)
@@ -272,6 +274,10 @@ public class RackDataSeeder implements CommandLineRunner {
                         int locationRow = findNextAvailableRow(
                                 usedLocationCodes, locationAreaCode, aisle, bay, level, binPositions[binIdx]
                         );
+                        if (locationRow < 0) {
+                            capacityExhausted = true;
+                            break outer;
+                        }
                         // Must match DB constraint chk_location_code_format: AREA-ROW-BAY-LEVEL-POS
                         // Example: C-01-01-1-A
                         String locationCode = String.format(
@@ -333,6 +339,11 @@ public class RackDataSeeder implements CommandLineRunner {
             }
         }
 
+        if (capacityExhausted) {
+            System.out.println("  Rack seeding capacity exhausted for area " + areaCode
+                    + ". Skipped remaining synthetic racks for this area.");
+        }
+
         return rackCount;
     }
 
@@ -351,7 +362,7 @@ public class RackDataSeeder implements CommandLineRunner {
             }
             row = (row % 99) + 1;
         }
-        throw new RuntimeException("Could not allocate unique location code for area " + areaCode);
+        return -1;
     }
 
     /**
