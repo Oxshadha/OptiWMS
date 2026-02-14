@@ -45,7 +45,16 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const ADMIN_ROLES: string[] = ['admin', 'warehouse_manager', 'inbound_coordinator'];
-const WORKER_ROLES: string[] = ['forklift_operator', 'picker', 'packer', 'receiver', 'quality_checker'];
+const WORKER_ROLES: string[] = [
+  'forklift_operator',
+  'picker',
+  'packer',
+  'receiver',
+  'quality_checker',
+  'cycle_count_worker',
+  'shipment_worker',
+  'unloading_worker',
+];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);

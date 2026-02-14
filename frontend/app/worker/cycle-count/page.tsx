@@ -2,34 +2,49 @@
 
 import { useState, useEffect } from "react";
 import { useOffline } from "@/hooks/useOffline";
-import { saveScanRecord, getScanRecordsByTask, addToSyncQueue } from "@/lib/indexeddb";
-import { saveTask, getTask, getAllTasks } from "@/lib/indexeddb";
 import { QRScanner } from "@/components/QRScanner";
 import { operationsApi, CycleCount } from "@/lib/api/operations";
-import { materialsApi } from "@/lib/api/materials";
+import { materialsApi, Material } from "@/lib/api/materials";
+import { locationsApi, Location } from "@/lib/api/locations";
+import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
 import { logger } from "@/lib/utils/logger";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { showToast } from "@/lib/utils/toast";
 
 interface CycleCountTask {
   id: string;
-  location: string;
+  countNumber: string;
+  warehouseId: string;
+  status: string;
+  locationCode: string;
+  materialId?: string;
   sku: string;
   item: string;
+  hasMaterialDetails: boolean;
   expected: number;
   counted: number;
+  totalLocations: number;
+  countedLocations: number;
 }
 
 export default function CycleCountPage() {
-  const { isOnline, dbReady } = useOffline();
+  const { isOnline } = useOffline();
+  const { user } = useAuth();
   const [scannedLocation, setScannedLocation] = useState("");
   const [scannedSKU, setScannedSKU] = useState("");
   const [countedQty, setCountedQty] = useState(0);
-  const [savedCounts, setSavedCounts] = useState<any[]>([]);
+  const [activeTask, setActiveTask] = useState<CycleCountTask | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [showLocationScanner, setShowLocationScanner] = useState(false);
   const [showSKUScanner, setShowSKUScanner] = useState(false);
   const [cycleCountTasks, setCycleCountTasks] = useState<CycleCountTask[]>([]);
+  const [materialsById, setMaterialsById] = useState<Map<string, Material>>(new Map());
+  const [materialsByCode, setMaterialsByCode] = useState<Map<string, Material>>(new Map());
+  const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
+  const [warehouseInventory, setWarehouseInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isResolvingMaterial, setIsResolvingMaterial] = useState(false);
 
   const handleScanLocation = () => {
     setShowLocationScanner(true);
@@ -49,131 +64,211 @@ export default function CycleCountPage() {
     setShowSKUScanner(false);
   };
 
-  // Load cycle count tasks from API
-  useEffect(() => {
-    const loadCycleCountTasks = async () => {
-      if (!isOnline) {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const counts = await operationsApi.getCycleCounts();
-        // Filter for assigned/pending tasks
-        const activeCounts = counts.filter(c => c.status === "assigned" || c.status === "pending" || c.status === "in_progress");
-        
-        // Fetch material names for each count
-        const tasksWithNames = await Promise.all(
-          activeCounts.map(async (count) => {
-            if (!count.materialId) {
-              return {
-                id: count.id,
-                location: count.locationCode,
-                sku: "N/A",
-                item: "Material details not available",
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
-              };
-            }
-            try {
-              const material = await materialsApi.getById(count.materialId);
-              const display = formatMaterialDisplay(
-                material.materialCode,
-                material.description,
-                material.id
-              );
-              return {
-                id: count.id,
-                location: count.locationCode,
-                sku: display.sku,
-                item: display.name,
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
-              };
-            } catch (error) {
-              logger.error(`Error fetching material ${count.materialId}:`, error);
-              // Don't show UUID, show user-friendly message
-              return {
-                id: count.id,
-                location: count.locationCode,
-                sku: "N/A",
-                item: "Material details not available",
-                expected: parseInt(count.expectedQuantity || "0", 10) || 0,
-                counted: parseInt(count.countedQuantity || "0", 10) || 0,
-              };
-            }
-          })
-        );
-        setCycleCountTasks(tasksWithNames);
-      } catch (error) {
-        logger.error("Error loading cycle count tasks:", error);
-        setCycleCountTasks([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCycleCountTasks();
-  }, [isOnline]);
+  const getLocalDateString = (): string => {
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
 
-  // Load saved counts on mount
-  useEffect(() => {
-    if (dbReady) {
-      loadSavedCounts();
+  const isAssignedToCurrentWorker = (count: CycleCount): boolean => {
+    const assigned = count.assignedWorkers || [];
+    const validAssignedIds = assigned.filter((id) => isUUID(id));
+    if (validAssignedIds.length === 0) {
+      return true;
     }
-  }, [dbReady]);
+    if (!user) {
+      return false;
+    }
+    return validAssignedIds.includes(user.userId) || validAssignedIds.includes(user.id);
+  };
 
-  const loadSavedCounts = async () => {
+  const hasExplicitAssignment = (count: CycleCount): boolean => {
+    const assigned = count.assignedWorkers || [];
+    return assigned.filter((id) => isUUID(id)).length > 0;
+  };
+
+  const isDueByDate = (count: CycleCount): boolean => {
+    if (!count.scheduledDate) return true;
+    const today = getLocalDateString();
+    const scheduledDate = count.scheduledDate.slice(0, 10);
+    return scheduledDate <= today;
+  };
+
+  const locationMatchesScope = (locationCode: string, inputLocation: string): boolean => {
+    if (!locationCode || locationCode === "ALL") {
+      return true;
+    }
+    if (locationCode.startsWith("AREA:")) {
+      const area = locationCode.replace("AREA:", "").trim().toUpperCase();
+      return inputLocation.trim().toUpperCase().startsWith(`${area}-`);
+    }
+    return locationCode.trim().toUpperCase() === inputLocation.trim().toUpperCase();
+  };
+
+  const getScopedLocationCodes = (scope: string, warehouseId?: string): string[] => {
+    const locations = warehouseId
+      ? warehouseLocations.filter((loc) => loc.warehouseId === warehouseId)
+      : warehouseLocations;
+    if (!scope || scope === "ALL") {
+      return locations.map((loc) => loc.locationCode);
+    }
+    if (scope.startsWith("AREA:")) {
+      const area = scope.replace("AREA:", "").trim().toUpperCase();
+      return locations
+        .filter((loc) => (loc.locationCode || "").toUpperCase().startsWith(`${area}-`))
+        .map((loc) => loc.locationCode);
+    }
+    return [scope];
+  };
+
+  const getLocationPreview = (scope: string, warehouseId?: string): string => {
+    const codes = getScopedLocationCodes(scope, warehouseId);
+    if (codes.length === 0) return "No locations found";
+    if (codes.length <= 3) return codes.join(", ");
+    return `${codes.slice(0, 3).join(", ")} +${codes.length - 3} more`;
+  };
+
+  const loadCycleCountTasks = async () => {
+    if (!isOnline || !user?.userId) {
+      setLoading(false);
+      return;
+    }
     try {
-      const records = await getScanRecordsByTask("cycle-count");
-      setSavedCounts(records);
+      setLoading(true);
+      const counts = await operationsApi.getCycleCounts();
+
+      const activeStatuses = new Set(["scheduled", "assigned", "pending", "in_progress", "recount_required"]);
+      const visibleCounts = counts.filter(
+        (count) => {
+          const assignedToUser = isAssignedToCurrentWorker(count);
+          if (!assignedToUser) return false;
+          if (!activeStatuses.has((count.status || "").toLowerCase())) return false;
+          if (!isDueByDate(count)) return false;
+          // If specifically assigned, show even when warehouse mapping is inconsistent.
+          if (hasExplicitAssignment(count)) return true;
+          return !user.warehouseId || count.warehouseId === user.warehouseId;
+        }
+      );
+
+      const warehouseIds = Array.from(new Set(visibleCounts.map((c) => c.warehouseId))).filter(Boolean);
+      const [locationsList, inventoryList] = await Promise.all([
+        Promise.all(warehouseIds.map((id) => locationsApi.getByWarehouse(id))),
+        Promise.all(warehouseIds.map((id) => inventoryApi.getByWarehouse(id))),
+      ]);
+      const allLocations = locationsList.flat();
+      const allInventory = inventoryList.flat();
+      setWarehouseLocations(allLocations);
+      setWarehouseInventory(allInventory);
+
+      const tasksWithNames = visibleCounts.map((count) => {
+        const material = count.materialId ? materialsById.get(count.materialId) : undefined;
+        const display = material
+          ? formatMaterialDisplay(material.materialCode, material.description, material.id)
+          : null;
+        const materialShort = count.materialId
+          ? (isUUID(count.materialId) ? count.materialId.slice(0, 8).toUpperCase() : count.materialId)
+          : "N/A";
+        const warehouseLocationsForCount = allLocations.filter((loc) => loc.warehouseId === count.warehouseId);
+        const totalLocations = count.locationCode === "ALL"
+          ? Math.max(warehouseLocationsForCount.length, 1)
+          : count.locationCode.startsWith("AREA:")
+            ? Math.max(
+                warehouseLocationsForCount.filter((loc) =>
+                  (loc.locationCode || "").toUpperCase().startsWith(
+                    `${count.locationCode.replace("AREA:", "").trim().toUpperCase()}-`
+                  )
+                ).length,
+                1
+              )
+            : 1;
+        return {
+          id: count.id,
+          countNumber: count.countNumber,
+          warehouseId: count.warehouseId,
+          status: count.status,
+          locationCode: count.locationCode,
+          materialId: count.materialId,
+          sku: display?.sku || materialShort,
+          item: display?.name || "Cycle Count Task",
+          hasMaterialDetails: Boolean(display),
+          expected: parseInt(count.expectedQuantity || "0", 10) || 0,
+          counted: parseInt(count.countedQuantity || "0", 10) || 0,
+          totalLocations,
+          countedLocations: count.status === "completed" ? totalLocations : (count.countedAt ? 1 : 0),
+        };
+      });
+      setCycleCountTasks(tasksWithNames);
     } catch (error) {
-      logger.error("Error loading saved counts:", error);
+      logger.error("Error loading cycle count tasks:", error);
+      setCycleCountTasks([]);
+    } finally {
+      setLoading(false);
     }
   };
 
+  // Load cycle count tasks from API
+  useEffect(() => {
+    loadCycleCountTasks();
+  }, [isOnline, user?.warehouseId, user?.id, user?.userId]);
+
   const handleConfirm = async () => {
-    if (!scannedLocation || !scannedSKU || countedQty === 0) return;
+    if (!activeTask || !user?.userId || !scannedLocation || countedQty === 0) {
+      return;
+    }
+    if (!locationMatchesScope(activeTask.locationCode, scannedLocation)) {
+      showToast.error("Scanned location is outside the selected cycle count section.");
+      return;
+    }
 
     setSaveStatus("saving");
+    setIsResolvingMaterial(true);
 
     try {
-      // Save scan record to IndexedDB (works offline)
-      const recordId = await saveScanRecord({
-        taskId: "cycle-count",
-        location: scannedLocation,
-        sku: scannedSKU,
-        qty: countedQty,
-      });
+      let materialId = activeTask.materialId;
+      if (!materialId) {
+        const normalizedSku = scannedSKU.trim().toUpperCase();
+        if (!normalizedSku) {
+          showToast.error("Scan or enter SKU for this cycle count.");
+          setSaveStatus("idle");
+          return;
+        }
+        const fromCache = materialsByCode.get(normalizedSku);
+        if (fromCache) {
+          materialId = fromCache.id;
+        } else {
+          const material = await materialsApi.getByCode(normalizedSku);
+          materialId = material.id;
+          setMaterialsByCode((prev) => new Map(prev).set(normalizedSku, material));
+          setMaterialsById((prev) => new Map(prev).set(material.id, material));
+        }
+      }
 
-      // Add to sync queue (will sync when online)
-      await addToSyncQueue({
-        type: "scan",
-        action: "create",
-        data: {
-          taskId: "cycle-count",
-          location: scannedLocation,
-          sku: scannedSKU,
-          qty: countedQty,
-          timestamp: Date.now(),
-        },
+      await operationsApi.recordCycleCount(activeTask.id, {
+        materialId,
+        countedQuantity: String(countedQty),
+        countedBy: user.userId,
       });
 
       setSaveStatus("saved");
-      
-      // Reload saved counts
-      await loadSavedCounts();
+      showToast.success(`Count recorded for ${activeTask.countNumber}`);
+      await loadCycleCountTasks();
 
-      // Reset form
       setTimeout(() => {
         setScannedLocation("");
         setScannedSKU("");
         setCountedQty(0);
+        setActiveTask(null);
         setSaveStatus("idle");
       }, 1500);
     } catch (error) {
       logger.error("Error saving cycle count:", error);
+      showToast.error(error instanceof Error ? error.message : "Failed to save cycle count");
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 2000);
+    } finally {
+      setIsResolvingMaterial(false);
     }
   };
 
@@ -202,80 +297,137 @@ export default function CycleCountPage() {
         )}
       </div>
 
-      {/* Scan Location */}
-      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="text-sm font-medium text-base-content mb-2">Scan Location</div>
-        <div className="flex gap-2">
-          <input
-            className="input input-bordered flex-1"
-            placeholder="Scan or enter location"
-            value={scannedLocation}
-            onChange={(e) => setScannedLocation(e.target.value)}
-          />
-          <button
-            onClick={handleScanLocation}
-            className="btn btn-primary btn-square"
-          >
-            <span className="material-symbols-outlined">qr_code_scanner</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Count Items */}
-      {scannedLocation && (
+      {activeTask && (
         <div className="bg-base-100 rounded-xl p-4 border border-base-300 space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm text-base-content/60">Selected Count</p>
+              <p className="text-lg font-semibold">{activeTask.countNumber}</p>
+              <p className="text-sm text-base-content/70">
+                Scope: {activeTask.locationCode === "ALL" ? "Full warehouse" : activeTask.locationCode}
+              </p>
+              <p className="text-xs text-base-content/50 mt-1">
+                Locations: {getLocationPreview(activeTask.locationCode, activeTask.warehouseId)}
+              </p>
+            </div>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => {
+                setActiveTask(null);
+                setScannedLocation("");
+                setScannedSKU("");
+                setCountedQty(0);
+              }}
+            >
+              Change
+            </button>
+          </div>
+
+          <div className="text-sm font-medium text-base-content mb-2">Scan Location</div>
+          {activeTask.locationCode === "ALL" || activeTask.locationCode.startsWith("AREA:") ? (
+            <div className="space-y-2">
+              <select
+                className="select select-bordered w-full"
+                value={scannedLocation}
+                onChange={(e) => setScannedLocation(e.target.value)}
+              >
+                <option value="">Select location in scope</option>
+                {getScopedLocationCodes(activeTask.locationCode, activeTask.warehouseId).map((code) => (
+                  <option key={code} value={code}>
+                    {code}
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <input
+                  className="input input-bordered flex-1"
+                  placeholder="Or scan location QR"
+                  value={scannedLocation}
+                  onChange={(e) => setScannedLocation(e.target.value)}
+                />
+                <button
+                  onClick={handleScanLocation}
+                  className="btn btn-primary btn-square"
+                >
+                  <span className="material-symbols-outlined">qr_code_scanner</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <input
+                className="input input-bordered flex-1"
+                placeholder="Scan or enter location"
+                value={scannedLocation}
+                onChange={(e) => setScannedLocation(e.target.value)}
+              />
+              <button
+                onClick={handleScanLocation}
+                className="btn btn-primary btn-square"
+              >
+                <span className="material-symbols-outlined">qr_code_scanner</span>
+              </button>
+            </div>
+          )}
+
           <div className="text-sm font-medium text-base-content mb-2">Scan SKU</div>
           <div className="flex gap-2">
             <input
               className="input input-bordered flex-1"
-              placeholder="Scan or enter SKU"
+              placeholder={activeTask.materialId ? "Material pre-selected for this count" : "Scan or enter SKU"}
               value={scannedSKU}
               onChange={(e) => setScannedSKU(e.target.value)}
+              disabled={Boolean(activeTask.materialId)}
             />
             <button
               onClick={handleScanSKU}
               className="btn btn-primary btn-square"
+              disabled={Boolean(activeTask.materialId)}
             >
               <span className="material-symbols-outlined">qr_code_scanner</span>
             </button>
           </div>
 
-          {scannedSKU && (
-            <div className="bg-base-200 rounded-lg p-4">
-              <div className="text-sm text-base-content/60 mb-2">Counted Quantity</div>
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setCountedQty(Math.max(0, countedQty - 1))}
-                  className="btn btn-circle btn-outline btn-sm"
-                >
-                  <span className="material-symbols-outlined">remove</span>
-                </button>
-                <input
-                  type="number"
-                  className="input input-bordered flex-1 text-center text-xl font-bold"
-                  value={countedQty}
-                  onChange={(e) => setCountedQty(Math.max(0, parseInt(e.target.value) || 0))}
-                  min="0"
-                />
-                <button
-                  onClick={() => setCountedQty(countedQty + 1)}
-                  className="btn btn-circle btn-outline btn-sm"
-                >
-                  <span className="material-symbols-outlined">add</span>
-                </button>
-              </div>
+          {scannedLocation && (
+            <div className="text-xs text-base-content/60">
+              Expected items at location: {warehouseInventory.filter((inv) => inv.locationCode === scannedLocation).length}
             </div>
           )}
+
+          <div className="bg-base-200 rounded-lg p-4">
+            <div className="text-sm text-base-content/60 mb-2">Counted Quantity</div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setCountedQty(Math.max(0, countedQty - 1))}
+                className="btn btn-circle btn-outline btn-sm"
+              >
+                <span className="material-symbols-outlined">remove</span>
+              </button>
+              <input
+                type="number"
+                className="input input-bordered flex-1 text-center text-xl font-bold"
+                value={countedQty}
+                onChange={(e) => setCountedQty(Math.max(0, parseInt(e.target.value) || 0))}
+                min="0"
+              />
+              <button
+                onClick={() => setCountedQty(countedQty + 1)}
+                className="btn btn-circle btn-outline btn-sm"
+              >
+                <span className="material-symbols-outlined">add</span>
+              </button>
+            </div>
+          </div>
 
           <button
             onClick={handleConfirm}
             className="btn btn-primary w-full"
-            disabled={!scannedLocation || !scannedSKU || countedQty === 0 || saveStatus === "saving" || !dbReady}
+            disabled={!scannedLocation || countedQty === 0 || saveStatus === "saving" || isResolvingMaterial}
           >
             {saveStatus === "saving" ? (
               <>
                 <span className="loading loading-spinner loading-sm"></span>
-                Saving...
+                Saving count...
               </>
             ) : saveStatus === "saved" ? (
               <>
@@ -289,51 +441,11 @@ export default function CycleCountPage() {
               </>
             )}
           </button>
-          {saveStatus === "saved" && (
-            <div className="text-xs text-success text-center">
-              ✓ Saved to local storage {!isOnline && "(will sync when online)"}
-            </div>
-          )}
           {saveStatus === "error" && (
             <div className="text-xs text-error text-center">
               ✗ Error saving. Please try again.
             </div>
           )}
-        </div>
-      )}
-
-      {/* Saved Counts (from IndexedDB) */}
-      {savedCounts.length > 0 && (
-        <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-base-content">Saved Counts</h3>
-            <span className="badge badge-outline">{savedCounts.length}</span>
-          </div>
-          <div className="space-y-2">
-            {savedCounts.slice(-5).reverse().map((record, idx) => (
-              <div
-                key={record.id || idx}
-                className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
-              >
-                <div>
-                  <div className="font-semibold text-sm text-base-content">
-                    {record.location} • {record.sku}
-                  </div>
-                  <div className="text-xs text-base-content/60">
-                    Qty: {record.qty} • {new Date(record.timestamp).toLocaleTimeString()}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!record.synced && (
-                    <span className="badge badge-warning badge-sm">Pending Sync</span>
-                  )}
-                  {record.synced && (
-                    <span className="badge badge-success badge-sm">Synced</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 
@@ -354,19 +466,50 @@ export default function CycleCountPage() {
             {cycleCountTasks.map((task) => (
               <div
                 key={task.id}
-                className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
+                className="flex items-center justify-between p-3 bg-base-200 rounded-lg cursor-pointer hover:bg-base-300 transition-colors"
+                onClick={() => {
+                  setActiveTask(task);
+                  if (task.locationCode !== "ALL" && !task.locationCode.startsWith("AREA:")) {
+                    setScannedLocation(task.locationCode);
+                  } else {
+                    setScannedLocation("");
+                  }
+                  if (task.materialId) {
+                    const material = materialsById.get(task.materialId);
+                    setScannedSKU(material?.materialCode || "");
+                  } else {
+                    setScannedSKU("");
+                  }
+                  setCountedQty(0);
+                }}
               >
                 <div>
                   <div className="font-semibold text-sm text-base-content">
-                    {task.item}
+                    {task.countNumber}
                   </div>
-                  {task.sku && task.sku !== "N/A" && !isUUID(task.sku) && (
+                  {task.hasMaterialDetails && task.item !== "Cycle Count Task" && (
+                    <div className="text-xs text-base-content/70">
+                      {task.item}
+                    </div>
+                  )}
+                  {task.hasMaterialDetails && task.sku && task.sku !== "N/A" && !isUUID(task.sku) && (
                     <div className="text-xs text-base-content/60">
                       <span className="font-mono font-semibold text-primary">SKU: {task.sku}</span>
                     </div>
                   )}
                   <div className="text-xs text-base-content/60">
-                    Location: {task.location} • Expected: {task.expected}
+                    Count: {task.countNumber} • Scope: {task.locationCode} • Expected: {task.expected}
+                  </div>
+                  <div className="mt-1">
+                    <div className="w-36 bg-base-300 rounded-full h-1.5">
+                      <div
+                        className="bg-primary h-1.5 rounded-full"
+                        style={{ width: `${Math.min(100, Math.round((task.countedLocations / task.totalLocations) * 100))}%` }}
+                      />
+                    </div>
+                    <div className="text-[11px] text-base-content/60 mt-0.5">
+                      {task.countedLocations}/{task.totalLocations} locations
+                    </div>
                   </div>
                 </div>
                 <span className="material-symbols-outlined text-base-content/40">chevron_right</span>

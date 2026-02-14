@@ -1,6 +1,7 @@
 export interface CycleCountDisplay {
   id: string;
   countNumber: string;
+  warehouseId?: string;
   warehouseName: string;
   sectionName: string;
   countType: "scheduled" | "ad_hoc" | "full";
@@ -8,6 +9,7 @@ export interface CycleCountDisplay {
   actualDate: string | null;
   status: string;
   assignedWorkers: string[];
+  assignedWorkerIds?: string[];
   assignedBy: string;
   assignedDate: string;
   totalLocations: number;
