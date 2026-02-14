@@ -177,8 +177,7 @@ public class AnalyticsController {
                 overview.totalItems,
                 overview.activeItems,
                 overview.lowStockItems,
-                overview.outOfStockItems,
-                overview.totalValue
+                overview.outOfStockItems
         );
     }
 
@@ -261,8 +260,7 @@ public class AnalyticsController {
             Long totalItems,
             Long activeItems,
             Long lowStockItems,
-            Long outOfStockItems,
-            Integer totalValue
+            Long outOfStockItems
     ) {}
 
     public record WorkerStatsDto(
