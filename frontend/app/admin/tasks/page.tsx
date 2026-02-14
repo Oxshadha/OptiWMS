@@ -289,8 +289,12 @@ export default function TasksPage() {
       key: "priority",
       label: "Priority",
       render: (task: TaskDisplay) => {
+        const priorityKey = (task.priority || "normal").toLowerCase();
         const priority =
-          priorityConfig[task.priority as keyof typeof priorityConfig];
+          priorityConfig[priorityKey as keyof typeof priorityConfig] || {
+            label: task.priority || "Normal",
+            class: "badge-outline",
+          };
         return (
           <span className={`badge ${priority.class} whitespace-nowrap`}>
             {priority.label}
