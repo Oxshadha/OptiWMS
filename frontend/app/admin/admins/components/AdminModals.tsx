@@ -13,10 +13,12 @@ export function AdminDetailModal({
   isOpen,
   onClose,
   admin,
+  onEdit,
 }: {
   isOpen: boolean;
   onClose: () => void;
   admin: AdminDisplay;
+  onEdit?: () => void;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Manager: ${admin.name}`} size="lg">
@@ -66,10 +68,225 @@ export function AdminDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary">Edit Manager</button>
+          <button className="btn btn-primary" onClick={onEdit} disabled={!onEdit}>
+            Edit Manager
+          </button>
         </div>
       </div>
     </DetailModal>
+  );
+}
+
+export function EditAdminModal({
+  isOpen,
+  onClose,
+  admin,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  admin: AdminDisplay;
+  onSuccess?: () => void | Promise<void>;
+}) {
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    role: "warehouse_manager" as AdminRole,
+    warehouseId: "",
+    status: "active",
+  });
+  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const parts = (admin.name || "").trim().split(/\s+/);
+    setFormData({
+      firstName: parts[0] || "",
+      lastName: parts.slice(1).join(" "),
+      email: admin.email || "",
+      phone: "",
+      role: admin.role || "warehouse_manager",
+      warehouseId: admin.warehouseId || "",
+      status: admin.status || "active",
+    });
+    setError("");
+  }, [isOpen, admin]);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        const { warehousesApi } = await import("@/lib/api/warehouses");
+        const warehousesData = await warehousesApi.getAll();
+        setWarehouses(warehousesData.map((w) => ({ id: w.id, name: w.name })));
+      } catch (err) {
+        logger.error("Failed to load warehouses:", err);
+      }
+    };
+    if (isOpen) {
+      void loadWarehouses();
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError("");
+    try {
+      await usersApi.update(admin.id, {
+        firstName: formData.firstName || undefined,
+        lastName: formData.lastName || undefined,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+        role: formData.role,
+        status: formData.status,
+        warehouseId: formData.role === "admin" ? undefined : (formData.warehouseId || undefined),
+      });
+      onClose();
+      if (onSuccess) {
+        await onSuccess();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update manager");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Edit Manager: ${admin.name}`} size="lg">
+      {error && (
+        <div className="alert alert-error mb-4">
+          <span>{error}</span>
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">First Name *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.firstName}
+              onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Last Name *</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              value={formData.lastName}
+              onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Email *</span>
+            </label>
+            <input
+              type="email"
+              className="input input-bordered w-full"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              required
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Phone</span>
+            </label>
+            <input
+              type="tel"
+              className="input input-bordered w-full"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Role *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value as AdminRole })}
+              required
+            >
+              <option value="admin">System Administrator</option>
+              <option value="warehouse_manager">Warehouse Manager</option>
+              <option value="inbound_coordinator">Inbound Coordinator</option>
+            </select>
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Status *</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.status}
+              onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+              required
+            >
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </div>
+        </div>
+
+        {formData.role !== "admin" && (
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Warehouse</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={formData.warehouseId}
+              onChange={(e) => setFormData({ ...formData, warehouseId: e.target.value })}
+            >
+              <option value="">Select warehouse</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-3 pt-4">
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Saving...
+              </>
+            ) : (
+              "Save Changes"
+            )}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
