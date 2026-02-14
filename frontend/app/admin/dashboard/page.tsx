@@ -47,23 +47,28 @@ export default function DashboardPage() {
 
   // Transform orders chart data for display
   const ordersData = ordersChart.map(item => ({
-    day: new Date(item.date).getDate().toString(),
+    day: new Date(item.date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    }),
     value: item.count,
   }));
 
   // Calculate summary data from KPIs
+  const totalOrdersInPeriod = kpis?.totalOrdersThisPeriod ?? kpis?.totalTasks ?? 0;
+  const completedOrdersInPeriod = kpis?.completedOrdersThisPeriod ?? kpis?.completedTasks ?? 0;
   const summaryData = kpis
     ? [
-        { name: "Completed", value: kpis.completedTasks },
-        { name: "Remaining", value: kpis.totalTasks - kpis.completedTasks },
+        { name: "Completed", value: completedOrdersInPeriod },
+        { name: "Remaining", value: Math.max(0, totalOrdersInPeriod - completedOrdersInPeriod) },
       ]
     : [
         { name: "Completed", value: 0 },
         { name: "Remaining", value: 0 },
       ];
 
-  const completionPercentage = kpis && kpis.totalTasks > 0
-    ? Math.round((kpis.completedTasks / kpis.totalTasks) * 100)
+  const completionPercentage = totalOrdersInPeriod > 0
+    ? Math.round((completedOrdersInPeriod / totalOrdersInPeriod) * 100)
     : 0;
 
   if (loading) {
@@ -157,6 +162,9 @@ export default function DashboardPage() {
               bar_chart
             </span>
           </div>
+          <div className="text-xs text-base-content/60 mb-3">
+            Orders created per day (current monthly window)
+          </div>
           <div className="h-40">
             {ordersData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -179,7 +187,7 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-full text-base-content/60 text-sm">
-                No order data available
+                No orders in selected period
               </div>
             )}
           </div>
@@ -216,9 +224,9 @@ export default function DashboardPage() {
               <div className="text-success font-semibold text-lg">{completionPercentage}%</div>
             </div>
           </div>
-          <div className="text-center font-semibold text-lg mt-2">{kpis?.totalTasks ?? 0}</div>
+          <div className="text-center font-semibold text-lg mt-2">{totalOrdersInPeriod}</div>
           <div className="text-center text-sm text-base-content/60">
-            Tasks Total
+            Orders This Period
           </div>
         </div>
       </div>
@@ -234,7 +242,7 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined">more_vert</span>
             </button>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="text-center p-4 bg-base-200 rounded-lg">
               <span className="material-symbols-outlined text-3xl text-success mb-2 block">
                 inventory_2
@@ -277,27 +285,13 @@ export default function DashboardPage() {
                 Items unavailable
               </div>
             </div>
-            <div className="text-center p-4 bg-base-200 rounded-lg">
-              <span className="material-symbols-outlined text-3xl text-info mb-2 block">
-                attach_money
-              </span>
-              <div className="text-xs text-info font-semibold mb-1">
-                Total Value
-              </div>
-              <div className="text-2xl font-bold text-base-content">
-                ${(inventoryOverview?.totalValue ?? 0).toLocaleString()}
-              </div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Inventory value
-              </div>
-            </div>
           </div>
         </div>
 
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-base-content">
-              Top Selling Products
+              Top Moving Products
             </h3>
             <button className="btn btn-ghost btn-sm">
               <span className="material-symbols-outlined">more_vert</span>

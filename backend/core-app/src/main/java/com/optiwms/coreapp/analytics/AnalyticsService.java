@@ -3,7 +3,13 @@ package com.optiwms.coreapp.analytics;
 import com.optiwms.domain.workers.WorkerAchievement;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import com.optiwms.infra.master.LocationEntity;
+import com.optiwms.infra.master.LocationRepository;
+import com.optiwms.infra.master.MaterialEntity;
+import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.orders.OrderEntity;
+import com.optiwms.infra.orders.OrderItemEntity;
+import com.optiwms.infra.orders.OrderItemRepository;
 import com.optiwms.infra.orders.OrderRepository;
 import com.optiwms.infra.tasks.TaskEntity;
 import com.optiwms.infra.tasks.TaskRepository;
@@ -27,7 +33,10 @@ public class AnalyticsService {
 
     private final TaskRepository taskRepository;
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
     private final InventoryItemRepository inventoryRepository;
+    private final LocationRepository locationRepository;
+    private final MaterialRepository materialRepository;
     private final UserRepository userRepository;
     private final WorkerAchievementRepository achievementRepository;
     private final OperationEventRepository operationEventRepository;
@@ -35,13 +44,19 @@ public class AnalyticsService {
     public AnalyticsService(
             TaskRepository taskRepository,
             OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
             InventoryItemRepository inventoryRepository,
+            LocationRepository locationRepository,
+            MaterialRepository materialRepository,
             UserRepository userRepository,
             WorkerAchievementRepository achievementRepository,
             OperationEventRepository operationEventRepository) {
         this.taskRepository = taskRepository;
         this.orderRepository = orderRepository;
+        this.orderItemRepository = orderItemRepository;
         this.inventoryRepository = inventoryRepository;
+        this.locationRepository = locationRepository;
+        this.materialRepository = materialRepository;
         this.userRepository = userRepository;
         this.achievementRepository = achievementRepository;
         this.operationEventRepository = operationEventRepository;
@@ -156,8 +171,12 @@ public class AnalyticsService {
                 ? orderRepository.findByWarehouseId(warehouseId)
                 : orderRepository.findAll();
         long totalOrders = orders.size();
-        long ordersThisPeriod = orders.stream()
-                .filter(o -> o.getOrderDate() != null && o.getOrderDate().atStartOfDay().isAfter(startDate))
+        List<OrderEntity> periodOrders = orders.stream()
+                .filter(o -> isOrderInPeriod(o, startDate))
+                .collect(Collectors.toList());
+        long ordersThisPeriod = periodOrders.size();
+        long completedOrdersThisPeriod = periodOrders.stream()
+                .filter(o -> isCompletedOrderStatus(o.getStatus()))
                 .count();
 
         // Inventory
@@ -169,12 +188,9 @@ public class AnalyticsService {
                 .filter(i -> "low_stock".equals(i.getStatus()))
                 .count();
 
-        // Tasks
-        List<TaskEntity> tasks = getTasksForPeriod(startDate, warehouseId);
-        long totalTasks = tasks.size();
-        long completedTasks = tasks.stream()
-                .filter(t -> "completed".equals(t.getStatus()))
-                .count();
+        // Keep these fields for backward compatibility with existing UI keys.
+        long totalTasks = ordersThisPeriod;
+        long completedTasks = completedOrdersThisPeriod;
 
         return new DashboardKPIs(
                 totalOrders,
@@ -182,7 +198,9 @@ public class AnalyticsService {
                 totalItems,
                 lowStockItems,
                 totalTasks,
-                completedTasks
+                completedTasks,
+                ordersThisPeriod,
+                completedOrdersThisPeriod
         );
     }
 
@@ -208,21 +226,43 @@ public class AnalyticsService {
 
     // Top Products
     public List<TopProduct> getTopProducts(Integer limit, UUID warehouseId) {
-        List<InventoryItemEntity> inventory = warehouseId != null
-                ? inventoryRepository.findByWarehouseId(warehouseId)
-                : inventoryRepository.findAll();
+        LocalDateTime startDate = getStartDateForPeriod("monthly");
+        List<OrderEntity> outboundOrders = (warehouseId != null
+                ? orderRepository.findByWarehouseId(warehouseId).stream()
+                .filter(o -> "outbound".equalsIgnoreCase(o.getOrderType()))
+                .collect(Collectors.toList())
+                : orderRepository.findByOrderType("outbound")).stream()
+                .filter(o -> isCompletedOrderStatus(o.getStatus()))
+                .filter(o -> isOrderInPeriod(o, startDate))
+                .collect(Collectors.toList());
 
-        Map<UUID, Integer> productQuantities = new HashMap<>();
-        Map<UUID, String> productNames = new HashMap<>();
-
-        for (InventoryItemEntity item : inventory) {
-            UUID materialId = item.getMaterialId();
-            productQuantities.put(materialId,
-                    productQuantities.getOrDefault(materialId, 0)
-                            + (item.getQuantity() != null ? item.getQuantity() : 0));
+        if (outboundOrders.isEmpty()) {
+            return List.of();
         }
 
-        List<TopProduct> topProducts = productQuantities.entrySet().stream()
+        Set<UUID> orderIds = outboundOrders.stream().map(OrderEntity::getId).collect(Collectors.toSet());
+        List<OrderItemEntity> soldItems = orderItemRepository.findByOrderIdIn(orderIds);
+
+        Map<UUID, Integer> productQuantities = new HashMap<>();
+        for (OrderItemEntity item : soldItems) {
+            UUID materialId = item.getMaterialId();
+            int qty = item.getPackedQuantity() != null && item.getPackedQuantity() > 0
+                    ? item.getPackedQuantity()
+                    : item.getPickedQuantity() != null && item.getPickedQuantity() > 0
+                    ? item.getPickedQuantity()
+                    : (item.getQuantity() != null ? item.getQuantity() : 0);
+            productQuantities.merge(materialId, qty, Integer::sum);
+        }
+
+        Map<UUID, String> productNames = materialRepository.findAllById(productQuantities.keySet()).stream()
+                .collect(Collectors.toMap(
+                        MaterialEntity::getId,
+                        m -> m.getDescription() != null && !m.getDescription().isBlank()
+                                ? m.getDescription()
+                                : m.getMaterialCode()
+                ));
+
+        return productQuantities.entrySet().stream()
                 .map(entry -> new TopProduct(
                         entry.getKey(),
                         productNames.getOrDefault(entry.getKey(), "Unknown"),
@@ -231,8 +271,6 @@ public class AnalyticsService {
                 .sorted((a, b) -> b.quantity.compareTo(a.quantity))
                 .limit(limit != null ? limit : 10)
                 .collect(Collectors.toList());
-
-        return topProducts;
     }
 
     // Inventory Overview
@@ -252,9 +290,27 @@ public class AnalyticsService {
                 .filter(i -> "out_of_stock".equals(i.getStatus()))
                 .count();
 
-        Integer totalValue = inventory.stream()
-                .mapToInt(i -> i.getQuantity() != null ? i.getQuantity() : 0)
-                .sum();
+        Map<UUID, BigDecimal> unitPriceByMaterial = new HashMap<>();
+        Map<UUID, LocalDateTime> latestPriceAt = new HashMap<>();
+        for (OrderItemEntity item : orderItemRepository.findAll()) {
+            if (item.getMaterialId() == null || item.getUnitPrice() == null) {
+                continue;
+            }
+            LocalDateTime at = item.getCreatedAt() != null ? item.getCreatedAt() : LocalDateTime.MIN;
+            LocalDateTime current = latestPriceAt.get(item.getMaterialId());
+            if (current == null || at.isAfter(current)) {
+                latestPriceAt.put(item.getMaterialId(), at);
+                unitPriceByMaterial.put(item.getMaterialId(), item.getUnitPrice());
+            }
+        }
+
+        BigDecimal totalValueDecimal = BigDecimal.ZERO;
+        for (InventoryItemEntity i : inventory) {
+            int qty = i.getQuantity() != null ? i.getQuantity() : 0;
+            BigDecimal unitPrice = unitPriceByMaterial.getOrDefault(i.getMaterialId(), BigDecimal.ZERO);
+            totalValueDecimal = totalValueDecimal.add(unitPrice.multiply(BigDecimal.valueOf(qty)));
+        }
+        Integer totalValue = totalValueDecimal.setScale(0, RoundingMode.HALF_UP).intValue();
 
         return new InventoryOverview(
                 totalItems,
@@ -298,6 +354,94 @@ public class AnalyticsService {
                 .collect(Collectors.toList());
     }
 
+    // Location Velocity (rack-level)
+    public List<LocationVelocity> getLocationVelocity(UUID warehouseId, LocalDate startDate, LocalDate endDate) {
+        LocalDate from = startDate != null ? startDate : LocalDate.now().minusDays(7);
+        LocalDate to = endDate != null ? endDate : LocalDate.now();
+        LocalDateTime startDateTime = from.atStartOfDay();
+        LocalDateTime endDateTime = to.plusDays(1).atStartOfDay().minusNanos(1);
+
+        List<LocationEntity> locations = locationRepository.findByWarehouseId(warehouseId).stream()
+                .filter(l -> l.getLocationCode() != null && !l.getLocationCode().isBlank())
+                .collect(Collectors.toList());
+
+        Map<String, String> locationToRack = new HashMap<>();
+        Set<String> rackIds = new HashSet<>();
+        for (LocationEntity loc : locations) {
+            String rackId = toRackId(loc);
+            if (rackId == null) {
+                continue;
+            }
+            locationToRack.put(loc.getLocationCode(), rackId);
+            rackIds.add(rackId);
+        }
+
+        List<OperationEventEntity> events = operationEventRepository.findByWarehouseAndCompletedAtBetween(
+                warehouseId, startDateTime, endDateTime
+        );
+        Map<UUID, String> taskLocationMap = new HashMap<>();
+        List<UUID> taskIds = events.stream()
+                .map(OperationEventEntity::getTaskId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (!taskIds.isEmpty()) {
+            for (TaskEntity task : taskRepository.findAllById(taskIds)) {
+                if (task.getLocationCode() != null && !task.getLocationCode().isBlank()) {
+                    taskLocationMap.put(task.getId(), task.getLocationCode());
+                }
+            }
+        }
+
+        Map<String, Integer> pickCounts = new HashMap<>();
+        Map<String, Integer> putawayCounts = new HashMap<>();
+        Map<String, Integer> movementCounts = new HashMap<>();
+
+        for (OperationEventEntity event : events) {
+            String locationCode = event.getTaskId() != null ? taskLocationMap.get(event.getTaskId()) : null;
+            if (locationCode == null) {
+                continue;
+            }
+            String rackId = locationToRack.get(locationCode);
+            if (rackId == null) {
+                continue;
+            }
+            String operationType = event.getOperationType() != null ? event.getOperationType().toLowerCase() : "";
+            movementCounts.merge(rackId, 1, Integer::sum);
+            if (operationType.contains("pick")) {
+                pickCounts.merge(rackId, 1, Integer::sum);
+            }
+            if (operationType.contains("putaway") || operationType.contains("receive") || operationType.contains("transfer")) {
+                putawayCounts.merge(rackId, 1, Integer::sum);
+            }
+        }
+
+        int maxMovements = movementCounts.values().stream().max(Integer::compareTo).orElse(0);
+        List<LocationVelocity> result = new ArrayList<>();
+        for (String rackId : rackIds) {
+            int picks = pickCounts.getOrDefault(rackId, 0);
+            int putaways = putawayCounts.getOrDefault(rackId, 0);
+            int total = movementCounts.getOrDefault(rackId, 0);
+            double velocity = maxMovements > 0 ? ((double) total / (double) maxMovements) * 100.0 : 0.0;
+            result.add(new LocationVelocity(
+                    rackId,
+                    rackId,
+                    rackId,
+                    warehouseId,
+                    picks,
+                    putaways,
+                    total,
+                    BigDecimal.valueOf(velocity).setScale(2, RoundingMode.HALF_UP),
+                    total,
+                    total
+            ));
+        }
+
+        return result.stream()
+                .sorted((a, b) -> b.totalMovements.compareTo(a.totalMovements))
+                .collect(Collectors.toList());
+    }
+
     // Helper methods
     private LocalDateTime getStartDateForPeriod(String period) {
         if (period == null) period = "monthly";
@@ -308,6 +452,20 @@ public class AnalyticsService {
             case "monthly" -> today.minusMonths(1).atStartOfDay();
             default -> today.minusMonths(1).atStartOfDay();
         };
+    }
+
+    private boolean isOrderInPeriod(OrderEntity order, LocalDateTime startDate) {
+        return order.getOrderDate() != null && !order.getOrderDate().atStartOfDay().isBefore(startDate);
+    }
+
+    private boolean isCompletedOrderStatus(String status) {
+        if (status == null) return false;
+        String s = status.toLowerCase();
+        return "completed".equals(s)
+                || "delivered".equals(s)
+                || "shipped".equals(s)
+                || "received".equals(s)
+                || "closed".equals(s);
     }
 
     private List<TaskEntity> getTasksForPeriod(LocalDateTime startDate, UUID warehouseId) {
@@ -409,6 +567,17 @@ public class AnalyticsService {
         return achievement;
     }
 
+    private String toRackId(LocationEntity location) {
+        if (location.getArea() == null || location.getRowNumber() == null || location.getBayNumber() == null) {
+            return null;
+        }
+        String area = location.getArea();
+        if ("ST".equalsIgnoreCase(area)) {
+            area = "C";
+        }
+        return area + "-" + location.getRowNumber() + "-" + location.getBayNumber();
+    }
+
     // DTOs
     public static class WorkerProductivityMetrics {
         public UUID workerId;
@@ -452,15 +621,20 @@ public class AnalyticsService {
         public Long lowStockItems;
         public Long totalTasks;
         public Long completedTasks;
+        public Long totalOrdersThisPeriod;
+        public Long completedOrdersThisPeriod;
 
         public DashboardKPIs(Long totalOrders, Long ordersThisPeriod, Long totalItems,
-                            Long lowStockItems, Long totalTasks, Long completedTasks) {
+                            Long lowStockItems, Long totalTasks, Long completedTasks,
+                            Long totalOrdersThisPeriod, Long completedOrdersThisPeriod) {
             this.totalOrders = totalOrders;
             this.ordersThisPeriod = ordersThisPeriod;
             this.totalItems = totalItems;
             this.lowStockItems = lowStockItems;
             this.totalTasks = totalTasks;
             this.completedTasks = completedTasks;
+            this.totalOrdersThisPeriod = totalOrdersThisPeriod;
+            this.completedOrdersThisPeriod = completedOrdersThisPeriod;
         }
     }
 
@@ -483,6 +657,34 @@ public class AnalyticsService {
             this.materialId = materialId;
             this.materialName = materialName;
             this.quantity = quantity;
+        }
+    }
+
+    public static class LocationVelocity {
+        public String locationId;
+        public String locationCode;
+        public String rackId;
+        public UUID warehouseId;
+        public Integer pickCount;
+        public Integer putawayCount;
+        public Integer totalMovements;
+        public BigDecimal velocityPercentage;
+        public Integer last7Days;
+        public Integer last30Days;
+
+        public LocationVelocity(String locationId, String locationCode, String rackId, UUID warehouseId,
+                                Integer pickCount, Integer putawayCount, Integer totalMovements,
+                                BigDecimal velocityPercentage, Integer last7Days, Integer last30Days) {
+            this.locationId = locationId;
+            this.locationCode = locationCode;
+            this.rackId = rackId;
+            this.warehouseId = warehouseId;
+            this.pickCount = pickCount;
+            this.putawayCount = putawayCount;
+            this.totalMovements = totalMovements;
+            this.velocityPercentage = velocityPercentage;
+            this.last7Days = last7Days;
+            this.last30Days = last30Days;
         }
     }
 
