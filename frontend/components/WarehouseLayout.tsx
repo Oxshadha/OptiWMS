@@ -72,16 +72,12 @@ export function WarehouseLayoutVisualization({
             });
             setVelocityData(velocityMap);
           } catch (error) {
-            // If API fails, use mock data for demonstration
-            logger.debug("Velocity API not available, using mock data");
-            const mockVelocityData = generateMockVelocityData(layout.racks);
-            setVelocityData(mockVelocityData);
+            logger.error("Velocity API request failed:", error);
+            setVelocityData(new Map());
           }
         } catch (error) {
           logger.error("Error loading velocity data:", error);
-          // Fallback to mock data
-          const mockVelocityData = generateMockVelocityData(layout.racks);
-          setVelocityData(mockVelocityData);
+          setVelocityData(new Map());
         } finally {
           setIsLoadingVelocity(false);
         }
@@ -90,18 +86,6 @@ export function WarehouseLayoutVisualization({
       loadVelocityData();
     }
   }, [showVelocity, layout.warehouseId, layout.racks]);
-
-  // Generate mock velocity data for demonstration
-  const generateMockVelocityData = (racks: RackUnit[]): Map<string, number> => {
-    const velocityMap = new Map<string, number>();
-    racks.forEach((rack) => {
-      // Generate random velocity between 0-100% for demo
-      // In production, this would come from actual pick/putaway data
-      const velocity = Math.floor(Math.random() * 100);
-      velocityMap.set(rack.id, velocity);
-    });
-    return velocityMap;
-  };
 
   // Merge velocity data into racks
   const racksWithVelocity = useMemo(() => {

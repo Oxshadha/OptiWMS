@@ -6,6 +6,8 @@ export interface ReturnDisplay {
   originalOrderType?: string | null;
   returnFlow: "inbound" | "outbound" | "unknown";
   customerName: string;
+  counterpartyName: string;
+  counterpartyType: "supplier" | "customer" | "unknown";
   warehouseId: string | null;
   warehouse: string;
   returnDate: string;

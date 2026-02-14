@@ -106,6 +106,27 @@ export function TaskDetailModal({
               <p className="font-semibold">{task.duration} minutes</p>
             </div>
           )}
+          {task.locationCode && (
+            <div>
+              <label className="text-sm text-base-content/60">Location</label>
+              <p className="font-semibold">{task.locationCode}</p>
+            </div>
+          )}
+          {task.referenceType && (
+            <div>
+              <label className="text-sm text-base-content/60">Reference</label>
+              <p className="font-semibold">
+                {task.referenceType}
+                {task.referenceId ? `: ${task.referenceId}` : ""}
+              </p>
+            </div>
+          )}
+          {task.notes && (
+            <div className="col-span-2">
+              <label className="text-sm text-base-content/60">Notes</label>
+              <p className="font-semibold break-words">{task.notes}</p>
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>

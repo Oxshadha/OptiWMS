@@ -7,6 +7,7 @@ import { logger } from "@/lib/utils/logger";
 import { CycleCountDisplay } from "../types";
 
 export function ReviewDiscrepanciesModal({
+  adminId,
   selectedCount,
   isOpen,
   reviewNotes,
@@ -14,6 +15,7 @@ export function ReviewDiscrepanciesModal({
   onClose,
   onSuccess,
 }: {
+  adminId?: string;
   selectedCount: CycleCountDisplay;
   isOpen: boolean;
   reviewNotes: string;
@@ -21,88 +23,115 @@ export function ReviewDiscrepanciesModal({
   onClose: () => void;
   onSuccess: () => Promise<void>;
 }) {
+  const isPendingApproval = selectedCount.status === "pending_approval";
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={`Review Discrepancies: ${selectedCount.countNumber}`}
+      title={`${isPendingApproval ? "Manager Decision" : "Review Discrepancies"}: ${selectedCount.countNumber}`}
       size="lg"
     >
       <div className="space-y-4">
         <div className="alert alert-info">
           <span className="material-symbols-outlined">info</span>
-          <span>Found {selectedCount.discrepanciesFound} discrepancies in this cycle count.</span>
+          <span>
+            {isPendingApproval
+              ? `Variance detected (${selectedCount.discrepanciesFound}). Approve adjustment or request recount.`
+              : `Found ${selectedCount.discrepanciesFound} discrepancies in this cycle count.`}
+          </span>
         </div>
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Discrepancy Details</span>
-          </label>
-          <div className="overflow-x-auto">
-            <table className="table table-zebra w-full">
-              <thead>
-                <tr>
-                  <th>Location</th>
-                  <th>Expected</th>
-                  <th>Found</th>
-                  <th>Difference</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="font-mono">A-01-01</td>
-                  <td>50</td>
-                  <td>45</td>
-                  <td className="text-error">-5</td>
-                  <td>
-                    <select className="select select-bordered select-sm">
-                      <option>Adjust Inventory</option>
-                      <option>Investigate</option>
-                      <option>Ignore</option>
-                    </select>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Notes</span>
+            <span className="label-text font-medium">Manager Notes</span>
           </label>
           <textarea
             className="textarea textarea-bordered w-full"
             rows={3}
             value={reviewNotes}
             onChange={(e) => onReviewNotesChange(e.target.value)}
-            placeholder="Add notes about discrepancies..."
+            placeholder="Add manager notes..."
           />
         </div>
-        <div className="flex justify-end gap-3 pt-4">
+        <div className="flex justify-end gap-3 pt-4 flex-wrap">
           <button className="btn btn-ghost" onClick={onClose}>
-            Cancel
+            Close
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={async () => {
-              try {
-                await operationsApi.reviewCycleCount(
-                  selectedCount.id,
-                  reviewNotes.trim() || undefined
-                );
-                showToast.success("Discrepancies reviewed successfully");
-                onClose();
-                await onSuccess();
-              } catch (err) {
-                logger.error("Failed to review discrepancies:", err);
-                showToast.error(
-                  err instanceof Error ? err.message : "Failed to review discrepancies"
-                );
-              }
-            }}
-          >
-            Review & Approve
-          </button>
+          {isPendingApproval ? (
+            <>
+              <button
+                className="btn btn-warning"
+                onClick={async () => {
+                  if (!adminId) {
+                    showToast.error("Admin identity not available");
+                    return;
+                  }
+                  try {
+                    await operationsApi.rejectCycleCountAdjustment(selectedCount.id, {
+                      approvedBy: adminId,
+                      notes: reviewNotes.trim() || "Recount required by manager",
+                    });
+                    showToast.success("Recount requested");
+                    onClose();
+                    await onSuccess();
+                  } catch (err) {
+                    logger.error("Failed to request recount:", err);
+                    showToast.error(
+                      err instanceof Error ? err.message : "Failed to request recount"
+                    );
+                  }
+                }}
+              >
+                Request Recount
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  if (!adminId) {
+                    showToast.error("Admin identity not available");
+                    return;
+                  }
+                  try {
+                    await operationsApi.approveCycleCountAdjustment(selectedCount.id, {
+                      approvedBy: adminId,
+                      notes: reviewNotes.trim() || undefined,
+                    });
+                    showToast.success("Inventory adjustment approved");
+                    onClose();
+                    await onSuccess();
+                  } catch (err) {
+                    logger.error("Failed to approve adjustment:", err);
+                    showToast.error(
+                      err instanceof Error ? err.message : "Failed to approve adjustment"
+                    );
+                  }
+                }}
+              >
+                Approve Adjustment
+              </button>
+            </>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={async () => {
+                try {
+                  await operationsApi.reviewCycleCount(
+                    selectedCount.id,
+                    reviewNotes.trim() || undefined
+                  );
+                  showToast.success("Discrepancies reviewed successfully");
+                  onClose();
+                  await onSuccess();
+                } catch (err) {
+                  logger.error("Failed to review discrepancies:", err);
+                  showToast.error(
+                    err instanceof Error ? err.message : "Failed to review discrepancies"
+                  );
+                }
+              }}
+            >
+              Review & Approve
+            </button>
+          )}
         </div>
       </div>
     </Modal>

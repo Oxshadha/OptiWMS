@@ -9,6 +9,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { returnsApi } from "@/lib/api/returns";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { customersApi } from "@/lib/api/customers";
+import { suppliersApi } from "@/lib/api/suppliers";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
@@ -48,19 +49,23 @@ export default function ReturnsPage() {
       setLoading(true);
       setError(null);
       
-      const [returnsData, warehousesData, customersData, ordersData] = await Promise.all([
+      const [returnsData, warehousesData, customersData, suppliersData, ordersData] = await Promise.all([
         returnsApi.getAll(),
         warehousesApi.getAll(),
         customersApi.getAll(),
+        suppliersApi.getAll(),
         ordersApi.getAll(),
       ]);
 
       // Build maps
       const warehousesMap = buildLookupMap(warehousesData, (wh) => wh.id, (wh) => wh.name);
       const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
+      const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
       const ordersMap = buildLookupMap(ordersData, (o) => o.id, (o) => ({
         orderNumber: o.orderNumber,
         orderType: o.orderType,
+        customerId: o.customerId,
+        supplierId: o.supplierId,
       }));
 
       // Transform API data to display format
@@ -68,16 +73,29 @@ export default function ReturnsPage() {
         const warehouseName = r.warehouseId
           ? getLookupValue(warehousesMap, r.warehouseId, "Unknown")
           : "Unknown";
-        const customerName = r.customerId
-          ? getLookupValue(customersMap, r.customerId, "Unknown")
-          : "Unknown";
         const orderInfo = r.originalOrderId
           ? getLookupValue(ordersMap, r.originalOrderId, null)
           : null;
         const orderNumber = orderInfo?.orderNumber || r.originalOrderId || "N/A";
         const orderType = orderInfo?.orderType || null;
-        const returnFlow =
-          orderType === "inbound" || orderType === "outbound" ? orderType : "unknown";
+        const returnFlow = (r.returnFlow === "inbound" || r.returnFlow === "outbound")
+          ? r.returnFlow
+          : (orderType === "inbound" || orderType === "outbound" ? orderType : "unknown");
+        const customerId = r.customerId || orderInfo?.customerId || null;
+        const supplierId = orderInfo?.supplierId || null;
+        const counterpartyType =
+          returnFlow === "inbound"
+            ? "supplier"
+            : returnFlow === "outbound"
+              ? "customer"
+              : "unknown";
+        const counterpartyName =
+          counterpartyType === "supplier"
+            ? (supplierId ? getLookupValue(suppliersMap, supplierId, "Unknown Supplier") : "Unknown Supplier")
+            : counterpartyType === "customer"
+              ? (customerId ? getLookupValue(customersMap, customerId, "Unknown Customer") : "Unknown Customer")
+              : "Unknown";
+        const customerName = customerId ? getLookupValue(customersMap, customerId, counterpartyName) : counterpartyName;
 
         return {
           id: r.id,
@@ -87,6 +105,8 @@ export default function ReturnsPage() {
           originalOrderType: orderType,
           returnFlow,
           customerName,
+          counterpartyName,
+          counterpartyType,
           warehouseId: r.warehouseId || null,
           warehouse: warehouseName,
           returnDate: r.returnDate || new Date().toISOString().split("T")[0],
@@ -127,6 +147,7 @@ export default function ReturnsPage() {
       !query ||
       returnItem.returnNumber.toLowerCase().includes(query) ||
       returnItem.originalOrder.toLowerCase().includes(query) ||
+      returnItem.counterpartyName.toLowerCase().includes(query) ||
       returnItem.customerName.toLowerCase().includes(query) ||
       returnItem.warehouse.toLowerCase().includes(query) ||
       returnItem.status.toLowerCase().includes(query) ||
@@ -269,7 +290,19 @@ export default function ReturnsPage() {
       ),
       sortable: true,
     },
-    { key: "customerName", label: "Customer", sortable: true },
+    {
+      key: "counterpartyName",
+      label: "Counterparty",
+      render: (returnItem: ReturnDisplay) => (
+        <span>
+          {returnItem.counterpartyName}
+          <span className="text-xs text-base-content/50 ml-2">
+            ({returnItem.counterpartyType === "supplier" ? "Supplier" : returnItem.counterpartyType === "customer" ? "Customer" : "Unknown"})
+          </span>
+        </span>
+      ),
+      sortable: true,
+    },
     { key: "warehouse", label: "Warehouse", sortable: true },
     {
       key: "returnDate",

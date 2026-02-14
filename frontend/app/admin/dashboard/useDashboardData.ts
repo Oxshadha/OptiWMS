@@ -70,7 +70,7 @@ export function useDashboardData() {
               return null;
             }
           ),
-          fetchWithTimeout(analyticsApi.getOrdersChart("daily")).catch((err) => {
+          fetchWithTimeout(analyticsApi.getOrdersChart("monthly")).catch((err) => {
             logger.error("[Dashboard] Orders chart fetch error:", err);
             return [];
           }),
@@ -149,4 +149,3 @@ export function useDashboardData() {
     reload: fetchDashboardData,
   };
 }
-

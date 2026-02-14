@@ -7,6 +7,8 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { usersApi } from "@/lib/api/users";
+import { locationsApi } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
 import { CycleCountDisplay, countTypeConfig, statusConfig } from "./types";
 import {
@@ -49,37 +51,82 @@ export default function CycleCountsPage() {
     try {
       setLoading(true);
       setError(null);
-      const [countsData, warehousesData] = await Promise.all([
+      const [countsData, warehousesData, usersData, locationsData] = await Promise.all([
         operationsApi.getCycleCounts(),
         warehousesApi.getAll(),
+        usersApi.getAll(),
+        locationsApi.getAll(),
       ]);
 
       const warehousesMap = new Map<string, string>();
       warehousesData.forEach((wh) => warehousesMap.set(wh.id, wh.name));
+      const usersMap = new Map<string, string>();
+      usersData.forEach((u) => {
+        const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
+        usersMap.set(u.id, fullName || u.username || u.employeeId || u.id);
+      });
+      const warehouseLocationsMap = new Map<string, string[]>();
+      locationsData.forEach((loc) => {
+        if (!loc.warehouseId || !loc.locationCode) return;
+        const current = warehouseLocationsMap.get(loc.warehouseId) || [];
+        current.push(loc.locationCode);
+        warehouseLocationsMap.set(loc.warehouseId, current);
+      });
 
       const displayCounts: CycleCountDisplay[] = countsData.map((cc) => {
         const warehouseName = warehousesMap.get(cc.warehouseId) || "Unknown";
-        const sectionMatch = cc.locationCode.match(/^([A-Z])-/);
-        const sectionName = sectionMatch
-          ? `Section ${sectionMatch[1]} - ${cc.locationCode}`
-          : cc.locationCode;
+        let sectionName = cc.locationCode;
+        if (cc.locationCode === "ALL") {
+          sectionName = "Full Warehouse";
+        } else if (cc.locationCode.startsWith("AREA:")) {
+          sectionName = `Section ${cc.locationCode.replace("AREA:", "")}`;
+        } else {
+          const sectionMatch = cc.locationCode.match(/^([A-Z])-/);
+          sectionName = sectionMatch
+            ? `Section ${sectionMatch[1]} - ${cc.locationCode}`
+            : cc.locationCode;
+        }
+
+        const assignedWorkers =
+          cc.assignedWorkers?.map((id) => usersMap.get(id) || id) || [];
+        const performedBy = cc.countedBy ? (usersMap.get(cc.countedBy) || cc.countedBy) : null;
+        const allLocationCodes = warehouseLocationsMap.get(cc.warehouseId) || [];
+        let totalLocations = 1;
+        if (cc.locationCode === "ALL") {
+          totalLocations = Math.max(allLocationCodes.length, 1);
+        } else if (cc.locationCode.startsWith("AREA:")) {
+          const area = cc.locationCode.replace("AREA:", "").trim().toUpperCase();
+          totalLocations = Math.max(
+            allLocationCodes.filter((code) => code.toUpperCase().startsWith(`${area}-`)).length,
+            1
+          );
+        }
+        const countedLocations = cc.status === "completed"
+          ? totalLocations
+          : (cc.countedAt ? 1 : 0);
 
         return {
           id: cc.id,
           countNumber: cc.countNumber,
+          warehouseId: cc.warehouseId,
           warehouseName,
           sectionName,
-          countType: cc.locationCode === "ALL" ? "full" : "ad_hoc",
-          scheduledDate: new Date().toISOString().split("T")[0],
-          actualDate: cc.status === "completed" ? new Date().toISOString().split("T")[0] : null,
+          countType: cc.countNumber?.startsWith("ADH-")
+            ? "ad_hoc"
+            : cc.locationCode === "ALL"
+              ? "full"
+              : "scheduled",
+          scheduledDate: cc.scheduledDate || "-",
+          actualDate: cc.countedAt ? cc.countedAt.split("T")[0] : null,
           status: cc.status || "scheduled",
-          assignedWorkers: [],
+          assignedWorkers,
+          assignedWorkerIds: cc.assignedWorkers || [],
           assignedBy: "System",
-          assignedDate: new Date().toISOString(),
-          totalLocations: 1,
-          countedLocations: cc.status === "completed" ? 1 : 0,
+          assignedDate: cc.scheduledDate || "-",
+          totalLocations,
+          countedLocations,
           discrepanciesFound: cc.variance ? Math.abs(parseFloat(cc.variance)) : 0,
-          performedBy: null,
+          performedBy,
         };
       });
 
@@ -326,7 +373,7 @@ export default function CycleCountsPage() {
             </button>
           </li>
         )}
-        {count.status === "completed" && count.discrepanciesFound > 0 && canEdit && (
+        {count.status === "pending_approval" && canEdit && (
           <li>
             <button
               onClick={() => {
@@ -334,8 +381,21 @@ export default function CycleCountsPage() {
                 setShowReviewModal(true);
               }}
             >
-              <span className="material-symbols-outlined text-sm">warning</span>
-              Review Discrepancies
+              <span className="material-symbols-outlined text-sm">fact_check</span>
+              Manager Decision
+            </button>
+          </li>
+        )}
+        {count.status === "recount_required" && canEdit && (
+          <li>
+            <button
+              onClick={() => {
+                setSelectedCount(count);
+                setShowEditModal(true);
+              }}
+            >
+              <span className="material-symbols-outlined text-sm">groups</span>
+              Assign Recount Worker
             </button>
           </li>
         )}
@@ -404,6 +464,12 @@ export default function CycleCountsPage() {
               </li>
               <li>
                 <button onClick={() => setStatusFilter("in_progress")}>In Progress</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("recount_required")}>Recount Required</button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("pending_approval")}>Pending Approval</button>
               </li>
               <li>
                 <button onClick={() => setStatusFilter("completed")}>Completed</button>
@@ -502,6 +568,7 @@ export default function CycleCountsPage() {
       {/* Review Discrepancies Modal */}
       {selectedCount && (
         <ReviewDiscrepanciesModal
+          adminId={admin?.id}
           selectedCount={selectedCount}
           isOpen={showReviewModal}
           reviewNotes={reviewNotes}
