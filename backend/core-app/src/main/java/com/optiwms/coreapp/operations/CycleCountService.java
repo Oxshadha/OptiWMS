@@ -241,110 +241,33 @@ public class CycleCountService {
                 );
             }
 
-            // Any discrepancy >= threshold after recount requires manager decision.
-            if (varianceDecimal.abs().compareTo(threshold) >= 0) {
-                entity.setRecountRequired(false);
-                entity.setApprovalRequired(true);
-                entity.setFinalVariance(varianceDecimal);
-                entity.setStatus("pending_approval");
-                repository.save(entity);
-                syncWorkerTaskAfterCount(entity, countedBy, true);
-                ensureManagerReviewTaskOpen(entity);
-                maybeCreateAnomaly(entity);
-                saveCycleCountAudit(
-                        entity.getId(),
-                        "RECOUNT_PENDING_APPROVAL",
-                        countedBy,
-                        previousStatus,
-                        entity.getStatus(),
-                        expectedQuantityDecimal,
-                        countedQuantityDecimal,
-                        varianceDecimal,
-                        String.format("Recount #%d variance >= threshold; manager decision required", currentRecountCount)
-                );
-                return new CycleCountResult(
-                    true,
-                    String.format("Recount #%d recorded. Variance >= threshold. Awaiting manager decision.", currentRecountCount),
+            // Standardized flow: after recount, any remaining variance requires manager decision.
+            entity.setRecountRequired(false);
+            entity.setApprovalRequired(true);
+            entity.setFinalVariance(varianceDecimal);
+            entity.setStatus("pending_approval");
+            repository.save(entity);
+            syncWorkerTaskAfterCount(entity, countedBy, true);
+            ensureManagerReviewTaskOpen(entity);
+            maybeCreateAnomaly(entity);
+            saveCycleCountAudit(
+                    entity.getId(),
+                    "RECOUNT_PENDING_APPROVAL",
+                    countedBy,
+                    previousStatus,
+                    entity.getStatus(),
+                    expectedQuantityDecimal,
+                    countedQuantityDecimal,
                     varianceDecimal,
-                    false,
-                    true
-                );
-            }
-
-            // After 2 recounts (3 total counts), accept below-threshold variance
-            if (currentRecountCount >= 2) {
-                entity.setRecountRequired(false);
-                entity.setFinalVariance(varianceDecimal);
-                if (variance == 0) {
-                    entity.setApprovalRequired(false);
-                    entity.setStatus("completed");
-                    repository.save(entity);
-                    syncWorkerTaskAfterCount(entity, countedBy, true);
-                    ensureManagerReviewTaskClosed(entity);
-                    saveCycleCountAudit(
-                            entity.getId(),
-                            "COUNT_RECORDED",
-                            countedBy,
-                            previousStatus,
-                            entity.getStatus(),
-                            expectedQuantityDecimal,
-                            countedQuantityDecimal,
-                            varianceDecimal,
-                            "Recount completed with zero variance"
-                    );
-                } else {
-                    entity.setApprovalRequired(true);
-                    entity.setStatus("pending_approval");
-                    repository.save(entity);
-                    syncWorkerTaskAfterCount(entity, countedBy, true);
-                    ensureManagerReviewTaskOpen(entity);
-                    maybeCreateAnomaly(entity);
-                    saveCycleCountAudit(
-                            entity.getId(),
-                            "COUNT_RECORDED_PENDING_APPROVAL",
-                            countedBy,
-                            previousStatus,
-                            entity.getStatus(),
-                            expectedQuantityDecimal,
-                            countedQuantityDecimal,
-                            varianceDecimal,
-                            "Recount finalized with non-zero variance; manager approval required"
-                    );
-                }
-                return new CycleCountResult(
-                    true, 
-                    String.format("Count completed after %d recounts. Final variance: %.0f units.", 
-                        currentRecountCount, varianceDecimal.doubleValue()),
-                    varianceDecimal,
-                    false,
-                    entity.getApprovalRequired() != null && entity.getApprovalRequired()
-                );
-            } else {
-                // Below threshold but still non-zero before max recounts: keep recount flow.
-                entity.setApprovalRequired(false);
-                repository.save(entity);
-                syncWorkerTaskAfterCount(entity, countedBy, false);
-                ensureManagerReviewTaskClosed(entity);
-                saveCycleCountAudit(
-                        entity.getId(),
-                        "RECOUNT_RECORDED",
-                        countedBy,
-                        previousStatus,
-                        entity.getStatus(),
-                        expectedQuantityDecimal,
-                        countedQuantityDecimal,
-                        varianceDecimal,
-                        String.format("Recount #%d recorded", currentRecountCount)
-                );
-                return new CycleCountResult(
-                    false, 
-                    String.format("Recount #%d recorded. Variance: %.0f units. Please recount again.", 
-                        currentRecountCount, varianceDecimal.doubleValue()),
-                    varianceDecimal,
-                    true,
-                    false
-                );
-            }
+                    String.format("Recount #%d recorded with non-zero variance; manager decision required", currentRecountCount)
+            );
+            return new CycleCountResult(
+                true,
+                String.format("Recount #%d recorded. Variance remains %.0f units. Awaiting manager decision.", currentRecountCount, varianceDecimal.doubleValue()),
+                varianceDecimal,
+                false,
+                true
+            );
         }
 
         // Normal flow: Small variance, accept immediately
@@ -409,6 +332,9 @@ public class CycleCountService {
         if (entity.getMaterialId() == null || entity.getCountedQuantity() == null) {
             throw new RuntimeException("Cycle count is missing counted material/quantity details");
         }
+        if (notes == null || notes.trim().isEmpty()) {
+            throw new RuntimeException("Manager note is required to approve inventory adjustment");
+        }
 
         UUID materialId = entity.getMaterialId();
         String locationCode = entity.getLocationCode();
@@ -428,7 +354,7 @@ public class CycleCountService {
         entity.setApprovalRequired(false);
         entity.setApprovedBy(approvedBy);
         entity.setApprovedAt(LocalDateTime.now());
-        entity.setApprovalNotes(notes);
+        entity.setApprovalNotes(notes.trim());
         entity.setStatus("completed");
         entity = repository.save(entity);
         ensureManagerReviewTaskClosed(entity, approvedBy);

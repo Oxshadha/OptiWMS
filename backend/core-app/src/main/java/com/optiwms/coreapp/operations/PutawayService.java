@@ -157,7 +157,11 @@ public class PutawayService {
             }
             String notesWithoutSkip = clearSkipReasonNote(task.getNotes());
             taskService.updateNotes(taskId, upsertPutawayProgressNote(notesWithoutSkip, newCompletedQuantity, requiredQuantity));
-            taskService.updateStatus(taskId, "in_progress");
+            if (workerId != null) {
+                taskService.updateStatusWithWorker(taskId, "in_progress", workerId);
+            } else {
+                taskService.updateStatus(taskId, "in_progress");
+            }
             if (orderIdForStatusUpdate != null) {
                 var order = orderService.findById(orderIdForStatusUpdate);
                 if ("quality_approved".equals(order.getStatus())) {

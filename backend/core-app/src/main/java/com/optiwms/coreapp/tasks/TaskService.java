@@ -109,7 +109,14 @@ public class TaskService {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setStatus(status);
+        if (workerId != null) {
+            // Keep task ownership aligned with actual executor for labor productivity views.
+            entity.setAssignedTo(workerId);
+        }
         if ("completed".equals(status)) {
+            if (entity.getStartedAt() == null) {
+                entity.setStartedAt(LocalDateTime.now());
+            }
             entity.setCompletedAt(LocalDateTime.now());
             entity.setCompletedBy(workerId);
         } else if ("assigned".equals(status) || "in_progress".equals(status)) {
