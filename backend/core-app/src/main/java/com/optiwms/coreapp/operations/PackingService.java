@@ -319,6 +319,17 @@ public class PackingService {
             Task completedTask = new Task();
             completedTask.setTaskNumber(generateTaskNumber("PACK", orderId));
             completedTask.setTaskType("packing");
+            if (orderId != null) {
+                try {
+                    var order = orderService.findById(orderId);
+                    completedTask.setWarehouseId(order.getWarehouseId());
+                    completedTask.setPriority(order.getPriority() != null ? order.getPriority() : "normal");
+                } catch (RuntimeException ignored) {
+                    completedTask.setPriority("normal");
+                }
+            } else {
+                completedTask.setPriority("normal");
+            }
             completedTask.setReferenceType("order");
             completedTask.setReferenceId(orderId);
             completedTask.setStatus("completed");
