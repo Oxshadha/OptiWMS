@@ -36,7 +36,7 @@ export function ReviewDiscrepanciesModal({
           <span className="material-symbols-outlined">info</span>
           <span>
             {isPendingApproval
-              ? `Variance detected (${selectedCount.discrepanciesFound}). Approve adjustment or request recount.`
+              ? `Variance remains (${selectedCount.discrepanciesFound}). Accept counted quantity (with note) or request recount.`
               : `Found ${selectedCount.discrepanciesFound} discrepancies in this cycle count.`}
           </span>
         </div>
@@ -90,10 +90,15 @@ export function ReviewDiscrepanciesModal({
                     showToast.error("Admin identity not available");
                     return;
                   }
+                  const notes = reviewNotes.trim();
+                  if (!notes) {
+                    showToast.error("Manager note is required to accept adjustment");
+                    return;
+                  }
                   try {
                     await operationsApi.approveCycleCountAdjustment(selectedCount.id, {
                       approvedBy: adminId,
-                      notes: reviewNotes.trim() || undefined,
+                      notes,
                     });
                     showToast.success("Inventory adjustment approved");
                     onClose();
@@ -106,7 +111,7 @@ export function ReviewDiscrepanciesModal({
                   }
                 }}
               >
-                Approve Adjustment
+                Accept Counted Qty
               </button>
             </>
           ) : (

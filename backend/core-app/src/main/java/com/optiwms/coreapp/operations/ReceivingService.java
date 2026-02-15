@@ -382,11 +382,42 @@ public class ReceivingService {
 
     private void completeReceivingTasks(UUID orderId, UUID workerId) {
         List<Task> receivingTasks = taskService.findByTaskTypeAndReference("receiving", "order", orderId);
+        if (receivingTasks.isEmpty()) {
+            // Backfill for legacy orders that missed task creation; keep productivity accounting complete.
+            try {
+                var order = orderService.findById(orderId);
+                Task fallback = new Task();
+                fallback.setTaskNumber(generateTaskNumber("RECV", order.getOrderNumber()));
+                fallback.setTaskType("receiving");
+                fallback.setWarehouseId(order.getWarehouseId());
+                fallback.setReferenceType("order");
+                fallback.setReferenceId(orderId);
+                fallback.setPriority(order.getPriority() != null ? order.getPriority() : "normal");
+                fallback.setStatus("completed");
+                fallback.setNotes("Auto-created completed receiving task (backfill)");
+                Task created = taskService.create(fallback);
+                if (workerId != null) {
+                    taskService.updateStatusWithWorker(created.getId(), "completed", workerId);
+                } else {
+                    taskService.updateStatus(created.getId(), "completed");
+                }
+                return;
+            } catch (RuntimeException ignored) {
+                return;
+            }
+        }
         for (Task task : receivingTasks) {
             if (!"completed".equals(task.getStatus())) {
                 taskService.updateStatusWithWorker(task.getId(), "completed", workerId);
             }
         }
+    }
+
+    private String generateTaskNumber(String prefix, String reference) {
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String suffix = timestamp.substring(Math.max(0, timestamp.length() - 6));
+        String ref = (reference == null || reference.isBlank()) ? "ORDER" : reference;
+        return prefix + "-" + ref + "-" + suffix;
     }
 
     public record ReceivedItem(UUID materialId, BigDecimal quantity, String locationCode) {}
