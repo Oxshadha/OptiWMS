@@ -27,9 +27,9 @@ export function PackingViews({
         <div className="p-4 border-b border-base-200">
           <h2 className="text-lg font-semibold text-base-content">Orders Ready to Pack</h2>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem]">
           <table className="table">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
               <tr>
                 <th>Order #</th>
                 <th>Customer</th>
@@ -121,9 +121,9 @@ export function PackingViews({
 
   return (
     <div className="card bg-base-100 border border-base-300">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto max-h-[32rem]">
         <table className="table">
-          <thead>
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
             <tr>
               <th>Order #</th>
               <th>Customer</th>

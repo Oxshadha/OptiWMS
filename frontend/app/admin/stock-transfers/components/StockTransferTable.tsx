@@ -15,9 +15,9 @@ export function StockTransferTable({
 }: StockTransferTableProps) {
   return (
     <div className="card bg-base-100 border border-base-300">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]">
         <table className="table">
-          <thead>
+          <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
             <tr>
               <th>Transfer #</th>
               <th>Type</th>
