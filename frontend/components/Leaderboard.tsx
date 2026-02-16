@@ -42,9 +42,9 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
     <div className="card bg-base-100 shadow-xl">
       <div className="card-body">
         <h2 className="card-title text-xl">Leaderboard</h2>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[32rem]">
           <table className="table table-zebra">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
               <tr>
                 <th>Rank</th>
                 <th>Worker</th>
@@ -124,4 +124,3 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
     </div>
   );
 }
-

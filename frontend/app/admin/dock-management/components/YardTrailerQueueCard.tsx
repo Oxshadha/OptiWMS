@@ -8,9 +8,9 @@ export function YardTrailerQueueCard({ yardTrailers }: { yardTrailers: YardTrail
     <div className="card bg-base-100 shadow-xl">
       <div className="card-body">
         <h2 className="card-title text-xl">Yard Trailer Queue</h2>
-        <div className="overflow-x-auto mt-4">
+        <div className="overflow-x-auto overflow-y-auto max-h-96 mt-4">
           <table className="table table-zebra">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
               <tr>
                 <th>Trailer Number</th>
                 <th>Carrier</th>

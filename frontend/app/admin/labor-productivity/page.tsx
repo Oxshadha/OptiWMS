@@ -177,9 +177,9 @@ export default function LaborProductivityPage() {
       <div className="card bg-base-100 shadow-xl">
         <div className="card-body">
           <h2 className="card-title text-xl">Detailed Worker Metrics</h2>
-          <div className="overflow-x-auto mt-4">
+          <div className="overflow-x-auto overflow-y-auto max-h-[32rem] mt-4">
             <table className="table table-zebra">
-              <thead>
+              <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
                 <tr>
                   <th>Worker</th>
                   <th>PPH</th>

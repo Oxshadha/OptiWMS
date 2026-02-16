@@ -483,13 +483,13 @@ const markdownComponents = {
   ),
   hr: (props: any) => <hr className="my-4 border-base-300" {...props} />,
   table: (props: any) => (
-    <div className="overflow-x-auto my-4">
+    <div className="overflow-x-auto overflow-y-auto max-h-80 my-4">
       <table className="min-w-full border-collapse border border-base-300" {...props} />
     </div>
   ),
   thead: (props: any) => <thead className="bg-base-300" {...props} />,
   th: (props: any) => (
-    <th className="border border-base-300 px-4 py-2 text-left font-semibold" {...props} />
+    <th className="sticky top-0 z-10 bg-base-300 border border-base-300 px-4 py-2 text-left font-semibold" {...props} />
   ),
   td: (props: any) => <td className="border border-base-300 px-4 py-2" {...props} />,
 };
