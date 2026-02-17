@@ -17,4 +17,5 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
     List<InventoryItemEntity> findByWarehouseIdAndStatus(UUID warehouseId, String status);
     List<InventoryItemEntity> findByMaterialType(String materialType);
     List<InventoryItemEntity> findByWarehouseIdAndMaterialType(UUID warehouseId, String materialType);
+    boolean existsByLocationCodeInAndQuantityGreaterThan(List<String> locationCodes, Integer quantity);
 }

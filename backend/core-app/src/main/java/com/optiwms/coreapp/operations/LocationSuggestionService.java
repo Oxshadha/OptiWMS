@@ -48,6 +48,8 @@ public class LocationSuggestionService {
         this.defaultLocationService = defaultLocationService;
     }
 
+    private static final Set<String> BLOCKED_RACK_STATUSES = Set.of("reserved", "maintenance", "out_of_service");
+
     /**
      * Suggest putaway location for material
      * 
@@ -73,7 +75,8 @@ public class LocationSuggestionService {
                     Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
                     if (location != null
                         && warehouseId.equals(location.getWarehouseId())
-                        && Boolean.TRUE.equals(location.getIsActive()) && 
+                        && Boolean.TRUE.equals(location.getIsActive())
+                        && isRackStatusPutawayAllowed(location.getRackStatus())
                         ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
                         logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
                         return new LocationSuggestion(
@@ -134,6 +137,7 @@ public class LocationSuggestionService {
                     if (location != null
                         && warehouseId.equals(location.getWarehouseId())
                         && Boolean.TRUE.equals(location.getIsActive())
+                        && isRackStatusPutawayAllowed(location.getRackStatus())
                         && hasCapacity(location, quantity, materialId)) {
                         return new LocationSuggestion(
                             location.getLocationCode(),
@@ -234,9 +238,18 @@ public class LocationSuggestionService {
      * Check if location is available (not reserved, not full)
      */
     private boolean isLocationAvailable(Location location) {
-        // Check if location is not reserved for other operations
-        // This can be enhanced with reservation system
-        return Boolean.TRUE.equals(location.getIsActive());
+        return Boolean.TRUE.equals(location.getIsActive()) && isRackStatusPutawayAllowed(location.getRackStatus());
+    }
+
+    private boolean isRackStatusPutawayAllowed(String rackStatus) {
+        if (rackStatus == null || rackStatus.isBlank()) {
+            return true;
+        }
+        String normalized = rackStatus.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if ("outofservice".equals(normalized)) {
+            normalized = "out_of_service";
+        }
+        return !BLOCKED_RACK_STATUSES.contains(normalized);
     }
 
     /**

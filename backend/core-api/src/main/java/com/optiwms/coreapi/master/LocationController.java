@@ -132,7 +132,7 @@ public class LocationController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<LocationDto> update(@PathVariable UUID id, @RequestBody UpdateLocationRequest request) {
+    public ResponseEntity<?> update(@PathVariable UUID id, @RequestBody UpdateLocationRequest request) {
         try {
             var location = new com.optiwms.domain.master.Location();
             location.setLocationCode(request.locationCode());
@@ -157,13 +157,13 @@ public class LocationController {
             var updated = locationService.update(id, location);
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 
     // Rack-specific update endpoint (updates only rack properties)
     @PutMapping("/racks/{id}")
-    public ResponseEntity<LocationDto> updateRack(@PathVariable UUID id, @RequestBody UpdateRackRequest request) {
+    public ResponseEntity<?> updateRack(@PathVariable UUID id, @RequestBody UpdateRackRequest request) {
         try {
             var location = locationService.findById(id);
             if (request.rackStatus() != null) location.setRackStatus(request.rackStatus());
@@ -174,7 +174,7 @@ public class LocationController {
             var updated = locationService.update(id, location);
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
         }
     }
 
@@ -281,4 +281,3 @@ public class LocationController {
             Integer accessibilityRating
     ) {}
 }
-

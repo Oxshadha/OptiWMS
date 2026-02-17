@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -22,6 +23,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class MaterialLocationAssignmentService {
+    private static final java.util.Set<String> BLOCKED_RACK_STATUSES =
+            java.util.Set.of("reserved", "maintenance", "out_of_service");
 
     private final InventoryService inventoryService;
     private final LocationService locationService;
@@ -60,6 +63,10 @@ public class MaterialLocationAssignmentService {
         
         if (!Boolean.TRUE.equals(location.getIsActive())) {
             throw new RuntimeException("Location is not active: " + locationCode);
+        }
+        if (!isRackStatusPutawayAllowed(location.getRackStatus())) {
+            throw new RuntimeException("Location is not available for putaway due to rack status '"
+                    + normalizeRackStatus(location.getRackStatus()) + "': " + locationCode);
         }
 
         validateLocationCapacity(location, warehouseId, quantity, materialId);
@@ -210,4 +217,19 @@ public class MaterialLocationAssignmentService {
             String binPosition,
             Integer availableQuantity
     ) {}
+
+    private boolean isRackStatusPutawayAllowed(String rackStatus) {
+        return !BLOCKED_RACK_STATUSES.contains(normalizeRackStatus(rackStatus));
+    }
+
+    private String normalizeRackStatus(String rackStatus) {
+        if (rackStatus == null || rackStatus.isBlank()) {
+            return "active";
+        }
+        String normalized = rackStatus.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if ("outofservice".equals(normalized)) {
+            return "out_of_service";
+        }
+        return normalized;
+    }
 }
