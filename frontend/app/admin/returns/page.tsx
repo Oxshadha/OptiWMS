@@ -154,7 +154,6 @@ export default function ReturnsPage() {
       returnItem.status.toLowerCase().includes(query) ||
       returnItem.reason.toLowerCase().includes(query) ||
       returnItem.returnDate.toLowerCase().includes(query) ||
-      returnItem.totalItems.toString().includes(query) ||
       (returnItem.resolution &&
         returnItem.resolution.toLowerCase().includes(query)) ||
       (returnItem.receivedBy &&
@@ -313,12 +312,6 @@ export default function ReturnsPage() {
       sortable: true,
     },
     { key: "reason", label: "Reason", sortable: true },
-    {
-      key: "totalItems",
-      label: "Total Items",
-      className: "text-base-content/70",
-      sortable: true,
-    },
     {
       key: "status",
       label: "Status",

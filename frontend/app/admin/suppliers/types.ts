@@ -7,8 +7,7 @@ export interface SupplierDisplay {
   contactPerson: string;
   email: string;
   phone: string;
-  productsSupplied: number;
-  leadTimeDays: number;
-  rating: number;
+  leadTimeDays: number | null;
+  rating: number | null;
   status: string;
 }

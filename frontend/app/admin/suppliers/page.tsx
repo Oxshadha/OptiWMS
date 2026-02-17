@@ -54,9 +54,8 @@ export default function SuppliersPage() {
       contactPerson: s.contactPerson || "N/A",
       email: s.email || "",
       phone: s.phone || "",
-      productsSupplied: 0, // TODO: Get from material-supplier relationship
-      leadTimeDays: s.leadTimeDays || 7,
-      rating: parseFloat(s.rating || "4.0"),
+      leadTimeDays: typeof s.leadTimeDays === "number" ? s.leadTimeDays : null,
+      rating: s.rating != null ? parseFloat(s.rating) : null,
       status: s.status,
     };
   };
@@ -105,9 +104,8 @@ export default function SuppliersPage() {
       supplier.contactPerson.toLowerCase().includes(query) ||
       supplier.country.toLowerCase().includes(query) ||
       supplier.phone.toLowerCase().includes(query) ||
-      supplier.productsSupplied.toString().includes(query) ||
-      supplier.leadTimeDays.toString().includes(query) ||
-      supplier.rating.toString().includes(query) ||
+      (supplier.leadTimeDays != null && supplier.leadTimeDays.toString().includes(query)) ||
+      (supplier.rating != null && supplier.rating.toString().includes(query)) ||
       supplier.status.toLowerCase().includes(query) ||
       supplier.type.toLowerCase().includes(query);
     const matchesStatus =
@@ -195,25 +193,24 @@ export default function SuppliersPage() {
       className: "text-base-content/70",
     },
     {
-      key: "productsSupplied",
-      label: "Products Supplied",
-      sortable: true,
-    },
-    {
       key: "leadTimeDays",
       label: "Lead Time (days)",
       render: (supplier: (typeof suppliers)[0]) =>
-        `${supplier.leadTimeDays} days`,
+        supplier.leadTimeDays != null ? `${supplier.leadTimeDays} days` : "—",
       sortable: true,
     },
     {
       key: "rating",
       label: "Rating",
       render: (supplier: (typeof suppliers)[0]) => (
-        <div className="flex items-center gap-1">
-          <span className="text-warning">★</span>
-          <span>{supplier.rating.toFixed(1)}</span>
-        </div>
+        supplier.rating != null ? (
+          <div className="flex items-center gap-1">
+            <span className="text-warning">★</span>
+            <span>{supplier.rating.toFixed(1)}</span>
+          </div>
+        ) : (
+          "—"
+        )
       ),
       sortable: true,
     },

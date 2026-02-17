@@ -234,10 +234,6 @@ export function CustomerDetailModal({
             <label className="text-sm text-base-content/60">Total Orders</label>
             <p className="font-semibold">{customer.orders}</p>
           </div>
-          <div>
-            <label className="text-sm text-base-content/60">Join Date</label>
-            <p className="font-semibold">{customer.joinDate}</p>
-          </div>
         </div>
         <div className="flex justify-end gap-3 pt-4">
           <button className="btn btn-ghost" onClick={onClose}>
