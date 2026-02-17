@@ -95,29 +95,6 @@ export interface RackDeleteResponse {
   deletedLocations: number;
 }
 
-export interface GenerateStandardLayoutRequest {
-  warehouseId: string;
-  levelsPerRack?: number;
-  binsPerLevel?: number;
-}
-
-export interface GenerateStandardLayoutResponse {
-  message: string;
-  createdRacks: number;
-  createdLocations: number;
-  skippedRacks: number;
-  levelsPerRack: number;
-  binsPerLevel: number;
-  zones: Array<{
-    area: string;
-    targetRows: number;
-    targetBaysPerRow: number;
-    createdRacks: number;
-    createdLocations: number;
-    skippedRacks: number;
-  }>;
-}
-
 export interface LocationHierarchy {
   warehouseId: string;
   hierarchy: {
@@ -202,9 +179,5 @@ export const locationsApi = {
       bayNumber,
     });
     return apiClient.delete<RackDeleteResponse>(`/master/locations/racks?${params.toString()}`);
-  },
-
-  generateStandardLayout: async (request: GenerateStandardLayoutRequest): Promise<GenerateStandardLayoutResponse> => {
-    return apiClient.post<GenerateStandardLayoutResponse>('/master/locations/bulk-racks/generate-standard', request);
   },
 };
