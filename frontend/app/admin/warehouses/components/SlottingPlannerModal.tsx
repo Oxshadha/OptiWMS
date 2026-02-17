@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi } from "@/lib/api/materials";
@@ -31,6 +31,17 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   const [bulkMaxVolumeCm3, setBulkMaxVolumeCm3] = useState<number>(1000000);
   const [bulkMaxLpnCount, setBulkMaxLpnCount] = useState<number>(1);
   const [bulkMaxPalletCapacity, setBulkMaxPalletCapacity] = useState<number>(10);
+  const [useLevelProfileForBulk, setUseLevelProfileForBulk] = useState<boolean>(false);
+  const [expandedRackId, setExpandedRackId] = useState<string | null>(null);
+  const [bulkLevelProfile, setBulkLevelProfile] = useState<
+    Array<{ level: number; capacity: number; maxWeightKg: number; maxVolumeCm3: number; maxLpnCount: number }>
+  >([
+    { level: 1, capacity: 120, maxWeightKg: 1000, maxVolumeCm3: 1200000, maxLpnCount: 2 },
+    { level: 2, capacity: 110, maxWeightKg: 900, maxVolumeCm3: 1100000, maxLpnCount: 2 },
+    { level: 3, capacity: 100, maxWeightKg: 800, maxVolumeCm3: 1000000, maxLpnCount: 2 },
+    { level: 4, capacity: 90, maxWeightKg: 700, maxVolumeCm3: 900000, maxLpnCount: 1 },
+    { level: 5, capacity: 80, maxWeightKg: 600, maxVolumeCm3: 800000, maxLpnCount: 1 },
+  ]);
 
   useEffect(() => {
     if (!isOpen || !warehouseId) return;
@@ -135,6 +146,31 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
     }
   };
 
+  const saveRackByLocation = async (rackId: string, locationIds: string[]) => {
+    try {
+      setSavingRackId(rackId);
+      const targetLocations = locations.filter((loc) => locationIds.includes(loc.id));
+      await Promise.all(
+        targetLocations.map((loc) =>
+          locationsApi.updateRack(loc.id, {
+            amalgamatedClass: (loc.amalgamatedClass || "CM").toUpperCase(),
+            capacity: Number(loc.capacity ?? 0),
+            maxWeightKg: Number(loc.maxWeightKg ?? 0),
+            maxVolumeCm3: Number(loc.maxVolumeCm3 ?? 0),
+            maxLpnCount: Number(loc.maxLpnCount ?? 0),
+            maxPalletCapacity: Number(loc.maxPalletCapacity ?? 0),
+          })
+        )
+      );
+      showToast.success(`Updated ${rackId}`);
+      onUpdated?.();
+    } catch (error) {
+      showToast.error(error instanceof Error ? error.message : "Failed to save rack settings");
+    } finally {
+      setSavingRackId(null);
+    }
+  };
+
   const applyBulkCapacity = async () => {
     try {
       setBulkApplying(true);
@@ -146,15 +182,25 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
 
       await Promise.all(
         targets.flatMap((rack) =>
-          rack.locationIds.map((id) =>
-            locationsApi.updateRack(id, {
-              capacity: bulkCapacity,
-              maxWeightKg: bulkMaxWeightKg,
-              maxVolumeCm3: bulkMaxVolumeCm3,
-              maxLpnCount: bulkMaxLpnCount,
+          rack.locationIds.map((id) => {
+            const loc = locations.find((item) => item.id === id);
+            const levelProfile = bulkLevelProfile.find((profile) => profile.level === (loc?.levelNumber ?? 0));
+            return locationsApi.updateRack(id, {
+              capacity: useLevelProfileForBulk
+                ? Number(levelProfile?.capacity ?? bulkCapacity)
+                : bulkCapacity,
+              maxWeightKg: useLevelProfileForBulk
+                ? Number(levelProfile?.maxWeightKg ?? bulkMaxWeightKg)
+                : bulkMaxWeightKg,
+              maxVolumeCm3: useLevelProfileForBulk
+                ? Number(levelProfile?.maxVolumeCm3 ?? bulkMaxVolumeCm3)
+                : bulkMaxVolumeCm3,
+              maxLpnCount: useLevelProfileForBulk
+                ? Number(levelProfile?.maxLpnCount ?? bulkMaxLpnCount)
+                : bulkMaxLpnCount,
               maxPalletCapacity: bulkMaxPalletCapacity,
-            })
-          )
+            });
+          })
         )
       );
 
@@ -162,12 +208,21 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
         prev.map((loc) => {
           const zone = (loc.area || "C").toUpperCase();
           if (bulkTargetZone !== "ALL" && zone !== bulkTargetZone) return loc;
+          const levelProfile = bulkLevelProfile.find((profile) => profile.level === (loc.levelNumber ?? 0));
           return {
             ...loc,
-            capacity: bulkCapacity,
-            maxWeightKg: bulkMaxWeightKg,
-            maxVolumeCm3: bulkMaxVolumeCm3,
-            maxLpnCount: bulkMaxLpnCount,
+            capacity: useLevelProfileForBulk
+              ? Number(levelProfile?.capacity ?? bulkCapacity)
+              : bulkCapacity,
+            maxWeightKg: useLevelProfileForBulk
+              ? Number(levelProfile?.maxWeightKg ?? bulkMaxWeightKg)
+              : bulkMaxWeightKg,
+            maxVolumeCm3: useLevelProfileForBulk
+              ? Number(levelProfile?.maxVolumeCm3 ?? bulkMaxVolumeCm3)
+              : bulkMaxVolumeCm3,
+            maxLpnCount: useLevelProfileForBulk
+              ? Number(levelProfile?.maxLpnCount ?? bulkMaxLpnCount)
+              : bulkMaxLpnCount,
             maxPalletCapacity: bulkMaxPalletCapacity,
           };
         })
@@ -282,6 +337,87 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
             <button className="btn btn-primary mt-3" onClick={() => void applyBulkCapacity()} disabled={bulkApplying}>
               {bulkApplying ? "Applying..." : "Apply Capacity Profile"}
             </button>
+            <div className="form-control mt-3">
+              <label className="label cursor-pointer justify-start gap-3">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm"
+                  checked={useLevelProfileForBulk}
+                  onChange={(e) => setUseLevelProfileForBulk(e.target.checked)}
+                />
+                <span className="label-text text-xs">Use per-level profile (L1..L5) instead of one value for all levels</span>
+              </label>
+            </div>
+            {useLevelProfileForBulk && (
+              <div className="overflow-auto mt-2">
+                <table className="table table-xs">
+                  <thead>
+                    <tr>
+                      <th>Level</th>
+                      <th>Units</th>
+                      <th>Weight kg</th>
+                      <th>Volume cm3</th>
+                      <th>LPN</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkLevelProfile.map((profile, idx) => (
+                      <tr key={profile.level}>
+                        <td>L{profile.level}</td>
+                        <td>
+                          <input
+                            type="number"
+                            className="input input-bordered input-xs w-20"
+                            value={profile.capacity}
+                            onChange={(e) =>
+                              setBulkLevelProfile((prev) =>
+                                prev.map((row, i) => (i === idx ? { ...row, capacity: Number(e.target.value) || 0 } : row))
+                              )
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="input input-bordered input-xs w-24"
+                            value={profile.maxWeightKg}
+                            onChange={(e) =>
+                              setBulkLevelProfile((prev) =>
+                                prev.map((row, i) => (i === idx ? { ...row, maxWeightKg: Number(e.target.value) || 0 } : row))
+                              )
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="input input-bordered input-xs w-28"
+                            value={profile.maxVolumeCm3}
+                            onChange={(e) =>
+                              setBulkLevelProfile((prev) =>
+                                prev.map((row, i) => (i === idx ? { ...row, maxVolumeCm3: Number(e.target.value) || 0 } : row))
+                              )
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            className="input input-bordered input-xs w-16"
+                            value={profile.maxLpnCount}
+                            onChange={(e) =>
+                              setBulkLevelProfile((prev) =>
+                                prev.map((row, i) => (i === idx ? { ...row, maxLpnCount: Number(e.target.value) || 0 } : row))
+                              )
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-base-300 p-3">
@@ -302,7 +438,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                 </thead>
                 <tbody>
                   {rackRows.map((rack) => (
-                    <tr key={rack.rackId}>
+                    <Fragment key={rack.rackId}>
+                    <tr>
                       <td className="font-mono">{rack.rackId}</td>
                       <td>
                         <select
@@ -393,22 +530,15 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                           <button
                             className="btn btn-xs btn-outline"
                             disabled={savingRackId === rack.rackId}
-                            onClick={() =>
-                              updateRackSettings(
-                                rack.rackId,
-                                rack.locationIds,
-                                {
-                                  amalgamatedClass: (locations.find((loc) => loc.id === rack.locationIds[0])?.amalgamatedClass || rack.rackClass).toUpperCase(),
-                                  capacity: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.capacity ?? rack.capacity ?? 0),
-                                  maxWeightKg: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxWeightKg ?? rack.maxWeightKg ?? 0),
-                                  maxVolumeCm3: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxVolumeCm3 ?? rack.maxVolumeCm3 ?? 0),
-                                  maxLpnCount: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxLpnCount ?? rack.maxLpnCount ?? 0),
-                                  maxPalletCapacity: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxPalletCapacity ?? rack.maxPalletCapacity ?? 0),
-                                }
-                              )
-                            }
+                            onClick={() => void saveRackByLocation(rack.rackId, rack.locationIds)}
                           >
                             {savingRackId === rack.rackId ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            className="btn btn-xs btn-outline"
+                            onClick={() => setExpandedRackId((prev) => (prev === rack.rackId ? null : rack.rackId))}
+                          >
+                            {expandedRackId === rack.rackId ? "Hide Levels" : "Edit Levels"}
                           </button>
                           <button
                             className="btn btn-xs btn-outline btn-error"
@@ -420,6 +550,118 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                         </div>
                       </td>
                     </tr>
+                    {expandedRackId === rack.rackId && (
+                      <tr>
+                        <td colSpan={8}>
+                          <div className="rounded border border-base-300 p-2 bg-base-200">
+                            <div className="text-xs font-semibold mb-2">Per-level capacity overrides (applies to both bins A/B on that level)</div>
+                            <div className="overflow-auto">
+                              <table className="table table-xs">
+                                <thead>
+                                  <tr>
+                                    <th>Level</th>
+                                    <th>Units</th>
+                                    <th>Weight kg</th>
+                                    <th>Volume cm3</th>
+                                    <th>LPN</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Array.from(
+                                    new Set(
+                                      locations
+                                        .filter((loc) => rack.locationIds.includes(loc.id))
+                                        .map((loc) => loc.levelNumber || 0)
+                                    )
+                                  )
+                                    .sort((a, b) => a - b)
+                                    .map((level) => {
+                                      const levelLocations = locations.filter(
+                                        (loc) => rack.locationIds.includes(loc.id) && (loc.levelNumber || 0) === level
+                                      );
+                                      const sample = levelLocations[0];
+                                      return (
+                                        <tr key={`${rack.rackId}-L${level}`}>
+                                          <td>L{level}</td>
+                                          <td>
+                                            <input
+                                              type="number"
+                                              className="input input-bordered input-xs w-20"
+                                              value={Number(sample?.capacity ?? 0)}
+                                              onChange={(e) => {
+                                                const value = Number(e.target.value) || 0;
+                                                setLocations((prev) =>
+                                                  prev.map((loc) =>
+                                                    rack.locationIds.includes(loc.id) && (loc.levelNumber || 0) === level
+                                                      ? { ...loc, capacity: value }
+                                                      : loc
+                                                  )
+                                                );
+                                              }}
+                                            />
+                                          </td>
+                                          <td>
+                                            <input
+                                              type="number"
+                                              className="input input-bordered input-xs w-24"
+                                              value={Number(sample?.maxWeightKg ?? 0)}
+                                              onChange={(e) => {
+                                                const value = Number(e.target.value) || 0;
+                                                setLocations((prev) =>
+                                                  prev.map((loc) =>
+                                                    rack.locationIds.includes(loc.id) && (loc.levelNumber || 0) === level
+                                                      ? { ...loc, maxWeightKg: value }
+                                                      : loc
+                                                  )
+                                                );
+                                              }}
+                                            />
+                                          </td>
+                                          <td>
+                                            <input
+                                              type="number"
+                                              className="input input-bordered input-xs w-28"
+                                              value={Number(sample?.maxVolumeCm3 ?? 0)}
+                                              onChange={(e) => {
+                                                const value = Number(e.target.value) || 0;
+                                                setLocations((prev) =>
+                                                  prev.map((loc) =>
+                                                    rack.locationIds.includes(loc.id) && (loc.levelNumber || 0) === level
+                                                      ? { ...loc, maxVolumeCm3: value }
+                                                      : loc
+                                                  )
+                                                );
+                                              }}
+                                            />
+                                          </td>
+                                          <td>
+                                            <input
+                                              type="number"
+                                              className="input input-bordered input-xs w-16"
+                                              value={Number(sample?.maxLpnCount ?? 0)}
+                                              onChange={(e) => {
+                                                const value = Number(e.target.value) || 0;
+                                                setLocations((prev) =>
+                                                  prev.map((loc) =>
+                                                    rack.locationIds.includes(loc.id) && (loc.levelNumber || 0) === level
+                                                      ? { ...loc, maxLpnCount: value }
+                                                      : loc
+                                                  )
+                                                );
+                                              }}
+                                            />
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
