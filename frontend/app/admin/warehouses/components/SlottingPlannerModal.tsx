@@ -24,6 +24,13 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   const [selectedLocationCode, setSelectedLocationCode] = useState("");
   const [savingRackId, setSavingRackId] = useState<string | null>(null);
   const [deletingRackId, setDeletingRackId] = useState<string | null>(null);
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkTargetZone, setBulkTargetZone] = useState<"ALL" | "A" | "B" | "C" | "D">("ALL");
+  const [bulkCapacity, setBulkCapacity] = useState<number>(100);
+  const [bulkMaxWeightKg, setBulkMaxWeightKg] = useState<number>(1000);
+  const [bulkMaxVolumeCm3, setBulkMaxVolumeCm3] = useState<number>(1000000);
+  const [bulkMaxLpnCount, setBulkMaxLpnCount] = useState<number>(1);
+  const [bulkMaxPalletCapacity, setBulkMaxPalletCapacity] = useState<number>(10);
 
   useEffect(() => {
     if (!isOpen || !warehouseId) return;
@@ -44,7 +51,17 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   }, [isOpen, warehouseId]);
 
   const rackRows = useMemo(() => {
-    const map = new Map<string, { rackId: string; locationIds: string[]; rackClass: string; zone: string }>();
+    const map = new Map<string, {
+      rackId: string;
+      locationIds: string[];
+      rackClass: string;
+      zone: string;
+      capacity?: number;
+      maxWeightKg?: number;
+      maxVolumeCm3?: number;
+      maxLpnCount?: number;
+      maxPalletCapacity?: number;
+    }>();
     for (const loc of locations) {
       const zone = (loc.area || "C").toUpperCase();
       const row = (loc.rowNumber || "01").padStart(2, "0");
@@ -56,6 +73,11 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
           locationIds: [],
           rackClass: (loc.amalgamatedClass || "CM").toUpperCase(),
           zone,
+          capacity: loc.capacity !== undefined ? Number(loc.capacity) : undefined,
+          maxWeightKg: loc.maxWeightKg !== undefined ? Number(loc.maxWeightKg) : undefined,
+          maxVolumeCm3: loc.maxVolumeCm3 !== undefined ? Number(loc.maxVolumeCm3) : undefined,
+          maxLpnCount: loc.maxLpnCount !== undefined ? Number(loc.maxLpnCount) : undefined,
+          maxPalletCapacity: loc.maxPalletCapacity !== undefined ? Number(loc.maxPalletCapacity) : undefined,
         });
       }
       map.get(rackId)!.locationIds.push(loc.id);
@@ -63,25 +85,100 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
     return Array.from(map.values()).sort((a, b) => a.rackId.localeCompare(b.rackId));
   }, [locations]);
 
-  const updateRackClass = async (rackId: string, locationIds: string[], value: string) => {
+  const updateRackSettings = async (
+    rackId: string,
+    locationIds: string[],
+    payload: {
+      amalgamatedClass: string;
+      capacity?: number;
+      maxWeightKg?: number;
+      maxVolumeCm3?: number;
+      maxLpnCount?: number;
+      maxPalletCapacity?: number;
+    }
+  ) => {
     try {
       setSavingRackId(rackId);
       await Promise.all(
         locationIds.map((id) =>
           locationsApi.updateRack(id, {
-            amalgamatedClass: value,
+            amalgamatedClass: payload.amalgamatedClass,
+            capacity: payload.capacity,
+            maxWeightKg: payload.maxWeightKg,
+            maxVolumeCm3: payload.maxVolumeCm3,
+            maxLpnCount: payload.maxLpnCount,
+            maxPalletCapacity: payload.maxPalletCapacity,
           })
         )
       );
       setLocations((prev) =>
-        prev.map((loc) => (locationIds.includes(loc.id) ? { ...loc, amalgamatedClass: value } : loc))
+        prev.map((loc) =>
+          locationIds.includes(loc.id)
+            ? {
+                ...loc,
+                amalgamatedClass: payload.amalgamatedClass,
+                capacity: payload.capacity,
+                maxWeightKg: payload.maxWeightKg,
+                maxVolumeCm3: payload.maxVolumeCm3,
+                maxLpnCount: payload.maxLpnCount,
+                maxPalletCapacity: payload.maxPalletCapacity,
+              }
+            : loc
+        )
       );
-      showToast.success(`Updated ${rackId} to ${value}`);
+      showToast.success(`Updated ${rackId}`);
       onUpdated?.();
     } catch (error) {
-      showToast.error(error instanceof Error ? error.message : "Failed to update slot class");
+      showToast.error(error instanceof Error ? error.message : "Failed to update rack settings");
     } finally {
       setSavingRackId(null);
+    }
+  };
+
+  const applyBulkCapacity = async () => {
+    try {
+      setBulkApplying(true);
+      const targets = rackRows.filter((rack) => bulkTargetZone === "ALL" || rack.zone === bulkTargetZone);
+      if (targets.length === 0) {
+        showToast.error("No racks found for selected target");
+        return;
+      }
+
+      await Promise.all(
+        targets.flatMap((rack) =>
+          rack.locationIds.map((id) =>
+            locationsApi.updateRack(id, {
+              capacity: bulkCapacity,
+              maxWeightKg: bulkMaxWeightKg,
+              maxVolumeCm3: bulkMaxVolumeCm3,
+              maxLpnCount: bulkMaxLpnCount,
+              maxPalletCapacity: bulkMaxPalletCapacity,
+            })
+          )
+        )
+      );
+
+      setLocations((prev) =>
+        prev.map((loc) => {
+          const zone = (loc.area || "C").toUpperCase();
+          if (bulkTargetZone !== "ALL" && zone !== bulkTargetZone) return loc;
+          return {
+            ...loc,
+            capacity: bulkCapacity,
+            maxWeightKg: bulkMaxWeightKg,
+            maxVolumeCm3: bulkMaxVolumeCm3,
+            maxLpnCount: bulkMaxLpnCount,
+            maxPalletCapacity: bulkMaxPalletCapacity,
+          };
+        })
+      );
+
+      showToast.success(`Applied capacity profile to ${targets.length} rack(s)`);
+      onUpdated?.();
+    } catch (error) {
+      showToast.error(error instanceof Error ? error.message : "Failed to apply bulk capacities");
+    } finally {
+      setBulkApplying(false);
     }
   };
 
@@ -145,6 +242,49 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
           </div>
 
           <div className="rounded-lg border border-base-300 p-3">
+            <div className="font-semibold mb-3">Bulk Capacity Assigner</div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <label className="form-control">
+                <span className="label-text text-xs">Target</span>
+                <select
+                  className="select select-bordered"
+                  value={bulkTargetZone}
+                  onChange={(e) => setBulkTargetZone(e.target.value as "ALL" | "A" | "B" | "C" | "D")}
+                >
+                  <option value="ALL">All Racks</option>
+                  <option value="A">Zone A</option>
+                  <option value="B">Zone B</option>
+                  <option value="C">Zone C</option>
+                  <option value="D">Zone D</option>
+                </select>
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs">Units Capacity</span>
+                <input className="input input-bordered" type="number" min={1} value={bulkCapacity} onChange={(e) => setBulkCapacity(Number(e.target.value) || 0)} />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs">Max Weight (kg)</span>
+                <input className="input input-bordered" type="number" min={0} value={bulkMaxWeightKg} onChange={(e) => setBulkMaxWeightKg(Number(e.target.value) || 0)} />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs">Max Volume (cm3)</span>
+                <input className="input input-bordered" type="number" min={0} value={bulkMaxVolumeCm3} onChange={(e) => setBulkMaxVolumeCm3(Number(e.target.value) || 0)} />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs">Max LPN Count</span>
+                <input className="input input-bordered" type="number" min={0} value={bulkMaxLpnCount} onChange={(e) => setBulkMaxLpnCount(Number(e.target.value) || 0)} />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs">Max Pallet Capacity</span>
+                <input className="input input-bordered" type="number" min={0} value={bulkMaxPalletCapacity} onChange={(e) => setBulkMaxPalletCapacity(Number(e.target.value) || 0)} />
+              </label>
+            </div>
+            <button className="btn btn-primary mt-3" onClick={() => void applyBulkCapacity()} disabled={bulkApplying}>
+              {bulkApplying ? "Applying..." : "Apply Capacity Profile"}
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-base-300 p-3">
             <div className="font-semibold mb-3">Rack Class Mapping</div>
             <div className="max-h-72 overflow-auto">
               <table className="table table-sm">
@@ -152,6 +292,11 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   <tr>
                     <th>Rack</th>
                     <th>Class</th>
+                    <th>Units</th>
+                    <th>Weight kg</th>
+                    <th>Volume cm3</th>
+                    <th>LPN</th>
+                    <th>Pallets</th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -179,15 +324,87 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                         </select>
                       </td>
                       <td>
+                        <input
+                          type="number"
+                          className="input input-bordered input-sm w-24"
+                          value={rack.capacity ?? 0}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) || 0;
+                            setLocations((prev) =>
+                              prev.map((loc) => (rack.locationIds.includes(loc.id) ? { ...loc, capacity: value } : loc))
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          className="input input-bordered input-sm w-28"
+                          value={rack.maxWeightKg ?? 0}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) || 0;
+                            setLocations((prev) =>
+                              prev.map((loc) => (rack.locationIds.includes(loc.id) ? { ...loc, maxWeightKg: value } : loc))
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          className="input input-bordered input-sm w-32"
+                          value={rack.maxVolumeCm3 ?? 0}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) || 0;
+                            setLocations((prev) =>
+                              prev.map((loc) => (rack.locationIds.includes(loc.id) ? { ...loc, maxVolumeCm3: value } : loc))
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          className="input input-bordered input-sm w-20"
+                          value={rack.maxLpnCount ?? 0}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) || 0;
+                            setLocations((prev) =>
+                              prev.map((loc) => (rack.locationIds.includes(loc.id) ? { ...loc, maxLpnCount: value } : loc))
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          className="input input-bordered input-sm w-24"
+                          value={rack.maxPalletCapacity ?? 0}
+                          onChange={(e) => {
+                            const value = Number(e.target.value) || 0;
+                            setLocations((prev) =>
+                              prev.map((loc) => (rack.locationIds.includes(loc.id) ? { ...loc, maxPalletCapacity: value } : loc))
+                            );
+                          }}
+                        />
+                      </td>
+                      <td>
                         <div className="flex gap-2">
                           <button
                             className="btn btn-xs btn-outline"
                             disabled={savingRackId === rack.rackId}
                             onClick={() =>
-                              updateRackClass(
+                              updateRackSettings(
                                 rack.rackId,
                                 rack.locationIds,
-                                (locations.find((loc) => loc.id === rack.locationIds[0])?.amalgamatedClass || rack.rackClass).toUpperCase()
+                                {
+                                  amalgamatedClass: (locations.find((loc) => loc.id === rack.locationIds[0])?.amalgamatedClass || rack.rackClass).toUpperCase(),
+                                  capacity: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.capacity ?? rack.capacity ?? 0),
+                                  maxWeightKg: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxWeightKg ?? rack.maxWeightKg ?? 0),
+                                  maxVolumeCm3: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxVolumeCm3 ?? rack.maxVolumeCm3 ?? 0),
+                                  maxLpnCount: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxLpnCount ?? rack.maxLpnCount ?? 0),
+                                  maxPalletCapacity: Number(locations.find((loc) => loc.id === rack.locationIds[0])?.maxPalletCapacity ?? rack.maxPalletCapacity ?? 0),
+                                }
                               )
                             }
                           >

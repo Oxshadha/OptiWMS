@@ -30,16 +30,19 @@ public class MaterialLocationAssignmentService {
     private final LocationService locationService;
     private final LocationSuggestionService locationSuggestionService;
     private final MaterialService materialService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
 
     public MaterialLocationAssignmentService(
             InventoryService inventoryService,
             LocationService locationService,
             LocationSuggestionService locationSuggestionService,
-            MaterialService materialService) {
+            MaterialService materialService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService) {
         this.inventoryService = inventoryService;
         this.locationService = locationService;
         this.locationSuggestionService = locationSuggestionService;
         this.materialService = materialService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
     }
 
     /**
@@ -112,29 +115,14 @@ public class MaterialLocationAssignmentService {
         if (putawayQuantity == null || putawayQuantity <= 0) {
             throw new RuntimeException("Invalid putaway quantity");
         }
-
-        List<InventoryItem> locationInventory = inventoryService.findByWarehouse(warehouseId).stream()
-                .filter(item -> location.getLocationCode().equals(item.getLocationCode()))
-                .collect(Collectors.toList());
-
-        int currentQuantity = locationInventory.stream()
-                .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
-                .sum();
-
-        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
-            int capacityUnits = location.getCapacity().intValue();
-            if (currentQuantity + putawayQuantity > capacityUnits) {
-                throw new RuntimeException("Location capacity exceeded for " + location.getLocationCode()
-                        + ". Capacity: " + capacityUnits + ", Current: " + currentQuantity
-                        + ", Requested: " + putawayQuantity);
-            }
-        }
-
-        boolean hasMaterialAlready = locationInventory.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
-        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
-            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
-                throw new RuntimeException("Location pallet capacity reached for " + location.getLocationCode());
-            }
+        var validation = putawayCapacityPlanningService.validateSingleLocation(
+                warehouseId,
+                materialId,
+                putawayQuantity,
+                location.getLocationCode()
+        );
+        if (!validation.valid()) {
+            throw new RuntimeException(String.join("; ", validation.violations()));
         }
     }
 

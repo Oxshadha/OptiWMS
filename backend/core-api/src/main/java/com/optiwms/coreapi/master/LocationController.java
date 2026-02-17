@@ -183,6 +183,9 @@ public class LocationController {
             location.setCoordinateY(request.coordinateY() != null ? new java.math.BigDecimal(request.coordinateY()) : null);
             location.setMaxPalletCapacity(request.maxPalletCapacity());
             location.setCurrentPalletCount(request.currentPalletCount());
+            location.setMaxWeightKg(request.maxWeightKg() != null ? new java.math.BigDecimal(request.maxWeightKg()) : null);
+            location.setMaxVolumeCm3(request.maxVolumeCm3() != null ? new java.math.BigDecimal(request.maxVolumeCm3()) : null);
+            location.setMaxLpnCount(request.maxLpnCount());
 
             var updated = locationService.update(id, location);
             return ResponseEntity.ok(toDto(updated));
@@ -201,6 +204,11 @@ public class LocationController {
             if (request.description() != null) location.setDescription(request.description());
             if (request.notes() != null) location.setNotes(request.notes());
             if (request.accessibilityRating() != null) location.setAccessibilityRating(request.accessibilityRating());
+            if (request.capacity() != null) location.setCapacity(new java.math.BigDecimal(request.capacity()));
+            if (request.maxPalletCapacity() != null) location.setMaxPalletCapacity(request.maxPalletCapacity());
+            if (request.maxWeightKg() != null) location.setMaxWeightKg(new java.math.BigDecimal(request.maxWeightKg()));
+            if (request.maxVolumeCm3() != null) location.setMaxVolumeCm3(new java.math.BigDecimal(request.maxVolumeCm3()));
+            if (request.maxLpnCount() != null) location.setMaxLpnCount(request.maxLpnCount());
 
             var updated = locationService.update(id, location);
             return ResponseEntity.ok(toDto(updated));
@@ -264,7 +272,10 @@ public class LocationController {
                 location.getCoordinateX() != null ? location.getCoordinateX().toString() : null,
                 location.getCoordinateY() != null ? location.getCoordinateY().toString() : null,
                 location.getMaxPalletCapacity(),
-                location.getCurrentPalletCount()
+                location.getCurrentPalletCount(),
+                location.getMaxWeightKg() != null ? location.getMaxWeightKg().toString() : null,
+                location.getMaxVolumeCm3() != null ? location.getMaxVolumeCm3().toString() : null,
+                location.getMaxLpnCount()
         );
     }
 
@@ -290,7 +301,10 @@ public class LocationController {
             String coordinateX,
             String coordinateY,
             Integer maxPalletCapacity,
-            Integer currentPalletCount
+            Integer currentPalletCount,
+            String maxWeightKg,
+            String maxVolumeCm3,
+            Integer maxLpnCount
     ) {}
 
 
@@ -327,7 +341,10 @@ public class LocationController {
             String coordinateX,
             String coordinateY,
             Integer maxPalletCapacity,
-            Integer currentPalletCount
+            Integer currentPalletCount,
+            String maxWeightKg,
+            String maxVolumeCm3,
+            Integer maxLpnCount
     ) {}
 
     public record UpdateRackRequest(
@@ -335,7 +352,12 @@ public class LocationController {
             String amalgamatedClass,
             String description,
             String notes,
-            Integer accessibilityRating
+            Integer accessibilityRating,
+            String capacity,
+            Integer maxPalletCapacity,
+            String maxWeightKg,
+            String maxVolumeCm3,
+            Integer maxLpnCount
     ) {}
 
     public record BulkCreateRacksRequest(

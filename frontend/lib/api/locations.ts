@@ -25,6 +25,9 @@ export interface Location {
   coordinateY?: number;
   maxPalletCapacity?: number;
   currentPalletCount?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
 }
 
 export interface CreateLocationRequest {
@@ -58,6 +61,9 @@ export interface UpdateLocationRequest {
   coordinateY?: number;
   maxPalletCapacity?: number;
   currentPalletCount?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
 }
 
 export interface UpdateRackRequest {
@@ -66,6 +72,11 @@ export interface UpdateRackRequest {
   description?: string;
   notes?: string;
   accessibilityRating?: number;
+  capacity?: number;
+  maxPalletCapacity?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
 }
 
 export interface BulkCreateRacksRequest {

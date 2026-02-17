@@ -88,6 +88,15 @@ public class LocationEntity {
     @Column(name = "current_pallet_count")
     private Integer currentPalletCount;
 
+    @Column(name = "max_weight_kg", precision = 15, scale = 2)
+    private java.math.BigDecimal maxWeightKg;
+
+    @Column(name = "max_volume_cm3", precision = 18, scale = 2)
+    private java.math.BigDecimal maxVolumeCm3;
+
+    @Column(name = "max_lpn_count")
+    private Integer maxLpnCount;
+
     // Getters and Setters
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -139,6 +148,12 @@ public class LocationEntity {
     public void setMaxPalletCapacity(Integer maxPalletCapacity) { this.maxPalletCapacity = maxPalletCapacity; }
     public Integer getCurrentPalletCount() { return currentPalletCount; }
     public void setCurrentPalletCount(Integer currentPalletCount) { this.currentPalletCount = currentPalletCount; }
+    public java.math.BigDecimal getMaxWeightKg() { return maxWeightKg; }
+    public void setMaxWeightKg(java.math.BigDecimal maxWeightKg) { this.maxWeightKg = maxWeightKg; }
+    public java.math.BigDecimal getMaxVolumeCm3() { return maxVolumeCm3; }
+    public void setMaxVolumeCm3(java.math.BigDecimal maxVolumeCm3) { this.maxVolumeCm3 = maxVolumeCm3; }
+    public Integer getMaxLpnCount() { return maxLpnCount; }
+    public void setMaxLpnCount(Integer maxLpnCount) { this.maxLpnCount = maxLpnCount; }
 
     @PrePersist
     protected void onCreate() {

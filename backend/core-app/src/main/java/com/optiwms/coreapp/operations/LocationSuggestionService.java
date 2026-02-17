@@ -34,18 +34,21 @@ public class LocationSuggestionService {
     private final MaterialService materialService;
     private final AIServiceAdapter aiServiceAdapter;
     private final com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
 
     public LocationSuggestionService(
             LocationService locationService,
             InventoryService inventoryService,
             MaterialService materialService,
             AIServiceAdapter aiServiceAdapter,
-            com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService) {
+            com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService) {
         this.locationService = locationService;
         this.inventoryService = inventoryService;
         this.materialService = materialService;
         this.aiServiceAdapter = aiServiceAdapter;
         this.defaultLocationService = defaultLocationService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
     }
 
     private static final Set<String> BLOCKED_RACK_STATUSES = Set.of("reserved", "maintenance", "out_of_service");
@@ -206,32 +209,17 @@ public class LocationSuggestionService {
      * Check if location has capacity for quantity
      */
     private boolean hasCapacity(Location location, Integer quantity, UUID materialId) {
-        // Get current inventory at location
-        List<InventoryItem> locationInventory = inventoryService.findByWarehouse(location.getWarehouseId())
-            .stream()
-            .filter(item -> location.getLocationCode().equals(item.getLocationCode()))
-            .collect(Collectors.toList());
-        
-        int currentQuantity = locationInventory.stream()
-            .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
-            .sum();
-        
-        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
-            int capacityUnits = location.getCapacity().intValue();
-            if ((currentQuantity + quantity) > capacityUnits) {
-                return false;
-            }
+        try {
+            var validation = putawayCapacityPlanningService.validateSingleLocation(
+                    location.getWarehouseId(),
+                    materialId,
+                    quantity,
+                    location.getLocationCode()
+            );
+            return validation.valid();
+        } catch (RuntimeException e) {
+            return false;
         }
-
-        boolean hasMaterialAlready = locationInventory.stream()
-            .anyMatch(item -> item.getMaterialId() != null && item.getMaterialId().equals(materialId));
-        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
-            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**

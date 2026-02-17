@@ -3,8 +3,10 @@ package com.optiwms.coreapi.orders;
 import com.optiwms.coreapp.orders.OrderItemService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
+import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.SupplierMaterialService;
+import com.optiwms.coreapp.master.MaterialDefaultLocationService;
 import com.optiwms.domain.orders.OrderItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.master.Material;
@@ -22,20 +24,26 @@ public class OrderItemController {
     private final OrderItemService orderItemService;
     private final OrderService orderService;
     private final MaterialLocationAssignmentService materialLocationService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
     private final MaterialService materialService;
     private final SupplierMaterialService supplierMaterialService;
+    private final MaterialDefaultLocationService materialDefaultLocationService;
 
     public OrderItemController(
             OrderItemService orderItemService,
             OrderService orderService,
             MaterialLocationAssignmentService materialLocationService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService,
             MaterialService materialService,
-            SupplierMaterialService supplierMaterialService) {
+            SupplierMaterialService supplierMaterialService,
+            MaterialDefaultLocationService materialDefaultLocationService) {
         this.orderItemService = orderItemService;
         this.orderService = orderService;
         this.materialLocationService = materialLocationService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
         this.materialService = materialService;
         this.supplierMaterialService = supplierMaterialService;
+        this.materialDefaultLocationService = materialDefaultLocationService;
     }
 
     @GetMapping("/{orderId}/items")
@@ -61,6 +69,7 @@ public class OrderItemController {
                 .map(item -> {
                     String suggestedLocation = null;
                     List<String> existingLocations = java.util.List.of();
+                    PutawaySplitPlanDto splitPlan = null;
                     String materialCode = null;
                     String materialName = null;
                     try {
@@ -82,6 +91,16 @@ public class OrderItemController {
                                 order.getWarehouseId(),
                                 item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity()
                         );
+                        Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity();
+                        if (putawayQty != null && putawayQty > 0) {
+                            var plan = putawayCapacityPlanningService.suggestSplitPlan(
+                                    order.getWarehouseId(),
+                                    item.getMaterialId(),
+                                    putawayQty,
+                                    suggestedLocation
+                            );
+                            splitPlan = toPutawaySplitPlanDto(plan);
+                        }
                     } catch (Exception ignored) {
                         // Suggestions best-effort; do not break putaway list
                     }
@@ -94,7 +113,8 @@ public class OrderItemController {
                             item.getQuantity(), // Ordered quantity
                             suggestedLocation,
                             existingLocations,
-                            item.getStatus()
+                            item.getStatus(),
+                            splitPlan
                     );
                 })
                 .collect(Collectors.toList());
@@ -119,6 +139,21 @@ public class OrderItemController {
                 throw new IllegalArgumentException(
                         "Selected material is not linked to the supplier for this inbound order."
                 );
+            }
+
+            var primaryDefault = materialDefaultLocationService.getPrimaryLocation(materialId, order.getWarehouseId());
+            String preferredLocationCode = primaryDefault != null ? primaryDefault.getLocationCode() : null;
+            var splitPlan = putawayCapacityPlanningService.suggestSplitPlan(
+                    order.getWarehouseId(),
+                    materialId,
+                    request.quantity(),
+                    preferredLocationCode
+            );
+            if (!splitPlan.feasible()) {
+                String notes = splitPlan.notes() != null ? String.join(" ", splitPlan.notes()) : "";
+                String message = "Insufficient storage capacity for inbound item quantity " + request.quantity()
+                        + " in warehouse. " + notes;
+                throw new IllegalArgumentException(message.trim());
             }
         }
 
@@ -204,6 +239,39 @@ public class OrderItemController {
             Integer orderedQuantity,
             String suggestedLocation,
             List<String> existingLocations,
-            String status
+            String status,
+            PutawaySplitPlanDto splitPlan
     ) {}
+
+    public record PutawaySplitPlanDto(
+            boolean feasible,
+            int requestedQuantity,
+            int plannedQuantity,
+            int unplannedQuantity,
+            List<PutawaySplitLineDto> allocations,
+            List<String> notes
+    ) {}
+
+    public record PutawaySplitLineDto(
+            String locationCode,
+            int allocatedQuantity,
+            String reason
+    ) {}
+
+    private PutawaySplitPlanDto toPutawaySplitPlanDto(PutawayCapacityPlanningService.SplitPlanResult plan) {
+        return new PutawaySplitPlanDto(
+                plan.feasible(),
+                plan.requestedQuantity(),
+                plan.plannedQuantity(),
+                plan.unplannedQuantity(),
+                plan.allocations().stream()
+                        .map(line -> new PutawaySplitLineDto(
+                                line.locationCode(),
+                                line.allocatedQuantity(),
+                                line.reason()
+                        ))
+                        .collect(Collectors.toList()),
+                plan.notes()
+        );
+    }
 }

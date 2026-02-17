@@ -8,6 +8,8 @@ import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
+import { operationsApi } from "@/lib/api/operations";
+import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { statusConfig, type InboundOrderDisplay } from "../types";
@@ -211,6 +213,10 @@ export function CreateInboundOrderModal({
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
   const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
+  const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
+  const [capacityPlansByItem, setCapacityPlansByItem] = useState<
+    Map<number, { feasible: boolean; plannedQuantity: number; requestedQuantity: number; notes: string[] }>
+  >(new Map());
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -224,6 +230,10 @@ export function CreateInboundOrderModal({
       manufactureDate: string;
       expiryDate: string;
     }>,
+  });
+  const hasInfeasibleCapacity = formData.items.some((_, idx) => {
+    const plan = capacityPlansByItem.get(idx);
+    return !!plan && !plan.feasible;
   });
 
   useEffect(() => {
@@ -279,6 +289,61 @@ export function CreateInboundOrderModal({
     void loadSupplierMaterials();
   }, [formData.supplierId]);
 
+  useEffect(() => {
+    const runCapacityCheck = async () => {
+      if (step !== 3 || !formData.warehouseId || formData.items.length === 0) {
+        setCapacityPlansByItem(new Map());
+        setCapacityCheckLoading(false);
+        return;
+      }
+
+      setCapacityCheckLoading(true);
+      const resultMap = new Map<number, { feasible: boolean; plannedQuantity: number; requestedQuantity: number; notes: string[] }>();
+
+      for (let idx = 0; idx < formData.items.length; idx += 1) {
+        const item = formData.items[idx];
+        if (!item.productId || !item.quantityOrdered || item.quantityOrdered <= 0) {
+          continue;
+        }
+        try {
+          let preferredLocationCode: string | undefined;
+          try {
+            const defaults = await materialDefaultLocationsApi.getDefaultLocations(item.productId, formData.warehouseId);
+            const primary = defaults.find((d) => d.priority === 1) || defaults[0];
+            preferredLocationCode = primary?.locationCode || undefined;
+          } catch {
+            preferredLocationCode = undefined;
+          }
+          const plan = await operationsApi.planPutawaySplit({
+            warehouseId: formData.warehouseId,
+            materialId: item.productId,
+            quantity: item.quantityOrdered,
+            preferredLocationCode,
+          });
+          resultMap.set(idx, {
+            feasible: !!plan.feasible,
+            plannedQuantity: plan.plannedQuantity,
+            requestedQuantity: plan.requestedQuantity,
+            notes: plan.notes || [],
+          });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Capacity check failed";
+          resultMap.set(idx, {
+            feasible: false,
+            plannedQuantity: 0,
+            requestedQuantity: item.quantityOrdered,
+            notes: [msg],
+          });
+        }
+      }
+
+      setCapacityPlansByItem(resultMap);
+      setCapacityCheckLoading(false);
+    };
+
+    void runCapacityCheck();
+  }, [step, formData.warehouseId, formData.items]);
+
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -329,6 +394,15 @@ export function CreateInboundOrderModal({
       );
       if (invalidManufactureDates.length > 0) {
         setError("Manufacture date cannot be later than order date.");
+        return;
+      }
+
+      const infeasibleItems = formData.items.filter((_, idx) => {
+        const plan = capacityPlansByItem.get(idx);
+        return !!plan && !plan.feasible;
+      });
+      if (infeasibleItems.length > 0) {
+        setError("One or more items do not have enough storage capacity. Adjust quantities or locations before creating this order.");
         return;
       }
 
@@ -737,11 +811,33 @@ export function CreateInboundOrderModal({
             <div className="space-y-2">
               <h4 className="font-semibold">Items:</h4>
               {formData.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between text-sm">
-                  <span>Item {idx + 1}</span>
-                  <span>Qty: {item.quantityOrdered}</span>
+                <div key={idx} className="rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span>Item {idx + 1}</span>
+                    <span>Qty: {item.quantityOrdered}</span>
+                  </div>
+                  {capacityPlansByItem.get(idx) && (
+                    <div className="text-xs">
+                      {capacityPlansByItem.get(idx)?.feasible ? (
+                        <span className="text-success">
+                          Capacity OK ({capacityPlansByItem.get(idx)?.plannedQuantity}/{capacityPlansByItem.get(idx)?.requestedQuantity})
+                        </span>
+                      ) : (
+                        <span className="text-error">
+                          Capacity insufficient ({capacityPlansByItem.get(idx)?.plannedQuantity}/{capacityPlansByItem.get(idx)?.requestedQuantity})
+                          {capacityPlansByItem.get(idx)?.notes?.[0] ? ` - ${capacityPlansByItem.get(idx)?.notes?.[0]}` : ""}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
+              {capacityCheckLoading && (
+                <div className="text-xs text-base-content/60 flex items-center gap-2">
+                  <span className="loading loading-spinner loading-xs"></span>
+                  Checking storage capacity...
+                </div>
+              )}
             </div>
             {error && (
               <div className="alert alert-error">
@@ -756,7 +852,7 @@ export function CreateInboundOrderModal({
               >
                 Back
               </button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>
                 {isSubmitting ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>

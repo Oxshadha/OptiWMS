@@ -46,7 +46,11 @@ public class MaterialController {
                         m.getUnitType(),
                         m.getStorageType(),
                         m.getMaterialType(),
-                        m.getWeightKg()))
+                        m.getLengthCm(),
+                        m.getWidthCm(),
+                        m.getHeightCm(),
+                        m.getWeightKg(),
+                        m.getVolumeCm3()))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -62,7 +66,11 @@ public class MaterialController {
                     material.getUnitType(),
                     material.getStorageType(),
                     material.getMaterialType(),
-                    material.getWeightKg()
+                    material.getLengthCm(),
+                    material.getWidthCm(),
+                    material.getHeightCm(),
+                    material.getWeightKg(),
+                    material.getVolumeCm3()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -80,7 +88,11 @@ public class MaterialController {
                     material.getUnitType(),
                     material.getStorageType(),
                     material.getMaterialType(),
-                    material.getWeightKg()
+                    material.getLengthCm(),
+                    material.getWidthCm(),
+                    material.getHeightCm(),
+                    material.getWeightKg(),
+                    material.getVolumeCm3()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -96,7 +108,11 @@ public class MaterialController {
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
             material.setMaterialType(request.materialType());
+            material.setLengthCm(request.lengthCm());
+            material.setWidthCm(request.widthCm());
+            material.setHeightCm(request.heightCm());
             material.setWeightKg(request.weightKg());
+            material.setVolumeCm3(request.volumeCm3());
 
             var created = materialService.create(material);
             return ResponseEntity.ok(new MaterialDto(
@@ -106,7 +122,11 @@ public class MaterialController {
                     created.getUnitType(),
                     created.getStorageType(),
                     created.getMaterialType(),
-                    created.getWeightKg()
+                    created.getLengthCm(),
+                    created.getWidthCm(),
+                    created.getHeightCm(),
+                    created.getWeightKg(),
+                    created.getVolumeCm3()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -122,7 +142,11 @@ public class MaterialController {
             material.setUnitType(request.unitType());
             material.setStorageType(request.storageType());
             material.setMaterialType(request.materialType());
+            material.setLengthCm(request.lengthCm());
+            material.setWidthCm(request.widthCm());
+            material.setHeightCm(request.heightCm());
             material.setWeightKg(request.weightKg());
+            material.setVolumeCm3(request.volumeCm3());
 
             var updated = materialService.update(id, material);
             return ResponseEntity.ok(new MaterialDto(
@@ -132,7 +156,11 @@ public class MaterialController {
                     updated.getUnitType(),
                     updated.getStorageType(),
                     updated.getMaterialType(),
-                    updated.getWeightKg()
+                    updated.getLengthCm(),
+                    updated.getWidthCm(),
+                    updated.getHeightCm(),
+                    updated.getWeightKg(),
+                    updated.getVolumeCm3()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -226,7 +254,11 @@ public class MaterialController {
             String unitType,
             String storageType,
             String materialType,
-            java.math.BigDecimal weightKg
+            java.math.BigDecimal lengthCm,
+            java.math.BigDecimal widthCm,
+            java.math.BigDecimal heightCm,
+            java.math.BigDecimal weightKg,
+            java.math.BigDecimal volumeCm3
     ) {}
 
     public record ImportResponse(
@@ -241,7 +273,11 @@ public class MaterialController {
             String unitType,
             String storageType,
             String materialType,
-            java.math.BigDecimal weightKg
+            java.math.BigDecimal lengthCm,
+            java.math.BigDecimal widthCm,
+            java.math.BigDecimal heightCm,
+            java.math.BigDecimal weightKg,
+            java.math.BigDecimal volumeCm3
     ) {}
 
     public record UpdateMaterialRequest(
@@ -250,6 +286,10 @@ public class MaterialController {
             String unitType,
             String storageType,
             String materialType,
-            java.math.BigDecimal weightKg
+            java.math.BigDecimal lengthCm,
+            java.math.BigDecimal widthCm,
+            java.math.BigDecimal heightCm,
+            java.math.BigDecimal weightKg,
+            java.math.BigDecimal volumeCm3
     ) {}
 }

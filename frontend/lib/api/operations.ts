@@ -83,6 +83,44 @@ export interface SkipPutawayRequest {
   workerId?: string;
 }
 
+export interface PutawaySplitPlanRequest {
+  warehouseId: string;
+  materialId: string;
+  quantity: number;
+  preferredLocationCode?: string;
+}
+
+export interface PutawaySplitCapacitySnapshot {
+  quantityUsed?: number | null;
+  quantityCapacity?: number | null;
+  quantityFillPercent?: string | null;
+  weightUsedKg?: string | null;
+  weightCapacityKg?: string | null;
+  weightFillPercent?: string | null;
+  volumeUsedCm3?: string | null;
+  volumeCapacityCm3?: string | null;
+  volumeFillPercent?: string | null;
+  lpnUsed?: number | null;
+  lpnCapacity?: number | null;
+  lpnFillPercent?: string | null;
+}
+
+export interface PutawaySplitPlanLine {
+  locationCode: string;
+  allocatedQuantity: number;
+  reason: string;
+  projectedAfter?: PutawaySplitCapacitySnapshot;
+}
+
+export interface PutawaySplitPlanResponse {
+  feasible: boolean;
+  requestedQuantity: number;
+  plannedQuantity: number;
+  unplannedQuantity: number;
+  allocations: PutawaySplitPlanLine[];
+  notes: string[];
+}
+
 // Stock Transfer Operations
 export interface StockTransfer {
   id: string;
@@ -228,6 +266,10 @@ export const operationsApi = {
 
   skipPutaway: async (taskId: string, request: SkipPutawayRequest): Promise<PutawayResponse> => {
     return apiClient.post<PutawayResponse>(`/operations/putaway/skip/${taskId}`, request);
+  },
+
+  planPutawaySplit: async (request: PutawaySplitPlanRequest): Promise<PutawaySplitPlanResponse> => {
+    return apiClient.post<PutawaySplitPlanResponse>('/operations/putaway/split-plan', request);
   },
 
   // Stock Transfer

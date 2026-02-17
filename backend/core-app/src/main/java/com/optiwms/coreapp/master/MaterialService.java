@@ -121,7 +121,11 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setLengthCm(material.getLengthCm());
+        entity.setWidthCm(material.getWidthCm());
+        entity.setHeightCm(material.getHeightCm());
         entity.setWeightKg(material.getWeightKg());
+        entity.setVolumeCm3(material.getVolumeCm3());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -173,8 +177,14 @@ public class MaterialService {
         entity.setUnitType(material.getUnitType());
         entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setLengthCm(material.getLengthCm());
+        entity.setWidthCm(material.getWidthCm());
+        entity.setHeightCm(material.getHeightCm());
         if (material.getWeightKg() != null) {
             entity.setWeightKg(material.getWeightKg());
+        }
+        if (material.getVolumeCm3() != null) {
+            entity.setVolumeCm3(material.getVolumeCm3());
         }
 
         MaterialEntity saved = repository.save(entity);
