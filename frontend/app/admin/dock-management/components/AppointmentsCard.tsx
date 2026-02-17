@@ -145,9 +145,9 @@ export function AppointmentsCard({
             />
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-96">
           <table className="table table-zebra">
-            <thead>
+            <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
               <tr>
                 <th>Appointment #</th>
                 <th>Dock Door</th>

@@ -154,6 +154,11 @@ Desktop.ini
 #LOCAL GRADLE CACHE
 backend/.gradle-local/
 
+*.puml
+
+*.xlsx
+
+*.pdf
 *.md
 !README.md
 

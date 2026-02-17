@@ -45,13 +45,20 @@ export function WarehouseStatsCards({ stats }: WarehouseStatsCardsProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card bg-base-100 border border-success rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-base-content/70">Active Racks</div>
             <span className="material-symbols-outlined text-success">check_circle</span>
           </div>
           <div className="text-3xl font-bold text-success">{stats.activeRacks}</div>
+        </div>
+        <div className="card bg-base-100 border border-sky-700 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-base-content/70">Reserved Racks</div>
+            <span className="material-symbols-outlined text-sky-600">lock</span>
+          </div>
+          <div className="text-3xl font-bold text-sky-600">{stats.reservedRacks}</div>
         </div>
         <div className="card bg-base-100 border border-warning rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">

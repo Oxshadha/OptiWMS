@@ -54,9 +54,9 @@ export function DataTable<T extends Record<string, any>>({
 
   return (
     <div className={clsx("card bg-base-100 border border-base-300 rounded-xl", className)}>
-      <div className="overflow-x-auto max-h-[calc(100vh-300px)]">
+      <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-300px)]">
         <table className="table w-full">
-          <thead className="bg-base-200">
+          <thead className="bg-base-200 [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
             <tr>
               {columns.map((column) => (
                 <th
@@ -125,4 +125,3 @@ export function DataTable<T extends Record<string, any>>({
     </div>
   );
 }
-

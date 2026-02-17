@@ -27,7 +27,7 @@ export function InventoryTable({
         }}
       >
         <table className="table w-full" style={{ minWidth: "1400px", width: "max-content" }}>
-          <thead className="bg-base-200">
+          <thead className="bg-base-200 [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
             <tr>
               {visibleColumns.has("sku") && <th className="font-semibold text-base-content">SKU</th>}
               {visibleColumns.has("name") && <th className="font-semibold text-base-content">Item Name</th>}
@@ -155,4 +155,3 @@ export function InventoryTable({
     </>
   );
 }
-

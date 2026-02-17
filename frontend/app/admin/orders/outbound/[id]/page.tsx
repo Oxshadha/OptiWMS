@@ -241,9 +241,9 @@ export default function OutboundOrderDetailPage() {
                 {pickedItems}/{totalItems} Items Picked ({pickedQuantity}/{totalQuantity} Qty)
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-auto max-h-[28rem]">
               <table className="table table-zebra">
-                <thead>
+                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-base-200">
                   <tr>
                     <th>Material</th>
                     <th>Description</th>

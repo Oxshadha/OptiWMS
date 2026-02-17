@@ -46,19 +46,19 @@ export function RackElevationView({
 
   // Map bin status to colors (matches WarehouseLayout.tsx level segments exactly)
   // If rack is in maintenance/out_of_service, ALL bins show rack status color (rack is empty)
-  // Reserved bins use Safety Blue (special status)
+  // Reserved bins use cyan special-status color
   // Occupied bins use occupancy-based colors
   const getBinColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status color
     if (rack.status === "maintenance") {
-      return "#FF6B35"; // Safety Orange - Maintenance warning
+      return "#FEF3C7"; // Yellow/amber tint
     } else if (rack.status === "out_of_service") {
-      return "#DC2626"; // Safety Red - Stop/Danger
+      return "#FEE2E2"; // Dull red tint
     }
 
-    // Reserved bins use Safety Blue (special status takes priority)
-    if (bin.status === "reserved" && bin.inventory) {
-      return "#4A90E2"; // Safety Blue - matches legend
+    // Reserved bins use cyan (special status takes priority)
+    if (bin.status === "reserved") {
+      return "#E0F2FE"; // Soft cyan tint
     }
 
     // Calculate occupancy for occupied bins
@@ -70,14 +70,14 @@ export function RackElevationView({
   const getBinBorderColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status border
     if (rack.status === "maintenance") {
-      return "#C2410C"; // Darker orange border
+      return "#D97706";
     } else if (rack.status === "out_of_service") {
-      return "#991B1B"; // Darker red border
+      return "#DC2626";
     }
 
-    // Reserved bins use Safety Blue border
-    if (bin.status === "reserved" && bin.inventory) {
-      return "#2563EB"; // Dark blue border - matches map
+    // Reserved bins use cyan border
+    if (bin.status === "reserved") {
+      return "#0284C7";
     }
 
     // Calculate occupancy for occupied bins
@@ -166,6 +166,14 @@ export function RackElevationView({
           <h3 className="text-lg font-semibold mb-3">
             Side Elevation View (Top to Bottom)
           </h3>
+          {rack.status !== "active" && (
+            <div className={`alert mb-3 py-2 ${rack.status === "out_of_service" ? "alert-error" : "alert-warning"}`}>
+              <span className="material-symbols-outlined text-sm">info</span>
+              <span className="text-sm">
+                This rack is currently <strong>{rack.status.replace("_", " ")}</strong>. Bin interactions are disabled until status is Active.
+              </span>
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             {allLevels.map((binOrNull, index) => {
               const level = rack.maxLevels - index; // Calculate actual level (from top)
@@ -205,8 +213,8 @@ export function RackElevationView({
                 <div
                   key={bin.id}
                   className={clsx(
-                    "flex items-center gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer",
-                    "hover:shadow-lg"
+                    "flex items-center gap-3 p-3 rounded-lg border-2 transition-all",
+                    rack.status === "active" ? "cursor-pointer hover:shadow-lg" : "cursor-not-allowed opacity-90"
                   )}
                   style={{
                     backgroundColor: getBinColor(displayBin),
@@ -216,7 +224,10 @@ export function RackElevationView({
                       "0 2px 8px rgba(0,0,0,0.1), 0 1px 3px rgba(0,0,0,0.08)",
                     transform: "translateY(-1px)",
                   }}
-                  onClick={() => onBinClick?.(displayBin)}
+                  onClick={() => {
+                    if (rack.status !== "active") return;
+                    onBinClick?.(displayBin);
+                  }}
                 >
                   {/* Level indicator */}
                   <div className="flex-shrink-0 w-14 text-center">
@@ -238,11 +249,11 @@ export function RackElevationView({
                         displayBin.status === "occupied"
                           ? "badge-success"
                           : displayBin.status === "reserved"
-                            ? "badge-info"
+                            ? "badge-accent"
                             : isEmptyAndRackInSpecialStatus
                               ? rack.status === "maintenance"
                                 ? "badge-warning"
-                                : "badge-error"
+                                : "badge-neutral"
                               : "badge-ghost"
                       )}
                     >
@@ -260,7 +271,7 @@ export function RackElevationView({
                           color: displayBin.inventory
                             ? "#FFFFFF"  // White text for all occupied bins (consistency)
                             : isEmptyAndRackInSpecialStatus
-                              ? "#FFFFFF"
+                              ? "#374151"
                               : "#6B7280",
                         }}
                       >
@@ -343,7 +354,7 @@ export function RackElevationView({
                       className="flex-1 text-xs italic"
                       style={{
                         color: isEmptyAndRackInSpecialStatus
-                          ? "#FFFFFF"
+                          ? "#374151"
                           : "rgba(0,0,0,0.5)",
                       }}
                     >
