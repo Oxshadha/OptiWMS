@@ -23,7 +23,11 @@ export function CreateMaterialModal({
     materialType: "raw_material" as string,
     unitType: "",
     storageType: "pallet",
+    lengthCm: "",
+    widthCm: "",
+    heightCm: "",
     weightKg: "",
+    volumeCm3: "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -39,7 +43,11 @@ export function CreateMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
+      lengthCm: formData.lengthCm ? Number(formData.lengthCm) : undefined,
+      widthCm: formData.widthCm ? Number(formData.widthCm) : undefined,
+      heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
       weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
+      volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
     });
   };
 
@@ -123,24 +131,87 @@ export function CreateMaterialModal({
           </div>
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Unit Weight (kg)</span>
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            min="0"
-            className="input input-bordered"
-            placeholder="e.g., 0.250"
-            value={formData.weightKg}
-            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-            disabled={isLoading}
-          />
-          <label className="label">
-            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
-          </label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 0.250"
+              value={formData.weightKg}
+              onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Volume (cm3)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 1200"
+              value={formData.volumeCm3}
+              onChange={(e) => setFormData({ ...formData, volumeCm3: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
         </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Length (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.lengthCm}
+              onChange={(e) => setFormData({ ...formData, lengthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Width (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.widthCm}
+              onChange={(e) => setFormData({ ...formData, widthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Height (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.heightCm}
+              onChange={(e) => setFormData({ ...formData, heightCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <label className="label">
+          <span className="label-text-alt">Used for putaway split and bin capacity checks.</span>
+        </label>
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>
@@ -174,7 +245,11 @@ export function EditMaterialModal({
     materialType: material.materialType || "raw_material",
     unitType: material.unitType || "",
     storageType: material.storageType || "pallet",
+    lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
+    widthCm: material.widthCm != null ? String(material.widthCm) : "",
+    heightCm: material.heightCm != null ? String(material.heightCm) : "",
     weightKg: material.weightKg != null ? String(material.weightKg) : "",
+    volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
   });
 
   useEffect(() => {
@@ -184,7 +259,11 @@ export function EditMaterialModal({
       materialType: material.materialType || "raw_material",
       unitType: material.unitType || "",
       storageType: material.storageType || "pallet",
+      lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
+      widthCm: material.widthCm != null ? String(material.widthCm) : "",
+      heightCm: material.heightCm != null ? String(material.heightCm) : "",
       weightKg: material.weightKg != null ? String(material.weightKg) : "",
+      volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
     });
   }, [material]);
 
@@ -196,7 +275,11 @@ export function EditMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
+      lengthCm: formData.lengthCm ? Number(formData.lengthCm) : undefined,
+      widthCm: formData.widthCm ? Number(formData.widthCm) : undefined,
+      heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
       weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
+      volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
     });
   };
 
@@ -279,23 +362,85 @@ export function EditMaterialModal({
           </div>
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Unit Weight (kg)</span>
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            min="0"
-            className="input input-bordered"
-            value={formData.weightKg}
-            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-            disabled={isLoading}
-          />
-          <label className="label">
-            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
-          </label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              className="input input-bordered"
+              value={formData.weightKg}
+              onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Volume (cm3)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.volumeCm3}
+              onChange={(e) => setFormData({ ...formData, volumeCm3: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
         </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Length (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.lengthCm}
+              onChange={(e) => setFormData({ ...formData, lengthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Width (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.widthCm}
+              onChange={(e) => setFormData({ ...formData, widthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Height (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.heightCm}
+              onChange={(e) => setFormData({ ...formData, heightCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <label className="label">
+          <span className="label-text-alt">Used for putaway split and bin capacity checks.</span>
+        </label>
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>

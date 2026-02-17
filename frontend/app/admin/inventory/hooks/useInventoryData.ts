@@ -72,11 +72,79 @@ export function useInventoryData({
       });
       setWarehouses(warehousesMap);
 
-      const displayItems: InventoryDisplayItem[] = inventoryData.map((item) => {
-        const material = materialsMap.get(item.materialId);
-        const warehouseName = warehousesMap.get(item.warehouseId) || "Unknown";
+      const grouped = new Map<string, {
+        id: string;
+        materialId: string;
+        warehouseId: string;
+        qty: number;
+        availableQty: number;
+        status: string;
+        materialType?: string;
+        reorderPoint?: string;
+        bufferStock?: string;
+        maxStock?: string;
+        minStock?: string;
+        moq?: string;
+        leadTimeDays?: number;
+        stackingQuantity?: number;
+        bufferDays?: number;
+        leadTimeMonths?: string;
+        ropInDays?: string;
+        varianceDemand?: string;
+        varianceLeadTimeDemand?: string;
+        difference?: string;
+        orderDeliveryDays?: number;
+        orderQuantity?: string;
+        palletRequirement?: string;
+        locations: Set<string>;
+      }>();
+
+      inventoryData.forEach((item) => {
+        const key = `${item.materialId}::${item.warehouseId}`;
         const qty = Math.ceil(parseFloat(item.quantity) || 0);
         const availableQty = Math.ceil(parseFloat(item.availableQuantity) || 0);
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.qty += qty;
+          existing.availableQty += availableQty;
+          if (item.locationCode) {
+            existing.locations.add(item.locationCode);
+          }
+        } else {
+          grouped.set(key, {
+            id: item.id,
+            materialId: item.materialId,
+            warehouseId: item.warehouseId,
+            qty,
+            availableQty,
+            status: item.status,
+            materialType: item.materialType,
+            reorderPoint: item.reorderPoint,
+            bufferStock: item.bufferStock,
+            maxStock: item.maxStock,
+            minStock: item.minStock,
+            moq: item.moq,
+            leadTimeDays: item.leadTimeDays,
+            stackingQuantity: item.stackingQuantity,
+            bufferDays: item.bufferDays,
+            leadTimeMonths: item.leadTimeMonths,
+            ropInDays: item.ropInDays,
+            varianceDemand: item.varianceDemand,
+            varianceLeadTimeDemand: item.varianceLeadTimeDemand,
+            difference: item.difference,
+            orderDeliveryDays: item.orderDeliveryDays,
+            orderQuantity: item.orderQuantity,
+            palletRequirement: item.palletRequirement,
+            locations: new Set(item.locationCode ? [item.locationCode] : []),
+          });
+        }
+      });
+
+      const displayItems: InventoryDisplayItem[] = Array.from(grouped.values()).map((item) => {
+        const material = materialsMap.get(item.materialId);
+        const warehouseName = warehousesMap.get(item.warehouseId) || "Unknown";
+        const qty = item.qty;
+        const availableQty = item.availableQty;
 
         let status: "Available" | "Low" | "Out of Stock" = "Available";
         const reorderPoint = item.reorderPoint ? parseFloat(item.reorderPoint) : null;
@@ -104,12 +172,14 @@ export function useInventoryData({
           itemType = "Raw Material";
         }
 
+        const allLocations = Array.from(item.locations).filter(Boolean).sort();
         return {
           id: item.id,
           sku: material?.materialCode || item.materialId,
           name: material?.description || "Unknown Material",
           qty,
-          location: item.locationCode || "N/A",
+          location: allLocations.length > 0 ? allLocations[0] : "N/A",
+          locations: allLocations,
           status,
           warehouseName,
           itemType,
@@ -176,12 +246,14 @@ export function useInventoryData({
         item.name.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.location.toLowerCase().includes(query) ||
+        (item.locations || []).some((loc) => loc.toLowerCase().includes(query)) ||
         item.status.toLowerCase().includes(query) ||
         item.warehouseName.toLowerCase().includes(query) ||
         item.qty.toString().includes(query) ||
         normalizeSearchText(item.name).includes(normalizedQuery) ||
         normalizeSearchText(item.sku).includes(normalizedQuery) ||
         normalizeSearchText(item.location).includes(normalizedQuery) ||
+        (item.locations || []).some((loc) => normalizeSearchText(loc).includes(normalizedQuery)) ||
         normalizeSearchText(item.warehouseName).includes(normalizedQuery);
       return matchesItemType && matchesStock && matchesWarehouse && matchesSearch;
     });

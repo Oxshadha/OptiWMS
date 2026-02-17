@@ -7,7 +7,11 @@ export interface Material {
   unitType?: string;
   storageType?: string;
   materialType?: string;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
   weightKg?: number;
+  volumeCm3?: number;
   // ABC/FMS Classification for storage zone assignment
   abcClass?: string;      // A, B, C (volume-based)
   fmsClass?: string;      // F, M, S (frequency-based)

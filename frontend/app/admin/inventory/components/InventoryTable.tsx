@@ -96,7 +96,15 @@ export function InventoryTable({
                 {visibleColumns.has("quantity") && <td className="font-semibold">{Math.ceil(item.qty)}</td>}
                 {visibleColumns.has("location") && (
                   <td>
-                    <StatusChip label={item.location} tone="neutral" className="whitespace-nowrap" />
+                    <StatusChip
+                      label={
+                        item.locations && item.locations.length > 1
+                          ? `${item.location} +${item.locations.length - 1}`
+                          : item.location
+                      }
+                      tone="neutral"
+                      className="whitespace-nowrap"
+                    />
                   </td>
                 )}
                 {visibleColumns.has("status") && (

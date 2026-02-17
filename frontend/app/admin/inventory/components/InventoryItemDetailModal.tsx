@@ -101,6 +101,11 @@ export function InventoryItemDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Location</label>
               <p className="font-semibold">{item.location}</p>
+              {item.locations && item.locations.length > 1 && (
+                <p className="text-xs text-base-content/60 mt-1">
+                  Also in: {item.locations.slice(1).join(", ")}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-sm text-base-content/60">Status</label>

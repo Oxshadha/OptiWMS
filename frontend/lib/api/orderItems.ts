@@ -55,4 +55,16 @@ export interface PutawayItem {
   suggestedLocation: string | null;
   existingLocations?: string[];
   status: string;
+  splitPlan?: {
+    feasible: boolean;
+    requestedQuantity: number;
+    plannedQuantity: number;
+    unplannedQuantity: number;
+    allocations: Array<{
+      locationCode: string;
+      allocatedQuantity: number;
+      reason: string;
+    }>;
+    notes: string[];
+  } | null;
 }

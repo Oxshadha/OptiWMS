@@ -110,6 +110,9 @@ public class LocationService {
         entity.setCoordinateY(location.getCoordinateY());
         entity.setMaxPalletCapacity(location.getMaxPalletCapacity());
         entity.setCurrentPalletCount(location.getCurrentPalletCount() != null ? location.getCurrentPalletCount() : 0);
+        entity.setMaxWeightKg(location.getMaxWeightKg());
+        entity.setMaxVolumeCm3(location.getMaxVolumeCm3());
+        entity.setMaxLpnCount(location.getMaxLpnCount());
 
         LocationEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -151,6 +154,9 @@ public class LocationService {
         if (location.getCoordinateY() != null) entity.setCoordinateY(location.getCoordinateY());
         if (location.getMaxPalletCapacity() != null) entity.setMaxPalletCapacity(location.getMaxPalletCapacity());
         if (location.getCurrentPalletCount() != null) entity.setCurrentPalletCount(location.getCurrentPalletCount());
+        if (location.getMaxWeightKg() != null) entity.setMaxWeightKg(location.getMaxWeightKg());
+        if (location.getMaxVolumeCm3() != null) entity.setMaxVolumeCm3(location.getMaxVolumeCm3());
+        if (location.getMaxLpnCount() != null) entity.setMaxLpnCount(location.getMaxLpnCount());
 
         LocationEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -345,6 +351,9 @@ public class LocationService {
         location.setCoordinateY(entity.getCoordinateY());
         location.setMaxPalletCapacity(entity.getMaxPalletCapacity());
         location.setCurrentPalletCount(entity.getCurrentPalletCount());
+        location.setMaxWeightKg(entity.getMaxWeightKg());
+        location.setMaxVolumeCm3(entity.getMaxVolumeCm3());
+        location.setMaxLpnCount(entity.getMaxLpnCount());
         return location;
     }
 
