@@ -8,10 +8,14 @@ import { logger } from "@/lib/utils/logger";
 type SortBy = "name" | "sku" | "qty" | "location" | null;
 type SortDirection = "asc" | "desc";
 
+const normalizeSearchText = (value?: string | null) =>
+  (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
 interface UseInventoryDataParams {
   isWarehouseManager: boolean;
   assignedWarehouseId?: string;
   activeItemType: string;
+  activeStock: "All" | "Low" | "Available";
   activeWarehouse: string;
   searchQuery: string;
   sortBy: SortBy;
@@ -22,6 +26,7 @@ export function useInventoryData({
   isWarehouseManager,
   assignedWarehouseId,
   activeItemType,
+  activeStock,
   activeWarehouse,
   searchQuery,
   sortBy,
@@ -159,17 +164,26 @@ export function useInventoryData({
         (activeItemType === "Product" && item.itemType === "Product") ||
         (activeItemType === "Raw Material" && item.itemType === "Raw Material") ||
         (activeItemType === "Packaging" && item.itemType === "Packaging");
+      const matchesStock =
+        activeStock === "All" ||
+        (activeStock === "Low" && item.status === "Low") ||
+        (activeStock === "Available" && item.status === "Available");
       const matchesWarehouse = activeWarehouse === "All" || item.warehouseId === activeWarehouse;
       const query = searchQuery.trim().toLowerCase();
-      if (!query) return matchesItemType && matchesWarehouse;
+      const normalizedQuery = normalizeSearchText(searchQuery);
+      if (!query) return matchesItemType && matchesStock && matchesWarehouse;
       const matchesSearch =
         item.name.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.location.toLowerCase().includes(query) ||
         item.status.toLowerCase().includes(query) ||
         item.warehouseName.toLowerCase().includes(query) ||
-        item.qty.toString().includes(query);
-      return matchesItemType && matchesWarehouse && matchesSearch;
+        item.qty.toString().includes(query) ||
+        normalizeSearchText(item.name).includes(normalizedQuery) ||
+        normalizeSearchText(item.sku).includes(normalizedQuery) ||
+        normalizeSearchText(item.location).includes(normalizedQuery) ||
+        normalizeSearchText(item.warehouseName).includes(normalizedQuery);
+      return matchesItemType && matchesStock && matchesWarehouse && matchesSearch;
     });
 
     if (sortBy) {
@@ -193,6 +207,7 @@ export function useInventoryData({
   }, [
     inStockItems,
     activeItemType,
+    activeStock,
     activeWarehouse,
     searchQuery,
     sortBy,

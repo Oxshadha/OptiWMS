@@ -157,6 +157,7 @@ export default function TasksPage() {
   const tasksForWarehouse = isWarehouseManager && assignedWarehouseId
     ? tasks.filter((t) => t.warehouseId === assignedWarehouseId)
     : tasks;
+  const availableTaskTypes = Object.entries(taskTypeConfig);
 
   // Calculate summary from tasks
   const today = new Date().toISOString().split("T")[0];
@@ -351,7 +352,7 @@ export default function TasksPage() {
       </label>
       <ul
         tabIndex={0}
-        className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+        className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-[80]"
       >
         <li>
           <Link href={`/admin/tasks/${task.id}`}>
@@ -427,36 +428,28 @@ export default function TasksPage() {
             </label>
             <ul
               tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300 z-10"
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300 z-[80]"
             >
               <li className="menu-title">Task Type</li>
               <li>
                 <button onClick={() => setTypeFilter("all")}>All Types</button>
               </li>
-              <li>
-                <button onClick={() => setTypeFilter("receiving")}>
-                  Receiving
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("picking")}>
-                  Picking
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("putaway")}>
-                  Putaway
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("cycle_count")}>
-                  Cycle Count
-                </button>
-              </li>
+              {availableTaskTypes.map(([taskType, typeInfo]) => (
+                <li key={taskType}>
+                  <button onClick={() => setTypeFilter(taskType)}>
+                    {typeInfo.label}
+                  </button>
+                </li>
+              ))}
               <li className="menu-title mt-2">Status</li>
               <li>
                 <button onClick={() => setStatusFilter("all")}>
                   All Status
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("assigned")}>
+                  Assigned
                 </button>
               </li>
               <li>
@@ -472,6 +465,11 @@ export default function TasksPage() {
               <li>
                 <button onClick={() => setStatusFilter("completed")}>
                   Completed
+                </button>
+              </li>
+              <li>
+                <button onClick={() => setStatusFilter("cancelled")}>
+                  Cancelled
                 </button>
               </li>
             </ul>
