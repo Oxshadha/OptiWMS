@@ -140,14 +140,21 @@ export default function WarehousesPage() {
       : warehouses;
 
   const handleRackClick = (rack: RackUnit) => {
-    // Only show side elevation for active racks
-    // Maintenance and out_of_service racks are empty, so no need to show elevation
+    // Active racks open side elevation for occupancy details.
+    // Non-active racks open the edit modal directly so operators can re-activate quickly.
     if (rack.status === "active") {
       setSelectedRack(rack);
-    } else {
-      // For special status racks, just show a message or do nothing
-      logger.debug(`Rack ${rack.id} is ${rack.status} - rack is empty`);
+      return;
     }
+
+    if (isSystemAdmin || isWarehouseManager) {
+      setEditingRack(rack);
+      setShowEditModal(true);
+      setSelectedRack(null);
+      return;
+    }
+
+    logger.debug(`Rack ${rack.id} is ${rack.status} and read-only for current role`);
   };
 
   const handleRackEdit = (rack: RackUnit) => {
@@ -237,6 +244,8 @@ export default function WarehousesPage() {
 
       <WarehouseStatsCards stats={stats} />
 
+      <WarehouseLegend />
+
       <WarehouseLayoutCard
         layout={layout}
         showVelocity={showVelocity}
@@ -246,10 +255,8 @@ export default function WarehousesPage() {
         onRackClick={handleRackClick}
       />
 
-      <WarehouseLegend />
-
-      {/* Side Elevation View Modal - only show for active racks */}
-      {selectedRack && selectedRack.status === "active" && (
+      {/* Side Elevation View Modal */}
+      {selectedRack && (
         <RackElevationView
           rack={selectedRack}
           onClose={handleCloseElevation}
@@ -268,7 +275,12 @@ export default function WarehousesPage() {
           }}
           rack={editingRack}
           warehouseId={selectedWarehouseId}
-          onUpdate={handleRackUpdate}
+          onUpdate={(updatedRack) => {
+            // Optimistic UI update so color/status changes instantly
+            handleRackUpdate(updatedRack);
+            // Then sync from backend to keep all bins/rack metadata consistent
+            void loadWarehouseLayout(selectedWarehouseId);
+          }}
         />
       )}
 

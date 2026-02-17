@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
-import { warehouseLayoutApi } from "@/lib/api/warehouse-layout";
 import { locationsApi } from "@/lib/api/locations";
 import { logger } from "@/lib/utils/logger";
 
@@ -82,9 +81,9 @@ export function RackEditModal({
         try {
           logger.debug(`Updating location ${location.id} (${location.locationCode})`);
           const updateData: any = {};
-          if (status) updateData.rackStatus = status.toString(); // Ensure it's a string
-          if (description.trim()) updateData.description = description.trim();
-          if (notes.trim()) updateData.notes = notes.trim();
+          updateData.rackStatus = status.toString();
+          updateData.description = description.trim();
+          updateData.notes = notes.trim();
           
           logger.debug("Update data:", updateData);
           return await locationsApi.updateRack(location.id, updateData);
@@ -116,29 +115,54 @@ export function RackEditModal({
     }
   };
 
-  const statusOptions: { value: RackStatus; label: string; color: string; description: string }[] = [
+  const statusOptions: {
+    value: RackStatus;
+    label: string;
+    chipColor: string;
+    chipTextColor: string;
+    optionBgColor: string;
+    borderColor: string;
+    icon: string;
+    description: string;
+  }[] = [
     { 
       value: "active", 
       label: "Active", 
-      color: "badge-success",
+      chipColor: "#22C55E",
+      chipTextColor: "#052E16",
+      optionBgColor: "#F0FDF4",
+      borderColor: "#16A34A",
+      icon: "check_circle",
       description: "Rack is operational and available for use"
     },
     { 
       value: "maintenance", 
       label: "Maintenance", 
-      color: "badge-warning",
+      chipColor: "#FEF3C7",
+      chipTextColor: "#78350F",
+      optionBgColor: "#FFFBEB",
+      borderColor: "#D97706",
+      icon: "build",
       description: "Rack needs repair or attention - use with caution"
     },
     { 
       value: "reserved", 
       label: "Reserved", 
-      color: "badge-info",
+      chipColor: "#E0F2FE",
+      chipTextColor: "#0C4A6E",
+      optionBgColor: "#F0F9FF",
+      borderColor: "#0369A1",
+      icon: "lock",
       description: "Rack is set aside for specific purpose"
     },
     { 
       value: "out_of_service", 
       label: "Out of Service", 
-      color: "badge-error",
+      chipColor: "#FEE2E2",
+      chipTextColor: "#991B1B",
+      optionBgColor: "#FEF2F2",
+      borderColor: "#DC2626",
+      icon: "warning",
       description: "Rack is not available - do not use"
     },
   ];
@@ -189,13 +213,22 @@ export function RackEditModal({
                   key={option.value}
                   className={`flex items-center gap-3 p-2 rounded-lg border-2 transition-all ${
                     status === option.value
-                      ? "bg-base-200 border-primary"
+                      ? ""
                       : "bg-base-100 border-base-300"
                   }`}
+                  style={{
+                    cursor: "pointer",
+                    ...(status === option.value
+                      ? { borderColor: option.borderColor, backgroundColor: option.optionBgColor }
+                      : {}),
+                  }}
                   onClick={() => setStatus(option.value)}
-                  style={{ cursor: "pointer" }}
                 >
-                  <span className={`badge badge-sm ${option.color}`}>
+                  <span
+                    className="badge badge-sm"
+                    style={{ backgroundColor: option.chipColor, color: option.chipTextColor }}
+                  >
+                    <span className="material-symbols-outlined text-xs mr-1">{option.icon}</span>
                     {option.label}
                   </span>
                   <span className="text-xs text-base-content/70 flex-1">
@@ -273,4 +306,3 @@ export function RackEditModal({
     </div>
   );
 }
-
