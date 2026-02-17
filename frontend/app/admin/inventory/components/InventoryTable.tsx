@@ -34,7 +34,6 @@ export function InventoryTable({
               {visibleColumns.has("sku") && <th className="font-semibold text-base-content">SKU</th>}
               {visibleColumns.has("name") && <th className="font-semibold text-base-content">Item Name</th>}
               {visibleColumns.has("type") && <th className="font-semibold text-base-content">Type</th>}
-              {visibleColumns.has("category") && <th className="font-semibold text-base-content">Category</th>}
               {visibleColumns.has("warehouse") && <th className="font-semibold text-base-content">Warehouse</th>}
               {visibleColumns.has("quantity") && <th className="font-semibold text-base-content">Quantity</th>}
               {visibleColumns.has("location") && <th className="font-semibold text-base-content">Location</th>}
@@ -87,11 +86,6 @@ export function InventoryTable({
                         />
                       );
                     })()}
-                  </td>
-                )}
-                {visibleColumns.has("category") && (
-                  <td>
-                    <StatusChip label={item.category} tone="neutral" className="whitespace-nowrap" />
                   </td>
                 )}
                 {visibleColumns.has("warehouse") && (

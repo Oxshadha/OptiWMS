@@ -86,12 +86,6 @@ export function InventoryItemDetailModal({
               <p className="font-semibold">{item.name}</p>
             </div>
             <div>
-              <label className="text-sm text-base-content/60">Category</label>
-              <p>
-                <StatusChip label={item.category} tone="neutral" />
-              </p>
-            </div>
-            <div>
               <label className="text-sm text-base-content/60">Type</label>
               <p>
                 {(() => {
