@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
+import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
 import { operationsApi } from "@/lib/api/operations";
@@ -642,6 +643,12 @@ export default function PickingPage() {
           ) : (
             <div className="text-xs text-info">Task has no fixed location. Confirm actual bin before picking.</div>
           )}
+
+          <WorkerRouteGuide
+            warehouseId={effectiveWarehouseId || undefined}
+            targetLocationCode={currentPick.location}
+            operationType="picking"
+          />
 
           <div>
             <label className="label">

@@ -31,6 +31,7 @@ export interface RackUnit {
   bins: LocationBin[]; // Array of bins representing the vertical stack
   maxLevels: number; // Maximum vertical levels (default 5)
   status: RackStatus; // Rack operational status
+  amalgamatedClass?: string; // AF/AM/AS/BF/BM/BS/CF/CM/CS
   description?: string; // Notes/description about what's in the rack
   notes?: string; // Additional notes
   velocity?: number; // Velocity percentage (0-100) for heat map visualization
@@ -51,4 +52,3 @@ export interface WarehouseLayout {
     height: number;
   }[];
 }
-

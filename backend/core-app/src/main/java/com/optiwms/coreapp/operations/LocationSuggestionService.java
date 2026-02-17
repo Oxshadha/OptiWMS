@@ -77,7 +77,7 @@ public class LocationSuggestionService {
                         && warehouseId.equals(location.getWarehouseId())
                         && Boolean.TRUE.equals(location.getIsActive())
                         && isRackStatusPutawayAllowed(location.getRackStatus())
-                        ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
+                        && ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
                         logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
                         return new LocationSuggestion(
                             defaultLoc.getLocationCode(),

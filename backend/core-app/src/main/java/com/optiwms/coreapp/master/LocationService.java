@@ -8,7 +8,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -99,6 +102,7 @@ public class LocationService {
         entity.setIsActive(location.getIsActive() != null ? location.getIsActive() : true);
         entity.setQrCode(location.getQrCode());
         entity.setRackStatus(location.getRackStatus() != null ? location.getRackStatus() : "active");
+        entity.setAmalgamatedClass(normalizeAmalgamatedClass(location.getAmalgamatedClass()));
         entity.setDescription(location.getDescription());
         entity.setNotes(location.getNotes());
         entity.setAccessibilityRating(location.getAccessibilityRating());
@@ -137,6 +141,9 @@ public class LocationService {
         entity.setIsActive(location.getIsActive());
         entity.setQrCode(location.getQrCode());
         if (location.getRackStatus() != null) entity.setRackStatus(location.getRackStatus());
+        if (location.getAmalgamatedClass() != null) {
+            entity.setAmalgamatedClass(normalizeAmalgamatedClass(location.getAmalgamatedClass()));
+        }
         if (location.getDescription() != null) entity.setDescription(location.getDescription());
         if (location.getNotes() != null) entity.setNotes(location.getNotes());
         if (location.getAccessibilityRating() != null) entity.setAccessibilityRating(location.getAccessibilityRating());
@@ -157,6 +164,224 @@ public class LocationService {
         repository.deleteById(id);
     }
 
+    @Transactional
+    public RackDeleteResult deleteRack(UUID warehouseId, String area, String rowNumber, String bayNumber) {
+        String normalizedArea = normalizeArea(area);
+        String normalizedRow = String.format("%02d", safeParseInt(rowNumber));
+        String normalizedBay = String.format("%02d", safeParseInt(bayNumber));
+
+        List<LocationEntity> rackLocations = repository.findByWarehouseId(warehouseId).stream()
+                .filter(loc -> normalizedArea.equalsIgnoreCase(loc.getArea()))
+                .filter(loc -> normalizedRow.equals(String.format("%02d", safeParseInt(loc.getRowNumber()))))
+                .filter(loc -> normalizedBay.equals(String.format("%02d", safeParseInt(loc.getBayNumber()))))
+                .collect(Collectors.toList());
+
+        if (rackLocations.isEmpty()) {
+            throw new RuntimeException("Rack not found for " + normalizedArea + "-" + normalizedRow + "-" + normalizedBay);
+        }
+
+        List<String> locationCodes = rackLocations.stream().map(LocationEntity::getLocationCode).collect(Collectors.toList());
+        if (inventoryItemRepository.existsByLocationCodeInAndQuantityGreaterThan(locationCodes, 0)) {
+            throw new RuntimeException("Cannot delete rack with inventory stock. Move all stock out first.");
+        }
+
+        repository.deleteAll(rackLocations);
+        return new RackDeleteResult(
+                normalizedArea,
+                normalizedRow,
+                normalizedBay,
+                rackLocations.size()
+        );
+    }
+
+    @Transactional
+    public BulkRackCreateResult bulkCreateStorageRacks(
+            UUID warehouseId,
+            String area,
+            Integer rowsToAdd,
+            Integer baysPerRow,
+            Integer levelsPerRack,
+            Integer binsPerLevel,
+            Integer startRow,
+            Integer startBay
+    ) {
+        String normalizedArea = normalizeArea(area);
+        int rows = rowsToAdd != null ? rowsToAdd : 1;
+        int bays = baysPerRow != null ? baysPerRow : 1;
+        int levels = levelsPerRack != null ? levelsPerRack : 5;
+        int bins = binsPerLevel != null ? binsPerLevel : 2;
+        int firstBay = startBay != null ? startBay : 1;
+
+        if (rows < 1 || rows > 50) {
+            throw new RuntimeException("rowsToAdd must be between 1 and 50");
+        }
+        if (bays < 1 || bays > 50) {
+            throw new RuntimeException("baysPerRow must be between 1 and 50");
+        }
+        if (levels < 1 || levels > 10) {
+            throw new RuntimeException("levelsPerRack must be between 1 and 10");
+        }
+        if (bins < 1 || bins > 5) {
+            throw new RuntimeException("binsPerLevel must be between 1 and 5");
+        }
+        if (firstBay < 1 || firstBay > 99) {
+            throw new RuntimeException("startBay must be between 1 and 99");
+        }
+
+        List<LocationEntity> existingLocations = repository.findByWarehouseId(warehouseId).stream()
+                .filter(entity -> {
+                    String zoneType = entity.getZoneType();
+                    return "STORAGE".equals(zoneType) || "storage".equals(entity.getLocationType());
+                })
+                .collect(Collectors.toList());
+
+        int firstRow = startRow != null
+                ? startRow
+                : existingLocations.stream()
+                .filter(entity -> normalizedArea.equalsIgnoreCase(entity.getArea()))
+                .map(LocationEntity::getRowNumber)
+                .map(this::safeParseInt)
+                .filter(value -> value > 0)
+                .max(Integer::compareTo)
+                .orElse(0) + 1;
+        if (firstRow < 1 || firstRow > 99) {
+            throw new RuntimeException("startRow must be between 1 and 99");
+        }
+        if (firstRow + rows - 1 > 99) {
+            throw new RuntimeException("Requested rows exceed row limit (99)");
+        }
+        if (firstBay + bays - 1 > 99) {
+            throw new RuntimeException("Requested bays exceed bay limit (99)");
+        }
+
+        Set<String> existingRacks = existingLocations.stream()
+                .map(entity -> rackKey(entity.getArea(), entity.getRowNumber(), entity.getBayNumber()))
+                .collect(Collectors.toSet());
+        Set<String> existingLocationCodes = existingLocations.stream()
+                .map(LocationEntity::getLocationCode)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        List<String> skippedRackKeys = new ArrayList<>();
+        int createdRackCount = 0;
+        int createdLocationCount = 0;
+
+        for (int rowOffset = 0; rowOffset < rows; rowOffset++) {
+            int row = firstRow + rowOffset;
+            String rowCode = String.format("%02d", row);
+            for (int bayOffset = 0; bayOffset < bays; bayOffset++) {
+                int bay = firstBay + bayOffset;
+                String bayCode = String.format("%02d", bay);
+                String rackKey = rackKey(normalizedArea, rowCode, bayCode);
+
+                if (existingRacks.contains(rackKey)) {
+                    skippedRackKeys.add(rackKey);
+                    continue;
+                }
+
+                for (int level = 1; level <= levels; level++) {
+                    for (int binIndex = 0; binIndex < bins; binIndex++) {
+                        String binPosition = String.valueOf((char) ('A' + binIndex));
+                        String locationCode = String.format("%s-%s-%s-%d-%s",
+                                normalizedArea, rowCode, bayCode, level, binPosition);
+                        if (existingLocationCodes.contains(locationCode)) {
+                            continue;
+                        }
+                        LocationEntity entity = new LocationEntity();
+                        entity.setWarehouseId(warehouseId);
+                        entity.setLocationCode(locationCode);
+                        entity.setArea(normalizedArea);
+                        entity.setRowNumber(rowCode);
+                        entity.setBayNumber(bayCode);
+                        entity.setLevelNumber(level);
+                        entity.setBinPosition(binPosition);
+                        entity.setLocationType("storage");
+                        entity.setZoneType("STORAGE");
+                        entity.setIsActive(true);
+                        entity.setRackStatus("active");
+                        entity.setAmalgamatedClass(defaultClassForArea(normalizedArea));
+                        entity.setDescription(String.format("Zone %s Rack %s-%s", normalizedArea, rowCode, bayCode));
+                        entity.setMaxPalletCapacity(levels * bins);
+                        entity.setCurrentPalletCount(0);
+                        repository.save(entity);
+                        existingLocationCodes.add(locationCode);
+                        createdLocationCount++;
+                    }
+                }
+
+                existingRacks.add(rackKey);
+                createdRackCount++;
+            }
+        }
+
+        return new BulkRackCreateResult(
+                normalizedArea,
+                createdRackCount,
+                createdLocationCount,
+                skippedRackKeys
+        );
+    }
+
+    @Transactional
+    public StandardLayoutGenerationResult generateStandardStorageLayout(
+            UUID warehouseId,
+            Integer levelsPerRack,
+            Integer binsPerLevel
+    ) {
+        int levels = levelsPerRack != null ? levelsPerRack : 4;
+        int bins = binsPerLevel != null ? binsPerLevel : 2;
+        if (levels < 1 || levels > 10) {
+            throw new RuntimeException("levelsPerRack must be between 1 and 10");
+        }
+        if (bins < 1 || bins > 5) {
+            throw new RuntimeException("binsPerLevel must be between 1 and 5");
+        }
+
+        List<ZoneLayoutSpec> specs = List.of(
+                new ZoneLayoutSpec("A", 2, 10),
+                new ZoneLayoutSpec("B", 4, 10),
+                new ZoneLayoutSpec("C", 2, 8),
+                new ZoneLayoutSpec("D", 2, 8)
+        );
+
+        List<ZoneGenerationResult> zones = new ArrayList<>();
+        int totalCreatedRacks = 0;
+        int totalCreatedLocations = 0;
+        int totalSkippedRacks = 0;
+
+        for (ZoneLayoutSpec spec : specs) {
+            BulkRackCreateResult result = bulkCreateStorageRacks(
+                    warehouseId,
+                    spec.area(),
+                    spec.rowsToAdd(),
+                    spec.baysPerRow(),
+                    levels,
+                    bins,
+                    1,
+                    1
+            );
+            zones.add(new ZoneGenerationResult(
+                    spec.area(),
+                    spec.rowsToAdd(),
+                    spec.baysPerRow(),
+                    result.createdRacks(),
+                    result.createdLocations(),
+                    result.skippedRacks().size()
+            ));
+            totalCreatedRacks += result.createdRacks();
+            totalCreatedLocations += result.createdLocations();
+            totalSkippedRacks += result.skippedRacks().size();
+        }
+
+        return new StandardLayoutGenerationResult(
+                totalCreatedRacks,
+                totalCreatedLocations,
+                totalSkippedRacks,
+                levels,
+                bins,
+                zones
+        );
+    }
+
     private Location toDomain(LocationEntity entity) {
         Location location = new Location();
         location.setId(entity.getId());
@@ -173,6 +398,7 @@ public class LocationService {
         location.setIsActive(entity.getIsActive());
         location.setQrCode(entity.getQrCode());
         location.setRackStatus(entity.getRackStatus());
+        location.setAmalgamatedClass(entity.getAmalgamatedClass());
         location.setDescription(entity.getDescription());
         location.setNotes(entity.getNotes());
         location.setAccessibilityRating(entity.getAccessibilityRating());
@@ -214,4 +440,82 @@ public class LocationService {
 
         return inventoryItemRepository.existsByLocationCodeInAndQuantityGreaterThan(rackLocationCodes, 0);
     }
+
+    private String normalizeArea(String area) {
+        if (area == null || area.isBlank()) {
+            return "A";
+        }
+        return area.trim().toUpperCase(Locale.ROOT).substring(0, 1);
+    }
+
+    private String normalizeAmalgamatedClass(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String defaultClassForArea(String area) {
+        return switch (normalizeArea(area)) {
+            case "A" -> "AF";
+            case "B" -> "BM";
+            case "C" -> "CM";
+            case "D" -> "CS";
+            default -> "CM";
+        };
+    }
+
+    private int safeParseInt(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    private String rackKey(String area, String rowNumber, String bayNumber) {
+        return (area == null ? "" : area.trim().toUpperCase(Locale.ROOT))
+                + "-"
+                + (rowNumber == null ? "" : rowNumber.trim())
+                + "-"
+                + (bayNumber == null ? "" : bayNumber.trim());
+    }
+
+    public record BulkRackCreateResult(
+            String area,
+            Integer createdRacks,
+            Integer createdLocations,
+            List<String> skippedRacks
+    ) {}
+
+    public record StandardLayoutGenerationResult(
+            Integer createdRacks,
+            Integer createdLocations,
+            Integer skippedRacks,
+            Integer levelsPerRack,
+            Integer binsPerLevel,
+            List<ZoneGenerationResult> zones
+    ) {}
+
+    public record ZoneGenerationResult(
+            String area,
+            Integer targetRows,
+            Integer targetBaysPerRow,
+            Integer createdRacks,
+            Integer createdLocations,
+            Integer skippedRacks
+    ) {}
+
+    public record RackDeleteResult(
+            String area,
+            String rowNumber,
+            String bayNumber,
+            Integer deletedLocations
+    ) {}
+
+    private record ZoneLayoutSpec(
+            String area,
+            Integer rowsToAdd,
+            Integer baysPerRow
+    ) {}
 }

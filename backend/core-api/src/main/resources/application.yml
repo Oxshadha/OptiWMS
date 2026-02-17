@@ -35,6 +35,10 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
+optiwms:
+  seed:
+    racks: false
+
 # -----------------------------------------------------------------------------
 # DEVELOPMENT DEFAULTS
 # -----------------------------------------------------------------------------
@@ -44,4 +48,3 @@ logging:
 # - Use strong secrets and non-default DB credentials
 # - Restrict CORS to real frontend domains only
 # -----------------------------------------------------------------------------
-

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LocationPicker } from "@/components/LocationPicker";
+import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import { PutawayItem } from "@/lib/api/orderItems";
 import { ItemDetailsDisplay } from "./ItemDetailsDisplay";
 
@@ -162,6 +163,11 @@ export function PutawayOrderWorkflow({
                 Use Suggested: {currentItem.suggestedLocation}
               </button>
             )}
+            <WorkerRouteGuide
+              warehouseId={warehouseId}
+              targetLocationCode={scannedLocation || currentItem.suggestedLocation}
+              operationType="putaway"
+            />
           </div>
 
           <button
