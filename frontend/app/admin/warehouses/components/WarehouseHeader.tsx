@@ -10,7 +10,6 @@ interface WarehouseHeaderProps {
   isLoadingLayout: boolean;
   onRefresh: () => void;
   onOpenBulkRackCreate: () => void;
-  onGenerateStandardLayout: () => void;
   onOpenSlottingPlanner: () => void;
   onWarehouseChange: (warehouseId: string) => void;
 }
@@ -25,7 +24,6 @@ export function WarehouseHeader({
   isLoadingLayout,
   onRefresh,
   onOpenBulkRackCreate,
-  onGenerateStandardLayout,
   onOpenSlottingPlanner,
   onWarehouseChange,
 }: WarehouseHeaderProps) {
@@ -48,13 +46,6 @@ export function WarehouseHeader({
           <button className="btn btn-sm btn-outline" onClick={onOpenSlottingPlanner}>
             <span className="material-symbols-outlined text-sm">rule_settings</span>
             Slotting Rules
-          </button>
-        )}
-
-        {canEditRacks && (
-          <button className="btn btn-sm btn-outline" onClick={onGenerateStandardLayout}>
-            <span className="material-symbols-outlined text-sm">grid_view</span>
-            Generate Standard Layout
           </button>
         )}
 

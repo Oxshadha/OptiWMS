@@ -160,34 +160,6 @@ public class LocationController {
         }
     }
 
-    @PostMapping("/bulk-racks/generate-standard")
-    public ResponseEntity<?> generateStandardLayout(@RequestBody GenerateStandardLayoutRequest request) {
-        try {
-            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
-                throw new RuntimeException("warehouseId is required");
-            }
-            var result = locationService.generateStandardStorageLayout(
-                    UUID.fromString(request.warehouseId()),
-                    request.levelsPerRack(),
-                    request.binsPerLevel()
-            );
-            return ResponseEntity.ok(Map.of(
-                    "message", String.format(
-                            "Standard layout generated. Created %d racks (%d locations), skipped %d existing racks.",
-                            result.createdRacks(), result.createdLocations(), result.skippedRacks()
-                    ),
-                    "createdRacks", result.createdRacks(),
-                    "createdLocations", result.createdLocations(),
-                    "skippedRacks", result.skippedRacks(),
-                    "levelsPerRack", result.levelsPerRack(),
-                    "binsPerLevel", result.binsPerLevel(),
-                    "zones", result.zones()
-            ));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
-        }
-    }
-
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable UUID id, @RequestBody UpdateLocationRequest request) {
         try {
@@ -377,9 +349,4 @@ public class LocationController {
             Integer startBay
     ) {}
 
-    public record GenerateStandardLayoutRequest(
-            String warehouseId,
-            Integer levelsPerRack,
-            Integer binsPerLevel
-    ) {}
 }

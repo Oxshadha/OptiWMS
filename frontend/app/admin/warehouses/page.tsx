@@ -276,23 +276,6 @@ export default function WarehousesPage() {
         }}
         onOpenBulkRackCreate={() => setShowBulkRackModal(true)}
         onOpenSlottingPlanner={() => setShowSlottingPlannerModal(true)}
-        onGenerateStandardLayout={() => {
-          if (!selectedWarehouseId) return;
-          void (async () => {
-            try {
-              const result = await locationsApi.generateStandardLayout({
-                warehouseId: selectedWarehouseId,
-                levelsPerRack: 5,
-                binsPerLevel: 2,
-              });
-              showToast.success(result.message);
-              await loadWarehouseLayout(selectedWarehouseId);
-            } catch (error) {
-              logger.error("Failed to generate standard layout:", error);
-              showToast.error(error instanceof Error ? error.message : "Failed to generate standard layout.");
-            }
-          })();
-        }}
         onWarehouseChange={(warehouseId) => {
           void handleWarehouseChange(warehouseId);
         }}
@@ -300,7 +283,7 @@ export default function WarehousesPage() {
 
       <WarehouseStatsCards stats={stats} />
 
-      <WarehouseLegend />
+      {layoutViewMode === "detailed" && <WarehouseLegend />}
 
       <div className="tabs tabs-boxed w-fit">
         <button

@@ -321,67 +321,6 @@ public class LocationService {
         );
     }
 
-    @Transactional
-    public StandardLayoutGenerationResult generateStandardStorageLayout(
-            UUID warehouseId,
-            Integer levelsPerRack,
-            Integer binsPerLevel
-    ) {
-        int levels = levelsPerRack != null ? levelsPerRack : 4;
-        int bins = binsPerLevel != null ? binsPerLevel : 2;
-        if (levels < 1 || levels > 10) {
-            throw new RuntimeException("levelsPerRack must be between 1 and 10");
-        }
-        if (bins < 1 || bins > 5) {
-            throw new RuntimeException("binsPerLevel must be between 1 and 5");
-        }
-
-        List<ZoneLayoutSpec> specs = List.of(
-                new ZoneLayoutSpec("A", 2, 10),
-                new ZoneLayoutSpec("B", 4, 10),
-                new ZoneLayoutSpec("C", 2, 8),
-                new ZoneLayoutSpec("D", 2, 8)
-        );
-
-        List<ZoneGenerationResult> zones = new ArrayList<>();
-        int totalCreatedRacks = 0;
-        int totalCreatedLocations = 0;
-        int totalSkippedRacks = 0;
-
-        for (ZoneLayoutSpec spec : specs) {
-            BulkRackCreateResult result = bulkCreateStorageRacks(
-                    warehouseId,
-                    spec.area(),
-                    spec.rowsToAdd(),
-                    spec.baysPerRow(),
-                    levels,
-                    bins,
-                    1,
-                    1
-            );
-            zones.add(new ZoneGenerationResult(
-                    spec.area(),
-                    spec.rowsToAdd(),
-                    spec.baysPerRow(),
-                    result.createdRacks(),
-                    result.createdLocations(),
-                    result.skippedRacks().size()
-            ));
-            totalCreatedRacks += result.createdRacks();
-            totalCreatedLocations += result.createdLocations();
-            totalSkippedRacks += result.skippedRacks().size();
-        }
-
-        return new StandardLayoutGenerationResult(
-                totalCreatedRacks,
-                totalCreatedLocations,
-                totalSkippedRacks,
-                levels,
-                bins,
-                zones
-        );
-    }
-
     private Location toDomain(LocationEntity entity) {
         Location location = new Location();
         location.setId(entity.getId());
@@ -488,34 +427,10 @@ public class LocationService {
             List<String> skippedRacks
     ) {}
 
-    public record StandardLayoutGenerationResult(
-            Integer createdRacks,
-            Integer createdLocations,
-            Integer skippedRacks,
-            Integer levelsPerRack,
-            Integer binsPerLevel,
-            List<ZoneGenerationResult> zones
-    ) {}
-
-    public record ZoneGenerationResult(
-            String area,
-            Integer targetRows,
-            Integer targetBaysPerRow,
-            Integer createdRacks,
-            Integer createdLocations,
-            Integer skippedRacks
-    ) {}
-
     public record RackDeleteResult(
             String area,
             String rowNumber,
             String bayNumber,
             Integer deletedLocations
-    ) {}
-
-    private record ZoneLayoutSpec(
-            String area,
-            Integer rowsToAdd,
-            Integer baysPerRow
     ) {}
 }

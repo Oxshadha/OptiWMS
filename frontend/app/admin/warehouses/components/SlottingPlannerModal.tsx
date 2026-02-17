@@ -139,7 +139,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
           <div className="rounded-lg border border-base-300 p-3 bg-base-100">
             <div className="font-semibold mb-2">Amalgamated Classes</div>
             <div className="text-xs text-base-content/70">
-              AF/AM/AS = high-priority front classes, BF/BM/BS = medium, CF/CM/CS = slower/deeper storage.
+              A* = high-volume products, B* = medium-volume products, C* = low-volume products.
+              F = fast-moving, M = medium-moving, S = slow-moving.
             </div>
           </div>
 
