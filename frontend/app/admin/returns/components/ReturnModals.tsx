@@ -15,6 +15,13 @@ import { logger } from "@/lib/utils/logger";
 import type { ReturnDisplay } from "../types";
 import { resolutionConfig, statusConfig } from "../types";
 
+const RESOLUTION_VISIBLE_STATUSES = new Set([
+  "approved",
+  "rejected",
+  "restocked",
+  "disposed",
+]);
+
 export function CreateReturnModal({
   onClose,
   onSuccess,
@@ -227,13 +234,16 @@ export function ReturnDetailModal({
   onClose: () => void;
   returnItem: ReturnDisplay;
 }) {
+  const canShowResolution =
+    !!returnItem.resolution &&
+    RESOLUTION_VISIBLE_STATUSES.has(returnItem.status);
   const status = statusConfig[returnItem.status as keyof typeof statusConfig] || {
     label: returnItem.status,
     tone: "neutral" as const,
   };
-  const resolution = returnItem.resolution
-    ? resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig] || {
-        label: returnItem.resolution,
+  const resolution = canShowResolution
+    ? resolutionConfig[returnItem.resolution! as keyof typeof resolutionConfig] || {
+        label: returnItem.resolution!,
         tone: "neutral" as const,
       }
     : null;

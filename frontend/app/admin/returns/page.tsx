@@ -24,6 +24,13 @@ import {
   ReturnDetailModal,
 } from "./components/ReturnModals";
 
+const RESOLUTION_VISIBLE_STATUSES = new Set([
+  "approved",
+  "rejected",
+  "restocked",
+  "disposed",
+]);
+
 export default function ReturnsPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -329,7 +336,10 @@ export default function ReturnsPage() {
       key: "resolution",
       label: "Resolution",
       render: (returnItem: ReturnDisplay) => {
-        if (!returnItem.resolution)
+        const shouldShowResolution =
+          !!returnItem.resolution &&
+          RESOLUTION_VISIBLE_STATUSES.has(returnItem.status);
+        if (!shouldShowResolution)
           return <span className="text-base-content/50">-</span>;
         const resolution =
           resolutionConfig[

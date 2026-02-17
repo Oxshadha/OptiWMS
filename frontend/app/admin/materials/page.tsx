@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -41,6 +42,8 @@ const normalizeSearchText = (value?: string | null) =>
   (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export default function MaterialsPage() {
+  const searchParams = useSearchParams();
+  const supplierFilterId = searchParams.get("supplier")?.trim() || "";
   const { hasPermission } = useAdmin();
   // Support URL query parameter for type filter (for redirects from legacy pages)
   const [typeFilter, setTypeFilter] = useState<MaterialTypeFilter>(() => {
@@ -406,6 +409,16 @@ export default function MaterialsPage() {
           </div>
         </div>
       </div>
+
+      {supplierFilterId && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <span>
+            Supplier filter was requested, but product-supplier mapping is not linked in the database yet.
+            Showing all products.
+          </span>
+        </div>
+      )}
 
       {/* Materials Table */}
       <div className="card bg-base-100 border border-base-300 p-6">

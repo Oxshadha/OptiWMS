@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi } from "@/lib/api/suppliers";
@@ -25,6 +26,9 @@ function getInboundStatusTone(status: string): StatusTone {
 }
 
 export default function InboundOrdersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const supplierFilterId = searchParams.get("supplier")?.trim() || "";
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -93,6 +97,7 @@ export default function InboundOrdersPage() {
         return {
           id: order.id,
           orderNumber: order.orderNumber,
+          supplierId: order.supplierId || null,
           supplierName,
           warehouseName,
           orderDate: order.orderDate || new Date().toISOString().split("T")[0],
@@ -138,8 +143,16 @@ export default function InboundOrdersPage() {
       order.id.toLowerCase().includes(query)
     );
     const matchesStatus = statusFilter === "all" || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesSupplier =
+      !supplierFilterId || order.supplierId === supplierFilterId;
+    return matchesSearch && matchesStatus && matchesSupplier;
   });
+
+  const supplierFilterName =
+    supplierFilterId
+      ? orders.find((o) => o.supplierId === supplierFilterId)?.supplierName ||
+        "Selected Supplier"
+      : null;
 
   if (isLoading) {
     return (
@@ -171,6 +184,18 @@ export default function InboundOrdersPage() {
         <div>
           <h1 className="text-3xl font-bold text-base-content">Inbound Orders</h1>
           <p className="text-sm text-base-content/60 mt-1">Manage purchase orders from suppliers</p>
+          {supplierFilterId && (
+            <div className="mt-2 flex items-center gap-2 text-sm">
+              <span className="text-base-content/60">Filtered by supplier:</span>
+              <StatusChip label={supplierFilterName || "Selected Supplier"} tone="info" />
+              <button
+                className="btn btn-ghost btn-xs"
+                onClick={() => router.push("/admin/orders/inbound")}
+              >
+                Clear
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex gap-3">
           <button
