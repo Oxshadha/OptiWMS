@@ -16,9 +16,10 @@ function locationToBin(location: Location, inventoryMap: Map<string, { quantity:
   const inventory = inventoryMap.get(location.id);
   const level = location.levelNumber || 1;
   
-  // Determine bin status based on inventory and location status
+  // Determine bin status based on rack status + inventory.
+  // Reserved rack slots remain reserved even when empty.
   let status: BinStatus = 'empty';
-  if (!location.isActive) {
+  if ((location.rackStatus || "").toLowerCase() === "reserved" && (!inventory || inventory.quantity <= 0)) {
     status = 'reserved';
   } else if (inventory && inventory.quantity > 0) {
     status = 'occupied';
@@ -72,9 +73,7 @@ function locationsToRacks(
   inventoryMap: Map<string, { quantity: number; sku: string }>
 ): RackUnit[] {
   // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
-  const storageLocations = locations.filter((loc) => 
-    loc.zoneType === 'STORAGE' && loc.isActive !== false
-  );
+  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
   
   const rackMap = groupLocationsByRack(storageLocations);
   const racks: RackUnit[] = [];
@@ -111,13 +110,19 @@ function locationsToRacks(
       .sort((a, b) => (a.levelNumber || 1) - (b.levelNumber || 1))
       .map((loc) => locationToBin(loc, inventoryMap));
     
-    // Determine rack status
-    const hasInactiveLocations = rackLocations.some((loc) => !loc.isActive);
-    const hasOccupiedBins = bins.some((bin) => bin.status === 'occupied');
-    
+    // Determine rack status from persisted rackStatus values.
+    // Priority: out_of_service > maintenance > reserved > active.
+    const rackStatuses = rackLocations
+      .map((loc) => (loc.rackStatus || "").toLowerCase())
+      .filter((rackStatus): rackStatus is string => !!rackStatus);
+
     let status: 'active' | 'maintenance' | 'reserved' | 'out_of_service' = 'active';
-    if (hasInactiveLocations && !hasOccupiedBins) {
+    if (rackStatuses.some((rackStatus) => rackStatus === "out_of_service")) {
       status = 'out_of_service';
+    } else if (rackStatuses.some((rackStatus) => rackStatus === "maintenance")) {
+      status = "maintenance";
+    } else if (rackStatuses.some((rackStatus) => rackStatus === "reserved")) {
+      status = "reserved";
     }
     
     const rack: RackUnit = {
@@ -164,9 +169,7 @@ export async function convertLocationHierarchyToLayout(
   });
   
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = allLocations.filter((loc) => 
-    loc.zoneType === 'STORAGE' && loc.isActive !== false
-  );
+  const storageLocations = allLocations.filter((loc) => loc.zoneType === 'STORAGE');
   
   // Load inventory for this warehouse - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
@@ -263,9 +266,7 @@ export async function convertLocationsToLayout(
   warehouseName: string
 ): Promise<WarehouseLayout> {
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = locations.filter((loc) => 
-    loc.zoneType === 'STORAGE' && loc.isActive !== false
-  );
+  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
   
   // Load inventory - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
