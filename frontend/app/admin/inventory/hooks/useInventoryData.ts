@@ -11,7 +11,6 @@ type SortDirection = "asc" | "desc";
 interface UseInventoryDataParams {
   isWarehouseManager: boolean;
   assignedWarehouseId?: string;
-  activeCategory: string;
   activeItemType: string;
   activeWarehouse: string;
   searchQuery: string;
@@ -22,7 +21,6 @@ interface UseInventoryDataParams {
 export function useInventoryData({
   isWarehouseManager,
   assignedWarehouseId,
-  activeCategory,
   activeItemType,
   activeWarehouse,
   searchQuery,
@@ -33,13 +31,6 @@ export function useInventoryData({
   const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const categories = useMemo(() => {
-    const uniqueCategories = Array.from(
-      new Set(inventoryItems.map((item) => item.category).filter(Boolean))
-    ).sort();
-    return ["All", ...uniqueCategories];
-  }, [inventoryItems]);
 
   const loadData = useCallback(async () => {
     try {
@@ -115,7 +106,6 @@ export function useInventoryData({
           qty,
           location: item.locationCode || "N/A",
           status,
-          category: "General",
           warehouseName,
           itemType,
           materialId: item.materialId,
@@ -164,7 +154,6 @@ export function useInventoryData({
 
   const filteredInventory = useMemo(() => {
     let filtered = inStockItems.filter((item) => {
-      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
       const matchesItemType =
         activeItemType === "All" ||
         (activeItemType === "Product" && item.itemType === "Product") ||
@@ -172,16 +161,15 @@ export function useInventoryData({
         (activeItemType === "Packaging" && item.itemType === "Packaging");
       const matchesWarehouse = activeWarehouse === "All" || item.warehouseId === activeWarehouse;
       const query = searchQuery.trim().toLowerCase();
-      if (!query) return matchesCategory && matchesItemType && matchesWarehouse;
+      if (!query) return matchesItemType && matchesWarehouse;
       const matchesSearch =
         item.name.toLowerCase().includes(query) ||
         item.sku.toLowerCase().includes(query) ||
         item.location.toLowerCase().includes(query) ||
         item.status.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
         item.warehouseName.toLowerCase().includes(query) ||
         item.qty.toString().includes(query);
-      return matchesCategory && matchesItemType && matchesWarehouse && matchesSearch;
+      return matchesItemType && matchesWarehouse && matchesSearch;
     });
 
     if (sortBy) {
@@ -204,7 +192,6 @@ export function useInventoryData({
     return filtered;
   }, [
     inStockItems,
-    activeCategory,
     activeItemType,
     activeWarehouse,
     searchQuery,
@@ -217,7 +204,6 @@ export function useInventoryData({
   const availableItems = inStockItems.filter((item) => item.status === "Available").length;
 
   return {
-    categories,
     warehouses,
     filteredInventory,
     totalItems,
@@ -228,4 +214,3 @@ export function useInventoryData({
     reload: loadData,
   };
 }
-

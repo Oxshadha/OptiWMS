@@ -19,7 +19,6 @@ export default function InventoryPage() {
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseId = admin?.warehouseId;
 
-  const [activeCategory, setActiveCategory] = useState("All");
   const [activeItemType, setActiveItemType] = useState("All");
   const [activeWarehouse, setActiveWarehouse] = useState<string>(
     isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "All"
@@ -38,7 +37,6 @@ export default function InventoryPage() {
       "sku",
       "name",
       "type",
-      "category",
       "warehouse",
       "quantity",
       "location",
@@ -51,7 +49,6 @@ export default function InventoryPage() {
   );
 
   const {
-    categories,
     warehouses,
     filteredInventory,
     totalItems,
@@ -63,7 +60,6 @@ export default function InventoryPage() {
   } = useInventoryData({
     isWarehouseManager,
     assignedWarehouseId,
-    activeCategory,
     activeItemType,
     activeWarehouse,
     searchQuery,
@@ -76,12 +72,6 @@ export default function InventoryPage() {
       setActiveWarehouse(assignedWarehouseId);
     }
   }, [isWarehouseManager, assignedWarehouseId]);
-
-  useEffect(() => {
-    if (!categories.includes(activeCategory)) {
-      setActiveCategory("All");
-    }
-  }, [categories, activeCategory]);
 
   if (isLoading) {
     return (
@@ -234,10 +224,12 @@ export default function InventoryPage() {
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-base-content/60">Categories</div>
-              <div className="text-2xl font-bold text-base-content">{categories.length - 1}</div>
+              <div className="text-sm text-base-content/60">Warehouses</div>
+              <div className="text-2xl font-bold text-base-content">
+                {isWarehouseManager ? 1 : warehouses.size}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">category</span>
+            <span className="material-symbols-outlined text-3xl text-info">warehouse</span>
           </div>
         </div>
       </div>
@@ -273,24 +265,6 @@ export default function InventoryPage() {
                 )}
               >
                 {type}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
-            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Category:</span>
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={clsx(
-                  "px-4 py-2 rounded-lg text-sm transition-all",
-                  activeCategory === cat
-                    ? "bg-neutral text-neutral-content font-medium"
-                    : "text-base-content/60 hover:text-base-content"
-                )}
-              >
-                {cat}
               </button>
             ))}
           </div>

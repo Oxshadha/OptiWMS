@@ -5,7 +5,6 @@ export interface InventoryDisplayItem {
   qty: number;
   location: string;
   status: "Available" | "Low" | "Out of Stock";
-  category: string;
   warehouseName: string;
   itemType: "Product" | "Raw Material" | "Packaging";
   materialId: string;

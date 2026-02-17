@@ -4,7 +4,6 @@ const COLUMN_OPTIONS = [
   { key: "sku", label: "SKU" },
   { key: "name", label: "Item Name" },
   { key: "type", label: "Type" },
-  { key: "category", label: "Category" },
   { key: "warehouse", label: "Warehouse" },
   { key: "quantity", label: "Quantity" },
   { key: "location", label: "Location" },
@@ -66,4 +65,3 @@ export function InventoryColumnSelector({
     </div>
   );
 }
-
