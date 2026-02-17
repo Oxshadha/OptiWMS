@@ -159,3 +159,9 @@ backend/.gradle-local/
 *.xlsx
 
 *.pdf
+*.md
+!README.md
+
+*.csv
+
+*.sh

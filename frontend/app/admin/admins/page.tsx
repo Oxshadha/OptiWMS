@@ -20,6 +20,7 @@ import {
   AdminDetailModal,
   CreateAdminModal,
   DeleteAdminModal,
+  EditAdminModal,
 } from "./components/AdminModals";
 import { AdminDisplay, statusConfig } from "./types";
 
@@ -29,6 +30,7 @@ export default function AdminsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [admins, setAdmins] = useState<AdminDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export default function AdminsPage() {
             "Unknown",
           email: user.email || "",
           role: (user.role as AdminRole) || "warehouse_manager",
+          warehouseId: user.warehouseId,
           warehouseName,
           lastLogin,
           avatar: user.avatarUrl,
@@ -282,7 +285,7 @@ export default function AdminsPage() {
             <button
               onClick={() => {
                 setSelectedAdmin(admin);
-                setShowDetailModal(true);
+                setShowEditModal(true);
               }}
             >
               <span className="material-symbols-outlined text-sm">edit</span>
@@ -423,6 +426,26 @@ export default function AdminsPage() {
             setSelectedAdmin(null);
           }}
           admin={selectedAdmin}
+          onEdit={() => {
+            setShowDetailModal(false);
+            setShowEditModal(true);
+          }}
+        />
+      )}
+
+      {/* Edit Admin Modal */}
+      {selectedAdmin && (
+        <EditAdminModal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedAdmin(null);
+          }}
+          admin={selectedAdmin}
+          onSuccess={async () => {
+            await loadAdmins();
+            showToast.success("Manager updated successfully");
+          }}
         />
       )}
 
@@ -441,4 +464,3 @@ export default function AdminsPage() {
     </div>
   );
 }
-
