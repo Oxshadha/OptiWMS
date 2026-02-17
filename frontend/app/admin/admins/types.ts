@@ -5,6 +5,7 @@ export interface AdminDisplay {
   name: string;
   email: string;
   role: AdminRole;
+  warehouseId?: string;
   warehouseName: string;
   lastLogin: string;
   avatar?: string;
