@@ -7,6 +7,7 @@ import { analyticsApi, WorkerProductivityMetrics, LeaderboardEntry } from "@/lib
 import { SummaryCards } from "@/components/SummaryCards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
+import { StatusChip } from "@/components/StatusChip";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -201,22 +202,17 @@ export default function LaborProductivityPage() {
                     <td>{(metric.totalPicks ?? 0).toLocaleString()}</td>
                     <td>{(metric.averageDwellTime ?? 0).toFixed(1)} min</td>
                     <td>
-                      <span
-                        className={`badge ${
-                          (metric.errorRate ?? 0) < 1
-                            ? "badge-success"
-                            : (metric.errorRate ?? 0) < 3
-                            ? "badge-warning"
-                            : "badge-error"
-                        }`}
-                      >
-                        {(metric.errorRate ?? 0).toFixed(2)}%
-                      </span>
+                      <StatusChip
+                        label={`${(metric.errorRate ?? 0).toFixed(2)}%`}
+                        tone={(metric.errorRate ?? 0) < 1 ? "success" : (metric.errorRate ?? 0) < 3 ? "warning" : "danger"}
+                        showDot
+                      />
                     </td>
                     <td>
-                      <span className="badge badge-success badge-sm">
-                        {(metric.onTimeCompletionRate ?? 0).toFixed(1)}%
-                      </span>
+                      <StatusChip
+                        label={`${(metric.onTimeCompletionRate ?? 0).toFixed(1)}%`}
+                        tone="success"
+                      />
                     </td>
                   </tr>
                 ))}

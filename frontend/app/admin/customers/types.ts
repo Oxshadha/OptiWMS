@@ -1,3 +1,5 @@
+import type { StatusTone } from "@/components/StatusChip";
+
 export interface CustomerDisplay {
   id: string;
   originalId?: string;
@@ -9,8 +11,8 @@ export interface CustomerDisplay {
   joinDate: string;
 }
 
-export const statusClass = (s: string): string => {
-  if (s === "Active") return "badge-success";
-  if (s === "On Hold") return "badge-warning";
-  return "badge-outline";
+export const customerStatusTone = (s: string): StatusTone => {
+  if (s === "Active") return "success";
+  if (s === "On Hold") return "warning";
+  return "neutral";
 };

@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
@@ -39,13 +40,7 @@ export function SupplierDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Type</label>
             <p>
-              <span
-                className={`badge ${
-                  supplier.type === "local" ? "badge-success" : "badge-info"
-                }`}
-              >
-                {supplier.type === "local" ? "Local" : "Foreign"}
-              </span>
+              <StatusChip label={supplier.type === "local" ? "Local" : "Foreign"} tone="neutral" />
             </p>
           </div>
           <div>
@@ -77,13 +72,11 @@ export function SupplierDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span
-                className={`badge ${
-                  supplier.status === "active" ? "badge-success" : "badge-error"
-                }`}
-              >
-                {supplier.status === "active" ? "Active" : "Inactive"}
-              </span>
+              <StatusChip
+                label={supplier.status === "active" ? "Active" : "Inactive"}
+                tone={supplier.status === "active" ? "success" : "danger"}
+                showDot
+              />
             </p>
           </div>
         </div>

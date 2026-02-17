@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAvailableWorkers } from "@/hooks/useTaskAssignment";
 import { Worker, validateTaskAssignment } from "@/lib/task-assignment";
 import { WorkerRole } from "@/lib/worker-roles";
@@ -12,6 +13,20 @@ import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { logger } from "@/lib/utils/logger";
 import { priorityConfig, statusConfig, taskTypeConfig, type TaskDisplay } from "../types";
+
+function getTaskStatusTone(status: string): StatusTone {
+  if (status === "completed") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "in_progress") return "info";
+  return "warning";
+}
+
+function getTaskPriorityTone(priority: string): StatusTone {
+  if (priority === "urgent") return "danger";
+  if (priority === "high") return "primary";
+  if (priority === "normal") return "info";
+  return "neutral";
+}
 
 export function TaskDetailModal({
   isOpen,
@@ -45,7 +60,7 @@ export function TaskDetailModal({
               };
               return (
                 <p>
-                  <span className={`badge ${type.class}`}>{type.label}</span>
+                  <StatusChip label={type.label} tone="neutral" />
                 </p>
               );
             })()}
@@ -61,13 +76,10 @@ export function TaskDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Priority</label>
             <p>
-              <span
-                className={`badge ${
-                  priorityConfig[task.priority as keyof typeof priorityConfig].class
-                }`}
-              >
-                {priorityConfig[task.priority as keyof typeof priorityConfig].label}
-              </span>
+              <StatusChip
+                label={priorityConfig[task.priority as keyof typeof priorityConfig].label}
+                tone={getTaskPriorityTone(task.priority)}
+              />
             </p>
           </div>
           <div>
@@ -79,7 +91,7 @@ export function TaskDetailModal({
               };
               return (
                 <p>
-                  <span className={`badge ${status.class}`}>{status.label}</span>
+                  <StatusChip label={status.label} tone={getTaskStatusTone(task.status)} showDot />
                 </p>
               );
             })()}

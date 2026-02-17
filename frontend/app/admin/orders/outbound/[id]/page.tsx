@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi, Order } from "@/lib/api/orders";
 import { orderItemsApi, OrderItem } from "@/lib/api/orderItems";
 import { customersApi, Customer } from "@/lib/api/customers";
@@ -12,22 +13,35 @@ import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
 const statusConfig = {
-  pending: { label: "Pending", class: "badge-outline" },
-  picking: { label: "Picking", class: "badge-primary" },
-  picked: { label: "Picked", class: "badge-info" },
-  packing: { label: "Packing", class: "badge-warning" },
-  ready_to_ship: { label: "Ready to Ship", class: "badge-success" },
-  shipped: { label: "Shipped", class: "badge-info" },
-  delivered: { label: "Delivered", class: "badge-success" },
-  cancelled: { label: "Cancelled", class: "badge-error" },
+  pending: { label: "Pending" },
+  picking: { label: "Picking" },
+  picked: { label: "Picked" },
+  packing: { label: "Packing" },
+  ready_to_ship: { label: "Ready to Ship" },
+  shipped: { label: "Shipped" },
+  delivered: { label: "Delivered" },
+  cancelled: { label: "Cancelled" },
 };
 
 const priorityConfig = {
-  low: { label: "Low", class: "badge-outline" },
-  normal: { label: "Normal", class: "badge-info" },
-  high: { label: "High", class: "badge-warning" },
-  urgent: { label: "Urgent", class: "badge-error" },
+  low: { label: "Low" },
+  normal: { label: "Normal" },
+  high: { label: "High" },
+  urgent: { label: "Urgent" },
 };
+
+function getOutboundStatusTone(status: string): StatusTone {
+  if (status === "delivered" || status === "ready_to_ship") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "picking" || status === "picked" || status === "packing" || status === "shipped") return "info";
+  return "warning";
+}
+
+function getOutboundPriorityTone(priority: string): StatusTone {
+  if (priority === "urgent") return "danger";
+  if (priority === "high") return "warning";
+  return "neutral";
+}
 
 export default function OutboundOrderDetailPage() {
   const params = useParams();
@@ -175,31 +189,13 @@ export default function OutboundOrderDetailPage() {
               <div>
                 <label className="text-sm text-base-content/60">Status</label>
                 <p>
-                  {status.class === "badge-outline" ? (
-                    <span
-                      className="badge text-xs whitespace-nowrap"
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                    >
-                      {status.label}
-                    </span>
-                  ) : (
-                    <span className={`badge ${status.class}`}>{status.label}</span>
-                  )}
+                  <StatusChip label={status.label} tone={getOutboundStatusTone(order.status || "pending")} showDot />
                 </p>
               </div>
               <div>
                 <label className="text-sm text-base-content/60">Priority</label>
                 <p>
-                  {priority.class === "badge-outline" ? (
-                    <span
-                      className="badge text-xs whitespace-nowrap"
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                    >
-                      {priority.label}
-                    </span>
-                  ) : (
-                    <span className={`badge ${priority.class}`}>{priority.label}</span>
-                  )}
+                  <StatusChip label={priority.label} tone={getOutboundPriorityTone(order.priority || "normal")} />
                 </p>
               </div>
               <div>
@@ -237,9 +233,10 @@ export default function OutboundOrderDetailPage() {
           <div className="card-body">
             <div className="flex items-center justify-between mb-4">
               <h2 className="card-title">Order Items</h2>
-              <div className="badge badge-info">
-                {pickedItems}/{totalItems} Items Picked ({pickedQuantity}/{totalQuantity} Qty)
-              </div>
+              <StatusChip
+                label={`${pickedItems}/${totalItems} Items Picked (${pickedQuantity}/${totalQuantity} Qty)`}
+                tone="neutral"
+              />
             </div>
             <div className="overflow-x-auto overflow-y-auto max-h-[28rem]">
               <table className="table table-zebra">
@@ -264,7 +261,6 @@ export default function OutboundOrderDetailPage() {
                     orderItems.map((item) => {
                       const material = materials.get(item.materialId);
                       const itemStatus = item.status === "picked" || item.pickedQuantity > 0 ? "picked" : "pending";
-                      const statusBadge = itemStatus === "picked" ? "badge-success" : "badge-outline";
 
                       return (
                         <tr key={item.id}>
@@ -295,9 +291,11 @@ export default function OutboundOrderDetailPage() {
                             <div className="font-semibold">{item.pickedQuantity || 0}</div>
                           </td>
                           <td>
-                            <span className={`badge ${statusBadge}`}>
-                              {itemStatus === "picked" ? "Picked" : "Pending"}
-                            </span>
+                            <StatusChip
+                              label={itemStatus === "picked" ? "Picked" : "Pending"}
+                              tone={itemStatus === "picked" ? "success" : "warning"}
+                              showDot
+                            />
                           </td>
                         </tr>
                       );

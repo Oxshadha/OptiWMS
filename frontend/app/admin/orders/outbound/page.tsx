@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { ordersApi } from "@/lib/api/orders";
@@ -19,22 +20,35 @@ import { CreateOutboundOrderModal } from "./components/CreateOutboundOrderModal"
 import { logger } from "@/lib/utils/logger";
 
 const statusConfig = {
-  pending: { label: "Pending", class: "badge-outline" },
-  picking: { label: "Picking", class: "badge-primary" },
-  picked: { label: "Picked", class: "badge-info" },
-  packing: { label: "Packing", class: "badge-warning" },
-  ready_to_ship: { label: "Ready to Ship", class: "badge-success" },
-  shipped: { label: "Shipped", class: "badge-info" },
-  delivered: { label: "Delivered", class: "badge-success" },
-  cancelled: { label: "Cancelled", class: "badge-error" },
+  pending: { label: "Pending" },
+  picking: { label: "Picking" },
+  picked: { label: "Picked" },
+  packing: { label: "Packing" },
+  ready_to_ship: { label: "Ready to Ship" },
+  shipped: { label: "Shipped" },
+  delivered: { label: "Delivered" },
+  cancelled: { label: "Cancelled" },
 };
 
 const priorityConfig = {
-  low: { label: "Low", class: "badge-outline" },
-  normal: { label: "Normal", class: "badge-info" },
-  high: { label: "High", class: "badge-warning" },
-  urgent: { label: "Urgent", class: "badge-error" },
+  low: { label: "Low" },
+  normal: { label: "Normal" },
+  high: { label: "High" },
+  urgent: { label: "Urgent" },
 };
+
+function getOutboundStatusTone(status: string): StatusTone {
+  if (status === "delivered" || status === "ready_to_ship") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "picking" || status === "picked" || status === "packing" || status === "shipped") return "info";
+  return "warning";
+}
+
+function getOutboundPriorityTone(priority: string): StatusTone {
+  if (priority === "urgent") return "danger";
+  if (priority === "high") return "warning";
+  return "neutral";
+}
 
 export default function OutboundOrdersPage() {
   const router = useRouter();
@@ -257,22 +271,12 @@ export default function OutboundOrdersPage() {
       label: "Priority",
       render: (order: OutboundOrderDisplay) => {
         const priority = priorityConfig[order.priority as keyof typeof priorityConfig];
-        if (!priority) {
-          // Fallback for unknown priority
-          return <span className="badge badge-outline">{order.priority || "normal"}</span>;
-        }
-        // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
-        if (priority.class === "badge-outline") {
-          return (
-            <span 
-              className="badge text-xs whitespace-nowrap" 
-              style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-            >
-              {priority.label}
-            </span>
-          );
-        }
-        return <span className={`badge ${priority.class}`}>{priority.label}</span>;
+        return (
+          <StatusChip
+            label={priority?.label || order.priority || "Normal"}
+            tone={getOutboundPriorityTone(order.priority || "normal")}
+          />
+        );
       },
       sortable: true,
     },
@@ -281,22 +285,13 @@ export default function OutboundOrdersPage() {
       label: "Status",
       render: (order: OutboundOrderDisplay) => {
         const status = statusConfig[order.status as keyof typeof statusConfig];
-        if (!status) {
-          // Fallback for unknown status
-          return <span className="badge badge-outline">{order.status}</span>;
-        }
-        // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
-        if (status.class === "badge-outline") {
-          return (
-            <span 
-              className="badge text-xs whitespace-nowrap" 
-              style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-            >
-              {status.label}
-            </span>
-          );
-        }
-        return <span className={`badge ${status.class}`}>{status.label}</span>;
+        return (
+          <StatusChip
+            label={status?.label || order.status}
+            tone={getOutboundStatusTone(order.status)}
+            showDot
+          />
+        );
       },
       sortable: true,
     },

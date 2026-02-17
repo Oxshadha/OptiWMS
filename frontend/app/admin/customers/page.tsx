@@ -5,9 +5,10 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
+import { StatusChip } from "@/components/StatusChip";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
-import { CustomerDisplay, statusClass } from "./types";
+import { CustomerDisplay, customerStatusTone } from "./types";
 import {
   AddCustomerModal,
   CustomerDetailModal,
@@ -349,9 +350,7 @@ export default function CustomersPage() {
                   <td className="text-base-content/70">{c.phone}</td>
                   <td>{c.orders}</td>
                   <td>
-                    <span className={`badge ${statusClass(c.status)}`}>
-                      {c.status}
-                    </span>
+                    <StatusChip label={c.status} tone={customerStatusTone(c.status)} showDot />
                   </td>
                   <td>
                     <div className="flex gap-2">

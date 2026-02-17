@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { sopsApi } from "@/lib/api/sops";
@@ -124,7 +125,7 @@ export default function SOPsPage() {
       key: "category",
       label: "Category",
       render: (sop: SOP) => (
-        <span className="badge badge-outline">{SOP_CATEGORIES[sop.category]}</span>
+        <StatusChip label={SOP_CATEGORIES[sop.category]} tone="neutral" />
       ),
       sortable: true,
     },
@@ -138,7 +139,7 @@ export default function SOPsPage() {
       label: "Status",
       render: (sop: SOP) => {
         const status = statusConfig[sop.status];
-        return <span className={`badge ${status.class}`}>{status.label}</span>;
+        return <StatusChip label={status.label} tone={status.tone} showDot />;
       },
       sortable: true,
     },

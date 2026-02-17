@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
@@ -56,13 +57,7 @@ export function DeliveryPartnerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Type</label>
             <p>
-              <span
-                className={`badge ${
-                  partner.type === "local" ? "badge-success" : "badge-info"
-                }`}
-              >
-                {partner.type === "local" ? "Local" : "Foreign"}
-              </span>
+              <StatusChip label={partner.type === "local" ? "Local" : "Foreign"} tone="neutral" />
             </p>
           </div>
           <div>
@@ -85,13 +80,11 @@ export function DeliveryPartnerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span
-                className={`badge ${
-                  partner.status === "active" ? "badge-success" : "badge-error"
-                }`}
-              >
-                {partner.status === "active" ? "Active" : "Inactive"}
-              </span>
+              <StatusChip
+                label={partner.status === "active" ? "Active" : "Inactive"}
+                tone={partner.status === "active" ? "success" : "danger"}
+                showDot
+              />
             </p>
           </div>
         </div>
@@ -99,9 +92,7 @@ export function DeliveryPartnerDetailModal({
           <label className="text-sm text-base-content/60">Service Areas</label>
           <div className="flex flex-wrap gap-2 mt-2">
             {partner.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">
-                {area}
-              </span>
+              <StatusChip key={idx} label={area} tone="neutral" className="whitespace-nowrap" />
             ))}
           </div>
         </div>
@@ -296,8 +287,7 @@ export function EditDeliveryPartnerModal({
           </label>
           <div className="flex flex-wrap gap-2 mb-2">
             {formData.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary gap-2">
-                {area}
+              <StatusChip key={idx} label={area} tone="neutral" className="gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -306,11 +296,11 @@ export function EditDeliveryPartnerModal({
                       serviceAreas: formData.serviceAreas.filter((_, i) => i !== idx),
                     });
                   }}
-                  className="text-primary-content hover:text-error"
+                  className="text-base-content/60 hover:text-error"
                 >
                   <span className="material-symbols-outlined text-sm">close</span>
                 </button>
-              </span>
+              </StatusChip>
             ))}
           </div>
           <div className="flex gap-2">
@@ -579,8 +569,7 @@ export function CreateDeliveryPartnerModal({
           </label>
           <div className="flex flex-wrap gap-2 mb-2">
             {formData.serviceAreas.map((area, idx) => (
-              <span key={idx} className="badge badge-primary gap-2">
-                {area}
+              <StatusChip key={idx} label={area} tone="neutral" className="gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -589,11 +578,11 @@ export function CreateDeliveryPartnerModal({
                       serviceAreas: formData.serviceAreas.filter((_, i) => i !== idx),
                     });
                   }}
-                  className="text-primary-content hover:text-error"
+                  className="text-base-content/60 hover:text-error"
                 >
                   <span className="material-symbols-outlined text-sm">close</span>
                 </button>
-              </span>
+              </StatusChip>
             ))}
           </div>
           <div className="flex gap-2">

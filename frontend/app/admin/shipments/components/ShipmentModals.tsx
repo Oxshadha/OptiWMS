@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { deliveryPartnersApi } from "@/lib/api/deliveryPartners";
 import { logger } from "@/lib/utils/logger";
-import { ShipmentDisplay, statusClass } from "../types";
+import { ShipmentDisplay, shipmentStatusTone } from "../types";
 
 export function CreateShipmentModal({ onClose }: { onClose: () => void }) {
   const [formData, setFormData] = useState({
@@ -332,18 +333,13 @@ export function ShipmentDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusClass(shipment.status)}`}>{shipment.status}</span>
+              <StatusChip label={shipment.status} tone={shipmentStatusTone(shipment.status)} showDot />
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Carrier</label>
             <p>
-              <span
-                className="badge text-xs whitespace-nowrap"
-                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-              >
-                {shipment.carrier}
-              </span>
+              <StatusChip label={shipment.carrier} tone="neutral" className="whitespace-nowrap" />
             </p>
           </div>
           <div>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { usersApi, User } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -55,6 +56,20 @@ const priorityConfig = {
   high: { label: "High", class: "badge-warning" },
   urgent: { label: "Urgent", class: "badge-error" },
 };
+
+function getTaskStatusTone(status: string): StatusTone {
+  if (status === "completed") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "in_progress") return "info";
+  return "warning";
+}
+
+function getTaskPriorityTone(priority: string): StatusTone {
+  if (priority === "urgent") return "danger";
+  if (priority === "high") return "primary";
+  if (priority === "normal") return "info";
+  return "neutral";
+}
 
 function toDisplayTask(
   task: Task,
@@ -269,12 +284,7 @@ export default function TaskDetailPage() {
           <div>
             <label className="text-sm text-base-content/60">Task Type</label>
             <p>
-              <span className={`badge ${taskType.class}`}>
-                <span className="material-symbols-outlined text-xs mr-1">
-                  {taskType.icon}
-                </span>
-                {taskType.label}
-              </span>
+              <StatusChip label={taskType.label} tone="neutral" />
             </p>
           </div>
           <div>
@@ -288,13 +298,13 @@ export default function TaskDetailPage() {
           <div>
             <label className="text-sm text-base-content/60">Priority</label>
             <p>
-              <span className={`badge ${priority.class}`}>{priority.label}</span>
+              <StatusChip label={priority.label} tone={getTaskPriorityTone(task.priority)} />
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${status.class}`}>{status.label}</span>
+              <StatusChip label={status.label} tone={getTaskStatusTone(task.status)} showDot />
             </p>
           </div>
           <div>
