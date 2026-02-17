@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Image from "next/image";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
 import {
   WorkerRole,
   getAllWorkerRoles,
@@ -92,19 +93,11 @@ export function WorkerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span
-                className={`badge ${
-                  statusConfig[
-                    worker.availabilityStatus as keyof typeof statusConfig
-                  ].class
-                }`}
-              >
-                {
-                  statusConfig[
-                    worker.availabilityStatus as keyof typeof statusConfig
-                  ].label
-                }
-              </span>
+              <StatusChip
+                label={statusConfig[worker.availabilityStatus as keyof typeof statusConfig].label}
+                tone={statusConfig[worker.availabilityStatus as keyof typeof statusConfig].tone}
+                showDot
+              />
             </p>
             {availabilityDetails && (
               <p className="text-xs text-base-content/60 mt-1">

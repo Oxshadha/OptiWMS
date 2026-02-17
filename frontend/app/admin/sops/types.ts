@@ -1,3 +1,5 @@
+import type { StatusTone } from "@/components/StatusChip";
+
 export type SOPCategory =
   | "equipment_operation"
   | "cycle_count"
@@ -28,8 +30,8 @@ export const SOP_CATEGORIES: Record<SOPCategory, string> = {
   general: "General",
 };
 
-export const statusConfig: Record<SOP["status"], { label: string; class: string }> = {
-  active: { label: "Active", class: "badge-success" },
-  draft: { label: "Draft", class: "badge-warning" },
-  archived: { label: "Archived", class: "badge-error" },
+export const statusConfig: Record<SOP["status"], { label: string; tone: StatusTone }> = {
+  active: { label: "Active", tone: "success" },
+  draft: { label: "Draft", tone: "warning" },
+  archived: { label: "Archived", tone: "danger" },
 };

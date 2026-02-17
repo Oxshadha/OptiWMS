@@ -1,4 +1,5 @@
 import { WorkerRole } from "@/lib/worker-roles";
+import type { StatusTone } from "@/components/StatusChip";
 
 export interface WorkerDisplay {
   id: string;
@@ -17,7 +18,7 @@ export interface WorkerDisplay {
 }
 
 export const statusConfig = {
-  available: { label: "Available", class: "badge-success" },
-  busy: { label: "Busy", class: "badge-warning" },
-  offline: { label: "Offline", class: "badge-error" },
+  available: { label: "Available", tone: "success" as StatusTone },
+  busy: { label: "Busy", tone: "warning" as StatusTone },
+  offline: { label: "Offline", tone: "danger" as StatusTone },
 } as const;

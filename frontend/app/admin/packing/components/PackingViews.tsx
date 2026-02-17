@@ -1,4 +1,5 @@
-import { statusClass, type PackingRecord } from "../types";
+import { StatusChip } from "@/components/StatusChip";
+import { packingStatusTone, type PackingRecord } from "../types";
 
 interface PackingViewsProps {
   viewMode: "queue" | "monitor" | "history";
@@ -47,16 +48,17 @@ export function PackingViews({
                   </td>
                   <td className="text-base-content/70">{record.customer}</td>
                   <td>
-                    {record.priority === "express" ? (
-                      <span className="badge badge-error badge-sm">Express</span>
-                    ) : (
-                      <span className="badge badge-outline badge-sm">Normal</span>
-                    )}
+                    <StatusChip
+                      label={record.priority === "express" ? "Express" : "Normal"}
+                      tone={record.priority === "express" ? "danger" : "neutral"}
+                    />
                   </td>
                   <td>
-                    <span className={`badge ${statusClass(record.status)} whitespace-nowrap`}>
-                      {record.status.replace("_", " ").toUpperCase()}
-                    </span>
+                    <StatusChip
+                      label={record.status.replace("_", " ").toUpperCase()}
+                      tone={packingStatusTone(record.status)}
+                      showDot
+                    />
                   </td>
                   <td className="text-base-content/70">{new Date(record.createdAt).toLocaleDateString()}</td>
                   <td>
@@ -95,7 +97,7 @@ export function PackingViews({
             <div key={record.id} className="card bg-base-100 border border-base-300 p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="font-semibold text-base-content">{record.orderNumber}</span>
-                <span className="badge badge-warning">In Progress</span>
+                <StatusChip label="In Progress" tone="warning" showDot />
               </div>
               <div className="text-sm text-base-content/60 mb-2">Packer: {record.packerName || "Unassigned"}</div>
               <div className="text-sm text-base-content/60 mb-2">Customer: {record.customer}</div>
@@ -143,7 +145,7 @@ export function PackingViews({
                 </td>
                 <td className="text-base-content/70">{record.customer}</td>
                 <td>
-                  <span className="badge badge-outline badge-sm capitalize">{record.packagingType || "N/A"}</span>
+                  <StatusChip label={record.packagingType || "N/A"} tone="neutral" className="capitalize" />
                 </td>
                 <td>
                   <span className="font-semibold text-base-content">{record.chargeableWeight.toFixed(2)}</span>

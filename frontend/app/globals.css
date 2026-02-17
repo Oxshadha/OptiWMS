@@ -20,6 +20,83 @@ body {
   @apply inline-flex items-center justify-center rounded-full px-3 py-1 text-sm font-medium;
 }
 
+/* Status chips: use semantic, minimal, outline-first styling across admin pages */
+.status-chip {
+  @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold leading-5;
+}
+
+.status-chip--neutral {
+  @apply border-base-300 bg-base-200 text-base-content;
+}
+
+.status-chip--info {
+  @apply border-info/50 bg-info/10 text-info;
+}
+
+.status-chip--success {
+  @apply border-success/50 bg-success/10 text-success;
+}
+
+.status-chip--warning {
+  @apply border-warning/60 bg-warning/10 text-warning;
+}
+
+.status-chip--danger {
+  @apply border-error/60 bg-error/10 text-error;
+}
+
+.status-chip--primary {
+  @apply border-primary/50 bg-primary/10 text-primary;
+}
+
+.status-chip__dot {
+  @apply h-1.5 w-1.5 rounded-full bg-current;
+}
+
+/* Global badge normalization:
+   - default labels should use grey surface (not white)
+   - semantic badges should be subtle tint + border, not heavy fills
+*/
+.badge {
+  @apply border border-base-300 bg-base-200 text-base-content;
+}
+
+.badge-ghost {
+  @apply border border-base-300 bg-base-200 text-base-content;
+}
+
+.badge-primary {
+  @apply border border-primary/40 bg-primary/10 text-primary;
+}
+
+.badge-accent {
+  @apply border border-accent/40 bg-accent/10 text-accent;
+}
+
+.badge-neutral {
+  @apply border border-neutral/30 bg-base-200 text-base-content;
+}
+
+.badge-info {
+  @apply border border-info/50 bg-info/10 text-info;
+}
+
+.badge-success {
+  @apply border border-success/50 bg-success/10 text-success;
+}
+
+.badge-warning {
+  @apply border border-warning/60 bg-warning/10 text-warning;
+}
+
+.badge-error {
+  @apply border border-error/60 bg-error/10 text-error;
+}
+
+.badge-outline {
+  @apply border border-base-300 bg-base-200 text-base-content;
+}
+
 .material-symbols-outlined {
   font-variation-settings:
     'FILL' 0,
@@ -70,5 +147,3 @@ body {
 .animate-shake {
   animation: shake 0.5s ease-in-out;
 }
-
-

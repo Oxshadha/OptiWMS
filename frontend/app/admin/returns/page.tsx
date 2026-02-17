@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import Link from "next/link";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
@@ -251,21 +252,22 @@ export default function ReturnsPage() {
       key: "returnFlow",
       label: "Flow",
       render: (returnItem: ReturnDisplay) => (
-        <span
-          className={`badge ${
+        <StatusChip
+          label={
             returnItem.returnFlow === "inbound"
-              ? "badge-info"
+              ? "Inbound"
               : returnItem.returnFlow === "outbound"
-                ? "badge-secondary"
-                : "badge-outline"
-          }`}
-        >
-          {returnItem.returnFlow === "inbound"
-            ? "Inbound"
-            : returnItem.returnFlow === "outbound"
-              ? "Outbound"
-              : "Unknown"}
-        </span>
+                ? "Outbound"
+                : "Unknown"
+          }
+          tone={
+            returnItem.returnFlow === "inbound"
+              ? "info"
+              : returnItem.returnFlow === "outbound"
+                ? "success"
+                : "neutral"
+          }
+        />
       ),
       sortable: true,
     },
@@ -324,9 +326,9 @@ export default function ReturnsPage() {
         const status =
           statusConfig[returnItem.status as keyof typeof statusConfig];
         if (!status) {
-          return <span className="badge badge-outline">{returnItem.status}</span>;
+          return <StatusChip label={returnItem.status} tone="neutral" />;
         }
-        return <span className={`badge ${status.class}`}>{status.label}</span>;
+        return <StatusChip label={status.label} tone={status.tone} showDot />;
       },
       sortable: true,
     },
@@ -341,13 +343,9 @@ export default function ReturnsPage() {
             returnItem.resolution as keyof typeof resolutionConfig
           ];
         if (!resolution) {
-          return <span className="badge badge-outline">{returnItem.resolution}</span>;
+          return <StatusChip label={returnItem.resolution} tone="neutral" />;
         }
-        return (
-          <span className={`badge ${resolution.class}`}>
-            {resolution.label}
-          </span>
-        );
+        return <StatusChip label={resolution.label} tone={resolution.tone} />;
       },
       sortable: true,
     },

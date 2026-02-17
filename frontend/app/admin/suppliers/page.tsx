@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
@@ -174,13 +175,7 @@ export default function SuppliersPage() {
       key: "type",
       label: "Type",
       render: (supplier: (typeof suppliers)[0]) => (
-        <span
-          className={`badge ${
-            supplier.type === "local" ? "badge-success" : "badge-info"
-          }`}
-        >
-          {supplier.type === "local" ? "Local" : "Foreign"}
-        </span>
+        <StatusChip label={supplier.type === "local" ? "Local" : "Foreign"} tone="neutral" />
       ),
       sortable: true,
     },
@@ -226,13 +221,11 @@ export default function SuppliersPage() {
       key: "status",
       label: "Status",
       render: (supplier: (typeof suppliers)[0]) => (
-        <span
-          className={`badge ${
-            supplier.status === "active" ? "badge-success" : "badge-error"
-          }`}
-        >
-          {supplier.status === "active" ? "Active" : "Inactive"}
-        </span>
+        <StatusChip
+          label={supplier.status === "active" ? "Active" : "Inactive"}
+          tone={supplier.status === "active" ? "success" : "danger"}
+          showDot
+        />
       ),
     },
   ];

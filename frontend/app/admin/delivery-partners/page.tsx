@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
@@ -240,13 +241,7 @@ export default function DeliveryPartnersPage() {
       key: "type",
       label: "Type",
       render: (partner: DeliveryPartnerDisplay) => (
-        <span
-          className={`badge ${
-            partner.type === "local" ? "badge-success" : "badge-info"
-          }`}
-        >
-          {partner.type === "local" ? "Local" : "Foreign"}
-        </span>
+        <StatusChip label={partner.type === "local" ? "Local" : "Foreign"} tone="neutral" />
       ),
       sortable: true,
     },
@@ -256,14 +251,10 @@ export default function DeliveryPartnersPage() {
       render: (partner: DeliveryPartnerDisplay) => (
         <div className="flex flex-wrap gap-1">
           {partner.serviceAreas.slice(0, 2).map((area, idx) => (
-            <span key={idx} className="badge badge-primary badge-sm whitespace-nowrap">
-              {area}
-            </span>
+            <StatusChip key={idx} label={area} tone="neutral" className="whitespace-nowrap" />
           ))}
           {partner.serviceAreas.length > 2 && (
-            <span className="badge badge-info badge-sm whitespace-nowrap">
-              +{partner.serviceAreas.length - 2}
-            </span>
+            <StatusChip label={`+${partner.serviceAreas.length - 2}`} tone="neutral" className="whitespace-nowrap" />
           )}
         </div>
       ),
@@ -296,9 +287,11 @@ export default function DeliveryPartnersPage() {
       key: "status",
       label: "Status",
       render: (partner: DeliveryPartnerDisplay) => (
-        <span className={`badge ${partner.status === "active" ? "badge-success" : "badge-error"}`}>
-          {partner.status === "active" ? "Active" : "Inactive"}
-        </span>
+        <StatusChip
+          label={partner.status === "active" ? "Active" : "Inactive"}
+          tone={partner.status === "active" ? "success" : "danger"}
+          showDot
+        />
       ),
     },
   ];

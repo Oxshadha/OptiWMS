@@ -1,7 +1,8 @@
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { StatusChip } from "@/components/StatusChip";
 import type { User } from "@/lib/api/users";
-import { statusClass, type PackingRecord } from "../types";
+import { packingStatusTone, type PackingRecord } from "../types";
 
 interface PackingModalsProps {
   selectedRecord: PackingRecord | null;
@@ -41,9 +42,11 @@ export function PackingModals({
               <div>
                 <label className="text-sm text-base-content/60">Status</label>
                 <p>
-                  <span className={`badge ${statusClass(selectedRecord.status)}`}>
-                    {selectedRecord.status.replace("_", " ").toUpperCase()}
-                  </span>
+                  <StatusChip
+                    label={selectedRecord.status.replace("_", " ").toUpperCase()}
+                    tone={packingStatusTone(selectedRecord.status)}
+                    showDot
+                  />
                 </p>
               </div>
               <div>
@@ -53,11 +56,10 @@ export function PackingModals({
               <div>
                 <label className="text-sm text-base-content/60">Priority</label>
                 <p>
-                  {selectedRecord.priority === "express" ? (
-                    <span className="badge badge-error">Express</span>
-                  ) : (
-                    <span className="badge badge-outline">Normal</span>
-                  )}
+                  <StatusChip
+                    label={selectedRecord.priority === "express" ? "Express" : "Normal"}
+                    tone={selectedRecord.priority === "express" ? "danger" : "neutral"}
+                  />
                 </p>
               </div>
             </div>

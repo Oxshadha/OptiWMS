@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { returnsApi, Return as ApiReturn } from "@/lib/api/returns";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -228,12 +229,12 @@ export function ReturnDetailModal({
 }) {
   const status = statusConfig[returnItem.status as keyof typeof statusConfig] || {
     label: returnItem.status,
-    class: "badge-outline",
+    tone: "neutral" as const,
   };
   const resolution = returnItem.resolution
     ? resolutionConfig[returnItem.resolution as keyof typeof resolutionConfig] || {
         label: returnItem.resolution,
-        class: "badge-outline",
+        tone: "neutral" as const,
       }
     : null;
 
@@ -260,7 +261,7 @@ export function ReturnDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${status.class}`}>{status.label}</span>
+              <StatusChip label={status.label} tone={status.tone} showDot />
             </p>
           </div>
           <div>
@@ -318,7 +319,7 @@ export function ReturnDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Resolution</label>
               <p>
-                <span className={`badge ${resolution.class}`}>{resolution.label}</span>
+                <StatusChip label={resolution.label} tone={resolution.tone} />
               </p>
             </div>
           )}

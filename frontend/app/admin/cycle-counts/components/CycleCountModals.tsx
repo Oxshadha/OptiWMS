@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi, type User } from "@/lib/api/users";
@@ -60,6 +61,13 @@ function toWorkerLabel(user: User): string {
   return fullName || user.username || user.employeeId || user.id;
 }
 
+function getCycleCountStatusTone(status: string): StatusTone {
+  if (status === "completed") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "in_progress" || status === "recount_required") return "info";
+  return "warning";
+}
+
 // Cycle Count Detail Modal
 export function CycleCountDetailModal({
   isOpen,
@@ -89,9 +97,10 @@ export function CycleCountDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Count Type</label>
             <p>
-              <span className={`badge ${countTypeConfig[count.countType as keyof typeof countTypeConfig].class}`}>
-                {countTypeConfig[count.countType as keyof typeof countTypeConfig].label}
-              </span>
+              <StatusChip
+                label={countTypeConfig[count.countType as keyof typeof countTypeConfig].label}
+                tone="neutral"
+              />
             </p>
           </div>
           <div>
@@ -105,18 +114,11 @@ export function CycleCountDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              {statusConfig[count.status as keyof typeof statusConfig].class === "badge-outline" ? (
-                <span 
-                  className="badge text-xs whitespace-nowrap" 
-                  style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                >
-                  {statusConfig[count.status as keyof typeof statusConfig].label}
-                </span>
-              ) : (
-                <span className={`badge ${statusConfig[count.status as keyof typeof statusConfig].class}`}>
-                  {statusConfig[count.status as keyof typeof statusConfig].label}
-                </span>
-              )}
+              <StatusChip
+                label={statusConfig[count.status as keyof typeof statusConfig].label}
+                tone={getCycleCountStatusTone(count.status)}
+                showDot
+              />
             </p>
           </div>
           <div>
@@ -140,7 +142,7 @@ export function CycleCountDetailModal({
             <label className="text-sm text-base-content/60">Assigned Workers</label>
             <div className="flex flex-wrap gap-2 mt-1">
               {count.assignedWorkers.map((worker, idx) => (
-                <span key={idx} className="badge badge-primary badge-sm">{worker}</span>
+                <StatusChip key={idx} label={worker} tone="neutral" />
               ))}
             </div>
           </div>

@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import clsx from "clsx";
+import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
 import { ordersApi } from "@/lib/api/orders";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CreateShipmentModal, ShipmentDetailModal } from "./components/ShipmentModals";
-import { ShipmentDisplay, statusClass, tabs } from "./types";
+import { ShipmentDisplay, shipmentStatusTone, tabs } from "./types";
 
 export default function ShipmentsPage() {
   const [activeTab, setActiveTab] = useState("All");
@@ -396,17 +397,12 @@ export default function ShipmentsPage() {
                     </button>
                   </td>
                   <td>
-                    <span 
-                      className="badge text-xs whitespace-nowrap" 
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                    >
-                      {s.carrier}
-                    </span>
+                    <StatusChip label={s.carrier} tone="neutral" className="whitespace-nowrap" />
                   </td>
                   <td className="text-base-content/70">{s.destination}</td>
                   <td>{s.weight}</td>
                   <td>
-                    <span className={`badge ${statusClass(s.status)}`}>{s.status}</span>
+                    <StatusChip label={s.status} tone={shipmentStatusTone(s.status)} showDot />
                   </td>
                   <td className="text-base-content/70">{s.eta}</td>
                   <td>

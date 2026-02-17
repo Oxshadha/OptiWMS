@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { StatusChip } from "@/components/StatusChip";
 import { sopsApi } from "@/lib/api/sops";
 import { showToast } from "@/lib/utils/toast";
 import { SOP, SOP_CATEGORIES, SOPCategory, statusConfig } from "../types";
@@ -363,7 +364,7 @@ export function SOPDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Category</label>
             <p>
-              <span className="badge badge-outline">{SOP_CATEGORIES[sop.category]}</span>
+              <StatusChip label={SOP_CATEGORIES[sop.category]} tone="neutral" />
             </p>
           </div>
           <div>
@@ -373,9 +374,7 @@ export function SOPDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusConfig[sop.status].class}`}>
-                {statusConfig[sop.status].label}
-              </span>
+              <StatusChip label={statusConfig[sop.status].label} tone={statusConfig[sop.status].tone} showDot />
             </p>
           </div>
           <div>
