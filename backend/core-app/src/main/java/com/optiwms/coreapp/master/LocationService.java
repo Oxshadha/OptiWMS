@@ -1,11 +1,13 @@
 package com.optiwms.coreapp.master;
 
 import com.optiwms.domain.master.Location;
+import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.LocationEntity;
 import com.optiwms.infra.master.LocationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -14,9 +16,11 @@ import java.util.stream.Collectors;
 public class LocationService {
 
     private final LocationRepository repository;
+    private final InventoryItemRepository inventoryItemRepository;
 
-    public LocationService(LocationRepository repository) {
+    public LocationService(LocationRepository repository, InventoryItemRepository inventoryItemRepository) {
         this.repository = repository;
+        this.inventoryItemRepository = inventoryItemRepository;
     }
 
     public List<Location> listAll() {
@@ -59,6 +63,11 @@ public class LocationService {
 
     public List<Location> findAvailableByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseIdAndIsActive(warehouseId, true).stream()
+                .filter(entity -> {
+                    String zoneType = entity.getZoneType();
+                    return "STORAGE".equals(zoneType) || "storage".equals(entity.getLocationType());
+                })
+                .filter(entity -> "active".equals(normalizeRackStatus(entity.getRackStatus())))
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -106,6 +115,15 @@ public class LocationService {
     public Location update(UUID id, Location location) {
         LocationEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Location not found: " + id));
+
+        String currentStatus = normalizeRackStatus(entity.getRackStatus());
+        String requestedStatus = normalizeRackStatus(location.getRackStatus() != null ? location.getRackStatus() : entity.getRackStatus());
+        if (!currentStatus.equals(requestedStatus)
+                && isBlockedRackStatus(requestedStatus)
+                && hasInventoryInRack(entity)) {
+            throw new RuntimeException("Cannot set rack to '" + requestedStatus
+                    + "' because this rack currently has stock. Move stock out first.");
+        }
 
         entity.setLocationCode(location.getLocationCode());
         entity.setArea(location.getArea());
@@ -163,5 +181,37 @@ public class LocationService {
         location.setMaxPalletCapacity(entity.getMaxPalletCapacity());
         location.setCurrentPalletCount(entity.getCurrentPalletCount());
         return location;
+    }
+
+    private String normalizeRackStatus(String rackStatus) {
+        if (rackStatus == null || rackStatus.isBlank()) {
+            return "active";
+        }
+        String normalized = rackStatus.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if ("outofservice".equals(normalized)) {
+            return "out_of_service";
+        }
+        return normalized;
+    }
+
+    private boolean isBlockedRackStatus(String rackStatus) {
+        return "reserved".equals(rackStatus)
+                || "maintenance".equals(rackStatus)
+                || "out_of_service".equals(rackStatus);
+    }
+
+    private boolean hasInventoryInRack(LocationEntity location) {
+        List<String> rackLocationCodes = repository.findByWarehouseId(location.getWarehouseId()).stream()
+                .filter(loc -> loc.getArea().equals(location.getArea())
+                        && loc.getRowNumber().equals(location.getRowNumber())
+                        && loc.getBayNumber().equals(location.getBayNumber()))
+                .map(LocationEntity::getLocationCode)
+                .collect(Collectors.toList());
+
+        if (rackLocationCodes.isEmpty()) {
+            return false;
+        }
+
+        return inventoryItemRepository.existsByLocationCodeInAndQuantityGreaterThan(rackLocationCodes, 0);
     }
 }
