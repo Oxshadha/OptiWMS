@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi } from "@/lib/api/suppliers";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -15,6 +16,13 @@ import {
   EditInboundOrderModal,
   InboundOrderDetailModal,
 } from "./components/InboundOrderModals";
+
+function getInboundStatusTone(status: string): StatusTone {
+  if (status === "completed") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "arrived" || status === "receiving" || status === "putaway") return "info";
+  return "warning";
+}
 
 export default function InboundOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -299,16 +307,7 @@ export default function InboundOrdersPage() {
                     <td className="text-base-content/70">{order.orderDate}</td>
                     <td className="text-base-content/70">{order.expectedDelivery}</td>
                     <td>
-                      {status.class === "badge-outline" ? (
-                        <span 
-                          className="badge text-xs whitespace-nowrap" 
-                          style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                        >
-                          {status.label}
-                        </span>
-                      ) : (
-                        <span className={`badge ${status.class}`}>{status.label}</span>
-                      )}
+                      <StatusChip label={status.label} tone={getInboundStatusTone(order.status)} showDot />
                     </td>
                     <td>{order.totalItems}</td>
                     <td>

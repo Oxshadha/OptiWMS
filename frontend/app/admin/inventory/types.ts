@@ -28,11 +28,11 @@ export interface InventoryDisplayItem {
   palletRequirement?: string;
 }
 
-export const statusClass = (s: string) => {
-  if (s === "Available") return "badge-success";
-  if (s === "Low") return "badge-warning";
-  if (s === "Out of Stock") return "badge-error";
-  return "badge-outline";
+export const inventoryStatusTone = (s: string): "success" | "warning" | "danger" | "neutral" => {
+  if (s === "Available") return "success";
+  if (s === "Low") return "warning";
+  if (s === "Out of Stock") return "danger";
+  return "neutral";
 };
 
 export const formatDecimal = (value: number): string => {

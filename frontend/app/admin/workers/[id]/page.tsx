@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
@@ -35,10 +36,10 @@ interface WorkerDetailDisplay {
   status: string;
 }
 
-const statusConfig = {
-  available: { label: "Available", class: "badge-success" },
-  busy: { label: "Busy", class: "badge-warning" },
-  offline: { label: "Offline", class: "badge-error" },
+const statusConfig: Record<string, { label: string; tone: StatusTone }> = {
+  available: { label: "Available", tone: "success" },
+  busy: { label: "Busy", tone: "warning" },
+  offline: { label: "Offline", tone: "danger" },
 };
 
 export default function WorkerDetailPage() {
@@ -393,12 +394,12 @@ export default function WorkerDetailPage() {
               <label className="text-sm text-base-content/60">Warehouse</label>
               <p className="font-semibold">{worker.warehouseName}</p>
             </div>
-            <div>
-              <label className="text-sm text-base-content/60">Status</label>
-              <p>
-                <span className={`badge ${status.class}`}>{status.label}</span>
-              </p>
-            </div>
+          <div>
+            <label className="text-sm text-base-content/60">Status</label>
+            <p>
+              <StatusChip label={status.label} tone={status.tone} showDot />
+            </p>
+          </div>
             <div>
               <label className="text-sm text-base-content/60">Shift</label>
               <p className="font-semibold">

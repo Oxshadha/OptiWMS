@@ -1,4 +1,5 @@
-import { statusClass, type StockTransfer } from "../types";
+import { StatusChip } from "@/components/StatusChip";
+import { transferStatusTone, type StockTransfer } from "../types";
 
 interface StockTransferTableProps {
   transfers: StockTransfer[];
@@ -36,9 +37,10 @@ export function StockTransferTable({
                   <span className="font-semibold text-base-content">{transfer.transferNumber}</span>
                 </td>
                 <td>
-                  <span className="badge badge-outline badge-sm">
-                    {transfer.transferType === "intra_warehouse" ? "Intra" : "Inter"}
-                  </span>
+                  <StatusChip
+                    label={transfer.transferType === "intra_warehouse" ? "Intra" : "Inter"}
+                    tone="neutral"
+                  />
                 </td>
                 <td>
                   <div>
@@ -57,9 +59,11 @@ export function StockTransferTable({
                   </div>
                 </td>
                 <td>
-                  <span className={`badge ${statusClass(transfer.status)} whitespace-nowrap`}>
-                    {transfer.status.replace("_", " ").toUpperCase()}
-                  </span>
+                  <StatusChip
+                    label={transfer.status.replace("_", " ").toUpperCase()}
+                    tone={transferStatusTone(transfer.status)}
+                    showDot
+                  />
                 </td>
                 <td className="text-base-content/70">{new Date(transfer.createdAt).toLocaleDateString()}</td>
                 <td>

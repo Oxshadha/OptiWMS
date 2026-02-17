@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { operationsApi } from "@/lib/api/operations";
@@ -266,7 +267,7 @@ export default function CycleCountsPage() {
       label: "Count Type",
       render: (count: CycleCountDisplay) => {
         const type = countTypeConfig[count.countType as keyof typeof countTypeConfig];
-        return <span className={`badge text-xs whitespace-nowrap ${type.class}`}>{type.label}</span>;
+        return <StatusChip label={type.label} tone="neutral" />;
       },
       sortable: true,
     },
@@ -288,18 +289,15 @@ export default function CycleCountsPage() {
         const status =
           statusConfig[count.status as keyof typeof statusConfig] ||
           { label: count.status, class: "badge-outline" };
-        // Only apply #EEEEEE to badge-outline (white/neutral), keep colored badges
-        if (status.class === "badge-outline") {
-          return (
-            <span 
-              className="badge text-xs whitespace-nowrap" 
-              style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-            >
-              {status.label}
-            </span>
-          );
-        }
-        return <span className={`badge text-xs whitespace-nowrap ${status.class}`}>{status.label}</span>;
+        const tone: StatusTone =
+          count.status === "completed"
+            ? "success"
+            : count.status === "cancelled"
+              ? "danger"
+              : count.status === "in_progress" || count.status === "recount_required"
+                ? "info"
+                : "warning";
+        return <StatusChip label={status.label} tone={tone} showDot />;
       },
       sortable: true,
     },

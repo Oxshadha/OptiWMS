@@ -1,3 +1,5 @@
+import type { StatusTone } from "@/components/StatusChip";
+
 export type PackingStatus = "pending" | "in_progress" | "packed" | "shipped";
 
 export type PackingPriority = "normal" | "express";
@@ -23,9 +25,9 @@ export interface PackingRecord {
   warehouseName?: string;
 }
 
-export const statusClass = (status: PackingStatus): string => {
-  if (status === "shipped") return "badge-success";
-  if (status === "packed") return "badge-info";
-  if (status === "in_progress") return "badge-warning";
-  return "badge-outline";
+export const packingStatusTone = (status: PackingStatus): StatusTone => {
+  if (status === "shipped") return "success";
+  if (status === "packed") return "info";
+  if (status === "in_progress") return "warning";
+  return "neutral";
 };

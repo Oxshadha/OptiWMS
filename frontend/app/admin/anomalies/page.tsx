@@ -5,6 +5,7 @@ import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { anomaliesApi } from "@/lib/api/anomalies";
@@ -36,18 +37,18 @@ interface AnomalyDisplay {
   resolvedAt: string | null;
 }
 
-const severityConfig: Record<Severity, { label: string; class: string }> = {
-  low: { label: "Low", class: "badge-outline" },
-  medium: { label: "Medium", class: "badge-warning" },
-  high: { label: "High", class: "badge-error" },
-  critical: { label: "Critical", class: "badge-error" },
+const severityConfig: Record<Severity, { label: string; tone: StatusTone }> = {
+  low: { label: "Low", tone: "neutral" },
+  medium: { label: "Medium", tone: "warning" },
+  high: { label: "High", tone: "danger" },
+  critical: { label: "Critical", tone: "danger" },
 };
 
-const statusConfig: Record<Status, { label: string; class: string }> = {
-  open: { label: "Open", class: "badge-error" },
-  investigating: { label: "Investigating", class: "badge-warning" },
-  resolved: { label: "Resolved", class: "badge-success" },
-  false_positive: { label: "False Positive", class: "badge-outline" },
+const statusConfig: Record<Status, { label: string; tone: StatusTone }> = {
+  open: { label: "Open", tone: "danger" },
+  investigating: { label: "Investigating", tone: "warning" },
+  resolved: { label: "Resolved", tone: "success" },
+  false_positive: { label: "False Positive", tone: "neutral" },
 };
 
 const detectedByConfig: Record<AnomalyDisplay["detectedBy"], { label: string; icon: string }> = {
@@ -261,9 +262,10 @@ export default function AnomaliesPage() {
       key: "domain",
       label: "Domain",
       render: (anomaly: AnomalyDisplay) => (
-        <span className="badge badge-outline text-xs whitespace-nowrap">
-          {anomaly.domain === "cycle_count" ? "Cycle Count" : anomaly.domain === "picking" ? "Picking" : "Other"}
-        </span>
+        <StatusChip
+          label={anomaly.domain === "cycle_count" ? "Cycle Count" : anomaly.domain === "picking" ? "Picking" : "Other"}
+          tone="neutral"
+        />
       ),
       sortable: true,
     },
@@ -271,12 +273,7 @@ export default function AnomaliesPage() {
       key: "anomalyType",
       label: "Type",
       render: (anomaly: AnomalyDisplay) => (
-        <span
-          className="badge badge-outline capitalize text-xs whitespace-nowrap"
-          style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-        >
-          {anomaly.anomalyTypeLabel}
-        </span>
+        <StatusChip label={anomaly.anomalyTypeLabel} tone="neutral" className="capitalize" />
       ),
       sortable: true,
     },
@@ -285,14 +282,7 @@ export default function AnomaliesPage() {
       label: "Severity",
       render: (anomaly: AnomalyDisplay) => {
         const severity = severityConfig[anomaly.severity];
-        if (severity.class === "badge-outline") {
-          return (
-            <span className="badge text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
-              {severity.label}
-            </span>
-          );
-        }
-        return <span className={`badge ${severity.class}`}>{severity.label}</span>;
+        return <StatusChip label={severity.label} tone={severity.tone} showDot />;
       },
       sortable: true,
     },
@@ -334,14 +324,7 @@ export default function AnomaliesPage() {
       label: "Status",
       render: (anomaly: AnomalyDisplay) => {
         const status = statusConfig[anomaly.status];
-        if (status.class === "badge-outline") {
-          return (
-            <span className="badge text-xs whitespace-nowrap" style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}>
-              {status.label}
-            </span>
-          );
-        }
-        return <span className={`badge text-xs whitespace-nowrap ${status.class}`}>{status.label}</span>;
+        return <StatusChip label={status.label} tone={status.tone} showDot />;
       },
       sortable: true,
     },
