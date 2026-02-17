@@ -55,7 +55,7 @@ export function WarehouseLayoutCard({
         <span className="material-symbols-outlined text-base-content/60 text-sm mt-0.5">info</span>
         <p className="text-sm text-base-content/70 leading-relaxed">
           {canEditRacks
-            ? "Click on any rack to view details, or right-click to edit status and description"
+            ? "Click an active rack to view levels. Click a reserved/maintenance/out-of-service rack to edit its status."
             : "Click on any rack to view its side elevation and all vertical levels"}
         </p>
       </div>

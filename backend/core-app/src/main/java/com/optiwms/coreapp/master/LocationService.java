@@ -40,8 +40,9 @@ public class LocationService {
     /**
      * Get only storage locations (exclude staging, receiving, shipment, packing areas)
      * For warehouse map visualization - only show racks, not staging areas
-     * 
-     * Simplified: Only show locations with zoneType = 'STORAGE' and isActive = true
+     *
+     * Include inactive storage locations as well so non-active racks remain visible
+     * and can be re-activated from the UI.
      * Material type categorization (raw materials, finished goods) is handled by inventory,
      * not by location type.
      */
@@ -50,8 +51,7 @@ public class LocationService {
                 .filter(entity -> {
                     // Only STORAGE zone type - exclude RECEIVING, SHIPMENT, PACKING, STAGING
                     String zoneType = entity.getZoneType();
-                    Boolean isActive = entity.getIsActive();
-                    return "STORAGE".equals(zoneType) && Boolean.TRUE.equals(isActive);
+                    return "STORAGE".equals(zoneType);
                 })
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -165,4 +165,3 @@ public class LocationService {
         return location;
     }
 }
-

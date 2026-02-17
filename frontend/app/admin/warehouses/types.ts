@@ -8,6 +8,7 @@ export interface WarehouseStats {
   emptyBins: number;
   occupancyRate: number;
   activeRacks: number;
+  reservedRacks: number;
   maintenanceRacks: number;
   outOfServiceRacks: number;
 }
@@ -27,6 +28,7 @@ export function calculateWarehouseStats(layout: WarehouseLayout): WarehouseStats
   const occupancyRate = totalBins > 0 ? (occupiedBins / totalBins) * 100 : 0;
 
   const activeRacks = layout.racks.filter((rack) => rack.status === "active").length;
+  const reservedRacks = layout.racks.filter((rack) => rack.status === "reserved").length;
   const maintenanceRacks = layout.racks.filter((rack) => rack.status === "maintenance").length;
   const outOfServiceRacks = layout.racks.filter((rack) => rack.status === "out_of_service").length;
 
@@ -38,6 +40,7 @@ export function calculateWarehouseStats(layout: WarehouseLayout): WarehouseStats
     emptyBins,
     occupancyRate,
     activeRacks,
+    reservedRacks,
     maintenanceRacks,
     outOfServiceRacks,
   };
