@@ -85,8 +85,6 @@ export default function SuppliersPage() {
     loadData();
   }, []);
 
-  const canApprovePO = hasPermission(ADMIN_ROUTES.SUPPLIERS, "approve");
-
   const summary = {
     totalSuppliers: suppliers.length,
     active: suppliers.filter((s) => s.status === "active").length,
@@ -263,7 +261,7 @@ export default function SuppliersPage() {
         <li>
           <button
             onClick={() => {
-              router.push(`/admin/products?supplier=${supplier.id}`);
+              router.push(`/admin/materials?supplier=${supplier.id}`);
             }}
           >
             <span className="material-symbols-outlined text-sm">inventory</span>
@@ -282,20 +280,6 @@ export default function SuppliersPage() {
             View Orders
           </button>
         </li>
-        {canApprovePO && (
-          <li>
-            <button
-              onClick={() => {
-                showToast.warning("Purchase order approval workflow coming soon");
-              }}
-            >
-              <span className="material-symbols-outlined text-sm">
-                check_circle
-              </span>
-              Approve Purchase Order
-            </button>
-          </li>
-        )}
         {canDelete && (
           <li>
             <button

@@ -1,6 +1,7 @@
 export interface InboundOrderDisplay {
   id: string;
   orderNumber: string;
+  supplierId: string | null;
   supplierName: string;
   warehouseName: string;
   orderDate: string;
