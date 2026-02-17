@@ -519,7 +519,11 @@ function ResolveAnomalyModal({
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Severity:</span>
-            <span className={`badge ${severityConfig[anomaly.severity].class}`}>{severityConfig[anomaly.severity].label}</span>
+            <StatusChip
+              label={severityConfig[anomaly.severity].label}
+              tone={severityConfig[anomaly.severity].tone}
+              showDot
+            />
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Description:</span>

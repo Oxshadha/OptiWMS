@@ -14,6 +14,13 @@ export interface Supplier {
   status: string;
 }
 
+export interface SupplierMaterial {
+  id: string;
+  materialCode: string;
+  description: string;
+  materialType?: string | null;
+}
+
 export const suppliersApi = {
   getAll: async (): Promise<Supplier[]> => {
     return apiClient.get<Supplier[]>('/master/suppliers');
@@ -34,5 +41,12 @@ export const suppliersApi = {
   delete: async (id: string): Promise<void> => {
     return apiClient.delete<void>(`/master/suppliers/${id}`);
   },
-};
 
+  getMaterials: async (id: string): Promise<SupplierMaterial[]> => {
+    return apiClient.get<SupplierMaterial[]>(`/master/suppliers/${id}/materials`);
+  },
+
+  replaceMaterials: async (id: string, materialIds: string[]): Promise<void> => {
+    return apiClient.put<void>(`/master/suppliers/${id}/materials`, { materialIds });
+  },
+};

@@ -2,31 +2,42 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.imports.CsvImportService;
 import com.optiwms.coreapp.master.MaterialService;
+import com.optiwms.coreapp.master.SupplierMaterialService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/master/materials")
 public class MaterialController {
 
     private final MaterialService materialService;
+    private final SupplierMaterialService supplierMaterialService;
     private final CsvImportService csvImportService;
 
-    public MaterialController(MaterialService materialService, CsvImportService csvImportService) {
+    public MaterialController(
+            MaterialService materialService,
+            SupplierMaterialService supplierMaterialService,
+            CsvImportService csvImportService
+    ) {
         this.materialService = materialService;
+        this.supplierMaterialService = supplierMaterialService;
         this.csvImportService = csvImportService;
     }
 
     @GetMapping
     public ResponseEntity<List<MaterialDto>> list(
-            @RequestParam(required = false) String materialType
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) UUID supplierId
     ) {
-        var materials = materialType != null 
-                ? materialService.findByMaterialType(materialType)
-                : materialService.listAll();
+        var materials = supplierId != null
+                ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)
+                : (materialType != null
+                    ? materialService.findByMaterialType(materialType)
+                    : materialService.listAll());
         var data = materials.stream()
                 .map(m -> new MaterialDto(
                         m.getId(),

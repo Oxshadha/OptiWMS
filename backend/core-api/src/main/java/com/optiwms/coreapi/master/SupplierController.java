@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.SupplierService;
+import com.optiwms.coreapp.master.SupplierMaterialService;
+import com.optiwms.domain.master.Material;
 import com.optiwms.domain.master.Supplier;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,9 +18,11 @@ import java.util.stream.Collectors;
 public class SupplierController {
 
     private final SupplierService service;
+    private final SupplierMaterialService supplierMaterialService;
 
-    public SupplierController(SupplierService service) {
+    public SupplierController(SupplierService service, SupplierMaterialService supplierMaterialService) {
         this.service = service;
+        this.supplierMaterialService = supplierMaterialService;
     }
 
     @GetMapping
@@ -58,6 +62,45 @@ public class SupplierController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/{id}/materials")
+    public ResponseEntity<List<SupplierMaterialDto>> listSupplierMaterials(
+            @PathVariable UUID id,
+            @RequestParam(required = false) String materialType
+    ) {
+        List<Material> materials = supplierMaterialService.getMaterialsForSupplier(id, materialType);
+        List<SupplierMaterialDto> data = materials.stream()
+                .map(this::toSupplierMaterialDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(data);
+    }
+
+    @PutMapping("/{id}/materials")
+    public ResponseEntity<Void> replaceSupplierMaterials(
+            @PathVariable UUID id,
+            @RequestBody ReplaceSupplierMaterialsRequest request
+    ) {
+        supplierMaterialService.replaceMaterials(id, request.materialIds());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/materials/{materialId}")
+    public ResponseEntity<Void> linkSupplierMaterial(
+            @PathVariable UUID id,
+            @PathVariable UUID materialId
+    ) {
+        supplierMaterialService.linkMaterial(id, materialId);
+        return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    @DeleteMapping("/{id}/materials/{materialId}")
+    public ResponseEntity<Void> unlinkSupplierMaterial(
+            @PathVariable UUID id,
+            @PathVariable UUID materialId
+    ) {
+        supplierMaterialService.unlinkMaterial(id, materialId);
+        return ResponseEntity.noContent().build();
+    }
+
     private Supplier toDomain(SupplierDto dto) {
         Supplier s = new Supplier();
         s.setId(dto.id());
@@ -90,6 +133,15 @@ public class SupplierController {
         );
     }
 
+    private SupplierMaterialDto toSupplierMaterialDto(Material material) {
+        return new SupplierMaterialDto(
+                material.getId(),
+                material.getMaterialCode(),
+                material.getDescription(),
+                material.getMaterialType()
+        );
+    }
+
     public record SupplierDto(
             UUID id,
             String code,
@@ -103,5 +155,15 @@ public class SupplierController {
             String rating,
             String status
     ) {}
-}
 
+    public record SupplierMaterialDto(
+            UUID id,
+            String materialCode,
+            String description,
+            String materialType
+    ) {}
+
+    public record ReplaceSupplierMaterialsRequest(
+            List<UUID> materialIds
+    ) {}
+}
