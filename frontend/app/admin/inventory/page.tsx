@@ -13,6 +13,7 @@ import { InventoryColumnSelector } from "./components/InventoryColumnSelector";
 import { InventoryTable } from "./components/InventoryTable";
 
 const itemTypes = ["All", "Raw Material", "Packaging", "Product"];
+const stockFilters: Array<"All" | "Low" | "Available"> = ["All", "Low", "Available"];
 
 export default function InventoryPage() {
   const { admin, role } = useAdmin();
@@ -20,6 +21,7 @@ export default function InventoryPage() {
   const assignedWarehouseId = admin?.warehouseId;
 
   const [activeItemType, setActiveItemType] = useState("All");
+  const [activeStock, setActiveStock] = useState<"All" | "Low" | "Available">("All");
   const [activeWarehouse, setActiveWarehouse] = useState<string>(
     isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "All"
   );
@@ -61,6 +63,7 @@ export default function InventoryPage() {
     isWarehouseManager,
     assignedWarehouseId,
     activeItemType,
+    activeStock,
     activeWarehouse,
     searchQuery,
     sortBy,
@@ -138,7 +141,7 @@ export default function InventoryPage() {
             </label>
             <ul
               tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-[80]"
             >
               <li>
                 <button
@@ -265,6 +268,24 @@ export default function InventoryPage() {
                 )}
               >
                 {type}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
+            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Stock:</span>
+            {stockFilters.map((stock) => (
+              <button
+                key={stock}
+                onClick={() => setActiveStock(stock)}
+                className={clsx(
+                  "px-4 py-2 rounded-lg text-sm transition-all",
+                  activeStock === stock
+                    ? "bg-neutral text-neutral-content font-medium"
+                    : "text-base-content/60 hover:text-base-content"
+                )}
+              >
+                {stock}
               </button>
             ))}
           </div>

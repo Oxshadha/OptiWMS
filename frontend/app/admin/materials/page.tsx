@@ -27,6 +27,8 @@ const MATERIAL_TYPES = [
 ] as const;
 
 type MaterialTypeFilter = typeof MATERIAL_TYPES[number]["value"];
+type SortBy = "name" | "sku" | "type" | null;
+type SortDirection = "asc" | "desc";
 
 const cleanDisplayName = (description?: string) => {
   if (!description) return "—";
@@ -34,6 +36,9 @@ const cleanDisplayName = (description?: string) => {
   const first = description.split(",")[0]?.trim();
   return first || description;
 };
+
+const normalizeSearchText = (value?: string | null) =>
+  (value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export default function MaterialsPage() {
   const { hasPermission } = useAdmin();
@@ -58,6 +63,8 @@ export default function MaterialsPage() {
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortBy, setSortBy] = useState<SortBy>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [materialsWithLocations, setMaterialsWithLocations] = useState<Map<string, string>>(new Map()); // materialId -> locationCode
 
@@ -135,15 +142,45 @@ export default function MaterialsPage() {
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
+      const normalizedQuery = normalizeSearchText(searchQuery);
       filtered = filtered.filter(
-        (m) =>
-          m.materialCode?.toLowerCase().includes(query) ||
-          m.description?.toLowerCase().includes(query)
+        (m) => {
+          const locationCode = materialsWithLocations.get(m.id) || "";
+          return (
+            m.materialCode?.toLowerCase().includes(query) ||
+            m.description?.toLowerCase().includes(query) ||
+            locationCode.toLowerCase().includes(query) ||
+            normalizeSearchText(m.materialCode).includes(normalizedQuery) ||
+            normalizeSearchText(m.description).includes(normalizedQuery) ||
+            normalizeSearchText(locationCode).includes(normalizedQuery)
+          );
+        }
       );
     }
 
+    if (sortBy) {
+      filtered = [...filtered].sort((a, b) => {
+        let aVal: string = "";
+        let bVal: string = "";
+        if (sortBy === "name") {
+          aVal = (a.description || "").toLowerCase();
+          bVal = (b.description || "").toLowerCase();
+        } else if (sortBy === "sku") {
+          aVal = (a.materialCode || "").toLowerCase();
+          bVal = (b.materialCode || "").toLowerCase();
+        } else if (sortBy === "type") {
+          aVal = getMaterialTypeChip(a.materialType).label.toLowerCase();
+          bVal = getMaterialTypeChip(b.materialType).label.toLowerCase();
+        }
+
+        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
     return filtered;
-  }, [allMaterials, typeFilter, searchQuery]);
+  }, [allMaterials, typeFilter, searchQuery, sortBy, sortDirection, materialsWithLocations]);
 
   // Summary statistics
   const summaryStats = React.useMemo(() => {
@@ -340,6 +377,32 @@ export default function MaterialsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+          </div>
+
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Sort</span>
+            </label>
+            <div className="flex gap-2">
+              <select
+                className="select select-bordered"
+                value={sortBy || ""}
+                onChange={(e) => setSortBy((e.target.value || null) as SortBy)}
+              >
+                <option value="">No Sort</option>
+                <option value="name">Name</option>
+                <option value="sku">SKU</option>
+                <option value="type">Type</option>
+              </select>
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={() => setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))}
+                title={`Sort ${sortDirection === "asc" ? "Ascending" : "Descending"}`}
+              >
+                {sortDirection === "asc" ? "A-Z" : "Z-A"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
