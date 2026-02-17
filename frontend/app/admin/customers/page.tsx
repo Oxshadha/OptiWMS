@@ -26,7 +26,7 @@ export default function CustomersPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sortBy, setSortBy] = useState<"name" | "orders" | "joinDate" | null>(null);
+  const [sortBy, setSortBy] = useState<"name" | "orders" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDisplay | null>(null);
   
@@ -66,7 +66,6 @@ export default function CustomersPage() {
             phone: c.phone || "",
             orders: orderCounts.get(c.id) || 0,
             status: c.status === "active" ? "Active" : "On Hold",
-            joinDate: new Date().toISOString().split("T")[0], // TODO: Get from customer data
           };
         });
         
@@ -96,8 +95,7 @@ export default function CustomersPage() {
       c.id.toLowerCase().includes(query) ||
       c.phone.toLowerCase().includes(query) ||
       c.status.toLowerCase().includes(query) ||
-      c.orders.toString().includes(query) ||
-      c.joinDate.toLowerCase().includes(query);
+      c.orders.toString().includes(query);
     const matchesStatus =
       statusFilter === "all" ||
       c.status.toLowerCase() === statusFilter.toLowerCase();
@@ -178,22 +176,6 @@ export default function CustomersPage() {
                 >
                   Orders{" "}
                   {sortBy === "orders" &&
-                    (sortDirection === "desc" ? "↓" : "↑")}
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => {
-                    setSortBy("joinDate");
-                    setSortDirection(
-                      sortBy === "joinDate" && sortDirection === "desc"
-                        ? "asc"
-                        : "desc"
-                    );
-                  }}
-                >
-                  Join Date{" "}
-                  {sortBy === "joinDate" &&
                     (sortDirection === "desc" ? "↓" : "↑")}
                 </button>
               </li>

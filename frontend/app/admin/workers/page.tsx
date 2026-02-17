@@ -97,11 +97,8 @@ export default function WorkersPage() {
             name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
             warehouseName,
             availabilityStatus: u.status === "active" ? "available" : "offline",
-            shiftStart: "08:00", // TODO: Get from user data
-            shiftEnd: "17:00", // TODO: Get from user data
             tasksToday,
             totalTasksCompleted: totalCompleted,
-            avgTaskTime: 15.0, // TODO: Calculate from task data
             lastActive: u.lastLoginAt || "Never",
             avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
             role: workerRole,
@@ -148,11 +145,8 @@ export default function WorkersPage() {
       worker.workerId.toLowerCase().includes(query) ||
       worker.warehouseName.toLowerCase().includes(query) ||
       worker.availabilityStatus.toLowerCase().includes(query) ||
-      worker.shiftStart.toLowerCase().includes(query) ||
-      worker.shiftEnd.toLowerCase().includes(query) ||
       worker.tasksToday.toString().includes(query) ||
       worker.totalTasksCompleted.toString().includes(query) ||
-      worker.avgTaskTime.toString().includes(query) ||
       worker.lastActive.toLowerCase().includes(query);
     const matchesStatus =
       statusFilter === "all" || worker.availabilityStatus === statusFilter;
@@ -255,12 +249,6 @@ export default function WorkersPage() {
       sortable: true,
     },
     {
-      key: "shift",
-      label: "Shift",
-      render: (worker: (typeof workers)[0]) =>
-        `${worker.shiftStart} - ${worker.shiftEnd}`,
-    },
-    {
       key: "tasksToday",
       label: "Tasks Today",
       sortable: true,
@@ -268,12 +256,6 @@ export default function WorkersPage() {
     {
       key: "totalTasksCompleted",
       label: "Total Completed",
-      sortable: true,
-    },
-    {
-      key: "avgTaskTime",
-      label: "Avg Time (min)",
-      render: (worker: (typeof workers)[0]) => `${worker.avgTaskTime} min`,
       sortable: true,
     },
     {

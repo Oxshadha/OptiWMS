@@ -56,17 +56,19 @@ export function SupplierDetailModal({
             <p className="font-semibold">{supplier.phone}</p>
           </div>
           <div>
-            <label className="text-sm text-base-content/60">Products Supplied</label>
-            <p className="font-semibold">{supplier.productsSupplied}</p>
-          </div>
-          <div>
             <label className="text-sm text-base-content/60">Lead Time</label>
-            <p className="font-semibold">{supplier.leadTimeDays} days</p>
+            <p className="font-semibold">{supplier.leadTimeDays != null ? `${supplier.leadTimeDays} days` : "—"}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Rating</label>
             <p className="font-semibold">
-              <span className="text-warning">★</span> {supplier.rating.toFixed(1)}
+              {supplier.rating != null ? (
+                <>
+                  <span className="text-warning">★</span> {supplier.rating.toFixed(1)}
+                </>
+              ) : (
+                "—"
+              )}
             </p>
           </div>
           <div>
@@ -117,8 +119,8 @@ export function EditSupplierModal({
     phone: supplier.phone,
     country: supplier.country,
     type: supplier.type,
-    leadTimeDays: supplier.leadTimeDays.toString(),
-    rating: supplier.rating.toString(),
+    leadTimeDays: supplier.leadTimeDays != null ? supplier.leadTimeDays.toString() : "",
+    rating: supplier.rating != null ? supplier.rating.toString() : "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -558,9 +560,6 @@ export function DeleteSupplierModal({
           </p>
           <p className="text-sm text-base-content/70">
             <strong>Country:</strong> {supplier.country}
-          </p>
-          <p className="text-sm text-base-content/70">
-            <strong>Products Supplied:</strong> {supplier.productsSupplied}
           </p>
         </div>
         <div className="flex justify-end gap-3 pt-4">

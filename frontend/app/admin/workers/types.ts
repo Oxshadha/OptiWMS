@@ -7,11 +7,11 @@ export interface WorkerDisplay {
   name: string;
   warehouseName: string;
   availabilityStatus: "available" | "busy" | "offline";
-  shiftStart: string;
-  shiftEnd: string;
+  shiftStart?: string;
+  shiftEnd?: string;
   tasksToday: number;
   totalTasksCompleted: number;
-  avgTaskTime: number;
+  avgTaskTime?: number;
   lastActive: string;
   avatar: string;
   role: WorkerRole;
