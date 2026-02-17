@@ -50,9 +50,11 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
     if (area === 'ST') {
       area = 'C'; // Standardize ST (Storage) to C for consistency
     }
-    
-    const row = location.rowNumber || '01';
-    const bay = location.bayNumber || '01';
+
+    const rowNum = parseInt(location.rowNumber || "1", 10);
+    const bayNum = parseInt(location.bayNumber || "1", 10);
+    const row = String(Number.isFinite(rowNum) ? rowNum : 1).padStart(2, "0");
+    const bay = String(Number.isFinite(bayNum) ? bayNum : 1).padStart(2, "0");
     const rackKey = `${area}-${row}-${bay}`;
     
     if (!rackMap.has(rackKey)) {
@@ -137,6 +139,7 @@ function locationsToRacks(
       bins,
       maxLevels: Math.max(...rackLocations.map((loc) => loc.levelNumber || 1), 5),
       status,
+      amalgamatedClass: rackLocations.map((loc) => loc.amalgamatedClass).find((value) => !!value),
     };
     
     racks.push(rack);

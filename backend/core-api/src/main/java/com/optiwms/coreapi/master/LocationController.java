@@ -131,6 +131,63 @@ public class LocationController {
         }
     }
 
+    @PostMapping("/bulk-racks")
+    public ResponseEntity<?> bulkCreateRacks(@RequestBody BulkCreateRacksRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                throw new RuntimeException("warehouseId is required");
+            }
+            var result = locationService.bulkCreateStorageRacks(
+                    UUID.fromString(request.warehouseId()),
+                    request.area(),
+                    request.rowsToAdd(),
+                    request.baysPerRow(),
+                    request.levelsPerRack(),
+                    request.binsPerLevel(),
+                    request.startRow(),
+                    request.startBay()
+            );
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Created %d racks (%d locations) in zone %s.",
+                            result.createdRacks(), result.createdLocations(), result.area()),
+                    "area", result.area(),
+                    "createdRacks", result.createdRacks(),
+                    "createdLocations", result.createdLocations(),
+                    "skippedRacks", result.skippedRacks()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/bulk-racks/generate-standard")
+    public ResponseEntity<?> generateStandardLayout(@RequestBody GenerateStandardLayoutRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                throw new RuntimeException("warehouseId is required");
+            }
+            var result = locationService.generateStandardStorageLayout(
+                    UUID.fromString(request.warehouseId()),
+                    request.levelsPerRack(),
+                    request.binsPerLevel()
+            );
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format(
+                            "Standard layout generated. Created %d racks (%d locations), skipped %d existing racks.",
+                            result.createdRacks(), result.createdLocations(), result.skippedRacks()
+                    ),
+                    "createdRacks", result.createdRacks(),
+                    "createdLocations", result.createdLocations(),
+                    "skippedRacks", result.skippedRacks(),
+                    "levelsPerRack", result.levelsPerRack(),
+                    "binsPerLevel", result.binsPerLevel(),
+                    "zones", result.zones()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<?> update(@PathVariable UUID id, @RequestBody UpdateLocationRequest request) {
         try {
@@ -146,6 +203,7 @@ public class LocationController {
             location.setIsActive(request.isActive());
             location.setQrCode(request.qrCode());
             location.setRackStatus(request.rackStatus());
+            location.setAmalgamatedClass(request.amalgamatedClass());
             location.setDescription(request.description());
             location.setNotes(request.notes());
             location.setAccessibilityRating(request.accessibilityRating());
@@ -167,6 +225,7 @@ public class LocationController {
         try {
             var location = locationService.findById(id);
             if (request.rackStatus() != null) location.setRackStatus(request.rackStatus());
+            if (request.amalgamatedClass() != null) location.setAmalgamatedClass(request.amalgamatedClass());
             if (request.description() != null) location.setDescription(request.description());
             if (request.notes() != null) location.setNotes(request.notes());
             if (request.accessibilityRating() != null) location.setAccessibilityRating(request.accessibilityRating());
@@ -188,6 +247,28 @@ public class LocationController {
         }
     }
 
+    @DeleteMapping("/racks")
+    public ResponseEntity<?> deleteRack(
+            @RequestParam UUID warehouseId,
+            @RequestParam String area,
+            @RequestParam String rowNumber,
+            @RequestParam String bayNumber
+    ) {
+        try {
+            var result = locationService.deleteRack(warehouseId, area, rowNumber, bayNumber);
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Deleted rack %s-%s-%s (%d locations).",
+                            result.area(), result.rowNumber(), result.bayNumber(), result.deletedLocations()),
+                    "area", result.area(),
+                    "rowNumber", result.rowNumber(),
+                    "bayNumber", result.bayNumber(),
+                    "deletedLocations", result.deletedLocations()
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+        }
+    }
+
     private LocationDto toDto(com.optiwms.domain.master.Location location) {
         return new LocationDto(
                 location.getId().toString(),
@@ -204,6 +285,7 @@ public class LocationController {
                 location.getIsActive() != null ? location.getIsActive() : true,
                 location.getQrCode(),
                 location.getRackStatus(),
+                location.getAmalgamatedClass(),
                 location.getDescription(),
                 location.getNotes(),
                 location.getAccessibilityRating(),
@@ -229,6 +311,7 @@ public class LocationController {
             Boolean isActive,
             String qrCode,
             String rackStatus,
+            String amalgamatedClass,
             String description,
             String notes,
             Integer accessibilityRating,
@@ -265,6 +348,7 @@ public class LocationController {
             Boolean isActive,
             String qrCode,
             String rackStatus,
+            String amalgamatedClass,
             String description,
             String notes,
             Integer accessibilityRating,
@@ -276,8 +360,26 @@ public class LocationController {
 
     public record UpdateRackRequest(
             String rackStatus,
+            String amalgamatedClass,
             String description,
             String notes,
             Integer accessibilityRating
+    ) {}
+
+    public record BulkCreateRacksRequest(
+            String warehouseId,
+            String area,
+            Integer rowsToAdd,
+            Integer baysPerRow,
+            Integer levelsPerRack,
+            Integer binsPerLevel,
+            Integer startRow,
+            Integer startBay
+    ) {}
+
+    public record GenerateStandardLayoutRequest(
+            String warehouseId,
+            Integer levelsPerRack,
+            Integer binsPerLevel
     ) {}
 }

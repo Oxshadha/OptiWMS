@@ -61,6 +61,9 @@ public class LocationEntity {
     @Column(name = "rack_status", length = 20)
     private String rackStatus;
 
+    @Column(name = "amalgamated_class", length = 2)
+    private String amalgamatedClass;
+
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
@@ -118,6 +121,8 @@ public class LocationEntity {
     // Rack system getters and setters
     public String getRackStatus() { return rackStatus; }
     public void setRackStatus(String rackStatus) { this.rackStatus = rackStatus; }
+    public String getAmalgamatedClass() { return amalgamatedClass; }
+    public void setAmalgamatedClass(String amalgamatedClass) { this.amalgamatedClass = amalgamatedClass; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public String getNotes() { return notes; }
@@ -152,4 +157,3 @@ public class LocationEntity {
         }
     }
 }
-

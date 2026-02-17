@@ -3,22 +3,30 @@ import type { Warehouse } from "@/lib/api/warehouses";
 interface WarehouseHeaderProps {
   isSystemAdmin: boolean;
   isWarehouseManager: boolean;
+  canEditRacks: boolean;
   assignedWarehouseName?: string;
   selectedWarehouseId: string | null;
   availableWarehouses: Warehouse[];
   isLoadingLayout: boolean;
   onRefresh: () => void;
+  onOpenBulkRackCreate: () => void;
+  onGenerateStandardLayout: () => void;
+  onOpenSlottingPlanner: () => void;
   onWarehouseChange: (warehouseId: string) => void;
 }
 
 export function WarehouseHeader({
   isSystemAdmin,
   isWarehouseManager,
+  canEditRacks,
   assignedWarehouseName,
   selectedWarehouseId,
   availableWarehouses,
   isLoadingLayout,
   onRefresh,
+  onOpenBulkRackCreate,
+  onGenerateStandardLayout,
+  onOpenSlottingPlanner,
   onWarehouseChange,
 }: WarehouseHeaderProps) {
   return (
@@ -35,6 +43,27 @@ export function WarehouseHeader({
         <button className="btn btn-sm btn-ghost" onClick={onRefresh} title="Refresh layout" disabled={isLoadingLayout}>
           <span className="material-symbols-outlined">refresh</span>
         </button>
+
+        {canEditRacks && (
+          <button className="btn btn-sm btn-outline" onClick={onOpenSlottingPlanner}>
+            <span className="material-symbols-outlined text-sm">rule_settings</span>
+            Slotting Rules
+          </button>
+        )}
+
+        {canEditRacks && (
+          <button className="btn btn-sm btn-outline" onClick={onGenerateStandardLayout}>
+            <span className="material-symbols-outlined text-sm">grid_view</span>
+            Generate Standard Layout
+          </button>
+        )}
+
+        {canEditRacks && (
+          <button className="btn btn-sm btn-outline" onClick={onOpenBulkRackCreate}>
+            <span className="material-symbols-outlined text-sm">add</span>
+            Add Zone Racks
+          </button>
+        )}
 
         {isSystemAdmin && (
           <div className="form-control w-full max-w-xs">
