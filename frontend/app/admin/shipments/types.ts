@@ -14,12 +14,12 @@ export interface ShipmentDisplay {
   shipmentDate: string;
 }
 
-export const statusClass = (s: string): string => {
-  if (s === "Delivered") return "badge-success";
-  if (s === "In Transit") return "badge-info";
-  if (s === "Label Created") return "badge-warning";
-  if (s === "Ready to Ship") return "badge-warning";
-  return "badge-outline";
+export const shipmentStatusTone = (s: string): "success" | "info" | "warning" | "danger" | "neutral" => {
+  if (s === "Delivered") return "success";
+  if (s === "In Transit") return "info";
+  if (s === "Label Created" || s === "Ready to Ship") return "warning";
+  if (s === "Cancelled") return "danger";
+  return "neutral";
 };
 
 export const tabs = ["All", "In Transit", "Delivered", "Label Created", "Ready to Ship"];

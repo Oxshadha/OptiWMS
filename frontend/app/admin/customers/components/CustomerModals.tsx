@@ -3,10 +3,11 @@
 import { type FormEvent, useState } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { StatusChip } from "@/components/StatusChip";
 import { customersApi, type Customer } from "@/lib/api/customers";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
-import { CustomerDisplay, statusClass } from "../types";
+import { CustomerDisplay, customerStatusTone } from "../types";
 
 export function AddCustomerModal({
   isOpen,
@@ -218,7 +219,7 @@ export function CustomerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusClass(customer.status)}`}>{customer.status}</span>
+              <StatusChip label={customer.status} tone={customerStatusTone(customer.status)} showDot />
             </p>
           </div>
           <div>

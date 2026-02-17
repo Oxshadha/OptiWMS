@@ -1,5 +1,6 @@
 import { DetailModal } from "@/components/DetailModal";
-import { statusClass, type StockTransfer } from "../types";
+import { StatusChip } from "@/components/StatusChip";
+import { transferStatusTone, type StockTransfer } from "../types";
 
 interface StockTransferDetailModalProps {
   transfer: StockTransfer | null;
@@ -31,9 +32,11 @@ export function StockTransferDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${statusClass(transfer.status)}`}>
-                {transfer.status.replace("_", " ").toUpperCase()}
-              </span>
+              <StatusChip
+                label={transfer.status.replace("_", " ").toUpperCase()}
+                tone={transferStatusTone(transfer.status)}
+                showDot
+              />
             </p>
           </div>
           <div>

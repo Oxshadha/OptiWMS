@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { anomaliesApi, Anomaly } from "@/lib/api/anomalies";
@@ -12,18 +13,18 @@ import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 
-const severityConfig = {
-  low: { label: "Low", class: "badge-outline" },
-  medium: { label: "Medium", class: "badge-warning" },
-  high: { label: "High", class: "badge-error" },
-  critical: { label: "Critical", class: "badge-error" },
+const severityConfig: Record<string, { label: string; tone: StatusTone }> = {
+  low: { label: "Low", tone: "neutral" },
+  medium: { label: "Medium", tone: "warning" },
+  high: { label: "High", tone: "danger" },
+  critical: { label: "Critical", tone: "danger" },
 };
 
-const statusConfig = {
-  open: { label: "Open", class: "badge-error" },
-  investigating: { label: "Investigating", class: "badge-warning" },
-  resolved: { label: "Resolved", class: "badge-success" },
-  false_positive: { label: "False Positive", class: "badge-outline" },
+const statusConfig: Record<string, { label: string; tone: StatusTone }> = {
+  open: { label: "Open", tone: "danger" },
+  investigating: { label: "Investigating", tone: "warning" },
+  resolved: { label: "Resolved", tone: "success" },
+  false_positive: { label: "False Positive", tone: "neutral" },
 };
 
 interface AnomalyDisplay {
@@ -279,13 +280,13 @@ export default function AnomalyDetailPage() {
           <div>
             <label className="text-sm text-base-content/60">Severity</label>
             <p>
-              <span className={`badge ${severity.class}`}>{severity.label}</span>
+              <StatusChip label={severity.label} tone={severity.tone} showDot />
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${status.class}`}>{status.label}</span>
+              <StatusChip label={status.label} tone={status.tone} showDot />
             </p>
           </div>
           <div>

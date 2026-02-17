@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
+import { StatusChip } from "@/components/StatusChip";
 import { reportsApi, Report } from "@/lib/api/reports";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
@@ -185,12 +186,7 @@ export default function ReportsPage() {
                   {getReportIcon(r.reportType)}
                 </span>
               </div>
-              <span 
-                className="badge text-xs whitespace-nowrap capitalize" 
-                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-              >
-                {r.reportType}
-              </span>
+              <StatusChip label={r.reportType} tone="neutral" className="capitalize" />
             </div>
             <h3 className="text-lg font-bold text-base-content mb-2">{r.reportName}</h3>
             <p className="text-sm text-base-content/60 mb-4">{r.description || "No description"}</p>
@@ -277,12 +273,7 @@ function ReportDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Type</label>
             <p>
-              <span 
-                className="badge text-xs whitespace-nowrap capitalize" 
-                style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-              >
-                {report.reportType}
-              </span>
+              <StatusChip label={report.reportType} tone="neutral" className="capitalize" />
             </p>
           </div>
           <div>

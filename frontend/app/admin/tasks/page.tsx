@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
@@ -18,6 +19,20 @@ import {
   type TaskDisplay,
 } from "./types";
 
+function getTaskStatusTone(status: string): StatusTone {
+  if (status === "completed") return "success";
+  if (status === "cancelled") return "danger";
+  if (status === "in_progress") return "info";
+  return "warning";
+}
+
+function getTaskPriorityTone(priority: string): StatusTone {
+  if (priority === "urgent") return "danger";
+  if (priority === "high") return "primary";
+  if (priority === "normal") return "info";
+  return "neutral";
+}
+
 export default function TasksPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -26,7 +41,7 @@ export default function TasksPage() {
   const canCancel = hasPermission(ADMIN_ROUTES.TASKS, "delete");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [, setShowCancelModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -94,10 +109,10 @@ export default function TasksPage() {
           notePairs.get("count") ||
           (task.referenceType === "cycle_count" ? task.referenceId : null);
         const scope = notePairs.get("scope") || task.locationCode || null;
-        const role = notePairs.get("role") || null;
+        const noteRole = notePairs.get("role") || null;
         const details =
           task.taskType === "cycle_count"
-            ? [cycleCountRef ? `Count ${cycleCountRef}` : null, scope ? `Scope ${scope}` : null, role ? `Role ${role}` : null]
+            ? [cycleCountRef ? `Count ${cycleCountRef}` : null, scope ? `Scope ${scope}` : null, noteRole ? `Role ${noteRole}` : null]
                 .filter(Boolean)
                 .join(" | ")
             : [task.referenceType ? `Ref ${task.referenceType}` : null, task.referenceId ? task.referenceId.slice(0, 8) : null]
@@ -255,12 +270,10 @@ export default function TasksPage() {
           };
         return (
           <div className="flex items-center gap-2">
-            <span className={`badge ${type.class} whitespace-nowrap`}>
-              <span className="material-symbols-outlined text-xs mr-1">
-                {type.icon}
-              </span>
-              {type.label}
+            <span className="material-symbols-outlined text-sm text-base-content/70">
+              {type.icon}
             </span>
+            <StatusChip label={type.label} tone="neutral" />
           </div>
         );
       },
@@ -289,16 +302,15 @@ export default function TasksPage() {
       key: "priority",
       label: "Priority",
       render: (task: TaskDisplay) => {
-        const priorityKey = (task.priority || "normal").toLowerCase();
         const priority =
-          priorityConfig[priorityKey as keyof typeof priorityConfig] || {
-            label: task.priority || "Normal",
+          priorityConfig[task.priority as keyof typeof priorityConfig] ||
+          {
+            label: task.priority,
             class: "badge-outline",
           };
+        const tone = getTaskPriorityTone(task.priority);
         return (
-          <span className={`badge ${priority.class} whitespace-nowrap`}>
-            {priority.label}
-          </span>
+          <StatusChip label={priority.label} tone={tone} />
         );
       },
       sortable: true,
@@ -311,31 +323,28 @@ export default function TasksPage() {
           label: task.status,
           class: "badge-outline",
         };
-        return (
-          <span className={`badge ${status.class} whitespace-nowrap`}>
-            {status.label}
-          </span>
-        );
+        const tone = getTaskStatusTone(task.status);
+        return <StatusChip label={status.label} tone={tone} showDot />;
       },
       sortable: true,
     },
     {
       key: "assignedDate",
       label: "Assigned Date",
-      render: (task: (typeof tasks)[0]) => task.assignedDate.split(" ")[0],
+      render: (task: TaskDisplay) => task.assignedDate.split(" ")[0],
       className: "text-base-content/70",
       sortable: true,
     },
     {
       key: "duration",
       label: "Duration",
-      render: (task: (typeof tasks)[0]) =>
+      render: (task: TaskDisplay) =>
         task.duration ? `${task.duration} min` : "-",
       sortable: true,
     },
   ];
 
-  const renderActions = (task: (typeof tasks)[0]) => (
+  const renderActions = (task: TaskDisplay) => (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { useRouter } from "next/navigation";
 import { notificationsApi, Notification as ApiNotification } from "@/lib/api/notifications";
@@ -42,15 +43,15 @@ const parseMetadata = (metadata?: string): Record<string, unknown> => {
   }
 };
 
-const typeConfig: Record<NotificationType, { label: string; icon: string; color: string }> = {
-  order: { label: "Order", icon: "inventory_2", color: "badge-primary" },
-  inventory: { label: "Inventory", icon: "inventory", color: "badge-warning" },
-  cycle_count: { label: "Cycle Count", icon: "autorenew", color: "badge-info" },
-  task: { label: "Task", icon: "task", color: "badge-success" },
-  anomaly: { label: "Anomaly", icon: "warning", color: "badge-error" },
-  shipment: { label: "Shipment", icon: "local_shipping", color: "badge-primary" },
-  return: { label: "Return", icon: "keyboard_return", color: "badge-warning" },
-  system: { label: "System", icon: "settings", color: "badge-outline" },
+const typeConfig: Record<NotificationType, { label: string; icon: string; tone: StatusTone }> = {
+  order: { label: "Order", icon: "inventory_2", tone: "info" },
+  inventory: { label: "Inventory", icon: "inventory", tone: "warning" },
+  cycle_count: { label: "Cycle Count", icon: "autorenew", tone: "info" },
+  task: { label: "Task", icon: "task", tone: "success" },
+  anomaly: { label: "Anomaly", icon: "warning", tone: "danger" },
+  shipment: { label: "Shipment", icon: "local_shipping", tone: "info" },
+  return: { label: "Return", icon: "keyboard_return", tone: "warning" },
+  system: { label: "System", icon: "settings", tone: "neutral" },
 };
 
 export default function NotificationsPage() {
@@ -243,9 +244,7 @@ export default function NotificationsPage() {
           <span className="material-symbols-outlined text-base-content/60 text-sm">
             {typeConfig[notif.type].icon}
           </span>
-          <span className={`badge ${typeConfig[notif.type].color} badge-sm`}>
-            {typeConfig[notif.type].label}
-          </span>
+          <StatusChip label={typeConfig[notif.type].label} tone={typeConfig[notif.type].tone} />
         </div>
       ),
       sortable: true,
@@ -505,20 +504,13 @@ function NotificationDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Type</label>
             <p>
-              <span className={`badge ${typeInfo.color} badge-sm`}>
-                <span className="material-symbols-outlined text-xs mr-1">
-                  {typeInfo.icon}
-                </span>
-                {typeInfo.label}
-              </span>
+              <StatusChip label={typeInfo.label} tone={typeInfo.tone} />
             </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Status</label>
             <p>
-              <span className={`badge ${notification.read ? "badge-success" : "badge-error"} badge-sm`}>
-                {notification.read ? "Read" : "Unread"}
-              </span>
+              <StatusChip label={notification.read ? "Read" : "Unread"} tone={notification.read ? "success" : "warning"} showDot />
             </p>
           </div>
           <div>

@@ -1,3 +1,5 @@
+import type { StatusTone } from "@/components/StatusChip";
+
 export interface ReturnDisplay {
   id: string;
   returnNumber: string;
@@ -19,19 +21,19 @@ export interface ReturnDisplay {
   inspectedBy: string | null;
 }
 
-export const statusConfig = {
-  pending: { label: "Pending", class: "badge-warning" },
-  received: { label: "Received", class: "badge-info" },
-  inspecting: { label: "Inspecting", class: "badge-warning" },
-  approved: { label: "Approved", class: "badge-success" },
-  rejected: { label: "Rejected", class: "badge-error" },
-  restocked: { label: "Restocked", class: "badge-success" },
-  disposed: { label: "Disposed", class: "badge-error" },
+export const statusConfig: Record<string, { label: string; tone: StatusTone }> = {
+  pending: { label: "Pending", tone: "warning" },
+  received: { label: "Received", tone: "info" },
+  inspecting: { label: "Inspecting", tone: "warning" },
+  approved: { label: "Approved", tone: "success" },
+  rejected: { label: "Rejected", tone: "danger" },
+  restocked: { label: "Restocked", tone: "success" },
+  disposed: { label: "Disposed", tone: "danger" },
 };
 
-export const resolutionConfig = {
-  refund: { label: "Refund", class: "badge-info" },
-  replace: { label: "Replace", class: "badge-warning" },
-  repair: { label: "Repair", class: "badge-warning" },
-  reject: { label: "Reject", class: "badge-error" },
+export const resolutionConfig: Record<string, { label: string; tone: StatusTone }> = {
+  refund: { label: "Refund", tone: "info" },
+  replace: { label: "Replace", tone: "warning" },
+  repair: { label: "Repair", tone: "warning" },
+  reject: { label: "Reject", tone: "danger" },
 };

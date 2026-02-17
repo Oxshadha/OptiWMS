@@ -1,6 +1,8 @@
 "use client";
 
-import { formatDecimal, InventoryDisplayItem, statusClass } from "../types";
+import { StatusChip } from "@/components/StatusChip";
+import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
+import { formatDecimal, InventoryDisplayItem, inventoryStatusTone } from "../types";
 
 interface InventoryTableProps {
   items: InventoryDisplayItem[];
@@ -75,43 +77,42 @@ export function InventoryTable({
                 {visibleColumns.has("name") && <td>{item.name}</td>}
                 {visibleColumns.has("type") && (
                   <td>
-                    <span
-                      className={`badge text-xs whitespace-nowrap ${
-                        item.itemType === "Raw Material"
-                          ? "badge-info"
-                          : item.itemType === "Product"
-                            ? "badge-success"
-                            : "badge-neutral"
-                      }`}
-                    >
-                      {item.itemType}
-                    </span>
+                    {(() => {
+                      const typeChip = getMaterialTypeChip(item.itemType);
+                      return (
+                        <StatusChip
+                          label={typeChip.label}
+                          tone={typeChip.tone}
+                          className={`whitespace-nowrap ${typeChip.className || ""}`.trim()}
+                        />
+                      );
+                    })()}
                   </td>
                 )}
                 {visibleColumns.has("category") && (
                   <td>
-                    <span
-                      className="badge text-xs whitespace-nowrap"
-                      style={{ backgroundColor: "#EEEEEE", color: "#1F2937", border: "1px solid #E5E7EB" }}
-                    >
-                      {item.category}
-                    </span>
+                    <StatusChip label={item.category} tone="neutral" className="whitespace-nowrap" />
                   </td>
                 )}
                 {visibleColumns.has("warehouse") && (
                   <td>
-                    <span className="badge badge-info text-xs whitespace-nowrap">{item.warehouseName}</span>
+                    <StatusChip label={item.warehouseName} tone="neutral" className="whitespace-nowrap" />
                   </td>
                 )}
                 {visibleColumns.has("quantity") && <td className="font-semibold">{Math.ceil(item.qty)}</td>}
                 {visibleColumns.has("location") && (
                   <td>
-                    <span className="badge badge-ghost">{item.location}</span>
+                    <StatusChip label={item.location} tone="neutral" className="whitespace-nowrap" />
                   </td>
                 )}
                 {visibleColumns.has("status") && (
                   <td>
-                    <span className={`badge ${statusClass(item.status)} whitespace-nowrap text-xs`}>{item.status}</span>
+                    <StatusChip
+                      label={item.status}
+                      tone={inventoryStatusTone(item.status)}
+                      showDot
+                      className="whitespace-nowrap"
+                    />
                   </td>
                 )}
                 {visibleColumns.has("reorderPoint") && <td><span className="text-sm font-mono">{item.reorderPoint ? formatDecimal(parseFloat(item.reorderPoint)) : "—"}</span></td>}

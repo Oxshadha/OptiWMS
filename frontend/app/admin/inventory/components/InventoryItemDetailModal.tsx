@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { DetailModal } from "@/components/DetailModal";
+import { StatusChip } from "@/components/StatusChip";
+import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import {
   AreaChart,
   Area,
@@ -12,7 +14,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { InventoryDisplayItem, formatDecimal, statusClass } from "../types";
+import { InventoryDisplayItem, formatDecimal, inventoryStatusTone } from "../types";
 
 function generateInventoryHistory(currentQty: number, days: number = 30) {
   const data = [];
@@ -86,16 +88,16 @@ export function InventoryItemDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Category</label>
               <p>
-                <span
-                  className="badge text-xs whitespace-nowrap"
-                  style={{
-                    backgroundColor: "#EEEEEE",
-                    color: "#1F2937",
-                    border: "1px solid #E5E7EB",
-                  }}
-                >
-                  {item.category}
-                </span>
+                <StatusChip label={item.category} tone="neutral" />
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Type</label>
+              <p>
+                {(() => {
+                  const typeChip = getMaterialTypeChip(item.itemType);
+                  return <StatusChip label={typeChip.label} tone={typeChip.tone} className={typeChip.className} />;
+                })()}
               </p>
             </div>
             <div>
@@ -109,7 +111,7 @@ export function InventoryItemDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Status</label>
               <p>
-                <span className={`badge ${statusClass(item.status)}`}>{item.status}</span>
+                <StatusChip label={item.status} tone={inventoryStatusTone(item.status)} showDot />
               </p>
             </div>
           </div>
@@ -168,7 +170,7 @@ export function InventoryItemDetailModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-base-content">Inventory Levels Over Time</h3>
-                <div className="badge badge-warning badge-sm">Mock Data</div>
+                <StatusChip label="Mock Data" tone="neutral" />
               </div>
               <p className="text-sm text-base-content/60 mt-1">Track inventory changes and trends</p>
             </div>

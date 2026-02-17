@@ -4,9 +4,11 @@ import React, { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { type Material } from "@/lib/api/materials";
+import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { locationsApi } from "@/lib/api/locations";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -371,37 +373,8 @@ export default function MaterialsPage() {
                 key: "materialType",
                 label: "Type",
                 render: (material: Material) => {
-                  // Normalize material type (handle variations like "packing_material" without 'g')
-                  let type = (material.materialType || "raw_material").toLowerCase().trim();
-
-                  // Handle common variations
-                  if (type === "packing_material" || type === "packaging") {
-                    type = "packaging_material";
-                  } else if (type === "raw" || type === "rawmaterial") {
-                    type = "raw_material";
-                  } else if (type === "finished_good" || type === "finished_goods" || type === "finished_product" || type === "products") {
-                    type = "product";
-                  }
-
-                  const typeLabels: Record<string, string> = {
-                    raw_material: "Raw Material",
-                    product: "Product",
-                    packaging_material: "Packaging",
-                  };
-                  const typeColors: Record<string, string> = {
-                    raw_material: "badge-info",        // Blue - Raw Materials
-                    product: "badge-success",          // Green - Finished Goods/Products
-                    packaging_material: "badge-neutral", // Gray - Packaging Materials (not yellow to avoid conflict with low stock)
-                  };
-
-                  const label = typeLabels[type] || type;
-                  const color = typeColors[type] || "badge-outline";
-
-                  return (
-                    <span className={`badge ${color}`}>
-                      {label}
-                    </span>
-                  );
+                  const typeChip = getMaterialTypeChip(material.materialType);
+                  return <StatusChip label={typeChip.label} tone={typeChip.tone} className={typeChip.className} />;
                 },
               },
               {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatusChip } from "@/components/StatusChip";
 import {
   WorkerRole,
   getRoleDisplayName,
@@ -249,7 +250,7 @@ export default function WorkersPage() {
       render: (worker: (typeof workers)[0]) => {
         const status =
           statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
-        return <span className={`badge ${status.class}`}>{status.label}</span>;
+        return <StatusChip label={status.label} tone={status.tone} showDot />;
       },
       sortable: true,
     },
