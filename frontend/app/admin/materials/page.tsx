@@ -80,7 +80,7 @@ export default function MaterialsPage() {
     isLoading,
     error,
     refetch,
-  } = useMaterials();
+  } = useMaterials({ supplierId: supplierFilterId || undefined });
   const allMaterials: Material[] = Array.isArray(allMaterialsData)
     ? allMaterialsData
     : [];
@@ -414,8 +414,7 @@ export default function MaterialsPage() {
         <div className="alert alert-info">
           <span className="material-symbols-outlined">info</span>
           <span>
-            Supplier filter was requested, but product-supplier mapping is not linked in the database yet.
-            Showing all products.
+            Showing products linked to the selected supplier.
           </span>
         </div>
       )}

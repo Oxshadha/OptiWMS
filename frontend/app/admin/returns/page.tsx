@@ -346,7 +346,7 @@ export default function ReturnsPage() {
             returnItem.resolution as keyof typeof resolutionConfig
           ];
         if (!resolution) {
-          return <StatusChip label={returnItem.resolution} tone="neutral" />;
+          return <StatusChip label={returnItem.resolution ?? "Unknown"} tone="neutral" />;
         }
         return <StatusChip label={resolution.label} tone={resolution.tone} />;
       },
@@ -354,7 +354,9 @@ export default function ReturnsPage() {
     },
   ];
 
-  const renderActions = (returnItem: ReturnDisplay) => (
+  const renderActions = (returnItem: ReturnDisplay) => {
+    const normalizedStatus = (returnItem.status || "").trim().toLowerCase();
+    return (
     <div className="dropdown dropdown-end">
       <label tabIndex={0} className="btn btn-ghost btn-xs">
         <span className="material-symbols-outlined">more_vert</span>
@@ -371,7 +373,7 @@ export default function ReturnsPage() {
             View Details
           </button>
         </li>
-        {returnItem.status === "received" && (
+        {normalizedStatus === "received" && (
           <li>
             <button onClick={() => handleInspect(returnItem)}>
               <span className="material-symbols-outlined text-sm">
@@ -381,7 +383,7 @@ export default function ReturnsPage() {
             </button>
           </li>
         )}
-        {canApprove && returnItem.status === "inspecting" && (
+        {canApprove && normalizedStatus === "inspecting" && (
           <li>
             <button
               onClick={async () => {
@@ -404,7 +406,7 @@ export default function ReturnsPage() {
             </button>
           </li>
         )}
-        {canApprove && returnItem.status === "inspecting" && (
+        {canApprove && normalizedStatus === "inspecting" && (
           <li>
             <button
               onClick={async () => {
@@ -438,7 +440,7 @@ export default function ReturnsPage() {
             </button>
           </li>
         )}
-        {returnItem.status === "pending" && (
+        {normalizedStatus === "pending" && (
           <li>
             <button onClick={() => handleAssignWorker(returnItem)}>
               <span className="material-symbols-outlined text-sm">
@@ -462,7 +464,8 @@ export default function ReturnsPage() {
         </li>
       </ul>
     </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6">

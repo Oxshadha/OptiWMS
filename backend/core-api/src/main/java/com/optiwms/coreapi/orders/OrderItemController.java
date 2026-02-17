@@ -4,6 +4,7 @@ import com.optiwms.coreapp.orders.OrderItemService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.operations.MaterialLocationAssignmentService;
 import com.optiwms.coreapp.master.MaterialService;
+import com.optiwms.coreapp.master.SupplierMaterialService;
 import com.optiwms.domain.orders.OrderItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.master.Material;
@@ -22,16 +23,19 @@ public class OrderItemController {
     private final OrderService orderService;
     private final MaterialLocationAssignmentService materialLocationService;
     private final MaterialService materialService;
+    private final SupplierMaterialService supplierMaterialService;
 
     public OrderItemController(
             OrderItemService orderItemService,
             OrderService orderService,
             MaterialLocationAssignmentService materialLocationService,
-            MaterialService materialService) {
+            MaterialService materialService,
+            SupplierMaterialService supplierMaterialService) {
         this.orderItemService = orderItemService;
         this.orderService = orderService;
         this.materialLocationService = materialLocationService;
         this.materialService = materialService;
+        this.supplierMaterialService = supplierMaterialService;
     }
 
     @GetMapping("/{orderId}/items")
@@ -99,9 +103,28 @@ public class OrderItemController {
 
     @PostMapping("/{orderId}/items")
     public ResponseEntity<OrderItemDto> create(@PathVariable UUID orderId, @RequestBody CreateOrderItemRequest request) {
+        UUID materialId = UUID.fromString(request.materialId());
+        Order order = orderService.findById(orderId);
+        if ("inbound".equalsIgnoreCase(order.getOrderType())) {
+            UUID supplierId = order.getSupplierId();
+            if (supplierId == null) {
+                throw new IllegalArgumentException("Inbound order is missing supplier");
+            }
+            if (!supplierMaterialService.hasAnyMaterialLink(supplierId)) {
+                throw new IllegalArgumentException(
+                        "No materials are linked to the selected supplier. Link supplier materials first."
+                );
+            }
+            if (!supplierMaterialService.isMaterialLinked(supplierId, materialId)) {
+                throw new IllegalArgumentException(
+                        "Selected material is not linked to the supplier for this inbound order."
+                );
+            }
+        }
+
         OrderItem item = new OrderItem();
         item.setOrderId(orderId);
-        item.setMaterialId(UUID.fromString(request.materialId()));
+        item.setMaterialId(materialId);
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());

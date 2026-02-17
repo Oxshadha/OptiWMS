@@ -15,6 +15,7 @@ import {
   CreateSupplierModal,
   DeleteSupplierModal,
   EditSupplierModal,
+  ManageSupplierMaterialsModal,
   SupplierDetailModal,
 } from "./components/SupplierModals";
 
@@ -27,6 +28,7 @@ export default function SuppliersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showManageMaterialsModal, setShowManageMaterialsModal] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<SupplierDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -256,6 +258,17 @@ export default function SuppliersPage() {
           >
             <span className="material-symbols-outlined text-sm">edit</span>
             Edit Supplier
+          </button>
+        </li>
+        <li>
+          <button
+            onClick={() => {
+              setSelectedSupplier(supplier);
+              setShowManageMaterialsModal(true);
+            }}
+          >
+            <span className="material-symbols-outlined text-sm">inventory_2</span>
+            Manage Products
           </button>
         </li>
         <li>
@@ -504,6 +517,19 @@ export default function SuppliersPage() {
               showToast.error(err instanceof Error ? err.message : "Failed to delete supplier");
             }
           }}
+          supplier={selectedSupplier}
+        />
+      )}
+
+      {/* Manage Supplier Products Modal */}
+      {selectedSupplier && (
+        <ManageSupplierMaterialsModal
+          isOpen={showManageMaterialsModal}
+          onClose={() => {
+            setShowManageMaterialsModal(false);
+            setSelectedSupplier(null);
+          }}
+          onSaved={loadData}
           supplier={selectedSupplier}
         />
       )}

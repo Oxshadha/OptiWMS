@@ -21,9 +21,10 @@ export interface ImportResponse {
 }
 
 export const materialsApi = {
-  getAll: async (materialType?: string): Promise<Material[]> => {
+  getAll: async (materialType?: string, supplierId?: string): Promise<Material[]> => {
     const params = new URLSearchParams();
     if (materialType) params.append('materialType', materialType);
+    if (supplierId) params.append('supplierId', supplierId);
     const query = params.toString();
     return apiClient.get<Material[]>(`/master/materials${query ? `?${query}` : ''}`);
   },

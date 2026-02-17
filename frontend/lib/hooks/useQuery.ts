@@ -17,6 +17,8 @@ import { showToast } from "@/lib/utils/toast";
 export const queryKeys = {
   materials: {
     all: ["materials"] as const,
+    list: (filters?: { materialType?: string; supplierId?: string }) =>
+      ["materials", "list", filters?.materialType || "all", filters?.supplierId || "all"] as const,
     detail: (id: string) => ["materials", id] as const,
   },
   warehouses: {
@@ -43,13 +45,13 @@ export const queryKeys = {
 
 // ===== Materials Hooks =====
 
-export function useMaterials() {
+export function useMaterials(filters?: { materialType?: string; supplierId?: string }) {
   return useQuery({
-    queryKey: queryKeys.materials.all,
+    queryKey: queryKeys.materials.list(filters),
     queryFn: async () => {
       logger.debug("[useMaterials] Fetching materials from API...");
       try {
-        const data = await materialsApi.getAll();
+        const data = await materialsApi.getAll(filters?.materialType, filters?.supplierId);
         logger.debug("[useMaterials] Received materials:", data?.length || 0, "items");
         if (data && data.length > 0) {
           logger.debug("[useMaterials] First material:", data[0]);

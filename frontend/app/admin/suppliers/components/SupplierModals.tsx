@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
+import { materialsApi, type Material } from "@/lib/api/materials";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import type { SupplierDisplay } from "../types";
 
 export function SupplierDetailModal({
@@ -569,6 +571,185 @@ export function DeleteSupplierModal({
           <button className="btn btn-error" onClick={onConfirm}>
             <span className="material-symbols-outlined">delete</span>
             Delete Supplier
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function ManageSupplierMaterialsModal({
+  isOpen,
+  onClose,
+  onSaved,
+  supplier,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  supplier: SupplierDisplay;
+}) {
+  const [allMaterials, setAllMaterials] = useState<Material[]>([]);
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "raw_material" | "packaging_material" | "product">("all");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const loadData = async () => {
+      if (!isOpen) return;
+      try {
+        setIsLoading(true);
+        const [materialsData, linkedMaterials] = await Promise.all([
+          materialsApi.getAll(),
+          suppliersApi.getMaterials(supplier.id),
+        ]);
+        setAllMaterials(materialsData);
+        setSelectedMaterialIds(new Set(linkedMaterials.map((m) => m.id)));
+      } catch (err) {
+        logger.error("Failed to load supplier materials:", err);
+        showToast.error("Failed to load supplier products");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    void loadData();
+  }, [isOpen, supplier.id]);
+
+  const filteredMaterials = allMaterials.filter((material) => {
+    const actualType = material.materialType || "raw_material";
+    if (typeFilter !== "all" && actualType !== typeFilter) {
+      return false;
+    }
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      material.materialCode?.toLowerCase().includes(q) ||
+      material.description?.toLowerCase().includes(q)
+    );
+  });
+
+  const toggleMaterial = (materialId: string) => {
+    setSelectedMaterialIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(materialId)) {
+        next.delete(materialId);
+      } else {
+        next.add(materialId);
+      }
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    try {
+      setIsSaving(true);
+      await suppliersApi.replaceMaterials(supplier.id, Array.from(selectedMaterialIds));
+      showToast.success("Supplier products updated successfully");
+      await onSaved();
+      onClose();
+    } catch (err) {
+      logger.error("Failed to update supplier products:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update supplier products");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={`Manage Products: ${supplier.name}`} size="xl">
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="form-control md:col-span-2">
+            <label className="label">
+              <span className="label-text font-medium">Search Products</span>
+            </label>
+            <input
+              type="text"
+              className="input input-bordered w-full"
+              placeholder="Search by material code or name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Type</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
+            >
+              <option value="all">All</option>
+              <option value="raw_material">Raw Material</option>
+              <option value="packaging_material">Packaging</option>
+              <option value="product">Product</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="text-sm text-base-content/70">
+          Selected: <span className="font-semibold">{selectedMaterialIds.size}</span>
+        </div>
+
+        <div className="border border-base-300 rounded-lg max-h-[400px] overflow-y-auto">
+          {isLoading ? (
+            <div className="p-6 text-center">
+              <span className="loading loading-spinner loading-md"></span>
+            </div>
+          ) : filteredMaterials.length === 0 ? (
+            <div className="p-6 text-center text-base-content/60">
+              No products found
+            </div>
+          ) : (
+            <div className="divide-y divide-base-300">
+              {filteredMaterials.map((material) => {
+                const typeChip = getMaterialTypeChip(material.materialType);
+                const checked = selectedMaterialIds.has(material.id);
+                return (
+                  <label
+                    key={material.id}
+                    className="flex items-start gap-3 p-3 cursor-pointer hover:bg-base-200/50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="checkbox checkbox-sm mt-1"
+                      checked={checked}
+                      onChange={() => toggleMaterial(material.id)}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm">{material.description}</div>
+                      <div className="text-xs text-base-content/60 font-mono">{material.materialCode}</div>
+                    </div>
+                    <div className="ml-auto">
+                      <StatusChip
+                        label={typeChip.label}
+                        tone={typeChip.tone}
+                        className={typeChip.className}
+                      />
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button className="btn btn-ghost" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={isSaving || isLoading}>
+            {isSaving ? (
+              <>
+                <span className="loading loading-spinner loading-sm"></span>
+                Saving...
+              </>
+            ) : (
+              "Save Products"
+            )}
           </button>
         </div>
       </div>

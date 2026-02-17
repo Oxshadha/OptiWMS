@@ -210,6 +210,7 @@ export function CreateInboundOrderModal({
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+  const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -228,20 +229,55 @@ export function CreateInboundOrderModal({
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [suppliersData, warehousesData, materialsData] = await Promise.all([
+        const [suppliersData, warehousesData] = await Promise.all([
           suppliersApi.getAll(),
           warehousesApi.getAll(),
-          materialsApi.getAll(),
         ]);
         setSuppliers(suppliersData);
         setWarehouses(warehousesData);
-        setMaterials(materialsData);
       } catch (err) {
-        logger.error("Failed to load data:", err);
+        logger.error("Failed to load suppliers/warehouses:", err);
       }
     };
     void loadData();
   }, []);
+
+  useEffect(() => {
+    const loadSupplierMaterials = async () => {
+      if (!formData.supplierId) {
+        setMaterials([]);
+        setSupplierHasMaterialLinks(true);
+        return;
+      }
+
+      try {
+        const supplierMaterials = await materialsApi.getAll(undefined, formData.supplierId);
+        if (supplierMaterials.length > 0) {
+          setSupplierHasMaterialLinks(true);
+          setMaterials(supplierMaterials);
+
+          // Keep only items still valid for the selected supplier.
+          setFormData((prev) => ({
+            ...prev,
+            items: prev.items.filter((item) =>
+              supplierMaterials.some((m) => m.id === item.productId)
+            ),
+          }));
+        } else {
+          // Legacy bootstrap path: allow initial material selection and create links on submit.
+          setSupplierHasMaterialLinks(false);
+          const allMaterials = await materialsApi.getAll();
+          setMaterials(allMaterials);
+        }
+      } catch (err) {
+        logger.error("Failed to load supplier materials:", err);
+        setSupplierHasMaterialLinks(true);
+        setMaterials([]);
+      }
+    };
+
+    void loadSupplierMaterials();
+  }, [formData.supplierId]);
 
   const handleSubmit = async () => {
     try {
@@ -309,6 +345,16 @@ export function CreateInboundOrderModal({
         priority: "normal",
       });
 
+      // Bootstrap supplier-material links for suppliers that do not have mapping yet.
+      if (!supplierHasMaterialLinks) {
+        const uniqueMaterialIds = Array.from(
+          new Set(formData.items.map((item) => item.productId).filter(Boolean))
+        );
+        if (uniqueMaterialIds.length > 0) {
+          await suppliersApi.replaceMaterials(formData.supplierId, uniqueMaterialIds);
+        }
+      }
+
       const { orderItemsApi } = await import("@/lib/api/orderItems");
       try {
         await Promise.all(
@@ -332,7 +378,7 @@ export function CreateInboundOrderModal({
       onClose();
     } catch (err) {
       logger.error("Failed to create inbound order:", err);
-      setError("Failed to create order. Please try again.");
+      setError(err instanceof Error ? err.message : "Failed to create order. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -382,7 +428,13 @@ export function CreateInboundOrderModal({
               <select
                 className="select select-bordered w-full"
                 value={formData.supplierId}
-                onChange={(e) => setFormData({ ...formData, supplierId: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    supplierId: e.target.value,
+                    items: [],
+                  })
+                }
                 required
               >
                 <option value="">Select supplier</option>
@@ -464,6 +516,25 @@ export function CreateInboundOrderModal({
         {step === 2 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content mb-4">Add Items</h3>
+            {!formData.supplierId && (
+              <div className="alert alert-warning">
+                <span>Select a supplier first to load available materials.</span>
+              </div>
+            )}
+            {formData.supplierId && materials.length === 0 && (
+              <div className="alert alert-info">
+                <span>
+                  No materials are linked to this supplier yet. Add supplier-material links before creating the inbound order.
+                </span>
+              </div>
+            )}
+            {formData.supplierId && materials.length > 0 && !supplierHasMaterialLinks && (
+              <div className="alert alert-info">
+                <span>
+                  No supplier-material links exist yet. Selected items will initialize the supplier mapping.
+                </span>
+              </div>
+            )}
             <div className="space-y-4">
               {formData.items.map((item, idx) => (
                 <div key={idx} className="card bg-base-200 p-4 rounded-lg">
@@ -601,6 +672,7 @@ export function CreateInboundOrderModal({
               ))}
               <button
                 className="btn btn-outline btn-sm w-full"
+                disabled={!formData.supplierId || materials.length === 0}
                 onClick={() => {
                   setFormData({
                     ...formData,
