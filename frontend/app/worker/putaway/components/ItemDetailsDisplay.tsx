@@ -19,14 +19,14 @@ export function ItemDetailsDisplay({
   existingLocations?: string[];
 }) {
   const [itemName, setItemName] = useState<string>("Loading...");
-  const [itemSku, setItemSku] = useState<string>("N/A");
+  const [itemSku, setItemSku] = useState<string>("Loading...");
   const [inventoryLocations, setInventoryLocations] = useState<string[]>([]);
 
   useEffect(() => {
     const loadMaterial = async (retryCount = 0) => {
       if (materialName || materialCode) {
         setItemName(materialName || materialCode || "Item");
-        setItemSku(materialCode || "N/A");
+        setItemSku(materialCode || `MAT-${materialId.slice(0, 8).toUpperCase()}`);
       }
       try {
         const { materialsApi } = await import("@/lib/api/materials");
@@ -48,8 +48,8 @@ export function ItemDetailsDisplay({
           return;
         }
 
-        setItemName("Item details unavailable");
-        setItemSku("N/A");
+        setItemName(materialName || "Item details unavailable");
+        setItemSku(materialCode || `MAT-${materialId.slice(0, 8).toUpperCase()}`);
       }
     };
 
