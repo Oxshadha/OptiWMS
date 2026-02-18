@@ -21,6 +21,12 @@ export function RackElevationView({
   onEdit,
 }: RackElevationViewProps) {
   const POSITIONS: Array<"A" | "B"> = ["A", "B"];
+  const MAX_BIN_CAPACITY = 100;
+
+  const getBinOccupancy = (bin: LocationBin): number => {
+    if (!bin.inventory) return 0;
+    return Math.min(((bin.inventory.quantity || 0) / MAX_BIN_CAPACITY) * 100, 100);
+  };
 
   // Map bin status to colors (matches WarehouseLayout.tsx level segments exactly)
   // If rack is in maintenance/out_of_service, ALL bins show rack status color (rack is empty)
@@ -39,8 +45,17 @@ export function RackElevationView({
       return "#E0F2FE"; // Soft cyan tint
     }
 
-    // Calculate occupancy for occupied bins
-    return bin.inventory ? "#22C55E" : "#F5F5F5";
+    // Quarantined bins use purple
+    if (bin.status === "quarantined") {
+      return "#9333EA";
+    }
+
+    // Capacity-based fill colors
+    const occupancy = getBinOccupancy(bin);
+    if (occupancy === 0) return "#F5F5F5";
+    if (occupancy < 50) return "#22C55E"; // Green
+    if (occupancy < 85) return "#F59E0B"; // Amber
+    return "#1E3A8A"; // Blue
   };
 
   const getBinBorderColor = (bin: LocationBin): string => {
@@ -56,13 +71,26 @@ export function RackElevationView({
       return "#0284C7";
     }
 
-    // Calculate occupancy for occupied bins
-    return bin.inventory ? "#16A34A" : "#D1D5DB";
+    if (bin.status === "quarantined") {
+      return "#7C3AED";
+    }
+
+    const occupancy = getBinOccupancy(bin);
+    if (occupancy === 0) return "#D1D5DB";
+    if (occupancy < 50) return "#16A34A";
+    if (occupancy < 85) return "#D97706";
+    return "#1E40AF";
   };
 
   const getBinOpacity = (bin: LocationBin): number => {
     // Use full opacity for readability in side elevation (map uses 0.6 for overlay effect)
     return 1;
+  };
+
+  const isDarkBin = (bin: LocationBin): boolean => {
+    if (rack.status === "out_of_service" || rack.status === "maintenance") return false;
+    const occupancy = getBinOccupancy(bin);
+    return occupancy >= 85 || bin.status === "quarantined";
   };
 
   const hasRecentReceipt = (bin: LocationBin): boolean => {
@@ -183,24 +211,47 @@ export function RackElevationView({
                             onBinClick?.(displayBin);
                           }}
                         >
+                          {(() => {
+                            const darkBin = isDarkBin(displayBin);
+                            const textClass = darkBin ? "text-white" : "text-base-content";
+                            const mutedTextClass = darkBin ? "text-white/80" : "text-base-content/60";
+                            const statusLabel = displayBin.inventory
+                              ? "in use"
+                              : isSpecial
+                              ? rack.status.replace("_", " ")
+                              : "empty";
+                            const statusBadgeClass = displayBin.inventory
+                              ? darkBin
+                                ? "bg-white/20 text-white border border-white/40"
+                                : "bg-success/15 text-success border border-success/50"
+                              : isSpecial
+                              ? "bg-base-100/70 text-base-content border border-base-300"
+                              : "bg-base-100 text-base-content/70 border border-base-300";
+
+                            return (
+                              <>
                           <div className="flex items-center justify-between">
                             <span className="badge badge-ghost badge-sm">Bin {position}</span>
-                            <span className={clsx("badge badge-sm", displayBin.inventory ? "badge-success" : "badge-ghost")}>
-                              {displayBin.inventory ? "occupied" : isSpecial ? rack.status.replace("_", " ") : "empty"}
+                            <span className={clsx("badge badge-sm capitalize", statusBadgeClass)}>
+                              {statusLabel}
                             </span>
                           </div>
-                          <div className="mt-2 text-xs">
+                          <div className={clsx("mt-2 text-xs", textClass)}>
                             {displayBin.inventory ? (
                               <>
                                 <div className="font-semibold truncate">{displayBin.inventory.sku}</div>
                                 <div>Qty: {Math.ceil(displayBin.inventory.quantity || 0)}</div>
+                                <div>Fill: {Math.round(getBinOccupancy(displayBin))}%</div>
                                 <div>Weight: {displayBin.inventory.weight} kg</div>
                                 {hasRecentReceipt(displayBin) && <span className="badge badge-warning badge-xs mt-1">New</span>}
                               </>
                             ) : (
-                              <div className="text-base-content/60">No stock</div>
+                              <div className={mutedTextClass}>No stock</div>
                             )}
                           </div>
+                              </>
+                            );
+                          })()}
                         </div>
                       );
                     })}
