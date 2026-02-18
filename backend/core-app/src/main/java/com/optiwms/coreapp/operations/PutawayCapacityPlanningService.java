@@ -54,9 +54,27 @@ public class PutawayCapacityPlanningService {
                 .sorted(locationComparator(preferredLocationCode, materialId, inventoryByLocation))
                 .toList();
 
+        List<String> notes = new ArrayList<>();
+        Integer requiredPalletSlots = null;
+        Integer availablePalletSlots = null;
+        BigDecimal unitsPerPallet = inboundMaterial.getPalletSpaces();
+        if (unitsPerPallet != null && unitsPerPallet.compareTo(BigDecimal.ZERO) > 0) {
+            requiredPalletSlots = toPositiveIntCeil(
+                    BigDecimal.valueOf(totalQuantity).divide(unitsPerPallet, 8, RoundingMode.CEILING)
+            );
+            availablePalletSlots = candidateLocations.stream()
+                    .mapToInt(loc -> {
+                        Integer max = loc.getMaxPalletCapacity();
+                        Integer current = loc.getCurrentPalletCount();
+                        if (max == null || max <= 0) return 0;
+                        return Math.max(max - (current != null ? current : 0), 0);
+                    })
+                    .sum();
+            notesForPalletModel(notes, requiredPalletSlots, availablePalletSlots, unitsPerPallet);
+        }
+
         int remaining = totalQuantity;
         List<SplitPlanLine> planLines = new ArrayList<>();
-        List<String> notes = new ArrayList<>();
 
         for (Location location : candidateLocations) {
             if (remaining <= 0) {
@@ -84,6 +102,9 @@ public class PutawayCapacityPlanningService {
         }
 
         boolean feasible = remaining == 0;
+        if (requiredPalletSlots != null && availablePalletSlots != null && availablePalletSlots < requiredPalletSlots) {
+            feasible = false;
+        }
         if (!feasible) {
             notes.add("Insufficient eligible capacity. Remaining quantity: " + remaining);
             if (inboundMaterial.getWeightKg() == null) {
@@ -94,7 +115,17 @@ public class PutawayCapacityPlanningService {
             }
         }
 
-        return new SplitPlanResult(feasible, totalQuantity, totalQuantity - remaining, remaining, planLines, notes);
+        return new SplitPlanResult(
+                feasible,
+                totalQuantity,
+                totalQuantity - remaining,
+                remaining,
+                requiredPalletSlots,
+                availablePalletSlots,
+                toString(unitsPerPallet),
+                planLines,
+                notes
+        );
     }
 
     public ValidationResult validateSingleLocation(
@@ -293,8 +324,16 @@ public class PutawayCapacityPlanningService {
             }
         }
 
-        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
-            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
+        if (location.getMaxPalletCapacity() != null && location.getMaxPalletCapacity() > 0
+                && inboundMaterial.getPalletSpaces() != null
+                && inboundMaterial.getPalletSpaces().compareTo(BigDecimal.ZERO) > 0) {
+            int currentPalletCount = location.getCurrentPalletCount() != null ? location.getCurrentPalletCount() : 0;
+            int slotHeadroom = Math.max(location.getMaxPalletCapacity() - currentPalletCount, 0);
+            int byPalletSlots = toPositiveIntFloor(
+                    BigDecimal.valueOf(slotHeadroom).multiply(inboundMaterial.getPalletSpaces())
+            );
+            allocatable = Math.min(allocatable, byPalletSlots);
+            if (byPalletSlots <= 0) {
                 allocatable = 0;
                 blockedByRackPalletRule = true;
             }
@@ -413,6 +452,21 @@ public class PutawayCapacityPlanningService {
         return value.setScale(0, RoundingMode.FLOOR).intValue();
     }
 
+    private int toPositiveIntCeil(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            return 0;
+        }
+        return value.setScale(0, RoundingMode.CEILING).intValue();
+    }
+
+    private void notesForPalletModel(List<String> notes, Integer requiredPalletSlots, Integer availablePalletSlots, BigDecimal unitsPerPallet) {
+        if (requiredPalletSlots == null || availablePalletSlots == null || unitsPerPallet == null) {
+            return;
+        }
+        notes.add("Handling model: " + unitsPerPallet.stripTrailingZeros().toPlainString() + " units per pallet slot.");
+        notes.add("Required pallet slots: " + requiredPalletSlots + ", available pallet slots: " + availablePalletSlots + ".");
+    }
+
     private String fillPercent(Integer used, Integer max) {
         if (max == null || max <= 0) {
             return null;
@@ -458,6 +512,9 @@ public class PutawayCapacityPlanningService {
             int requestedQuantity,
             int plannedQuantity,
             int unplannedQuantity,
+            Integer requiredPalletSlots,
+            Integer availablePalletSlots,
+            String unitsPerPallet,
             List<SplitPlanLine> allocations,
             List<String> notes
     ) {

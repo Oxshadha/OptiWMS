@@ -94,15 +94,27 @@ export function MaterialDetailModal({
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
+              <span className="label-text font-medium">Handling Unit Type</span>
             </label>
-            <div>{material.unitType || "—"}</div>
+            <div className="uppercase">{material.unitType || "—"}</div>
           </div>
           <div>
             <label className="label">
               <span className="label-text font-medium">Storage Type</span>
             </label>
             <div className="capitalize">{material.storageType || "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <div>{material.palletSpaces != null ? material.palletSpaces : "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+            </label>
+            <div>{material.maxPalletWeightKg != null ? material.maxPalletWeightKg : "—"}</div>
           </div>
           <div>
             <label className="label">

@@ -215,7 +215,15 @@ export function CreateInboundOrderModal({
   const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<
-    Map<number, { feasible: boolean; plannedQuantity: number; requestedQuantity: number; notes: string[] }>
+    Map<number, {
+      feasible: boolean;
+      plannedQuantity: number;
+      requestedQuantity: number;
+      requiredPalletSlots?: number | null;
+      availablePalletSlots?: number | null;
+      unitsPerPallet?: string | null;
+      notes: string[];
+    }>
   >(new Map());
   const [formData, setFormData] = useState({
     supplierId: "",
@@ -298,7 +306,15 @@ export function CreateInboundOrderModal({
       }
 
       setCapacityCheckLoading(true);
-      const resultMap = new Map<number, { feasible: boolean; plannedQuantity: number; requestedQuantity: number; notes: string[] }>();
+      const resultMap = new Map<number, {
+        feasible: boolean;
+        plannedQuantity: number;
+        requestedQuantity: number;
+        requiredPalletSlots?: number | null;
+        availablePalletSlots?: number | null;
+        unitsPerPallet?: string | null;
+        notes: string[];
+      }>();
 
       for (let idx = 0; idx < formData.items.length; idx += 1) {
         const item = formData.items[idx];
@@ -324,6 +340,9 @@ export function CreateInboundOrderModal({
             feasible: !!plan.feasible,
             plannedQuantity: plan.plannedQuantity,
             requestedQuantity: plan.requestedQuantity,
+            requiredPalletSlots: plan.requiredPalletSlots,
+            availablePalletSlots: plan.availablePalletSlots,
+            unitsPerPallet: plan.unitsPerPallet,
             notes: plan.notes || [],
           });
         } catch (error) {
@@ -332,6 +351,9 @@ export function CreateInboundOrderModal({
             feasible: false,
             plannedQuantity: 0,
             requestedQuantity: item.quantityOrdered,
+            requiredPalletSlots: null,
+            availablePalletSlots: null,
+            unitsPerPallet: null,
             notes: [msg],
           });
         }
@@ -830,6 +852,14 @@ export function CreateInboundOrderModal({
                           Capacity insufficient ({capacityPlansByItem.get(idx)?.plannedQuantity}/{capacityPlansByItem.get(idx)?.requestedQuantity})
                           {capacityPlansByItem.get(idx)?.notes?.[0] ? ` - ${capacityPlansByItem.get(idx)?.notes?.[0]}` : ""}
                         </span>
+                      )}
+                      {capacityPlansByItem.get(idx)?.requiredPalletSlots != null && (
+                        <div className="text-base-content/70 mt-1">
+                          Required pallet slots: {capacityPlansByItem.get(idx)?.requiredPalletSlots} | Available: {capacityPlansByItem.get(idx)?.availablePalletSlots ?? 0}
+                          {capacityPlansByItem.get(idx)?.unitsPerPallet
+                            ? ` | Units/Pallet: ${capacityPlansByItem.get(idx)?.unitsPerPallet}`
+                            : ""}
+                        </div>
                       )}
                     </div>
                   )}

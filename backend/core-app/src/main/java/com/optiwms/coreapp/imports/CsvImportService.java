@@ -157,21 +157,32 @@ public class CsvImportService {
 
             String line;
             int lineNumber = 0;
+            Map<String, Integer> headerMap = null;
+            boolean useHeaderBasedParsing = false;
 
             while ((line = reader.readLine()) != null) {
                 lineNumber++;
-                
-                // Skip first 2 header lines
-                if (lineNumber <= 2) {
-                    continue;
-                }
 
                 if (line.trim().isEmpty()) {
                     continue;
                 }
 
+                if (headerMap == null) {
+                    headerMap = parseHeaderMap(line);
+                    useHeaderBasedParsing = headerMap.containsKey("material_code");
+
+                    // If file does not have a proper header row, fall back to legacy positional parser.
+                    if (!useHeaderBasedParsing) {
+                        // Legacy format has two non-data header rows; keep prior behavior.
+                        continue;
+                    }
+                    continue;
+                }
+
                 try {
-                    InventoryItem item = parseInventoryLine(line, materialCodeMap, defaultWarehouseId);
+                    InventoryItem item = useHeaderBasedParsing
+                            ? parseInventoryLineWithHeader(line, headerMap, materialCodeMap, defaultWarehouseId)
+                            : (lineNumber <= 2 ? null : parseInventoryLine(line, materialCodeMap, defaultWarehouseId));
                     if (item != null) {
                         items.add(item);
                     }
@@ -191,6 +202,53 @@ public class CsvImportService {
         }
 
         return new ImportResult(successCount, errorCount, errors);
+    }
+
+    private InventoryItem parseInventoryLineWithHeader(
+            String line,
+            Map<String, Integer> headerMap,
+            Map<String, java.util.UUID> materialCodeMap,
+            java.util.UUID warehouseId
+    ) {
+        String[] parts = parseCsvLine(line);
+        String materialCode = getField(parts, headerMap, "material_code");
+        if (materialCode.isEmpty()) {
+            return null;
+        }
+
+        // Skip secondary sub-header rows (e.g., Jul SP / Aug SP / ...)
+        String description = getField(parts, headerMap, "description");
+        if ("description".equalsIgnoreCase(description)) {
+            return null;
+        }
+
+        java.util.UUID materialId = materialCodeMap.get(materialCode);
+        if (materialId == null) {
+            throw new RuntimeException("Material not found: " + materialCode);
+        }
+
+        InventoryItem item = new InventoryItem();
+        item.setMaterialId(materialId);
+        item.setWarehouseId(warehouseId);
+        item.setQuantity(parseIntegerSafe(getField(parts, headerMap, "quantity"), 0));
+        item.setAvailableQuantity(item.getQuantity());
+        item.setReservedQuantity(0);
+        item.setStatus("active");
+
+        item.setBufferDays(parseIntegerNullable(getField(parts, headerMap, "buffer_days")));
+        item.setLeadTimeDays(parseIntegerNullable(getField(parts, headerMap, "lead_time_days")));
+        item.setLeadTimeMonths(parseBigDecimalNullable(getField(parts, headerMap, "lead_time_months")));
+        item.setReorderPoint(parseBigDecimalNullable(getField(parts, headerMap, "reorder_point")));
+        item.setRopInDays(parseBigDecimalNullable(getField(parts, headerMap, "rop_in_days")));
+        item.setBufferStock(parseBigDecimalNullable(getField(parts, headerMap, "buffer_stock")));
+        item.setMaxStock(parseBigDecimalNullable(getField(parts, headerMap, "max_stock")));
+        item.setStackingQuantity(parseIntegerNullable(getField(parts, headerMap, "stacking_quantity")));
+        item.setMoq(parseBigDecimalNullable(getField(parts, headerMap, "moq")));
+        item.setVarianceDemand(parseBigDecimalNullable(getField(parts, headerMap, "variance_demand")));
+        item.setVarianceLeadTimeDemand(parseBigDecimalNullable(getField(parts, headerMap, "variance_lead_time_demand")));
+        item.setPalletRequirement(parseBigDecimalNullable(getField(parts, headerMap, "pallet_requirement")));
+
+        return item;
     }
 
     private InventoryItem parseInventoryLine(String line, Map<String, java.util.UUID> materialCodeMap, java.util.UUID warehouseId) {
@@ -358,8 +416,77 @@ public class CsvImportService {
         if (normalized.equals("weight") || normalized.equals("weightkg")) {
             return "weight_kg";
         }
+        if (normalized.equals("material") || normalized.equals("material_code_")) {
+            return "material_code";
+        }
+        if (normalized.equals("buffer_days")) {
+            return "buffer_days";
+        }
+        if (normalized.equals("lead_time")) {
+            return "lead_time_days";
+        }
+        if (normalized.equals("lead_time_months")) {
+            return "lead_time_months";
+        }
+        if (normalized.equals("rop")) {
+            return "reorder_point";
+        }
+        if (normalized.equals("rop_in_days")) {
+            return "rop_in_days";
+        }
+        if (normalized.equals("buffer_stock")) {
+            return "buffer_stock";
+        }
+        if (normalized.equals("maximum_stock")) {
+            return "max_stock";
+        }
+        if (normalized.equals("stacking_quantity")) {
+            return "stacking_quantity";
+        }
+        if (normalized.equals("variance_(demand)") || normalized.equals("variance_demand")) {
+            return "variance_demand";
+        }
+        if (normalized.equals("variance_lead_time_demand")) {
+            return "variance_lead_time_demand";
+        }
+        if (normalized.equals("pallet_requirement")) {
+            return "pallet_requirement";
+        }
+        if (normalized.equals("on_hand") || normalized.equals("current_stock")) {
+            return "quantity";
+        }
 
         return normalized;
+    }
+
+    private Integer parseIntegerSafe(String value, int defaultValue) {
+        String cleaned = cleanNumber(value);
+        if (cleaned.isEmpty()) return defaultValue;
+        try {
+            return new BigDecimal(cleaned).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        } catch (NumberFormatException ex) {
+            return defaultValue;
+        }
+    }
+
+    private Integer parseIntegerNullable(String value) {
+        String cleaned = cleanNumber(value);
+        if (cleaned.isEmpty()) return null;
+        try {
+            return new BigDecimal(cleaned).setScale(0, java.math.RoundingMode.HALF_UP).intValue();
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private BigDecimal parseBigDecimalNullable(String value) {
+        String cleaned = cleanNumber(value);
+        if (cleaned.isEmpty()) return null;
+        try {
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private String getField(String[] parts, Map<String, Integer> headerMap, String key) {

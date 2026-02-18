@@ -454,9 +454,18 @@ export default function MaterialsPage() {
               },
               {
                 key: "unitType",
-                label: "Unit",
+                label: "Handling Unit",
                 render: (material: Material) => (
-                  <span className="text-base-content/60">{material.unitType || "—"}</span>
+                  <span className="text-base-content/60 uppercase">{material.unitType || "—"}</span>
+                ),
+              },
+              {
+                key: "palletSpaces",
+                label: "Units / Pallet",
+                render: (material: Material) => (
+                  <span className="text-base-content/60">
+                    {material.palletSpaces != null ? material.palletSpaces : "—"}
+                  </span>
                 ),
               },
               {
