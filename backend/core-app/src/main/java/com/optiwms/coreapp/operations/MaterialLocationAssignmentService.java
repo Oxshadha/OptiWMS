@@ -147,7 +147,10 @@ public class MaterialLocationAssignmentService {
                             location != null ? location.getBayNumber() : null,
                             location != null ? location.getLevelNumber() : null,
                             location != null ? location.getBinPosition() : null,
-                            item.getAvailableQuantity()
+                            item.getAvailableQuantity(),
+                            item.getBatchNumber(),
+                            item.getExpiryDate(),
+                            item.getCreatedAt()
                     );
                 })
                 .collect(Collectors.toList());
@@ -203,7 +206,10 @@ public class MaterialLocationAssignmentService {
             String bayNumber,
             Integer levelNumber,
             String binPosition,
-            Integer availableQuantity
+            Integer availableQuantity,
+            String batchNumber,
+            java.time.LocalDate expiryDate,
+            java.time.OffsetDateTime receivedAt
     ) {}
 
     private boolean isRackStatusPutawayAllowed(String rackStatus) {

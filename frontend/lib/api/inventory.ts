@@ -20,6 +20,10 @@ export interface InventoryItem {
   lastCountedAt?: string;
   status: string;
   materialType?: string; // raw_material, packaging_material, product
+  batchNumber?: string;
+  expiryDate?: string;
+  lastMovementDate?: string;
+  daysSinceLastMovement?: number;
   // Additional planning fields
   bufferDays?: number;
   leadTimeMonths?: string;
@@ -128,6 +132,8 @@ export const inventoryApi = {
     moq?: string;
     leadTimeDays?: number;
     status?: string;
+    batchNumber?: string;
+    expiryDate?: string;
   }): Promise<InventoryItem> => {
     return apiClient.post<InventoryItem>('/inventory', inventory);
   },
@@ -147,6 +153,8 @@ export const inventoryApi = {
     moq?: string;
     leadTimeDays?: number;
     status?: string;
+    batchNumber?: string;
+    expiryDate?: string;
   }): Promise<InventoryItem> => {
     return apiClient.put<InventoryItem>(`/inventory/${id}`, inventory);
   },

@@ -12,6 +12,9 @@ public class OrderItem {
     private Integer pickedQuantity;
     private Integer packedQuantity;
     private String locationCode;
+    private String batchNumber;
+    private java.time.LocalDate manufactureDate;
+    private java.time.LocalDate expiryDate;
     private String status;
 
     // Getters and Setters
@@ -86,5 +89,28 @@ public class OrderItem {
     public void setStatus(String status) {
         this.status = status;
     }
-}
 
+    public String getBatchNumber() {
+        return batchNumber;
+    }
+
+    public void setBatchNumber(String batchNumber) {
+        this.batchNumber = batchNumber;
+    }
+
+    public java.time.LocalDate getManufactureDate() {
+        return manufactureDate;
+    }
+
+    public void setManufactureDate(java.time.LocalDate manufactureDate) {
+        this.manufactureDate = manufactureDate;
+    }
+
+    public java.time.LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(java.time.LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
+    }
+}

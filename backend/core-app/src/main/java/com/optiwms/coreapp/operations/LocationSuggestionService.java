@@ -173,6 +173,9 @@ public class LocationSuggestionService {
             .sorted(Comparator
                 .comparing((Location loc) -> isFastMoving ? getAccessibilityScore(loc) : 0)
                 .reversed()
+                .thenComparing((Location loc) -> isFastMoving
+                        ? (loc.getLevelNumber() != null ? loc.getLevelNumber() : Integer.MAX_VALUE)
+                        : -(loc.getLevelNumber() != null ? loc.getLevelNumber() : 0))
                 .thenComparing(Location::getLocationCode))
             .collect(Collectors.toList());
         

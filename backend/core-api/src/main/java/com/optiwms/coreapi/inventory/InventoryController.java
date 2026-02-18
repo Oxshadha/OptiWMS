@@ -172,6 +172,8 @@ public class InventoryController {
             item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
             item.setLeadTimeDays(request.leadTimeDays());
             item.setStatus(request.status() != null ? request.status() : "active");
+            item.setBatchNumber(request.batchNumber());
+            item.setExpiryDate(request.expiryDate());
 
             var created = inventoryService.createOrUpdate(item);
             return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
@@ -204,6 +206,8 @@ public class InventoryController {
             item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
             item.setLeadTimeDays(request.leadTimeDays());
             item.setStatus(request.status());
+            item.setBatchNumber(request.batchNumber());
+            item.setExpiryDate(request.expiryDate());
 
             var updated = inventoryService.update(id, item);
             return ResponseEntity.ok(toDto(updated));
@@ -232,6 +236,8 @@ public class InventoryController {
                 item.getLeadTimeDays(),
                 item.getStatus(),
                 item.getMaterialType(),
+                item.getBatchNumber(),
+                item.getExpiryDate(),
                 // Additional planning fields
                 item.getBufferDays(),
                 item.getLeadTimeMonths() != null ? item.getLeadTimeMonths().toString() : null,
@@ -275,6 +281,8 @@ public class InventoryController {
             Integer leadTimeDays,
             String status,
             String materialType,  // raw_material, packaging_material, product
+            String batchNumber,
+            java.time.LocalDate expiryDate,
             // Additional planning fields
             Integer bufferDays,
             String leadTimeMonths,
@@ -318,7 +326,9 @@ public class InventoryController {
             Integer stackQuantity,
             String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            String status,
+            String batchNumber,
+            java.time.LocalDate expiryDate
     ) {}
 
     public record UpdateInventoryRequest(
@@ -335,7 +345,8 @@ public class InventoryController {
             Integer stackingQuantity,
             String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            String status,
+            String batchNumber,
+            java.time.LocalDate expiryDate
     ) {}
 }
-

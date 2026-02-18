@@ -9,6 +9,9 @@ export interface OrderItem {
   pickedQuantity: number;
   packedQuantity: number;
   locationCode?: string;
+  batchNumber?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
   status: string;
 }
 
@@ -17,6 +20,9 @@ export interface CreateOrderItemRequest {
   quantity: number;
   unitPrice?: string;
   locationCode?: string;
+  batchNumber?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
 }
 
 export const orderItemsApi = {
