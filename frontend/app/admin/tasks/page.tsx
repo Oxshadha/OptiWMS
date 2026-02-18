@@ -33,6 +33,21 @@ function getTaskPriorityTone(priority: string): StatusTone {
   return "neutral";
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString();
+}
+
+function getDurationMinutes(startedAt?: string | null, completedAt?: string | null): number | null {
+  if (!startedAt || !completedAt) return null;
+  const start = new Date(startedAt);
+  const end = new Date(completedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60)));
+}
+
 export default function TasksPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -87,13 +102,7 @@ export default function TasksPage() {
         if (status === "completed") status = "completed";
         if (status === "cancelled") status = "cancelled";
 
-        // Calculate duration if completed
-        let duration: number | null = null;
-        if (task.completedAt && task.dueDate) {
-          const start = new Date(task.dueDate);
-          const end = new Date(task.completedAt);
-          duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
-        }
+        const duration = getDurationMinutes(task.startedAt, task.completedAt);
 
         const notePairs = new Map<string, string>();
         (task.notes || "")
@@ -129,7 +138,7 @@ export default function TasksPage() {
           priority: task.priority || "normal",
           status,
           assignedDate: task.dueDate || new Date().toISOString(),
-          startedAt: task.dueDate || null,
+          startedAt: task.startedAt || null,
           completedAt: task.completedAt || null,
           duration,
           locationCode: task.locationCode || null,
@@ -165,7 +174,7 @@ export default function TasksPage() {
     totalTasksToday: tasksForWarehouse.filter((t) => t.assignedDate.includes(today)).length,
     pending: tasksForWarehouse.filter((t) => t.status === "assigned" || t.status === "pending").length,
     inProgress: tasksForWarehouse.filter((t) => t.status === "in_progress").length,
-    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && t.assignedDate.includes(today)).length,
+    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && (t.completedAt || "").includes(today)).length,
   };
 
   const filteredTasks = tasksForWarehouse.filter((task) => {
@@ -332,7 +341,21 @@ export default function TasksPage() {
     {
       key: "assignedDate",
       label: "Assigned Date",
-      render: (task: TaskDisplay) => task.assignedDate.split(" ")[0],
+      render: (task: TaskDisplay) => formatDateTime(task.assignedDate),
+      className: "text-base-content/70",
+      sortable: true,
+    },
+    {
+      key: "startedAt",
+      label: "Started At",
+      render: (task: TaskDisplay) => formatDateTime(task.startedAt),
+      className: "text-base-content/70",
+      sortable: true,
+    },
+    {
+      key: "completedAt",
+      label: "Completed At",
+      render: (task: TaskDisplay) => formatDateTime(task.completedAt),
       className: "text-base-content/70",
       sortable: true,
     },
@@ -340,7 +363,7 @@ export default function TasksPage() {
       key: "duration",
       label: "Duration",
       render: (task: TaskDisplay) =>
-        task.duration ? `${task.duration} min` : "-",
+        task.duration !== null ? `${task.duration} min` : "-",
       sortable: true,
     },
   ];

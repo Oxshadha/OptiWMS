@@ -112,7 +112,7 @@ export function TaskDetailModal({
               <p className="font-semibold">{task.completedAt}</p>
             </div>
           )}
-          {task.duration && (
+          {task.duration !== null && (
             <div>
               <label className="text-sm text-base-content/60">Duration</label>
               <p className="font-semibold">{task.duration} minutes</p>

@@ -33,6 +33,7 @@ export default function WorkerTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showScanner, setShowScanner] = useState(false);
+  const [nowTs, setNowTs] = useState<number>(Date.now());
 
   // Fetch tasks for the logged-in worker
   useEffect(() => {
@@ -61,6 +62,11 @@ export default function WorkerTasksPage() {
     loadTasks();
   }, [worker?.id, isOnline]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTs(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   const filteredTasks = selectedFilter === "all" 
     ? tasks 
     : tasks.filter(t => t.priority === selectedFilter.toLowerCase());
@@ -84,6 +90,22 @@ export default function WorkerTasksPage() {
 
   const getTaskConfig = (taskType: string) => {
     return taskTypeConfig[taskType.toLowerCase()] || { icon: "task", type: "info" };
+  };
+
+  const formatDateTime = (value?: string) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString();
+  };
+
+  const getDurationText = (task: Task) => {
+    if (!task.startedAt) return "-";
+    const start = new Date(task.startedAt);
+    const end = task.completedAt ? new Date(task.completedAt) : new Date(nowTs);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "-";
+    const minutes = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
+    return `${minutes} min`;
   };
 
   const handleQRScan = (result: string) => {
@@ -191,6 +213,10 @@ export default function WorkerTasksPage() {
                     <div className="flex items-center gap-2 text-xs text-base-content/50">
                       <span className="material-symbols-outlined text-sm">schedule</span>
                       <span>Due: {formatDueTime(task.dueDate)}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-base-content/50 mt-1">
+                      <span>Started: {formatDateTime(task.startedAt)}</span>
+                      <span>Duration: {getDurationText(task)}</span>
                     </div>
                   </div>
                 </div>

@@ -9,6 +9,7 @@ export interface Task {
   priority: string;
   status: string;
   dueDate?: string;
+  startedAt?: string;
   completedAt?: string;
   locationCode?: string;
   referenceType?: string;
