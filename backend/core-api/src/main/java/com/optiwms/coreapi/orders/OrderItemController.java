@@ -163,6 +163,9 @@ public class OrderItemController {
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());
+        item.setBatchNumber(request.batchNumber());
+        item.setManufactureDate(request.manufactureDate());
+        item.setExpiryDate(request.expiryDate());
         item.setStatus("pending");
 
         OrderItem created = orderItemService.create(item);
@@ -178,6 +181,9 @@ public class OrderItemController {
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());
+        item.setBatchNumber(request.batchNumber());
+        item.setManufactureDate(request.manufactureDate());
+        item.setExpiryDate(request.expiryDate());
         item.setStatus(request.status());
 
         OrderItem updated = orderItemService.update(itemId, item);
@@ -200,6 +206,9 @@ public class OrderItemController {
                 item.getPickedQuantity(),
                 item.getPackedQuantity(),
                 item.getLocationCode(),
+                item.getBatchNumber(),
+                item.getManufactureDate(),
+                item.getExpiryDate(),
                 item.getStatus()
         );
     }
@@ -213,6 +222,9 @@ public class OrderItemController {
             Integer pickedQuantity,
             Integer packedQuantity,
             String locationCode,
+            String batchNumber,
+            java.time.LocalDate manufactureDate,
+            java.time.LocalDate expiryDate,
             String status
     ) {}
 
@@ -220,13 +232,19 @@ public class OrderItemController {
             String materialId,
             Integer quantity,
             String unitPrice,
-            String locationCode
+            String locationCode,
+            String batchNumber,
+            java.time.LocalDate manufactureDate,
+            java.time.LocalDate expiryDate
     ) {}
 
     public record UpdateOrderItemRequest(
             Integer quantity,
             String unitPrice,
             String locationCode,
+            String batchNumber,
+            java.time.LocalDate manufactureDate,
+            java.time.LocalDate expiryDate,
             String status
     ) {}
 

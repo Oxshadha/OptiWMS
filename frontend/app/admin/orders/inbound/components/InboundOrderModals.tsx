@@ -437,6 +437,9 @@ export function CreateInboundOrderModal({
               materialId: item.productId,
               quantity: item.quantityOrdered,
               locationCode: undefined,
+              batchNumber: item.batchNumber || undefined,
+              manufactureDate: item.manufactureDate || undefined,
+              expiryDate: item.expiryDate || undefined,
             })
           )
         );

@@ -97,6 +97,8 @@ export function useInventoryData({
         orderQuantity?: string;
         palletRequirement?: string;
         locations: Set<string>;
+        batches: Set<string>;
+        nearestExpiryDate?: string;
       }>();
 
       inventoryData.forEach((item) => {
@@ -109,6 +111,12 @@ export function useInventoryData({
           existing.availableQty += availableQty;
           if (item.locationCode) {
             existing.locations.add(item.locationCode);
+          }
+          if (item.batchNumber) {
+            existing.batches.add(item.batchNumber);
+          }
+          if (item.expiryDate && (!existing.nearestExpiryDate || item.expiryDate < existing.nearestExpiryDate)) {
+            existing.nearestExpiryDate = item.expiryDate;
           }
         } else {
           grouped.set(key, {
@@ -136,6 +144,8 @@ export function useInventoryData({
             orderQuantity: item.orderQuantity,
             palletRequirement: item.palletRequirement,
             locations: new Set(item.locationCode ? [item.locationCode] : []),
+            batches: new Set(item.batchNumber ? [item.batchNumber] : []),
+            nearestExpiryDate: item.expiryDate,
           });
         }
       });
@@ -173,6 +183,7 @@ export function useInventoryData({
         }
 
         const allLocations = Array.from(item.locations).filter(Boolean).sort();
+        const allBatches = Array.from(item.batches).filter(Boolean).sort();
         return {
           id: item.id,
           sku: material?.materialCode || item.materialId,
@@ -180,6 +191,8 @@ export function useInventoryData({
           qty,
           location: allLocations.length > 0 ? allLocations[0] : "N/A",
           locations: allLocations,
+          batches: allBatches,
+          nearestExpiryDate: item.nearestExpiryDate,
           status,
           warehouseName,
           itemType,

@@ -41,6 +41,9 @@ public class OrderItemService {
         entity.setPickedQuantity(orderItem.getPickedQuantity() != null ? orderItem.getPickedQuantity() : 0);
         entity.setPackedQuantity(orderItem.getPackedQuantity() != null ? orderItem.getPackedQuantity() : 0);
         entity.setLocationCode(orderItem.getLocationCode());
+        entity.setBatchNumber(orderItem.getBatchNumber());
+        entity.setManufactureDate(orderItem.getManufactureDate());
+        entity.setExpiryDate(orderItem.getExpiryDate());
         entity.setStatus(orderItem.getStatus() != null ? orderItem.getStatus() : "pending");
         
         OrderItemEntity saved = repository.save(entity);
@@ -66,6 +69,15 @@ public class OrderItemService {
         }
         if (updatedItem.getLocationCode() != null) {
             entity.setLocationCode(updatedItem.getLocationCode());
+        }
+        if (updatedItem.getBatchNumber() != null) {
+            entity.setBatchNumber(updatedItem.getBatchNumber());
+        }
+        if (updatedItem.getManufactureDate() != null) {
+            entity.setManufactureDate(updatedItem.getManufactureDate());
+        }
+        if (updatedItem.getExpiryDate() != null) {
+            entity.setExpiryDate(updatedItem.getExpiryDate());
         }
         if (updatedItem.getStatus() != null) {
             entity.setStatus(updatedItem.getStatus());
@@ -93,6 +105,9 @@ public class OrderItemService {
         domain.setPickedQuantity(entity.getPickedQuantity());
         domain.setPackedQuantity(entity.getPackedQuantity());
         domain.setLocationCode(entity.getLocationCode());
+        domain.setBatchNumber(entity.getBatchNumber());
+        domain.setManufactureDate(entity.getManufactureDate());
+        domain.setExpiryDate(entity.getExpiryDate());
         domain.setStatus(entity.getStatus());
         return domain;
     }

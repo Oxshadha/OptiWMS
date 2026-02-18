@@ -6,6 +6,7 @@ import com.optiwms.infra.inventory.InventoryItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -128,6 +129,10 @@ public class InventoryService {
         if (item.getMaterialType() != null) {
             entity.setMaterialType(item.getMaterialType());
         }
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -138,6 +143,7 @@ public class InventoryService {
         InventoryItemEntity entity = repository.findByMaterialIdAndWarehouseId(
                 item.getMaterialId(), item.getWarehouseId())
                 .stream()
+                .filter(existing -> sameInventoryBucket(existing, item))
                 .findFirst()
                 .orElse(new InventoryItemEntity());
 
@@ -166,6 +172,10 @@ public class InventoryService {
         entity.setPalletRequirement(item.getPalletRequirement());
         entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
         entity.setMaterialType(item.getMaterialType());
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -199,6 +209,10 @@ public class InventoryService {
         entity.setPalletRequirement(item.getPalletRequirement());
         entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
         entity.setMaterialType(item.getMaterialType());
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -239,6 +253,38 @@ public class InventoryService {
         item.setPalletRequirement(entity.getPalletRequirement());
         item.setStatus(entity.getStatus());
         item.setMaterialType(entity.getMaterialType());
+        item.setBatchNumber(entity.getBatchNumber());
+        item.setExpiryDate(entity.getExpiryDate());
+        item.setLastMovementDate(entity.getLastMovementDate());
+        item.setDaysSinceLastMovement(entity.getDaysSinceLastMovement());
+        if (entity.getCreatedAt() != null) {
+            item.setCreatedAt(entity.getCreatedAt().atOffset(ZoneOffset.UTC));
+        }
+        if (entity.getUpdatedAt() != null) {
+            item.setUpdatedAt(entity.getUpdatedAt().atOffset(ZoneOffset.UTC));
+        }
         return item;
+    }
+
+    private boolean sameInventoryBucket(InventoryItemEntity existing, InventoryItem incoming) {
+        String existingLocation = normalize(existing.getLocationCode());
+        String incomingLocation = normalize(incoming.getLocationCode());
+        String existingLpn = normalize(existing.getLpnCode());
+        String incomingLpn = normalize(incoming.getLpnCode());
+        String existingBatch = normalize(existing.getBatchNumber());
+        String incomingBatch = normalize(incoming.getBatchNumber());
+        java.time.LocalDate existingExpiry = existing.getExpiryDate();
+        java.time.LocalDate incomingExpiry = incoming.getExpiryDate();
+
+        return java.util.Objects.equals(existingLocation, incomingLocation)
+                && java.util.Objects.equals(existingLpn, incomingLpn)
+                && java.util.Objects.equals(existingBatch, incomingBatch)
+                && java.util.Objects.equals(existingExpiry, incomingExpiry);
+    }
+
+    private String normalize(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

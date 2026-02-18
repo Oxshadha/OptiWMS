@@ -33,6 +33,12 @@ const parseMaterialCode = (notes?: string): string | null => {
   return match[1].trim();
 };
 
+const parseAllocationPolicy = (notes?: string): string | null => {
+  if (!notes) return null;
+  const match = notes.match(/\[Policy=([^\]]+)\]/i);
+  return match?.[1]?.trim() || null;
+};
+
 const parseSkipReason = (notes?: string): string | null => {
   if (!notes) return null;
   const match = notes.match(/PICKING_ISSUE=[^\n\r]*\|REASON=([^\n\r|]+)/i);
@@ -134,6 +140,7 @@ export default function PickingPage() {
           sku: parseMaterialCode(task.notes || "") || "N/A",
           materialId,
           qty: parsePickQuantity(task.notes || ""),
+          allocationPolicy: parseAllocationPolicy(task.notes || "") || undefined,
           taskStatus: task.status,
           skipReason: parseSkipReason(task.notes || "") || undefined,
           status: task.status === "completed" ? "completed" : "upcoming",
@@ -620,6 +627,10 @@ export default function PickingPage() {
               <div className="text-xs text-base-content/60">Required Qty</div>
               <div className="font-semibold">{currentPick.qty}</div>
             </div>
+            <div className="col-span-2">
+              <div className="text-xs text-base-content/60">Allocation Policy</div>
+              <div className="font-medium">{currentPick.allocationPolicy || "FIFO/FEFO standard rule"}</div>
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -751,6 +762,9 @@ export default function PickingPage() {
                       {pick.location || "TBD"} • {pick.item}
                     </div>
                     <div className="text-xs text-base-content/60">Qty: {pick.qty}</div>
+                    {pick.allocationPolicy && (
+                      <div className="text-xs text-base-content/60">Policy: {pick.allocationPolicy}</div>
+                    )}
                   </div>
                   {isDone ? (
                     <span className="badge badge-success">Done</span>

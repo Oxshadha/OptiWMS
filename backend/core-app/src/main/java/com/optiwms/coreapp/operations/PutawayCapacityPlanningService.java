@@ -181,6 +181,13 @@ public class PutawayCapacityPlanningService {
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
                     return !hasMaterial;
                 })
+                .thenComparing((Location loc) -> {
+                    List<InventoryItem> inv = inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of());
+                    boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
+                    int level = loc.getLevelNumber() != null ? loc.getLevelNumber() : 0;
+                    // Consolidation prefers easy-access lower levels; overflow prefers deeper/higher levels.
+                    return hasMaterial ? level : -level;
+                })
                 .thenComparing(Location::getLocationCode);
     }
 
@@ -196,6 +203,9 @@ public class PutawayCapacityPlanningService {
         boolean hasMaterial = locationInventory.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
         if (hasMaterial) {
             return "Same material consolidation";
+        }
+        if (location.getLevelNumber() != null && location.getLevelNumber() > 1) {
+            return "Overflow placement (higher level)";
         }
         return "Best available capacity";
     }
