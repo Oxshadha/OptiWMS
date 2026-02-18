@@ -14,6 +14,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { Pick } from "./types";
 
 type OrderOption = { id: string; orderNumber: string; status: string };
@@ -105,6 +106,29 @@ export default function PickingPage() {
   const transformTasksToPicks = async (tasks: Task[], orderId: string, orderNumber: string): Promise<Pick[]> => {
     const orderItems = await orderItemsApi.getByOrderId(orderId);
     const materialByCode = new Map<string, string>();
+    const materialDisplayById = new Map<string, { sku: string; name: string }>();
+
+    orderItems.forEach((item) => {
+      if (item.materialId) {
+        const display = formatMaterialDisplay(item.materialCode || null, item.materialName || null, item.materialId);
+        materialDisplayById.set(item.materialId, { sku: display.sku, name: display.name });
+      }
+    });
+
+    const materialIdsToFetch = Array.from(
+      new Set(orderItems.map((item) => item.materialId).filter((id) => !!id && !materialDisplayById.get(id)))
+    );
+    await Promise.all(
+      materialIdsToFetch.map(async (materialId) => {
+        try {
+          const material = await materialsApi.getById(materialId);
+          const display = formatMaterialDisplay(material.materialCode, material.description, material.id);
+          materialDisplayById.set(materialId, { sku: display.sku, name: display.name });
+        } catch {
+          // keep fallback from parse/ID
+        }
+      })
+    );
 
     const resolveMaterialId = async (task: Task): Promise<string> => {
       const parsedCode = parseMaterialCode(task.notes || "");
@@ -130,14 +154,21 @@ export default function PickingPage() {
     const picksFromTasks = await Promise.all(
       tasks.map(async (task) => {
         const materialId = await resolveMaterialId(task);
+        const materialDisplay = materialId ? materialDisplayById.get(materialId) : undefined;
+        const parsedCode = parseMaterialCode(task.notes || "");
+        const display = formatMaterialDisplay(
+          materialDisplay?.sku || parsedCode || null,
+          materialDisplay?.name || null,
+          materialId || null
+        );
         return {
           id: task.id,
           taskId: task.id,
           order: orderNumber,
           orderId,
           location: task.locationCode || "",
-          item: parseMaterialCode(task.notes || "") || "Item",
-          sku: parseMaterialCode(task.notes || "") || "N/A",
+          item: display.name || "Item",
+          sku: display.sku,
           materialId,
           qty: parsePickQuantity(task.notes || ""),
           allocationPolicy: parseAllocationPolicy(task.notes || "") || undefined,

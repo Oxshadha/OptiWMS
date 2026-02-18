@@ -50,7 +50,7 @@ public class OrderItemController {
     public ResponseEntity<List<OrderItemDto>> getByOrderId(@PathVariable UUID orderId) {
         List<OrderItem> items = orderItemService.findByOrderId(orderId);
         List<OrderItemDto> dtos = items.stream()
-                .map(this::toDto)
+                .map(this::toDtoWithMaterial)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(dtos);
     }
@@ -169,7 +169,7 @@ public class OrderItemController {
         item.setStatus("pending");
 
         OrderItem created = orderItemService.create(item);
-        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDtoWithMaterial(created));
     }
 
     @PutMapping("/items/{itemId}")
@@ -187,7 +187,7 @@ public class OrderItemController {
         item.setStatus(request.status());
 
         OrderItem updated = orderItemService.update(itemId, item);
-        return ResponseEntity.ok(toDto(updated));
+        return ResponseEntity.ok(toDtoWithMaterial(updated));
     }
 
     @DeleteMapping("/items/{itemId}")
@@ -209,6 +209,36 @@ public class OrderItemController {
                 item.getBatchNumber(),
                 item.getManufactureDate(),
                 item.getExpiryDate(),
+                null,
+                null,
+                item.getStatus()
+        );
+    }
+
+    private OrderItemDto toDtoWithMaterial(OrderItem item) {
+        String materialCode = null;
+        String materialName = null;
+        try {
+            Material material = materialService.findById(item.getMaterialId());
+            materialCode = material.getMaterialCode();
+            materialName = material.getDescription();
+        } catch (Exception ignored) {
+            // Best effort: keep dto fields null if material lookup fails
+        }
+        return new OrderItemDto(
+                item.getId().toString(),
+                item.getOrderId().toString(),
+                item.getMaterialId().toString(),
+                item.getQuantity(),
+                item.getUnitPrice() != null ? item.getUnitPrice().toString() : null,
+                item.getPickedQuantity(),
+                item.getPackedQuantity(),
+                item.getLocationCode(),
+                item.getBatchNumber(),
+                item.getManufactureDate(),
+                item.getExpiryDate(),
+                materialCode,
+                materialName,
                 item.getStatus()
         );
     }
@@ -225,6 +255,8 @@ public class OrderItemController {
             String batchNumber,
             java.time.LocalDate manufactureDate,
             java.time.LocalDate expiryDate,
+            String materialCode,
+            String materialName,
             String status
     ) {}
 

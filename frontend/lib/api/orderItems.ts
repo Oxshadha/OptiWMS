@@ -4,6 +4,8 @@ export interface OrderItem {
   id: string;
   orderId: string;
   materialId: string;
+  materialCode?: string;
+  materialName?: string;
   quantity: number;
   unitPrice?: string;
   pickedQuantity: number;

@@ -152,7 +152,13 @@ export default function ReceivingPage() {
         const itemsWithDetails = await Promise.all(
           orderItems.map(async (orderItem: OrderItem) => {
             try {
-              const material = await materialsApi.getById(orderItem.materialId);
+              const material =
+                orderItem.materialCode || orderItem.materialName
+                  ? {
+                      materialCode: orderItem.materialCode,
+                      description: orderItem.materialName,
+                    }
+                  : await materialsApi.getById(orderItem.materialId);
               const display = formatMaterialDisplay(
                 material.materialCode,
                 material.description,
@@ -168,11 +174,16 @@ export default function ReceivingPage() {
               };
             } catch (err) {
               logger.warn(`[Receiving] Failed to load material ${orderItem.materialId}:`, err);
-              // If material fetch fails, show user-friendly message instead of UUID
+              // Fallback to order item payload before forcing N/A.
+              const display = formatMaterialDisplay(
+                orderItem.materialCode || null,
+                orderItem.materialName || null,
+                orderItem.materialId
+              );
               return {
                 id: orderItem.id,
-                sku: "N/A", // Don't show UUID
-                name: "Material details not available",
+                sku: display.sku,
+                name: display.name,
                 expected: orderItem.quantity,
                 received: 0,
                 materialId: orderItem.materialId,
