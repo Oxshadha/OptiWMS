@@ -142,10 +142,11 @@ public class TaskOperationService {
         Task task = taskService.findById(taskId);
 
         UUID effectiveWorkerId = workerId != null ? workerId : task.getAssignedTo();
+        Task completedTask;
         if (effectiveWorkerId != null) {
-            taskService.updateStatusWithWorker(taskId, "completed", effectiveWorkerId);
+            completedTask = taskService.updateStatusWithWorker(taskId, "completed", effectiveWorkerId);
         } else {
-            taskService.updateStatus(taskId, "completed");
+            completedTask = taskService.updateStatus(taskId, "completed");
         }
         
         logger.info("Task {} completed by worker {} (operation: {})", taskId, effectiveWorkerId, operationType);
@@ -160,7 +161,7 @@ public class TaskOperationService {
                     task.getWarehouseId(),
                     null,
                     null,
-                    task.getStartedAt(),
+                    completedTask.getStartedAt(),
                     java.time.LocalDateTime.now(),
                     null
             ));

@@ -134,6 +134,9 @@ public class TaskService {
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setAssignedTo(workerId);
         entity.setStatus("assigned");
+        if (entity.getStartedAt() == null) {
+            entity.setStartedAt(LocalDateTime.now());
+        }
         TaskEntity saved = repository.save(entity);
         return toDomain(saved);
     }

@@ -75,7 +75,8 @@ export default function PickingPage() {
 
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isLoadingPicks, setIsLoadingPicks] = useState(false);
-  const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
+  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
+  const [startedTaskIds, setStartedTaskIds] = useState<Set<string>>(new Set());
   const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | null>(null);
   const [resolvingWarehouse, setResolvingWarehouse] = useState(false);
 
@@ -279,6 +280,7 @@ export default function PickingPage() {
 
       const transformed = await transformTasksToPicks(orderTasks, order.id, order.orderNumber);
       setPicks(transformed);
+      setStartedTaskIds(new Set());
       const firstCurrent = transformed.find((p) => p.status === "current");
       if (firstCurrent) {
         setPickedQty(firstCurrent.qty);
@@ -357,6 +359,29 @@ export default function PickingPage() {
     setIssueReason("");
   }, [currentPick?.id]);
 
+  useEffect(() => {
+    const startCurrentTask = async () => {
+      if (!currentPick?.taskId || !worker?.id) return;
+      if (currentPick.taskStatus === "completed") return;
+      if (startedTaskIds.has(currentPick.taskId)) return;
+      try {
+        setStartingTaskId(currentPick.taskId);
+        await tasksApi.updateStatus(currentPick.taskId, "in_progress", worker.id);
+        setStartedTaskIds((prev) => new Set(prev).add(currentPick.taskId));
+        setPicks((prev) =>
+          prev.map((pick) =>
+            pick.taskId === currentPick.taskId ? { ...pick, taskStatus: "in_progress" } : pick
+          )
+        );
+      } catch (error) {
+        logger.warn("Could not mark pick task in progress:", error);
+      } finally {
+        setStartingTaskId(null);
+      }
+    };
+    void startCurrentTask();
+  }, [currentPick?.taskId, currentPick?.taskStatus, worker?.id, startedTaskIds]);
+
   const handleOrderScan = (result: string) => {
     const normalized = result.trim().toUpperCase();
     setScannedOrderNumber(normalized);
@@ -411,20 +436,6 @@ export default function PickingPage() {
     });
   };
 
-  const handleClaimTask = async (taskId: string) => {
-    if (!worker?.id) {
-      showToast.error("Worker information not available");
-      return;
-    }
-
-    try {
-      setClaimingTaskId(taskId);
-      await tasksApi.claim(taskId, worker.id);
-    } finally {
-      setClaimingTaskId(null);
-    }
-  };
-
   const handleConfirmPick = async () => {
     if (!currentPick) return;
     if (!currentPick.materialId) {
@@ -441,9 +452,6 @@ export default function PickingPage() {
     }
 
     try {
-      if (worker?.id) {
-        await handleClaimTask(currentPick.taskId);
-      }
       await operationsApi.completePicking(
         currentPick.taskId,
         {
@@ -712,7 +720,7 @@ export default function PickingPage() {
             disabled={
               pickedQty <= 0 ||
               pickedQty > currentPick.qty ||
-              claimingTaskId === currentPick.taskId ||
+              startingTaskId === currentPick.taskId ||
               (Boolean(currentPick.location) && !locationVerified)
             }
           >

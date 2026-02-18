@@ -82,11 +82,11 @@ function toDisplayTask(
   const completedAt = task.completedAt
     ? new Date(task.completedAt).toLocaleString()
     : null;
-  const startedAt = task.status === "in_progress" ? assignedDate : null;
+  const startedAt = task.startedAt ? new Date(task.startedAt).toLocaleString() : null;
 
   let duration: number | null = null;
-  if (task.completedAt && task.dueDate) {
-    const start = new Date(task.dueDate);
+  if (task.completedAt && task.startedAt) {
+    const start = new Date(task.startedAt);
     const end = new Date(task.completedAt);
     duration = Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000));
   }
