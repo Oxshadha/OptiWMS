@@ -117,6 +117,9 @@ export interface PutawaySplitPlanResponse {
   requestedQuantity: number;
   plannedQuantity: number;
   unplannedQuantity: number;
+  requiredPalletSlots?: number | null;
+  availablePalletSlots?: number | null;
+  unitsPerPallet?: string | null;
   allocations: PutawaySplitPlanLine[];
   notes: string[];
 }

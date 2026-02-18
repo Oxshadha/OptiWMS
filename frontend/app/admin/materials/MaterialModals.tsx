@@ -6,6 +6,22 @@ import { materialsApi, type Material } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
+const HANDLING_UNITS = [
+  { value: "bag", label: "Bag" },
+  { value: "drum", label: "Drum" },
+  { value: "reel", label: "Reel" },
+  { value: "bucket", label: "Bucket" },
+  { value: "pallet", label: "Pallet" },
+  { value: "pcs", label: "Pieces" },
+];
+
+const inferStorageType = (unitType?: string) => {
+  const unit = (unitType || "").toLowerCase();
+  if (unit === "drum" || unit === "bucket") return "bulk";
+  if (unit === "reel") return "rack";
+  return "pallet";
+};
+
 export function CreateMaterialModal({
   isOpen,
   onClose,
@@ -21,13 +37,15 @@ export function CreateMaterialModal({
     materialCode: "",
     description: "",
     materialType: "raw_material" as string,
-    unitType: "",
+    unitType: "bag",
     storageType: "pallet",
     lengthCm: "",
     widthCm: "",
     heightCm: "",
     weightKg: "",
     volumeCm3: "",
+    palletSpaces: "",
+    maxPalletWeightKg: "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -48,6 +66,8 @@ export function CreateMaterialModal({
       heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
       weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
       volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
+      palletSpaces: formData.palletSpaces ? Number(formData.palletSpaces) : undefined,
+      maxPalletWeightKg: formData.maxPalletWeightKg ? Number(formData.maxPalletWeightKg) : undefined,
     });
   };
 
@@ -101,16 +121,26 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
+              <span className="label-text font-medium">Handling Unit Type</span>
             </label>
-            <input
-              type="text"
-              className="input input-bordered"
-              placeholder="e.g., kg, pcs, pallet"
+            <select
+              className="select select-bordered"
               value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  unitType: e.target.value,
+                  storageType: inferStorageType(e.target.value),
+                })
+              }
               disabled={isLoading}
-            />
+            >
+              {HANDLING_UNITS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-control">
@@ -126,8 +156,42 @@ export function CreateMaterialModal({
               <option value="pallet">Pallet</option>
               <option value="bulk">Bulk</option>
               <option value="loose">Loose</option>
+              <option value="rack">Rack</option>
               <option value="cold">Cold Storage</option>
             </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 50"
+              value={formData.palletSpaces}
+              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 1500"
+              value={formData.maxPalletWeightKg}
+              onChange={(e) => setFormData({ ...formData, maxPalletWeightKg: e.target.value })}
+              disabled={isLoading}
+            />
           </div>
         </div>
 
@@ -243,13 +307,16 @@ export function EditMaterialModal({
     materialCode: material.materialCode,
     description: material.description || "",
     materialType: material.materialType || "raw_material",
-    unitType: material.unitType || "",
+    unitType: material.unitType || "bag",
     storageType: material.storageType || "pallet",
     lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
     widthCm: material.widthCm != null ? String(material.widthCm) : "",
     heightCm: material.heightCm != null ? String(material.heightCm) : "",
     weightKg: material.weightKg != null ? String(material.weightKg) : "",
     volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
+    palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+    maxPalletWeightKg:
+      material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
   });
 
   useEffect(() => {
@@ -257,13 +324,16 @@ export function EditMaterialModal({
       materialCode: material.materialCode,
       description: material.description || "",
       materialType: material.materialType || "raw_material",
-      unitType: material.unitType || "",
+      unitType: material.unitType || "bag",
       storageType: material.storageType || "pallet",
       lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
       widthCm: material.widthCm != null ? String(material.widthCm) : "",
       heightCm: material.heightCm != null ? String(material.heightCm) : "",
       weightKg: material.weightKg != null ? String(material.weightKg) : "",
       volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
+      palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+      maxPalletWeightKg:
+        material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
     });
   }, [material]);
 
@@ -280,6 +350,8 @@ export function EditMaterialModal({
       heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
       weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
       volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
+      palletSpaces: formData.palletSpaces ? Number(formData.palletSpaces) : undefined,
+      maxPalletWeightKg: formData.maxPalletWeightKg ? Number(formData.maxPalletWeightKg) : undefined,
     });
   };
 
@@ -333,15 +405,26 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
+              <span className="label-text font-medium">Handling Unit Type</span>
             </label>
-            <input
-              type="text"
-              className="input input-bordered"
+            <select
+              className="select select-bordered"
               value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  unitType: e.target.value,
+                  storageType: inferStorageType(e.target.value),
+                })
+              }
               disabled={isLoading}
-            />
+            >
+              {HANDLING_UNITS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-control">
@@ -357,8 +440,40 @@ export function EditMaterialModal({
               <option value="pallet">Pallet</option>
               <option value="bulk">Bulk</option>
               <option value="loose">Loose</option>
+              <option value="rack">Rack</option>
               <option value="cold">Cold Storage</option>
             </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.palletSpaces}
+              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.maxPalletWeightKg}
+              onChange={(e) => setFormData({ ...formData, maxPalletWeightKg: e.target.value })}
+              disabled={isLoading}
+            />
           </div>
         </div>
 

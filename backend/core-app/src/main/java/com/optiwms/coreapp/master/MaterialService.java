@@ -126,6 +126,8 @@ public class MaterialService {
         entity.setHeightCm(material.getHeightCm());
         entity.setWeightKg(material.getWeightKg());
         entity.setVolumeCm3(material.getVolumeCm3());
+        entity.setPalletSpaces(material.getPalletSpaces());
+        entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -185,6 +187,12 @@ public class MaterialService {
         }
         if (material.getVolumeCm3() != null) {
             entity.setVolumeCm3(material.getVolumeCm3());
+        }
+        if (material.getPalletSpaces() != null) {
+            entity.setPalletSpaces(material.getPalletSpaces());
+        }
+        if (material.getMaxPalletWeightKg() != null) {
+            entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
         }
 
         MaterialEntity saved = repository.save(entity);

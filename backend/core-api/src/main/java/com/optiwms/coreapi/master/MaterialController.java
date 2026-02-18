@@ -50,7 +50,9 @@ public class MaterialController {
                         m.getWidthCm(),
                         m.getHeightCm(),
                         m.getWeightKg(),
-                        m.getVolumeCm3()))
+                        m.getVolumeCm3(),
+                        m.getPalletSpaces(),
+                        m.getMaxPalletWeightKg()))
                 .toList();
         return ResponseEntity.ok(data);
     }
@@ -70,7 +72,9 @@ public class MaterialController {
                     material.getWidthCm(),
                     material.getHeightCm(),
                     material.getWeightKg(),
-                    material.getVolumeCm3()
+                    material.getVolumeCm3(),
+                    material.getPalletSpaces(),
+                    material.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -92,7 +96,9 @@ public class MaterialController {
                     material.getWidthCm(),
                     material.getHeightCm(),
                     material.getWeightKg(),
-                    material.getVolumeCm3()
+                    material.getVolumeCm3(),
+                    material.getPalletSpaces(),
+                    material.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -113,6 +119,8 @@ public class MaterialController {
             material.setHeightCm(request.heightCm());
             material.setWeightKg(request.weightKg());
             material.setVolumeCm3(request.volumeCm3());
+            material.setPalletSpaces(request.palletSpaces());
+            material.setMaxPalletWeightKg(request.maxPalletWeightKg());
 
             var created = materialService.create(material);
             return ResponseEntity.ok(new MaterialDto(
@@ -126,7 +134,9 @@ public class MaterialController {
                     created.getWidthCm(),
                     created.getHeightCm(),
                     created.getWeightKg(),
-                    created.getVolumeCm3()
+                    created.getVolumeCm3(),
+                    created.getPalletSpaces(),
+                    created.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -147,6 +157,8 @@ public class MaterialController {
             material.setHeightCm(request.heightCm());
             material.setWeightKg(request.weightKg());
             material.setVolumeCm3(request.volumeCm3());
+            material.setPalletSpaces(request.palletSpaces());
+            material.setMaxPalletWeightKg(request.maxPalletWeightKg());
 
             var updated = materialService.update(id, material);
             return ResponseEntity.ok(new MaterialDto(
@@ -160,7 +172,9 @@ public class MaterialController {
                     updated.getWidthCm(),
                     updated.getHeightCm(),
                     updated.getWeightKg(),
-                    updated.getVolumeCm3()
+                    updated.getVolumeCm3(),
+                    updated.getPalletSpaces(),
+                    updated.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -258,7 +272,9 @@ public class MaterialController {
             java.math.BigDecimal widthCm,
             java.math.BigDecimal heightCm,
             java.math.BigDecimal weightKg,
-            java.math.BigDecimal volumeCm3
+            java.math.BigDecimal volumeCm3,
+            java.math.BigDecimal palletSpaces,
+            java.math.BigDecimal maxPalletWeightKg
     ) {}
 
     public record ImportResponse(
@@ -277,7 +293,9 @@ public class MaterialController {
             java.math.BigDecimal widthCm,
             java.math.BigDecimal heightCm,
             java.math.BigDecimal weightKg,
-            java.math.BigDecimal volumeCm3
+            java.math.BigDecimal volumeCm3,
+            java.math.BigDecimal palletSpaces,
+            java.math.BigDecimal maxPalletWeightKg
     ) {}
 
     public record UpdateMaterialRequest(
@@ -290,6 +308,8 @@ public class MaterialController {
             java.math.BigDecimal widthCm,
             java.math.BigDecimal heightCm,
             java.math.BigDecimal weightKg,
-            java.math.BigDecimal volumeCm3
+            java.math.BigDecimal volumeCm3,
+            java.math.BigDecimal palletSpaces,
+            java.math.BigDecimal maxPalletWeightKg
     ) {}
 }
