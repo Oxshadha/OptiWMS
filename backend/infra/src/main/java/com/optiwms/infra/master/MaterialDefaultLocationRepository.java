@@ -14,4 +14,6 @@ public interface MaterialDefaultLocationRepository extends JpaRepository<Materia
             UUID materialId, UUID warehouseId, String locationCode);
     List<MaterialDefaultLocationEntity> findByWarehouseId(UUID warehouseId);
     List<MaterialDefaultLocationEntity> findByMaterialId(UUID materialId);
+    List<MaterialDefaultLocationEntity> findByWarehouseIdAndLocationCodeAndPriority(
+            UUID warehouseId, String locationCode, Integer priority);
 }

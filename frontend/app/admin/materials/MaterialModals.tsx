@@ -22,6 +22,69 @@ const inferStorageType = (unitType?: string) => {
   return "pallet";
 };
 
+const parsePositive = (value: string) => {
+  if (!value || !value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
+};
+
+const isInvalidPositiveInput = (value: string) => {
+  if (!value || !value.trim()) return false;
+  const parsed = Number(value);
+  return !Number.isFinite(parsed) || parsed <= 0;
+};
+
+const validateMaterialForm = (formData: {
+  materialCode: string;
+  description: string;
+  unitType: string;
+  storageType: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightKg: string;
+  volumeCm3: string;
+  palletSpaces: string;
+  maxPalletWeightKg: string;
+}) => {
+  if (!formData.materialCode.trim() || !formData.description.trim()) {
+    return "Product code and description are required";
+  }
+
+  const weightKg = parsePositive(formData.weightKg);
+  if (isInvalidPositiveInput(formData.weightKg)) return "Unit weight (kg) must be greater than 0";
+  if (weightKg === undefined) return "Unit weight (kg) is required";
+
+  const lengthCm = parsePositive(formData.lengthCm);
+  if (isInvalidPositiveInput(formData.lengthCm)) return "Length (cm) must be greater than 0";
+  const widthCm = parsePositive(formData.widthCm);
+  if (isInvalidPositiveInput(formData.widthCm)) return "Width (cm) must be greater than 0";
+  const heightCm = parsePositive(formData.heightCm);
+  if (isInvalidPositiveInput(formData.heightCm)) return "Height (cm) must be greater than 0";
+
+  const volumeCm3 = parsePositive(formData.volumeCm3);
+  if (isInvalidPositiveInput(formData.volumeCm3)) return "Unit volume (cm3) must be greater than 0";
+  const hasCompleteDims = lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined;
+  if (volumeCm3 === undefined && !hasCompleteDims) {
+    return "Provide unit volume (cm3) or complete dimensions (L/W/H)";
+  }
+
+  if (formData.storageType === "pallet") {
+    const unitsPerPallet = parsePositive(formData.palletSpaces);
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
+    if (unitsPerPallet === undefined) return "Units per pallet is required for pallet storage";
+    const maxPalletWeightKg = parsePositive(formData.maxPalletWeightKg);
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
+    if (maxPalletWeightKg === undefined) return "Max pallet weight is required for pallet storage";
+  } else {
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
+  }
+
+  return null;
+};
+
 export function CreateMaterialModal({
   isOpen,
   onClose,
@@ -50,10 +113,20 @@ export function CreateMaterialModal({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!formData.materialCode.trim() || !formData.description.trim()) {
-      showToast.error("Product code and description are required");
+    const validationError = validateMaterialForm(formData);
+    if (validationError) {
+      showToast.error(validationError);
       return;
     }
+
+    const lengthCm = parsePositive(formData.lengthCm);
+    const widthCm = parsePositive(formData.widthCm);
+    const heightCm = parsePositive(formData.heightCm);
+    const computedVolume =
+      lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined
+        ? Number((lengthCm * widthCm * heightCm).toFixed(2))
+        : undefined;
+    const volumeCm3 = parsePositive(formData.volumeCm3) ?? computedVolume;
 
     await onSubmit({
       materialCode: formData.materialCode.trim(),
@@ -61,13 +134,13 @@ export function CreateMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
-      lengthCm: formData.lengthCm ? Number(formData.lengthCm) : undefined,
-      widthCm: formData.widthCm ? Number(formData.widthCm) : undefined,
-      heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
-      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
-      volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
-      palletSpaces: formData.palletSpaces ? Number(formData.palletSpaces) : undefined,
-      maxPalletWeightKg: formData.maxPalletWeightKg ? Number(formData.maxPalletWeightKg) : undefined,
+      lengthCm,
+      widthCm,
+      heightCm,
+      weightKg: parsePositive(formData.weightKg),
+      volumeCm3,
+      palletSpaces: parsePositive(formData.palletSpaces),
+      maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
     });
   };
 
@@ -166,6 +239,7 @@ export function CreateMaterialModal({
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Units Per Pallet</span>
+              {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
             </label>
             <input
               type="number"
@@ -181,6 +255,7 @@ export function CreateMaterialModal({
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+              {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
             </label>
             <input
               type="number"
@@ -199,6 +274,7 @@ export function CreateMaterialModal({
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Unit Weight (kg)</span>
+              <span className="label-text-alt text-error">Required</span>
             </label>
             <input
               type="number"
@@ -214,6 +290,7 @@ export function CreateMaterialModal({
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Unit Volume (cm3)</span>
+              <span className="label-text-alt">or provide L/W/H</span>
             </label>
             <input
               type="number"
@@ -339,19 +416,34 @@ export function EditMaterialModal({
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    const validationError = validateMaterialForm(formData);
+    if (validationError) {
+      showToast.error(validationError);
+      return;
+    }
+
+    const lengthCm = parsePositive(formData.lengthCm);
+    const widthCm = parsePositive(formData.widthCm);
+    const heightCm = parsePositive(formData.heightCm);
+    const computedVolume =
+      lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined
+        ? Number((lengthCm * widthCm * heightCm).toFixed(2))
+        : undefined;
+    const volumeCm3 = parsePositive(formData.volumeCm3) ?? computedVolume;
+
     await onSubmit(material.id, {
       materialCode: formData.materialCode.trim(),
       description: formData.description.trim(),
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
-      lengthCm: formData.lengthCm ? Number(formData.lengthCm) : undefined,
-      widthCm: formData.widthCm ? Number(formData.widthCm) : undefined,
-      heightCm: formData.heightCm ? Number(formData.heightCm) : undefined,
-      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
-      volumeCm3: formData.volumeCm3 ? Number(formData.volumeCm3) : undefined,
-      palletSpaces: formData.palletSpaces ? Number(formData.palletSpaces) : undefined,
-      maxPalletWeightKg: formData.maxPalletWeightKg ? Number(formData.maxPalletWeightKg) : undefined,
+      lengthCm,
+      widthCm,
+      heightCm,
+      weightKg: parsePositive(formData.weightKg),
+      volumeCm3,
+      palletSpaces: parsePositive(formData.palletSpaces),
+      maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
     });
   };
 

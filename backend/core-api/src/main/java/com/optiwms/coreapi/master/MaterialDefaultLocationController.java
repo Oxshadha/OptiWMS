@@ -27,7 +27,7 @@ public class MaterialDefaultLocationController {
      * Assign default location to a material in a warehouse
      */
     @PostMapping
-    public ResponseEntity<MaterialDefaultLocationDto> assignDefaultLocation(
+    public ResponseEntity<?> assignDefaultLocation(
             @RequestBody AssignDefaultLocationRequest request) {
         try {
             MaterialDefaultLocation location = service.assignDefaultLocation(
@@ -38,7 +38,7 @@ public class MaterialDefaultLocationController {
                     request.materialType());
             return ResponseEntity.ok(toDto(location));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
     }
 
@@ -56,7 +56,7 @@ public class MaterialDefaultLocationController {
                     .toList();
             return ResponseEntity.ok(dtos);
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(List.of());
         }
     }
 
@@ -81,7 +81,7 @@ public class MaterialDefaultLocationController {
                     .toList();
             return ResponseEntity.ok(dtos);
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(List.of());
         }
     }
 
@@ -179,6 +179,9 @@ public class MaterialDefaultLocationController {
     }
 
     public record BulkAssignResult(boolean success, String message) {
+    }
+
+    private record ErrorResponse(String message) {
     }
 
     // Update return type for assignAllMaterials

@@ -30,6 +30,10 @@ const MATERIAL_TYPES = [
 type MaterialTypeFilter = typeof MATERIAL_TYPES[number]["value"];
 type SortBy = "name" | "sku" | "type" | null;
 type SortDirection = "asc" | "desc";
+type MaterialLocationSummary = {
+  primary: string;
+  all: string[];
+};
 
 const cleanDisplayName = (description?: string) => {
   if (!description) return "—";
@@ -69,7 +73,7 @@ export default function MaterialsPage() {
   const [sortBy, setSortBy] = useState<SortBy>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
-  const [materialsWithLocations, setMaterialsWithLocations] = useState<Map<string, string>>(new Map()); // materialId -> locationCode
+  const [materialsWithLocations, setMaterialsWithLocations] = useState<Map<string, MaterialLocationSummary>>(new Map());
 
   const canEdit = hasPermission(ADMIN_ROUTES.MATERIALS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
@@ -99,7 +103,7 @@ export default function MaterialsPage() {
       if (warehouses.length === 0) return;
 
       // For each warehouse, get materials with locations
-      const locationMap = new Map<string, string>();
+      const byMaterial = new Map<string, Array<{ locationCode: string; priority: number }>>();
       for (const warehouse of warehouses) {
         try {
           const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
@@ -107,15 +111,29 @@ export default function MaterialsPage() {
           if (materialsWithLocs.length > 0) {
             logger.debug("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
           }
-          materialsWithLocs.forEach(m => {
-            if (m.locationCode) {
-              locationMap.set(m.materialId, m.locationCode);
-            }
+          materialsWithLocs.forEach((m) => {
+            if (!m.locationCode) return;
+            const list = byMaterial.get(m.materialId) || [];
+            list.push({ locationCode: m.locationCode, priority: m.priority || 999 });
+            byMaterial.set(m.materialId, list);
           });
         } catch (err) {
           logger.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
         }
       }
+      const locationMap = new Map<string, MaterialLocationSummary>();
+      byMaterial.forEach((list, materialId) => {
+        const uniqueSorted = list
+          .sort((a, b) => a.priority - b.priority)
+          .map((entry) => entry.locationCode)
+          .filter((code, index, arr) => arr.indexOf(code) === index);
+        if (uniqueSorted.length > 0) {
+          locationMap.set(materialId, {
+            primary: uniqueSorted[0],
+            all: uniqueSorted,
+          });
+        }
+      });
       logger.debug("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
       setMaterialsWithLocations(locationMap);
     } catch (err) {
@@ -148,7 +166,8 @@ export default function MaterialsPage() {
       const normalizedQuery = normalizeSearchText(searchQuery);
       filtered = filtered.filter(
         (m) => {
-          const locationCode = materialsWithLocations.get(m.id) || "";
+          const locationSummary = materialsWithLocations.get(m.id);
+          const locationCode = locationSummary ? locationSummary.all.join(" ") : "";
           return (
             m.materialCode?.toLowerCase().includes(query) ||
             m.description?.toLowerCase().includes(query) ||
@@ -460,15 +479,6 @@ export default function MaterialsPage() {
                 ),
               },
               {
-                key: "palletSpaces",
-                label: "Units / Pallet",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.palletSpaces != null ? material.palletSpaces : "—"}
-                  </span>
-                ),
-              },
-              {
                 key: "storageType",
                 label: "Storage",
                 render: (material: Material) => (
@@ -481,13 +491,15 @@ export default function MaterialsPage() {
                 key: "binLocation",
                 label: "Bin Location",
                 render: (material: Material) => {
-                  const locationCode = materialsWithLocations.get(material.id);
-                  return locationCode ? (
-                    <span className="font-mono text-xs text-primary font-semibold">
-                      {locationCode}
-                    </span>
-                  ) : (
-                    <span className="text-base-content/40 text-xs">—</span>
+                  const summary = materialsWithLocations.get(material.id);
+                  if (!summary) return <span className="text-base-content/40 text-xs">—</span>;
+                  return (
+                    <div className="flex flex-col leading-tight">
+                      <span className="font-mono text-xs text-primary font-semibold">{summary.primary}</span>
+                      {summary.all.length > 1 && (
+                        <span className="text-[11px] text-base-content/60">+{summary.all.length - 1} fallback</span>
+                      )}
+                    </div>
                   );
                 },
               },

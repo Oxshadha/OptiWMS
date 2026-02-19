@@ -106,7 +106,7 @@ public class MaterialController {
     }
 
     @PostMapping
-    public ResponseEntity<MaterialDto> create(@RequestBody CreateMaterialRequest request) {
+    public ResponseEntity<?> create(@RequestBody CreateMaterialRequest request) {
         try {
             var material = new com.optiwms.domain.master.Material();
             material.setMaterialCode(request.materialCode());
@@ -139,12 +139,12 @@ public class MaterialController {
                     created.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<MaterialDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateMaterialRequest request) {
+    public ResponseEntity<?> update(@PathVariable java.util.UUID id, @RequestBody UpdateMaterialRequest request) {
         try {
             var material = new com.optiwms.domain.master.Material();
             material.setMaterialCode(request.materialCode());
@@ -177,7 +177,7 @@ public class MaterialController {
                     updated.getMaxPalletWeightKg()
             ));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
     }
 
