@@ -140,6 +140,7 @@ function locationsToRacks(
       maxLevels: Math.max(...rackLocations.map((loc) => loc.levelNumber || 1), 5),
       status,
       amalgamatedClass: rackLocations.map((loc) => loc.amalgamatedClass).find((value) => !!value),
+      isBulk: rackLocations.some((loc) => (loc.locationType || "").toLowerCase() === "bulk"),
     };
     
     racks.push(rack);

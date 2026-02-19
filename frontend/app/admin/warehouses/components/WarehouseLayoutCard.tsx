@@ -18,6 +18,21 @@ export function WarehouseLayoutCard({
   onToggleVelocity,
   onRackClick,
 }: WarehouseLayoutCardProps) {
+  const bulkRacks = layout.racks
+    .filter((rack) => {
+      if (rack.isBulk) return true;
+      const zone = (rack.zone || "").toUpperCase();
+      const rackId = (rack.id || "").toUpperCase();
+      return zone.includes("BULK") || rackId.startsWith("BULK-") || rackId.startsWith("ZONE-BULK-");
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const getRackFill = (rack: RackUnit): number => {
+    const occupied = rack.bins.filter((bin) => bin.status === "occupied" || !!bin.inventory).length;
+    const total = Math.max(rack.maxLevels * 2, 1);
+    return Math.round((occupied / total) * 100);
+  };
+
   return (
     <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm relative">
       <div className="absolute top-2 right-2 z-20">
@@ -49,6 +64,62 @@ export function WarehouseLayoutCard({
           showVelocity={showVelocity}
           onVelocityToggle={onToggleVelocity}
         />
+      </div>
+
+      <div className="mt-4 rounded-lg border border-base-300 p-3 bg-base-100">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-base-content">ZONE-BULK</h4>
+            <span className="text-xs text-base-content/60">
+              {bulkRacks.length} rack{bulkRacks.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          <p className="text-xs text-base-content/70 mb-3">
+            Bulk-storage racks (drums/tanks/non-pallet). Click any row to open detailed rack/bin data.
+          </p>
+          {bulkRacks.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="table table-xs">
+                <thead>
+                  <tr>
+                    <th>Rack</th>
+                    <th>Class</th>
+                    <th>Status</th>
+                    <th>Fill</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkRacks.map((rack) => (
+                    <tr
+                      key={rack.id}
+                      className="cursor-pointer hover:bg-base-200/60"
+                      onClick={() => onRackClick(rack)}
+                    >
+                      <td className="font-mono">{rack.id}</td>
+                      <td>{(rack.amalgamatedClass || "CM").toUpperCase()}</td>
+                      <td className="capitalize">{rack.status.replaceAll("_", " ")}</td>
+                      <td>{getRackFill(rack)}%</td>
+                      <td>
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRackClick(rack);
+                          }}
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-xs text-base-content/60 rounded-md border border-dashed border-base-300 p-3">
+              No bulk racks found in current warehouse layout.
+            </div>
+          )}
       </div>
 
       <div className="flex items-start gap-2 mt-4">

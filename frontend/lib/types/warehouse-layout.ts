@@ -35,6 +35,7 @@ export interface RackUnit {
   description?: string; // Notes/description about what's in the rack
   notes?: string; // Additional notes
   velocity?: number; // Velocity percentage (0-100) for heat map visualization
+  isBulk?: boolean; // True when rack belongs to bulk-storage location type
 }
 
 export interface WarehouseLayout {
