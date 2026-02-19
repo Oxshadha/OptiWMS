@@ -21,6 +21,7 @@ interface IntegrityMetrics {
   wrongTypeNonBulkInBulk: number;
   wrongTypeBulkInNonBulk: number;
   defaultsToInactiveOrBlocked: number;
+  duplicatePrimaryLocationCount: number;
   lowLike: number;
   availableLike: number;
 }
@@ -35,6 +36,7 @@ const emptyMetrics: IntegrityMetrics = {
   wrongTypeNonBulkInBulk: 0,
   wrongTypeBulkInNonBulk: 0,
   defaultsToInactiveOrBlocked: 0,
+  duplicatePrimaryLocationCount: 0,
   lowLike: 0,
   availableLike: 0,
 };
@@ -114,17 +116,24 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
       });
 
       let defaultsToInactiveOrBlocked = 0;
+      const primaryCountByLocation = new Map<string, number>();
       defaults.forEach((item) => {
         const state = locationStatusByCode.get(item.locationCode);
         if (!state) {
           defaultsToInactiveOrBlocked += 1;
           return;
         }
+        if (item.priority === 1) {
+          const current = primaryCountByLocation.get(item.locationCode) || 0;
+          primaryCountByLocation.set(item.locationCode, current + 1);
+        }
         const blocked = ["reserved", "maintenance", "out_of_service"].includes(state.rackStatus);
         if (!state.isActive || blocked) {
           defaultsToInactiveOrBlocked += 1;
         }
       });
+      const duplicatePrimaryLocationCount = Array.from(primaryCountByLocation.values()).filter((count) => count > 1)
+        .length;
 
       setMetrics({
         totalMaterials: materials.length,
@@ -136,6 +145,7 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
         wrongTypeNonBulkInBulk,
         wrongTypeBulkInNonBulk,
         defaultsToInactiveOrBlocked,
+        duplicatePrimaryLocationCount,
         lowLike,
         availableLike,
       });
@@ -158,7 +168,8 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
       metrics.inventoryRowsNullLocation +
       metrics.wrongTypeBulkInNonBulk +
       metrics.wrongTypeNonBulkInBulk +
-      metrics.defaultsToInactiveOrBlocked;
+      metrics.defaultsToInactiveOrBlocked +
+      metrics.duplicatePrimaryLocationCount;
     if (criticalIssues === 0) return { label: "Healthy", cls: "text-success" };
     if (criticalIssues < 20) return { label: "Warning", cls: "text-warning" };
     return { label: "Critical", cls: "text-error" };
@@ -199,6 +210,7 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
           <Metric title="Wrong Type (non-bulk in bulk)" value={metrics.wrongTypeNonBulkInBulk} warn={metrics.wrongTypeNonBulkInBulk > 0} />
           <Metric title="Wrong Type (bulk in non-bulk)" value={metrics.wrongTypeBulkInNonBulk} warn={metrics.wrongTypeBulkInNonBulk > 0} />
           <Metric title="Invalid Defaults" value={metrics.defaultsToInactiveOrBlocked} warn={metrics.defaultsToInactiveOrBlocked > 0} />
+          <Metric title="Duplicate Primary Bins" value={metrics.duplicatePrimaryLocationCount} warn={metrics.duplicatePrimaryLocationCount > 0} />
           <Metric title="Stock: Available / Low" value={`${metrics.availableLike} / ${metrics.lowLike}`} />
         </div>
       )}
@@ -214,4 +226,3 @@ function Metric({ title, value, warn }: { title: string; value: string | number;
     </div>
   );
 }
-
