@@ -45,6 +45,12 @@ export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
   }, {});
 
   const zoneOrder = Object.keys(grouped).sort();
+  const classCount = layout.racks.reduce<Record<string, number>>((acc, rack) => {
+    const key = (rack.amalgamatedClass || "CM").toUpperCase();
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const classOrder = ["AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"];
 
   return (
     <div className="card bg-base-100 border border-base-300 p-4">
@@ -59,6 +65,16 @@ export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
           <span className="rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-blue-800">F = Blue</span>
           <span className="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-base-content/80">M = White/Neutral</span>
           <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">S = Yellow</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          {classOrder.map((slotClass) => (
+            <span
+              key={slotClass}
+              className="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-base-content/80"
+            >
+              {slotClass}: {classCount[slotClass] || 0}
+            </span>
+          ))}
         </div>
       </div>
       <div className="space-y-4">
