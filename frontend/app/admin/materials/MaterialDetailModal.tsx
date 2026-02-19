@@ -108,13 +108,25 @@ export function MaterialDetailModal({
             <label className="label">
               <span className="label-text font-medium">Units Per Pallet</span>
             </label>
-            <div>{material.palletSpaces != null ? material.palletSpaces : "—"}</div>
+            <div>
+              {(material.storageType || "").toLowerCase() === "pallet"
+                ? material.palletSpaces != null
+                  ? material.palletSpaces
+                  : "Missing"
+                : "N/A (non-pallet)"}
+            </div>
           </div>
           <div>
             <label className="label">
               <span className="label-text font-medium">Max Pallet Weight (kg)</span>
             </label>
-            <div>{material.maxPalletWeightKg != null ? material.maxPalletWeightKg : "—"}</div>
+            <div>
+              {(material.storageType || "").toLowerCase() === "pallet"
+                ? material.maxPalletWeightKg != null
+                  ? material.maxPalletWeightKg
+                  : "Missing"
+                : "N/A (non-pallet)"}
+            </div>
           </div>
           <div>
             <label className="label">
