@@ -1,5 +1,6 @@
 package com.optiwms.coreapi.users;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.optiwms.coreapp.users.UserService;
 import com.optiwms.domain.users.User;
 import org.springframework.data.domain.Page;
@@ -19,9 +20,11 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserService service;
+    private final ObjectMapper objectMapper;
 
-    public UserController(UserService service) {
+    public UserController(UserService service, ObjectMapper objectMapper) {
         this.service = service;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping
@@ -214,7 +217,8 @@ public class UserController {
                 user.getStatus(),
                 user.getDeviceId(),
                 user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false,
-                user.getLastLoginAt() != null ? user.getLastLoginAt().toString() : null
+                user.getLastLoginAt() != null ? user.getLastLoginAt().toString() : null,
+                user.getDashboardSettings()
         );
     }
 
@@ -262,10 +266,16 @@ public class UserController {
                     : Boolean.parseBoolean(value.toString());
                 user.setBlindReceivingMode(blindMode);
             }
+            if (preferences.containsKey("dashboardSettings")) {
+                Object settings = preferences.get("dashboardSettings");
+                user.setDashboardSettings(objectMapper.writeValueAsString(settings));
+            }
             
             User updated = service.update(user);
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
             return ResponseEntity.badRequest().build();
         }
     }
@@ -311,7 +321,8 @@ public class UserController {
             String status,
             String deviceId,
             Boolean blindReceivingMode,
-            String lastLoginAt
+            String lastLoginAt,
+            String dashboardSettings
     ) {}
 
     public record PagedUserResponse(

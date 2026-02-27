@@ -280,7 +280,7 @@ export async function getScanRecordsByTask(taskId: string): Promise<ScanRecord[]
 // Sync Queue functions
 export interface SyncItem {
   id?: number;
-  type: "task" | "scan" | "operation";
+  type: "task" | "scan" | "operation" | "shipment";
   action: "create" | "update" | "delete";
   data: any;
   status: "pending" | "syncing" | "completed" | "failed";
@@ -322,4 +322,3 @@ export async function updateSyncItemStatus(id: number, status: SyncItem["status"
     lastError: error,
   });
 }
-

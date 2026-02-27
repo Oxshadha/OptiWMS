@@ -57,17 +57,32 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         endpoint = "/operations";
         method = "POST";
         break;
+      case "shipment":
+        if (!item.data?.shipmentId) {
+          throw new Error("Missing shipmentId for shipment sync");
+        }
+        if (item.data?.mode === "status") {
+          endpoint = `/shipments/${item.data.shipmentId}/status`;
+        } else {
+          endpoint = `/shipments/${item.data.shipmentId}`;
+        }
+        method = "PUT";
+        break;
       default:
         throw new Error(`Unsupported sync item type: ${String(item.type)}`);
     }
+
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    const requestBody = item.type === "shipment" ? item.data.payload : item.data;
 
     // Make API call
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method,
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
-      body: JSON.stringify(item.data),
+      body: JSON.stringify(requestBody),
     });
 
     // Handle conflict (409 Conflict)
@@ -80,6 +95,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         method,
         headers: {
           "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify(resolvedData),
       });

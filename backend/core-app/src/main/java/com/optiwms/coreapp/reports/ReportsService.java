@@ -24,6 +24,9 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -51,6 +54,8 @@ public class ReportsService {
 
     private static final DateTimeFormatter FILE_TS_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
     private static final DateTimeFormatter PDF_TS_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int EXPORT_BATCH_SIZE = 500;
+    private static final int MAX_EXPORT_ROWS = 50000;
 
     private final ReportRepository reportRepository;
     private final ScheduledReportRepository scheduledReportRepository;
@@ -310,7 +315,11 @@ public class ReportsService {
     }
 
     private ReportData buildInventoryReport() {
-        List<InventoryItemEntity> items = inventoryItemRepository.findAll(Sort.by(Sort.Direction.ASC, "locationCode"));
+        List<InventoryItemEntity> items = fetchAllInBatches(
+                pageable -> inventoryItemRepository.findAll(
+                        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.ASC, "locationCode"))
+                )
+        );
         Map<UUID, String> materialById = materialRepository.findAll().stream()
                 .collect(Collectors.toMap(MaterialEntity::getId, MaterialEntity::getMaterialCode));
         Map<UUID, String> warehouseById = warehouseRepository.findAll().stream()
@@ -345,7 +354,9 @@ public class ReportsService {
     }
 
     private ReportData buildOrderReport(String type) {
-        List<OrderEntity> orders = orderRepository.findByOrderType(type);
+        List<OrderEntity> orders = fetchAllInBatches(
+                pageable -> orderRepository.findAll((root, cq, cb) -> cb.equal(cb.lower(root.get("orderType")), type.toLowerCase(Locale.ROOT)), pageable)
+        );
         Map<UUID, String> warehouseById = warehouseRepository.findAll().stream()
                 .collect(Collectors.toMap(WarehouseEntity::getId, WarehouseEntity::getName));
 
@@ -372,7 +383,9 @@ public class ReportsService {
     }
 
     private ReportData buildSalesReport() {
-        List<OrderEntity> outboundOrders = orderRepository.findByOrderType("outbound");
+        List<OrderEntity> outboundOrders = fetchAllInBatches(
+                pageable -> orderRepository.findAll((root, cq, cb) -> cb.equal(cb.lower(root.get("orderType")), "outbound"), pageable)
+        );
 
         List<String> columns = List.of("Order Number", "Status", "Order Date", "Total Amount");
         List<List<String>> rows = outboundOrders.stream().map(order -> List.of(
@@ -396,7 +409,9 @@ public class ReportsService {
     }
 
     private ReportData buildCustomerOrderReport() {
-        List<OrderEntity> outboundOrders = orderRepository.findByOrderType("outbound");
+        List<OrderEntity> outboundOrders = fetchAllInBatches(
+                pageable -> orderRepository.findAll((root, cq, cb) -> cb.equal(cb.lower(root.get("orderType")), "outbound"), pageable)
+        );
 
         List<String> columns = List.of("Order Number", "Customer ID", "Status", "Order Date", "Expected Date");
         List<List<String>> rows = outboundOrders.stream().map(order -> List.of(
@@ -416,8 +431,16 @@ public class ReportsService {
     }
 
     private ReportData buildAuditReport() {
-        List<CycleCountEntity> cycleCounts = cycleCountRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
-        List<AnomalyEntity> anomalies = anomalyRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        List<CycleCountEntity> cycleCounts = fetchAllInBatches(
+                pageable -> cycleCountRepository.findAll(
+                        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "createdAt"))
+                )
+        );
+        List<AnomalyEntity> anomalies = fetchAllInBatches(
+                pageable -> anomalyRepository.findAll(
+                        PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "createdAt"))
+                )
+        );
 
         List<String> columns = List.of("Source", "Reference", "Status", "Severity/Variance", "Created At");
         List<List<String>> rows = new ArrayList<>();
@@ -447,10 +470,18 @@ public class ReportsService {
     }
 
     private ReportData buildAnalyticsReport() {
-        List<InventoryItemEntity> inventoryItems = inventoryItemRepository.findAll();
-        List<OrderEntity> inbound = orderRepository.findByOrderType("inbound");
-        List<OrderEntity> outbound = orderRepository.findByOrderType("outbound");
-        List<AnomalyEntity> anomalies = anomalyRepository.findAll();
+        List<InventoryItemEntity> inventoryItems = fetchAllInBatches(
+                pageable -> inventoryItemRepository.findAll(PageRequest.of(pageable.getPageNumber(), pageable.getPageSize()))
+        );
+        List<OrderEntity> inbound = fetchAllInBatches(
+                pageable -> orderRepository.findAll((root, cq, cb) -> cb.equal(cb.lower(root.get("orderType")), "inbound"), pageable)
+        );
+        List<OrderEntity> outbound = fetchAllInBatches(
+                pageable -> orderRepository.findAll((root, cq, cb) -> cb.equal(cb.lower(root.get("orderType")), "outbound"), pageable)
+        );
+        List<AnomalyEntity> anomalies = fetchAllInBatches(
+                pageable -> anomalyRepository.findAll(PageRequest.of(pageable.getPageNumber(), pageable.getPageSize()))
+        );
 
         Map<String, Long> metrics = new LinkedHashMap<>();
         metrics.put("Inventory Records", (long) inventoryItems.size());
@@ -546,6 +577,28 @@ public class ReportsService {
             return "\"" + escaped + "\"";
         }
         return escaped;
+    }
+
+    private <T> List<T> fetchAllInBatches(Function<Pageable, Page<T>> pageFetcher) {
+        List<T> all = new ArrayList<>();
+        int pageNumber = 0;
+        while (all.size() < MAX_EXPORT_ROWS) {
+            Page<T> page = pageFetcher.apply(PageRequest.of(pageNumber, EXPORT_BATCH_SIZE));
+            if (page.isEmpty()) {
+                break;
+            }
+            for (T row : page.getContent()) {
+                all.add(row);
+                if (all.size() >= MAX_EXPORT_ROWS) {
+                    break;
+                }
+            }
+            if (!page.hasNext()) {
+                break;
+            }
+            pageNumber++;
+        }
+        return all;
     }
 
     private String toTitle(String value) {

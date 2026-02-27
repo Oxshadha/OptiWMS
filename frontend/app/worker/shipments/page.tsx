@@ -10,6 +10,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { addToSyncQueue } from "@/lib/indexeddb";
 
 export default function ShipmentsPage() {
   const { isOnline } = useOffline();
@@ -295,9 +296,44 @@ export default function ShipmentsPage() {
 
         showToast.success("Shipment processed successfully!");
       } else {
-        // Offline mode - save to sync queue
-        // TODO: Implement offline sync
-        showToast.warning("Offline mode - changes will sync when online");
+        if (selectedShipment.isVirtual) {
+          showToast.error("Cannot create new shipment while offline. Please reconnect and retry.");
+          return;
+        }
+
+        await addToSyncQueue({
+          type: "shipment",
+          action: "update",
+          data: {
+            mode: "details",
+            shipmentId: selectedShipment.id,
+            payload: {
+              driverName: deliveryDetails.driverName,
+              driverPhone: deliveryDetails.driverPhone,
+              vehicleNumber: deliveryDetails.vehicleNumber,
+              trackingNumber:
+                deliveryDetails.trackingNumber ||
+                selectedShipment.trackingNumber ||
+                derivePackReference(selectedShipment.orderNumber),
+              status: "ready_to_ship",
+            },
+          },
+        });
+
+        await addToSyncQueue({
+          type: "shipment",
+          action: "update",
+          data: {
+            mode: "status",
+            shipmentId: selectedShipment.id,
+            payload: {
+              status: "shipped",
+              workerId: isUuid(worker?.id) ? worker?.id : undefined,
+            },
+          },
+        });
+
+        showToast.warning("Offline mode: shipment update queued and will sync automatically.");
       }
       
       setShowProcessModal(false);
