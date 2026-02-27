@@ -3,10 +3,15 @@ package com.optiwms.coreapi.master;
 import com.optiwms.coreapp.imports.CsvImportService;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.SupplierMaterialService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -55,6 +60,76 @@ public class MaterialController {
                         m.getMaxPalletWeightKg()))
                 .toList();
         return ResponseEntity.ok(data);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedMaterialResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) UUID supplierId,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<com.optiwms.domain.master.Material> materialPage;
+        if (supplierId != null) {
+            // Supplier filter currently served via supplier-material mapping API;
+            // apply paging in memory for this branch.
+            var supplierMaterials = supplierMaterialService.getMaterialsForSupplier(supplierId, materialType);
+            List<com.optiwms.domain.master.Material> filtered = new ArrayList<>(supplierMaterials);
+            if (q != null && !q.isBlank()) {
+                String query = q.toLowerCase();
+                filtered = filtered.stream()
+                        .filter(m ->
+                                contains(m.getMaterialCode(), query) ||
+                                contains(m.getDescription(), query) ||
+                                contains(m.getUnitType(), query) ||
+                                contains(m.getStorageType(), query) ||
+                                contains(m.getMaterialType(), query))
+                        .toList();
+            }
+            filtered.sort((a, b) -> compareMaterial(a, b, safeSortBy, direction));
+            int from = Math.min(safePage * safeSize, filtered.size());
+            int to = Math.min(from + safeSize, filtered.size());
+            materialPage = new PageImpl<>(filtered.subList(from, to), PageRequest.of(safePage, safeSize), filtered.size());
+        } else {
+            materialPage = materialService.findPaged(
+                    materialType,
+                    q,
+                    PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
+            );
+        }
+
+        var data = materialPage.getContent().stream()
+                .map(m -> new MaterialDto(
+                        m.getId(),
+                        m.getMaterialCode(),
+                        m.getDescription(),
+                        m.getUnitType(),
+                        m.getStorageType(),
+                        m.getMaterialType(),
+                        m.getLengthCm(),
+                        m.getWidthCm(),
+                        m.getHeightCm(),
+                        m.getWeightKg(),
+                        m.getVolumeCm3(),
+                        m.getPalletSpaces(),
+                        m.getMaxPalletWeightKg()))
+                .toList();
+
+        return ResponseEntity.ok(new PagedMaterialResponse(
+                data,
+                materialPage.getNumber(),
+                materialPage.getSize(),
+                materialPage.getTotalElements(),
+                materialPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -283,6 +358,14 @@ public class MaterialController {
             List<String> errors
     ) {}
 
+    public record PagedMaterialResponse(
+            List<MaterialDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
     public record CreateMaterialRequest(
             String materialCode,
             String description,
@@ -312,4 +395,58 @@ public class MaterialController {
             java.math.BigDecimal palletSpaces,
             java.math.BigDecimal maxPalletWeightKg
     ) {}
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        return switch (sortBy) {
+            case "id", "materialCode", "description", "unitType", "storageType", "materialType", "createdAt" -> sortBy;
+            default -> "createdAt";
+        };
+    }
+
+    private boolean contains(String value, String query) {
+        return value != null && value.toLowerCase().contains(query);
+    }
+
+    private int compareMaterial(com.optiwms.domain.master.Material a, com.optiwms.domain.master.Material b, String sortBy, Sort.Direction direction) {
+        String av;
+        String bv;
+        switch (sortBy) {
+            case "materialCode" -> {
+                av = safe(a.getMaterialCode());
+                bv = safe(b.getMaterialCode());
+            }
+            case "description" -> {
+                av = safe(a.getDescription());
+                bv = safe(b.getDescription());
+            }
+            case "unitType" -> {
+                av = safe(a.getUnitType());
+                bv = safe(b.getUnitType());
+            }
+            case "storageType" -> {
+                av = safe(a.getStorageType());
+                bv = safe(b.getStorageType());
+            }
+            case "materialType" -> {
+                av = safe(a.getMaterialType());
+                bv = safe(b.getMaterialType());
+            }
+            default -> {
+                av = a.getId() != null ? a.getId().toString() : "";
+                bv = b.getId() != null ? b.getId().toString() : "";
+            }
+        }
+        int cmp = av.compareToIgnoreCase(bv);
+        if (cmp == 0) {
+            String aid = a.getId() != null ? a.getId().toString() : "";
+            String bid = b.getId() != null ? b.getId().toString() : "";
+            cmp = aid.compareToIgnoreCase(bid);
+        }
+        return direction == Sort.Direction.ASC ? cmp : -cmp;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
+    }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAdmin } from "@/contexts/AdminContext";
+import { Pagination } from "@/components/Pagination";
 import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
 import { ordersApi } from "@/lib/api/orders";
 import { customersApi } from "@/lib/api/customers";
@@ -73,65 +73,17 @@ function mapApiPackingRecord(
   };
 }
 
-function derivePackReference(orderNumber?: string): string {
-  const normalized = (orderNumber || "").trim().toUpperCase();
-  if (!normalized) return `PACK-${Date.now()}`;
-  if (normalized.startsWith("OUT-")) {
-    return `PACK-${normalized.substring(4)}`;
-  }
-  return `PACK-${normalized.replace(/^OUT/, "").replace(/^-+/, "")}`;
-}
-
-function mapOrderToFallbackPackingRecord(
-  order: {
-    id: string;
-    orderNumber: string;
-    customerId?: string;
-    warehouseId: string;
-    priority: string;
-    status: string;
-    orderDate?: string;
-  },
-  customersMap: Map<string, string>,
-  warehousesMap: Map<string, string>
-): PackingRecord | null {
-  const orderStatus = (order.status || "").toLowerCase();
-  let status: PackingStatus | null = null;
-  if (orderStatus === "packing") status = "in_progress";
-  else if (orderStatus === "ready_to_ship") status = "packed";
-  else if (orderStatus === "shipped") status = "shipped";
-  if (!status) return null;
-
-  const createdAt = order.orderDate || new Date().toISOString();
-  return {
-    id: `fallback-${order.id}`,
-    orderId: order.id,
-    orderNumber: order.orderNumber,
-    customer: order.customerId ? getLookupValue(customersMap, order.customerId, "Unknown") : "Unknown",
-    priority: (order.priority?.toLowerCase() === "express" ? "express" : "normal") as "express" | "normal",
-    packagingType: "",
-    actualWeight: 0,
-    dimensionalWeight: 0,
-    chargeableWeight: 0,
-    trackingNumber: derivePackReference(order.orderNumber),
-    status,
-    startedAt: status === "in_progress" ? createdAt : undefined,
-    completedAt: status === "packed" || status === "shipped" ? createdAt : undefined,
-    createdAt,
-    warehouseName: getLookupValue(warehousesMap, order.warehouseId, "Unknown"),
-  };
-}
-
 export default function PackingPage() {
-  const { admin, role } = useAdmin();
-  const isWarehouseManager = role === "warehouse_manager";
-  const assignedWarehouseName = admin?.warehouseName;
-
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<PackingRecord | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<PackingStatus | "all">("all");
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,8 +98,15 @@ export default function PackingPage() {
       setLoading(true);
       setError(null);
 
-      const [recordsData, ordersData, customersData, warehousesData, workers] = await Promise.all([
-        packingApi.getAll(),
+      const [recordsPage, ordersData, customersData, warehousesData, workers] = await Promise.all([
+        packingApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          status: statusFilter === "all" ? undefined : statusFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         ordersApi.getAllOutbound(),
         customersApi.getAll(),
         warehousesApi.getAll(),
@@ -174,16 +133,13 @@ export default function PackingPage() {
         })
       );
 
-      const recordsFromPacking = recordsData.map((record) => mapApiPackingRecord(record, ordersMap, usersMap));
-      const existingOrderKeys = new Set(
-        recordsFromPacking.map((record) => `${record.orderId || ""}|${record.orderNumber || ""}`)
+      const recordsFromPacking = recordsPage.data.map((record) =>
+        mapApiPackingRecord(record, ordersMap, usersMap)
       );
-      const fallbackRecords = ordersData
-        .map((order) => mapOrderToFallbackPackingRecord(order, customersMap, warehousesMap))
-        .filter((record): record is PackingRecord => !!record)
-        .filter((record) => !existingOrderKeys.has(`${record.orderId}|${record.orderNumber}`));
 
-      setPackingRecords([...recordsFromPacking, ...fallbackRecords]);
+      setPackingRecords(recordsFromPacking);
+      setTotalItems(recordsPage.totalElements);
+      setTotalPages(Math.max(recordsPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load packing records:", err);
       setError(err instanceof Error ? err.message : "Failed to load packing records");
@@ -196,30 +152,19 @@ export default function PackingPage() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
 
-  const packingRecordsForWarehouse =
-    isWarehouseManager && assignedWarehouseName
-      ? packingRecords.filter((record) => record.warehouseName === assignedWarehouseName)
-      : packingRecords;
-
-  const filteredRecords = packingRecordsForWarehouse.filter((record) => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      !searchQuery.trim() ||
-      record.orderNumber.toLowerCase().includes(query) ||
-      record.customer.toLowerCase().includes(query) ||
-      record.trackingNumber?.toLowerCase().includes(query);
-
-    const matchesStatus = statusFilter === "all" || record.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  const pendingOrders = filteredRecords.filter((record) => record.status === "pending");
-  const inProgressOrders = filteredRecords.filter((record) => record.status === "in_progress");
-  const packedOrders = filteredRecords.filter((record) => record.status === "packed");
-  const historyOrders = filteredRecords.filter((record) => record.status === "packed" || record.status === "shipped");
+  const pendingOrders = packingRecords.filter((record) => record.status === "pending");
+  const inProgressOrders = packingRecords.filter((record) => record.status === "in_progress");
+  const packedOrders = packingRecords.filter((record) => record.status === "packed");
+  const historyOrders = packingRecords.filter((record) => record.status === "packed" || record.status === "shipped");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   if (loading) {
     return (
@@ -276,20 +221,23 @@ export default function PackingPage() {
   return (
     <div className="space-y-6">
       <PackingHeader
-        searchQuery={searchQuery}
+        searchQuery={searchInput}
         statusFilter={statusFilter}
-        onSearchChange={setSearchQuery}
-        onStatusFilterChange={setStatusFilter}
+        onSearchChange={setSearchInput}
+        onStatusFilterChange={(status) => {
+          setStatusFilter(status);
+          setCurrentPage(1);
+        }}
       />
 
       <div className="tabs tabs-boxed">
-        <button className={`tab ${viewMode === "queue" ? "tab-active" : ""}`} onClick={() => setViewMode("queue")}>
+        <button className={`tab ${viewMode === "queue" ? "tab-active" : ""}`} onClick={() => { setViewMode("queue"); setCurrentPage(1); }}>
           Packing Queue
         </button>
-        <button className={`tab ${viewMode === "monitor" ? "tab-active" : ""}`} onClick={() => setViewMode("monitor")}>
+        <button className={`tab ${viewMode === "monitor" ? "tab-active" : ""}`} onClick={() => { setViewMode("monitor"); setCurrentPage(1); }}>
           Monitor
         </button>
-        <button className={`tab ${viewMode === "history" ? "tab-active" : ""}`} onClick={() => setViewMode("history")}>
+        <button className={`tab ${viewMode === "history" ? "tab-active" : ""}`} onClick={() => { setViewMode("history"); setCurrentPage(1); }}>
           History
         </button>
       </div>
@@ -298,7 +246,7 @@ export default function PackingPage() {
         pendingCount={pendingOrders.length}
         inProgressCount={inProgressOrders.length}
         packedCount={packedOrders.length}
-        totalCount={packingRecordsForWarehouse.length}
+        totalCount={totalItems}
       />
 
       <PackingViews
@@ -310,6 +258,18 @@ export default function PackingPage() {
         onAssignPacker={handleAssignPacker}
         onPrintLabel={handlePrintLabel}
         onPrintSlip={handlePrintSlip}
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       <PackingModals

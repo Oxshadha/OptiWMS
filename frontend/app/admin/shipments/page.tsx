@@ -42,16 +42,19 @@ export default function ShipmentsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<ShipmentDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"id" | "carrier" | "destination" | "eta" | "status" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // API state
   const [shipments, setShipments] = useState<ShipmentDisplay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -65,7 +68,10 @@ export default function ShipmentsPage() {
 
   const loadData = async () => {
     try {
-      setLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setLoading(true);
+      }
       setError(null);
 
       const shipmentsPage = await shipmentsApi.getPaged({
@@ -96,6 +102,7 @@ export default function ShipmentsPage() {
       setShipments(displayShipments);
       setTotalItems(shipmentsPage.totalElements);
       setTotalPages(Math.max(shipmentsPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load shipments:", err);
       setError(err instanceof Error ? err.message : "Failed to load shipments");
@@ -105,12 +112,21 @@ export default function ShipmentsPage() {
       }
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
     void loadData();
   }, [currentPage, itemsPerPage, searchQuery, sortBy, sortDirection, statusFilter, activeTab]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const totalShipments = totalItems;
 
@@ -161,26 +177,30 @@ export default function ShipmentsPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Shipments ({totalShipments})</h1>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <div className="form-control">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Search shipments..."
                 className="input input-bordered input-sm w-64 pl-10 pr-10"
-                value={searchQuery}
+                value={searchInput}
                 onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
+                  setSearchInput(e.target.value);
                 }}
               />
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm pointer-events-none">
                 search
               </span>
-              {searchQuery && (
+              {searchInput && (
                 <button
                   onClick={() => {
-                    setSearchQuery("");
-                    setCurrentPage(1);
+                    setSearchInput("");
                   }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
                   type="button"

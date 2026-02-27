@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -19,7 +20,6 @@ import {
   SupplierDetailModal,
 } from "./components/SupplierModals";
 
-
 export default function SuppliersPage() {
   const router = useRouter();
   const { hasPermission } = useAdmin();
@@ -29,24 +29,33 @@ export default function SuppliersPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showManageMaterialsModal, setShowManageMaterialsModal] = useState(false);
-  const [selectedSupplier, setSelectedSupplier] = useState<SupplierDisplay | null>(null);
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierDisplay | null>(
+    null
+  );
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">("all");
-  
-  // API state
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">(
+    "all"
+  );
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
   const [suppliers, setSuppliers] = useState<SupplierDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Function to transform API data to display format
   const transformSupplierData = (s: Supplier): SupplierDisplay => {
-    // Determine type from country
-    const isLocal = s.country?.toLowerCase().includes("sri lanka") || 
-                   s.country?.toLowerCase().includes("lka") ||
-                   !s.country;
+    const isLocal =
+      s.country?.toLowerCase().includes("sri lanka") ||
+      s.country?.toLowerCase().includes("lka") ||
+      !s.country;
     const type: "local" | "foreign" = isLocal ? "local" : "foreign";
-    
+
     return {
       id: s.id,
       supplierCode: s.code || `SUP-${s.id.slice(0, 8).toUpperCase()}`,
@@ -62,17 +71,25 @@ export default function SuppliersPage() {
     };
   };
 
-  // Load data from API
   const loadData = async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) setIsLoading(true);
       setError(null);
-      const suppliersData = await suppliersApi.getAll();
-      
-      // Transform to display format
-      const displaySuppliers: SupplierDisplay[] = suppliersData.map(transformSupplierData);
-      
-      setSuppliers(displaySuppliers);
+
+      const suppliersPage = await suppliersApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        status: statusFilter === "all" ? undefined : statusFilter,
+        q: searchQuery.trim() || undefined,
+      });
+
+      setSuppliers(suppliersPage.data.map(transformSupplierData));
+      setTotalItems(suppliersPage.totalElements);
+      setTotalPages(Math.max(suppliersPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load suppliers:", err);
       setError(err instanceof Error ? err.message : "Failed to load suppliers");
@@ -80,39 +97,33 @@ export default function SuppliersPage() {
       showToast.error("Failed to load suppliers. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const filteredSuppliers =
+    typeFilter === "all"
+      ? suppliers
+      : suppliers.filter((supplier) => supplier.type === typeFilter);
 
   const summary = {
-    totalSuppliers: suppliers.length,
+    totalSuppliers: totalItems,
     active: suppliers.filter((s) => s.status === "active").length,
     local: suppliers.filter((s) => s.type === "local").length,
     foreign: suppliers.filter((s) => s.type === "foreign").length,
   };
-
-  const filteredSuppliers = suppliers.filter((supplier) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      query === "" ||
-      supplier.name.toLowerCase().includes(query) ||
-      supplier.supplierCode.toLowerCase().includes(query) ||
-      supplier.email.toLowerCase().includes(query) ||
-      supplier.contactPerson.toLowerCase().includes(query) ||
-      supplier.country.toLowerCase().includes(query) ||
-      supplier.phone.toLowerCase().includes(query) ||
-      (supplier.leadTimeDays != null && supplier.leadTimeDays.toString().includes(query)) ||
-      (supplier.rating != null && supplier.rating.toString().includes(query)) ||
-      supplier.status.toLowerCase().includes(query) ||
-      supplier.type.toLowerCase().includes(query);
-    const matchesStatus =
-      statusFilter === "all" || supplier.status === statusFilter;
-    const matchesType = typeFilter === "all" || supplier.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
-  });
 
   const summaryCards = [
     {
@@ -122,19 +133,19 @@ export default function SuppliersPage() {
       color: "primary" as const,
     },
     {
-      label: "Active",
+      label: "Active (Page)",
       value: summary.active,
       icon: "check_circle",
       color: "success" as const,
     },
     {
-      label: "Local Suppliers",
+      label: "Local (Page)",
       value: summary.local,
       icon: "location_on",
       color: "success" as const,
     },
     {
-      label: "Foreign Suppliers",
+      label: "Foreign (Page)",
       value: summary.foreign,
       icon: "public",
       color: "info" as const,
@@ -173,7 +184,10 @@ export default function SuppliersPage() {
       key: "type",
       label: "Type",
       render: (supplier: (typeof suppliers)[0]) => (
-        <StatusChip label={supplier.type === "local" ? "Local" : "Foreign"} tone="neutral" />
+        <StatusChip
+          label={supplier.type === "local" ? "Local" : "Foreign"}
+          tone="neutral"
+        />
       ),
       sortable: true,
     },
@@ -202,7 +216,7 @@ export default function SuppliersPage() {
     {
       key: "rating",
       label: "Rating",
-      render: (supplier: (typeof suppliers)[0]) => (
+      render: (supplier: (typeof suppliers)[0]) =>
         supplier.rating != null ? (
           <div className="flex items-center gap-1">
             <span className="text-warning">★</span>
@@ -210,8 +224,7 @@ export default function SuppliersPage() {
           </div>
         ) : (
           "—"
-        )
-      ),
+        ),
       sortable: true,
     },
     {
@@ -243,9 +256,7 @@ export default function SuppliersPage() {
               setShowDetailModal(true);
             }}
           >
-            <span className="material-symbols-outlined text-sm">
-              visibility
-            </span>
+            <span className="material-symbols-outlined text-sm">visibility</span>
             View Details
           </button>
         </li>
@@ -287,9 +298,7 @@ export default function SuppliersPage() {
               router.push(`/admin/orders/inbound?supplier=${supplier.id}`);
             }}
           >
-            <span className="material-symbols-outlined text-sm">
-              description
-            </span>
+            <span className="material-symbols-outlined text-sm">description</span>
             View Orders
           </button>
         </li>
@@ -314,7 +323,6 @@ export default function SuppliersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Suppliers</h1>
@@ -323,11 +331,13 @@ export default function SuppliersPage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
-            title="Refresh data"
-          >
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
+          <button className="btn btn-sm btn-ghost" onClick={() => void loadData()} title="Refresh data">
             <span className="material-symbols-outlined">refresh</span>
           </button>
           <div className="form-control">
@@ -336,21 +346,19 @@ export default function SuppliersPage() {
                 type="text"
                 placeholder="Search by name, code, email, country..."
                 className="input input-bordered input-sm w-64 pl-10 pr-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
               />
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm pointer-events-none">
                 search
               </span>
-              {searchQuery && (
+              {searchInput && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => setSearchInput("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
                   type="button"
                 >
-                  <span className="material-symbols-outlined text-xs">
-                    close
-                  </span>
+                  <span className="material-symbols-outlined text-xs">close</span>
                 </button>
               )}
             </div>
@@ -368,66 +376,51 @@ export default function SuppliersPage() {
                 <span>Status</span>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("all")}>
-                  All Status
-                </button>
+                <button onClick={() => { setStatusFilter("all"); setCurrentPage(1); }}>All Status</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("active")}>
-                  Active
-                </button>
+                <button onClick={() => { setStatusFilter("active"); setCurrentPage(1); }}>Active</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("inactive")}>
-                  Inactive
-                </button>
+                <button onClick={() => { setStatusFilter("inactive"); setCurrentPage(1); }}>Inactive</button>
               </li>
               <li className="menu-title">
                 <span>Type</span>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("all")}>All Types</button>
+                <button onClick={() => { setTypeFilter("all"); setCurrentPage(1); }}>All Types</button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("local")}>Local</button>
+                <button onClick={() => { setTypeFilter("local"); setCurrentPage(1); }}>Local</button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("foreign")}>
-                  Foreign
-                </button>
+                <button onClick={() => { setTypeFilter("foreign"); setCurrentPage(1); }}>Foreign</button>
               </li>
             </ul>
           </div>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => setShowCreateModal(true)}
-          >
+          <button className="btn btn-sm btn-primary" onClick={() => setShowCreateModal(true)}>
             <span className="material-symbols-outlined">add</span>
             <span>Add Supplier</span>
           </button>
         </div>
       </div>
 
-      {/* Summary Cards */}
       <SummaryCards cards={summaryCards} columns={3} />
 
-      {/* Search Results Info */}
       {searchQuery && (
         <div className="text-sm text-base-content/60 flex items-center gap-2">
           <span className="material-symbols-outlined text-sm">search</span>
           <span>
-            Found {filteredSuppliers.length} supplier
-            {filteredSuppliers.length !== 1 ? "s" : ""} matching "{searchQuery}"
+            Showing {totalItems} supplier{totalItems !== 1 ? "s" : ""} matching "{searchQuery}"
           </span>
         </div>
       )}
 
-      {/* Suppliers Table */}
       {error && (
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
             Retry
           </button>
         </div>
@@ -441,31 +434,43 @@ export default function SuppliersPage() {
         </div>
       )}
       {!isLoading && (
-        <DataTable
-          data={filteredSuppliers}
-          columns={columns}
-          keyExtractor={(supplier) => supplier.id}
-          onRowClick={(supplier) => {
-            setSelectedSupplier(supplier);
-            setShowDetailModal(true);
-          }}
-          actions={renderActions}
-          emptyMessage={
-            searchQuery
-              ? `No suppliers found matching "${searchQuery}"`
-              : "No suppliers found"
-          }
-        />
+        <>
+          <DataTable
+            data={filteredSuppliers}
+            columns={columns}
+            keyExtractor={(supplier) => supplier.id}
+            onRowClick={(supplier) => {
+              setSelectedSupplier(supplier);
+              setShowDetailModal(true);
+            }}
+            actions={renderActions}
+            emptyMessage={
+              searchQuery
+                ? `No suppliers found matching "${searchQuery}"`
+                : "No suppliers found"
+            }
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={totalItems}
+            showItemsPerPage
+            onItemsPerPageChange={(next) => {
+              setItemsPerPage(next);
+              setCurrentPage(1);
+            }}
+          />
+        </>
       )}
 
-      {/* Create Supplier Modal */}
       <CreateSupplierModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={loadData}
       />
 
-      {/* Supplier Detail Modal */}
       {selectedSupplier && (
         <SupplierDetailModal
           isOpen={showDetailModal}
@@ -482,7 +487,6 @@ export default function SuppliersPage() {
         />
       )}
 
-      {/* Edit Supplier Modal */}
       {selectedSupplier && (
         <EditSupplierModal
           isOpen={showEditModal}
@@ -495,7 +499,6 @@ export default function SuppliersPage() {
         />
       )}
 
-      {/* Delete Supplier Modal */}
       {selectedSupplier && (
         <DeleteSupplierModal
           isOpen={showDeleteModal}
@@ -505,7 +508,6 @@ export default function SuppliersPage() {
           }}
           onConfirm={async () => {
             if (!selectedSupplier) return;
-            
             try {
               await suppliersApi.delete(selectedSupplier.id);
               showToast.success("Supplier deleted successfully");
@@ -514,14 +516,15 @@ export default function SuppliersPage() {
               await loadData();
             } catch (err) {
               logger.error("Failed to delete supplier:", err);
-              showToast.error(err instanceof Error ? err.message : "Failed to delete supplier");
+              showToast.error(
+                err instanceof Error ? err.message : "Failed to delete supplier"
+              );
             }
           }}
           supplier={selectedSupplier}
         />
       )}
 
-      {/* Manage Supplier Products Modal */}
       {selectedSupplier && (
         <ManageSupplierMaterialsModal
           isOpen={showManageMaterialsModal}
@@ -533,7 +536,6 @@ export default function SuppliersPage() {
           supplier={selectedSupplier}
         />
       )}
-
     </div>
   );
 }

@@ -113,8 +113,10 @@ public class InventoryService {
                     .map(m -> m.getId())
                     .collect(Collectors.toSet());
         }
+        String normalizedQuery = (query == null || query.isBlank()) ? null : normalizeForSearch(query);
 
         final Set<UUID> finalMaterialIdsForQuery = materialIdsForQuery;
+        final String finalNormalizedQuery = normalizedQuery;
         Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -132,11 +134,26 @@ public class InventoryService {
             }
             if (query != null && !query.isBlank()) {
                 String pattern = "%" + query.toLowerCase() + "%";
+                String normalizedPattern = "%" + finalNormalizedQuery + "%";
+
+                var normalizedLocation = cb.function("replace", String.class,
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class, cb.lower(root.get("locationCode")), cb.literal("-"), cb.literal("")),
+                                cb.literal(" "), cb.literal("")),
+                        cb.literal("_"), cb.literal(""));
+                var normalizedLpn = cb.function("replace", String.class,
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class, cb.lower(root.get("lpnCode")), cb.literal("-"), cb.literal("")),
+                                cb.literal(" "), cb.literal("")),
+                        cb.literal("_"), cb.literal(""));
+
                 Predicate textMatch = cb.or(
                         cb.like(cb.lower(root.get("locationCode")), pattern),
                         cb.like(cb.lower(root.get("lpnCode")), pattern),
                         cb.like(cb.lower(root.get("status")), pattern),
-                        cb.like(cb.lower(root.get("batchNumber")), pattern)
+                        cb.like(cb.lower(root.get("batchNumber")), pattern),
+                        cb.like(normalizedLocation, normalizedPattern),
+                        cb.like(normalizedLpn, normalizedPattern)
                 );
                 if (!finalMaterialIdsForQuery.isEmpty()) {
                     textMatch = cb.or(textMatch, root.get("materialId").in(finalMaterialIdsForQuery));
@@ -148,6 +165,11 @@ public class InventoryService {
         };
 
         return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    private String normalizeForSearch(String value) {
+        if (value == null) return "";
+        return value.toLowerCase().replaceAll("[^a-z0-9]", "");
     }
 
     @Transactional

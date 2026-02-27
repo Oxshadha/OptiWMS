@@ -65,15 +65,18 @@ export default function OutboundOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<OutboundOrderDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // API state
   const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -81,7 +84,10 @@ export default function OutboundOrdersPage() {
   // Load data from API
   const loadData = async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
         // Load orders, customers, and warehouses in parallel
@@ -161,6 +167,7 @@ export default function OutboundOrdersPage() {
       setOrders(displayOrders);
       setTotalItems(ordersPage.totalElements);
       setTotalPages(Math.max(ordersPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
@@ -169,12 +176,21 @@ export default function OutboundOrdersPage() {
       setError("Failed to load outbound orders. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
     void loadData();
   }, [currentPage, itemsPerPage, statusFilter, priorityFilter, searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Calculate summary from orders
   const summary = {
@@ -441,6 +457,12 @@ export default function OutboundOrdersPage() {
           <p className="text-sm text-base-content/60 mt-1">Manage customer orders and fulfillment</p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-sm btn-ghost"
             onClick={() => loadData()}
@@ -453,10 +475,9 @@ export default function OutboundOrdersPage() {
               type="text"
               placeholder="Search orders..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
+              value={searchInput}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
+                setSearchInput(e.target.value);
               }}
             />
           </div>

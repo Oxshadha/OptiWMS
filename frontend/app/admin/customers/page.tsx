@@ -5,6 +5,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
+import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
@@ -20,6 +21,7 @@ export default function CustomersPage() {
   const { hasPermission } = useAdmin();
   const canCreate = hasPermission(ADMIN_ROUTES.CUSTOMERS, "create");
   const canDelete = hasPermission(ADMIN_ROUTES.CUSTOMERS, "delete");
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -28,33 +30,55 @@ export default function CustomersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sortBy, setSortBy] = useState<"name" | "orders" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDisplay | null>(null);
   
   // API state
   const [customers, setCustomers] = useState<CustomerDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
       try {
-        setIsLoading(true);
+        setIsFetching(true);
+        if (!hasLoadedOnce) {
+          setIsLoading(true);
+        }
         setError(null);
-        const [customersData, ordersData] = await Promise.all([
-          customersApi.getAll(),
-          ordersApi.getAllOutbound(),
-        ]);
-        
-        // Count orders per customer
-        const orderCounts = new Map<string, number>();
-        ordersData.forEach((order) => {
-          if (order.customerId) {
-            orderCounts.set(order.customerId, (orderCounts.get(order.customerId) || 0) + 1);
-          }
+        const customersPage = await customersApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: sortBy === "name" ? "name" : "createdAt",
+          sortDir: sortDirection,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          q: searchQuery.trim() || undefined,
         });
+
+        const orderCounts = new Map<string, number>();
+        await Promise.all(
+          customersPage.data.map(async (customer) => {
+            try {
+              const out = await ordersApi.getPaged({
+                page: 0,
+                size: 1,
+                orderType: "outbound",
+                customerId: customer.id,
+              });
+              orderCounts.set(customer.id, out.totalElements);
+            } catch {
+              orderCounts.set(customer.id, 0);
+            }
+          })
+        );
         
         // Transform to display format with shorter IDs
-        const displayCustomers: CustomerDisplay[] = customersData.map((c) => {
+        const displayCustomers: CustomerDisplay[] = customersPage.data.map((c) => {
           // Create shorter, more intuitive ID using first 8 characters of UUID
           // Format: CUST-XXXXXXXX (e.g., CUST-d07b7d74)
           const shortId = `CUST-${c.id.substring(0, 8)}`;
@@ -69,7 +93,17 @@ export default function CustomersPage() {
           };
         });
         
-        setCustomers(displayCustomers);
+        const sortedCustomers =
+          sortBy === "orders"
+            ? [...displayCustomers].sort((a, b) =>
+                sortDirection === "asc" ? a.orders - b.orders : b.orders - a.orders
+              )
+            : displayCustomers;
+
+        setCustomers(sortedCustomers);
+        setTotalItems(customersPage.totalElements);
+        setTotalPages(Math.max(customersPage.totalPages, 1));
+        setHasLoadedOnce(true);
       } catch (err) {
         logger.error("Failed to load customers:", err);
         setError(err instanceof Error ? err.message : "Failed to load customers");
@@ -79,48 +113,23 @@ export default function CustomersPage() {
         }
       } finally {
         setIsLoading(false);
+        setIsFetching(false);
       }
     };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, sortBy, sortDirection, searchQuery]);
 
-  let filteredCustomers = customers.filter((c) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      c.name.toLowerCase().includes(query) ||
-      c.contact.toLowerCase().includes(query) ||
-      c.id.toLowerCase().includes(query) ||
-      c.phone.toLowerCase().includes(query) ||
-      c.status.toLowerCase().includes(query) ||
-      c.orders.toString().includes(query);
-    const matchesStatus =
-      statusFilter === "all" ||
-      c.status.toLowerCase() === statusFilter.toLowerCase();
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  // Apply sorting
-  if (sortBy) {
-    filteredCustomers = [...filteredCustomers].sort((a, b) => {
-      let aVal: any = a[sortBy];
-      let bVal: any = b[sortBy];
-      if (sortBy === "orders") {
-        aVal = Number(aVal);
-        bVal = Number(bVal);
-      } else {
-        aVal = String(aVal).toLowerCase();
-        bVal = String(bVal).toLowerCase();
-      }
-      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
-      return 0;
-    });
-  }
-
-  const totalCustomers = customers.length;
+  const totalCustomers = totalItems;
   const activeCustomers = customers.filter((c) => c.status === "Active").length;
   const totalOrders = customers.reduce((sum, c) => sum + c.orders, 0);
 
@@ -132,9 +141,15 @@ export default function CustomersPage() {
           Customers ({totalCustomers})
         </h1>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => void loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -152,6 +167,7 @@ export default function CustomersPage() {
                 <button
                   onClick={() => {
                     setSortBy("name");
+                    setCurrentPage(1);
                     setSortDirection(
                       sortBy === "name" && sortDirection === "asc"
                         ? "desc"
@@ -167,6 +183,7 @@ export default function CustomersPage() {
                 <button
                   onClick={() => {
                     setSortBy("orders");
+                    setCurrentPage(1);
                     setSortDirection(
                       sortBy === "orders" && sortDirection === "desc"
                         ? "asc"
@@ -180,7 +197,10 @@ export default function CustomersPage() {
                 </button>
               </li>
               <li>
-                <button onClick={() => setSortBy(null)}>Clear Sort</button>
+                <button onClick={() => {
+                  setSortBy(null);
+                  setCurrentPage(1);
+                }}>Clear Sort</button>
               </li>
             </ul>
           </div>
@@ -194,22 +214,34 @@ export default function CustomersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>
                   All Status
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("active")}>
+                <button onClick={() => {
+                  setStatusFilter("active");
+                  setCurrentPage(1);
+                }}>
                   Active
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("on hold")}>
+                <button onClick={() => {
+                  setStatusFilter("on hold");
+                  setCurrentPage(1);
+                }}>
                   On Hold
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("inactive")}>
+                <button onClick={() => {
+                  setStatusFilter("inactive");
+                  setCurrentPage(1);
+                }}>
                   Inactive
                 </button>
               </li>
@@ -283,8 +315,8 @@ export default function CustomersPage() {
               type="text"
               className="grow"
               placeholder="Search customers by name, email, or ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </label>
         </div>
@@ -295,7 +327,7 @@ export default function CustomersPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
             Retry
           </button>
         </div>
@@ -324,7 +356,7 @@ export default function CustomersPage() {
             </thead>
             <tbody>
               {!isLoading &&
-                filteredCustomers.map((c) => (
+                customers.map((c) => (
                 <tr key={c.id} className="hover:bg-base-200/50">
                   <td className="font-semibold text-primary">{c.id}</td>
                   <td className="font-medium">{c.name}</td>
@@ -381,7 +413,7 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
-        {!isLoading && filteredCustomers.length === 0 && (
+        {!isLoading && customers.length === 0 && (
           <div className="p-12 text-center">
             <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">
               group
@@ -395,6 +427,18 @@ export default function CustomersPage() {
           </div>
         )}
       </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
+      />
 
       {/* Customer Detail Modal */}
       {selectedCustomer && (

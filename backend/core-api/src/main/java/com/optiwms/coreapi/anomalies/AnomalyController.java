@@ -2,6 +2,9 @@ package com.optiwms.coreapi.anomalies;
 
 import com.optiwms.coreapp.anomalies.AnomalyService;
 import com.optiwms.domain.anomalies.Anomaly;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -40,6 +43,50 @@ public class AnomalyController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedAnomalyResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String domain,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        UUID warehouseUuid = null;
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            try {
+                warehouseUuid = UUID.fromString(warehouseId);
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+
+        Page<Anomaly> anomalyPage = service.findPaged(
+                warehouseUuid,
+                status,
+                severity,
+                domain,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
+        );
+
+        List<AnomalyDto> data = anomalyPage.getContent().stream().map(this::toDto).toList();
+        return ResponseEntity.ok(new PagedAnomalyResponse(
+                data,
+                anomalyPage.getNumber(),
+                anomalyPage.getSize(),
+                anomalyPage.getTotalElements(),
+                anomalyPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -125,4 +172,20 @@ public class AnomalyController {
             String resolutionNotes,
             String createdAt
     ) {}
+
+    public record PagedAnomalyResponse(
+            List<AnomalyDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        return switch (sortBy) {
+            case "id", "anomalyType", "warehouseId", "severity", "status", "reviewedAt", "createdAt" -> sortBy;
+            default -> "createdAt";
+        };
+    }
 }

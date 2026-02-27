@@ -3,9 +3,14 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.Supplier;
 import com.optiwms.infra.master.SupplierEntity;
 import com.optiwms.infra.master.SupplierRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,6 +33,30 @@ public class SupplierService {
 
     public Optional<Supplier> findById(UUID id) {
         return repository.findById(id).map(this::toDomain);
+    }
+
+    public Page<Supplier> findPaged(String status, String query, Pageable pageable) {
+        Specification<SupplierEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("code")), pattern),
+                        cb.like(cb.lower(root.get("name")), pattern),
+                        cb.like(cb.lower(root.get("contactPerson")), pattern),
+                        cb.like(cb.lower(root.get("email")), pattern),
+                        cb.like(cb.lower(root.get("phone")), pattern),
+                        cb.like(cb.lower(root.get("country")), pattern),
+                        cb.like(cb.lower(root.get("address")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     @Transactional
@@ -78,4 +107,3 @@ public class SupplierService {
         return s;
     }
 }
-

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -28,6 +29,7 @@ export default function CycleCountsPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
+  const assignedWarehouseId = admin?.warehouseId;
   const canCreate = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "delete");
@@ -43,8 +45,13 @@ export default function CycleCountsPage() {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [selectedCount, setSelectedCount] = useState<CycleCountDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [reviewNotes, setReviewNotes] = useState("");
   const [cancelReason, setCancelReason] = useState("");
 
@@ -52,8 +59,16 @@ export default function CycleCountsPage() {
     try {
       setLoading(true);
       setError(null);
-      const [countsData, warehousesData, usersData, locationsData] = await Promise.all([
-        operationsApi.getCycleCounts(),
+      const [countsPage, warehousesData, usersData, locationsData] = await Promise.all([
+        operationsApi.getCycleCountsPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         warehousesApi.getAll(),
         usersApi.getAll(),
         locationsApi.getAll(),
@@ -74,7 +89,7 @@ export default function CycleCountsPage() {
         warehouseLocationsMap.set(loc.warehouseId, current);
       });
 
-      const displayCounts: CycleCountDisplay[] = countsData.map((cc) => {
+      const displayCounts: CycleCountDisplay[] = countsPage.data.map((cc) => {
         const warehouseName = warehousesMap.get(cc.warehouseId) || "Unknown";
         let sectionName = cc.locationCode;
         if (cc.locationCode === "ALL") {
@@ -132,6 +147,8 @@ export default function CycleCountsPage() {
       });
 
       setCycleCounts(displayCounts);
+      setTotalItems(countsPage.totalElements);
+      setTotalPages(Math.max(countsPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load cycle counts:", err);
       setError(err instanceof Error ? err.message : "Failed to load cycle counts");
@@ -145,27 +162,22 @@ export default function CycleCountsPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
   useEffect(() => {
     const handleReload = () => {
-      loadData();
+      void loadData();
     };
     window.addEventListener("reloadCycleCounts", handleReload);
     return () => window.removeEventListener("reloadCycleCounts", handleReload);
-  }, []);
-
-  // Filter cycle counts by warehouse for warehouse managers
-  const cycleCountsForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? cycleCounts.filter((cc) => cc.warehouseName === assignedWarehouseName)
-    : cycleCounts;
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
   const summary = {
-    scheduledThisMonth: cycleCountsForWarehouse.filter((cc) => cc.status === "scheduled").length,
-    inProgress: cycleCountsForWarehouse.filter((cc) => cc.status === "in_progress").length,
-    completedThisWeek: cycleCountsForWarehouse.filter((cc) => cc.status === "completed").length,
-    discrepanciesFound: cycleCountsForWarehouse.reduce((sum, cc) => sum + cc.discrepanciesFound, 0),
+    scheduledThisMonth: cycleCounts.filter((cc) => cc.status === "scheduled").length,
+    inProgress: cycleCounts.filter((cc) => cc.status === "in_progress").length,
+    completedThisWeek: cycleCounts.filter((cc) => cc.status === "completed").length,
+    discrepanciesFound: cycleCounts.reduce((sum, cc) => sum + cc.discrepanciesFound, 0),
   };
 
   if (loading) {
@@ -185,27 +197,13 @@ export default function CycleCountsPage() {
     );
   }
 
-  const filteredCounts = cycleCountsForWarehouse.filter((count) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
-      count.countNumber.toLowerCase().includes(query) ||
-      count.warehouseName.toLowerCase().includes(query) ||
-      count.sectionName.toLowerCase().includes(query) ||
-      count.countType.toLowerCase().includes(query) ||
-      count.status.toLowerCase().includes(query) ||
-      count.assignedBy.toLowerCase().includes(query) ||
-      count.assignedDate.toLowerCase().includes(query) ||
-      count.totalLocations.toString().includes(query) ||
-      count.countedLocations.toString().includes(query) ||
-      count.discrepanciesFound.toString().includes(query) ||
-      (count.scheduledDate && count.scheduledDate.toLowerCase().includes(query)) ||
-      (count.actualDate && count.actualDate.toLowerCase().includes(query)) ||
-      (count.performedBy && count.performedBy.toLowerCase().includes(query)) ||
-      count.assignedWorkers.some(w => w.toLowerCase().includes(query))
-    );
-    const matchesStatus = statusFilter === "all" || count.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const summaryCards = [
     {
@@ -441,8 +439,8 @@ export default function CycleCountsPage() {
               type="text"
               placeholder="Search cycle counts..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -455,25 +453,25 @@ export default function CycleCountsPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => { setStatusFilter("all"); setCurrentPage(1); }}>All Status</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("scheduled")}>Scheduled</button>
+                <button onClick={() => { setStatusFilter("scheduled"); setCurrentPage(1); }}>Scheduled</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("in_progress")}>In Progress</button>
+                <button onClick={() => { setStatusFilter("in_progress"); setCurrentPage(1); }}>In Progress</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("recount_required")}>Recount Required</button>
+                <button onClick={() => { setStatusFilter("recount_required"); setCurrentPage(1); }}>Recount Required</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("pending_approval")}>Pending Approval</button>
+                <button onClick={() => { setStatusFilter("pending_approval"); setCurrentPage(1); }}>Pending Approval</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("completed")}>Completed</button>
+                <button onClick={() => { setStatusFilter("completed"); setCurrentPage(1); }}>Completed</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+                <button onClick={() => { setStatusFilter("cancelled"); setCurrentPage(1); }}>Cancelled</button>
               </li>
             </ul>
           </div>
@@ -511,7 +509,7 @@ export default function CycleCountsPage() {
       {/* Cycle Counts Table */}
       <div className="overflow-hidden">
         <DataTable
-          data={filteredCounts}
+          data={cycleCounts}
           columns={columns}
           keyExtractor={(count) => count.id}
           onRowClick={(count) => {
@@ -521,6 +519,18 @@ export default function CycleCountsPage() {
           actions={renderActions}
           emptyMessage="No cycle counts found"
           className="overflow-hidden"
+        />
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          itemsPerPage={itemsPerPage}
+          totalItems={totalItems}
+          showItemsPerPage
+          onItemsPerPageChange={(next) => {
+            setItemsPerPage(next);
+            setCurrentPage(1);
+          }}
         />
       </div>
 

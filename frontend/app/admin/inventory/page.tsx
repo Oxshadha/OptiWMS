@@ -26,6 +26,7 @@ export default function InventoryPage() {
   const [activeWarehouse, setActiveWarehouse] = useState<string>(
     isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "All"
   );
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -34,7 +35,7 @@ export default function InventoryPage() {
   const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
@@ -60,6 +61,7 @@ export default function InventoryPage() {
     lowStockItems,
     availableItems,
     isLoading,
+    isFetching,
     error,
     totalPages,
     totalElements,
@@ -82,6 +84,14 @@ export default function InventoryPage() {
       setActiveWarehouse(assignedWarehouseId);
     }
   }, [isWarehouseManager, assignedWarehouseId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   if (isLoading) {
     return (
@@ -112,6 +122,12 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Inventory</h1>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-outline"
             onClick={() => setShowImportModal(true)}
@@ -253,10 +269,9 @@ export default function InventoryPage() {
                 type="text"
                 className="grow"
                 placeholder="Search by SKU or name..."
-                value={searchQuery}
+                value={searchInput}
                 onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setCurrentPage(1);
+                  setSearchInput(e.target.value);
                 }}
               />
             </label>

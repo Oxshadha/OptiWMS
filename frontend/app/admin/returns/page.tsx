@@ -41,17 +41,20 @@ export default function ReturnsPage() {
   const [showInspectModal, setShowInspectModal] = useState(false);
   const [showAssignWorkerModal, setShowAssignWorkerModal] = useState(false);
   const [selectedReturn, setSelectedReturn] = useState<ReturnDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [flowFilter, setFlowFilter] = useState<"all" | "inbound" | "outbound">("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
   // API state
   const [returns, setReturns] = useState<ReturnDisplay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -59,7 +62,10 @@ export default function ReturnsPage() {
   // Load data from API
   const loadData = async () => {
     try {
-      setLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setLoading(true);
+      }
       setError(null);
       
       const [returnsPage, warehousesData] = await Promise.all([
@@ -188,6 +194,7 @@ export default function ReturnsPage() {
       setReturns(displayReturns);
       setTotalItems(returnsPage.totalElements);
       setTotalPages(Math.max(returnsPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load returns:", err);
       setError(err instanceof Error ? err.message : "Failed to load returns");
@@ -197,12 +204,21 @@ export default function ReturnsPage() {
       }
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
     void loadData();
   }, [currentPage, itemsPerPage, searchQuery, statusFilter, flowFilter, isWarehouseManager, assignedWarehouseId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const handleRowClick = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
@@ -506,15 +522,20 @@ export default function ReturnsPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <div className="form-control">
             <input
               type="text"
               placeholder="Search returns..."
               className="input input-bordered w-full max-w-xs"
-              value={searchQuery}
+              value={searchInput}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
+                setSearchInput(e.target.value);
               }}
             />
           </div>

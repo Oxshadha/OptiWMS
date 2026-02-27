@@ -19,6 +19,14 @@ export interface DeliveryPartner {
   onTimeDeliveryRate?: string;
 }
 
+export interface PagedDeliveryPartnersResponse {
+  data: DeliveryPartner[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const deliveryPartnersApi = {
   getAll: async (status?: string): Promise<DeliveryPartner[]> => {
     const params = new URLSearchParams();
@@ -29,6 +37,31 @@ export const deliveryPartnersApi = {
 
   getById: async (id: string): Promise<DeliveryPartner> => {
     return apiClient.get<DeliveryPartner>(`/delivery-partners/${id}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    status?: string;
+    q?: string;
+  }): Promise<PagedDeliveryPartnersResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedDeliveryPartnersResponse>(`/delivery-partners/paged?${params.toString()}`);
   },
 
   getByPartnerCode: async (partnerCode: string): Promise<DeliveryPartner> => {
@@ -47,4 +80,3 @@ export const deliveryPartnersApi = {
     return apiClient.delete<void>(`/delivery-partners/${id}`);
   },
 };
-
