@@ -313,17 +313,17 @@ export default function MaterialsPage() {
             icon: "inventory_2",
           },
           {
-            label: "Raw Materials (Page)",
+            label: "Raw Materials",
             value: summaryStats.rawMaterials.toString(),
             icon: "science",
           },
           {
-            label: "Products (Page)",
+            label: "Products",
             value: summaryStats.products.toString(),
             icon: "category",
           },
           {
-            label: "Packaging (Page)",
+            label: "Packaging",
             value: summaryStats.packaging.toString(),
             icon: "inventory",
           },

@@ -35,11 +35,6 @@ const allNavItems = [
   { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
   {
-    href: "/admin/dock-management",
-    label: "Dock Management",
-    icon: "warehouse",
-  },
-  {
     href: "/admin/labor-productivity",
     label: "Labor Productivity",
     icon: "trending_up",
