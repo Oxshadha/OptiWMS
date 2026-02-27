@@ -1,22 +1,33 @@
 package com.optiwms.coreapp.inventory;
 
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class InventoryService {
 
     private final InventoryItemRepository repository;
+    private final MaterialRepository materialRepository;
 
-    public InventoryService(InventoryItemRepository repository) {
+    public InventoryService(InventoryItemRepository repository, MaterialRepository materialRepository) {
         this.repository = repository;
+        this.materialRepository = materialRepository;
     }
 
     public List<InventoryItem> listAll() {
@@ -83,6 +94,60 @@ public class InventoryService {
         return repository.findByWarehouseIdAndStatus(warehouseId, "quarantine").stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public Page<InventoryItem> findPaged(
+            UUID materialId,
+            UUID warehouseId,
+            String materialType,
+            String status,
+            String query,
+            Pageable pageable
+    ) {
+        Set<UUID> materialIdsForQuery = Collections.emptySet();
+        if (query != null && !query.isBlank()) {
+            String trimmed = query.trim();
+            materialIdsForQuery = materialRepository
+                    .findByMaterialCodeContainingIgnoreCaseOrDescriptionContainingIgnoreCase(trimmed, trimmed)
+                    .stream()
+                    .map(m -> m.getId())
+                    .collect(Collectors.toSet());
+        }
+
+        final Set<UUID> finalMaterialIdsForQuery = materialIdsForQuery;
+        Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (materialId != null) {
+                predicates.add(cb.equal(root.get("materialId"), materialId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (materialType != null && !materialType.isBlank()) {
+                predicates.add(cb.equal(root.get("materialType"), materialType));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                Predicate textMatch = cb.or(
+                        cb.like(cb.lower(root.get("locationCode")), pattern),
+                        cb.like(cb.lower(root.get("lpnCode")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("batchNumber")), pattern)
+                );
+                if (!finalMaterialIdsForQuery.isEmpty()) {
+                    textMatch = cb.or(textMatch, root.get("materialId").in(finalMaterialIdsForQuery));
+                }
+                predicates.add(textMatch);
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     @Transactional

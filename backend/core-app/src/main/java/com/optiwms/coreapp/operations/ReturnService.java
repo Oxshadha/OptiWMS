@@ -18,12 +18,17 @@ import com.optiwms.infra.operations.ReturnStatusHistoryEntity;
 import com.optiwms.infra.operations.ReturnStatusHistoryRepository;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,6 +76,48 @@ public class ReturnService {
         return repository.findAll().stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public Page<ReturnRecord> findPaged(
+            UUID orderId,
+            UUID customerId,
+            UUID warehouseId,
+            String status,
+            String returnFlow,
+            String q,
+            Pageable pageable
+    ) {
+        Specification<ReturnEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (orderId != null) {
+                predicates.add(cb.equal(root.get("originalOrderId"), orderId));
+            }
+            if (customerId != null) {
+                predicates.add(cb.equal(root.get("customerId"), customerId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (returnFlow != null && !returnFlow.isBlank()) {
+                predicates.add(cb.equal(root.get("returnFlow"), returnFlow));
+            }
+            if (q != null && !q.isBlank()) {
+                String pattern = "%" + q.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("returnNumber")), pattern),
+                        cb.like(cb.lower(root.get("reason")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("resolution")), pattern),
+                        cb.like(cb.lower(root.get("supplierResponseStatus")), pattern),
+                        cb.like(cb.lower(root.get("supplierResponseNotes")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public List<ReturnRecord> findByOrderId(UUID orderId) {

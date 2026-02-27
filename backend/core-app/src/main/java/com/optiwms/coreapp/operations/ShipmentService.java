@@ -6,10 +6,15 @@ import com.optiwms.domain.tasks.Task;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.operations.ShipmentEntity;
 import com.optiwms.infra.operations.ShipmentRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +53,38 @@ public class ShipmentService {
             e.printStackTrace();
             throw new RuntimeException("Failed to list shipments: " + e.getMessage(), e);
         }
+    }
+
+    public Page<Shipment> findPaged(
+            UUID orderId,
+            String status,
+            String q,
+            Pageable pageable
+    ) {
+        Specification<ShipmentEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (orderId != null) {
+                predicates.add(cb.equal(root.get("orderId"), orderId));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (q != null && !q.isBlank()) {
+                String pattern = "%" + q.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("shipmentNumber")), pattern),
+                        cb.like(cb.lower(root.get("carrier")), pattern),
+                        cb.like(cb.lower(root.get("trackingNumber")), pattern),
+                        cb.like(cb.lower(root.get("destination")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("driverName")), pattern),
+                        cb.like(cb.lower(root.get("driverPhone")), pattern),
+                        cb.like(cb.lower(root.get("vehicleNumber")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public List<Shipment> findByOrderId(UUID orderId) {

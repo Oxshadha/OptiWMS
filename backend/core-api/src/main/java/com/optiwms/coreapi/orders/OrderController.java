@@ -5,6 +5,9 @@ import com.optiwms.coreapp.orders.OrderStatusService;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
 import com.optiwms.domain.orders.Order;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -53,6 +56,49 @@ public class OrderController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(orderDtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedOrderResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String orderType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String priority,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) String supplierId,
+            @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<Order> orderPage = orderService.findPaged(
+                orderType,
+                status,
+                priority,
+                warehouseId != null && !warehouseId.isBlank() ? UUID.fromString(warehouseId) : null,
+                supplierId != null && !supplierId.isBlank() ? UUID.fromString(supplierId) : null,
+                customerId != null && !customerId.isBlank() ? UUID.fromString(customerId) : null,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
+        );
+
+        List<OrderDto> data = orderPage.getContent().stream()
+                .map(this::toDto)
+                .toList();
+
+        return ResponseEntity.ok(new PagedOrderResponse(
+                data,
+                orderPage.getNumber(),
+                orderPage.getSize(),
+                orderPage.getTotalElements(),
+                orderPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -328,5 +374,23 @@ public class OrderController {
             String notes
     ) {}
 
+    public record PagedOrderResponse(
+            List<OrderDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
     public record CreateTasksResponse(boolean success, String message, int tasksCreated) {}
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) {
+            return "createdAt";
+        }
+        return switch (sortBy) {
+            case "createdAt", "updatedAt", "orderDate", "expectedDate", "orderNumber", "status", "priority" -> sortBy;
+            default -> "createdAt";
+        };
+    }
 }

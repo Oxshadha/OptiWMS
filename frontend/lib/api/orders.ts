@@ -15,6 +15,14 @@ export interface Order {
   notes?: string;
 }
 
+export interface PagedOrdersResponse {
+  data: Order[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const ordersApi = {
   getAll: async (orderType?: string, status?: string): Promise<Order[]> => {
     const params = new URLSearchParams();
@@ -22,6 +30,46 @@ export const ordersApi = {
     if (status) params.append('status', status);
     const query = params.toString();
     return apiClient.get<Order[]>(`/orders${query ? `?${query}` : ''}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 25,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    orderType,
+    status,
+    priority,
+    warehouseId,
+    supplierId,
+    customerId,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    orderType?: string;
+    status?: string;
+    priority?: string;
+    warehouseId?: string;
+    supplierId?: string;
+    customerId?: string;
+    q?: string;
+  }): Promise<PagedOrdersResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (orderType) params.append("orderType", orderType);
+    if (status) params.append("status", status);
+    if (priority) params.append("priority", priority);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (supplierId) params.append("supplierId", supplierId);
+    if (customerId) params.append("customerId", customerId);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedOrdersResponse>(`/orders/paged?${params.toString()}`);
   },
 
   getById: async (id: string): Promise<Order> => {
