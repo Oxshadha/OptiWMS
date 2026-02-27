@@ -192,19 +192,19 @@ export default function WorkersPage() {
       color: "primary" as const,
     },
     {
-      label: "Active Now (Page)",
+      label: "Active Now",
       value: summary.activeNow,
       icon: "check_circle",
       color: "success" as const,
     },
     {
-      label: "Offline (Page)",
+      label: "Offline",
       value: summary.offline,
       icon: "cancel",
       color: "error" as const,
     },
     {
-      label: "Tasks (Page)",
+      label: "Tasks",
       value: summary.tasksCompletedToday,
       icon: "task_alt",
       color: "info" as const,

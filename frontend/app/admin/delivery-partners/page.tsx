@@ -204,19 +204,19 @@ export default function DeliveryPartnersPage() {
       color: "primary" as const,
     },
     {
-      label: "Active (Page)",
+      label: "Active",
       value: summary.active,
       icon: "check_circle",
       color: "success" as const,
     },
     {
-      label: "Local (Page)",
+      label: "Local",
       value: summary.local,
       icon: "location_on",
       color: "success" as const,
     },
     {
-      label: "Foreign (Page)",
+      label: "Foreign",
       value: summary.foreign,
       icon: "public",
       color: "info" as const,
