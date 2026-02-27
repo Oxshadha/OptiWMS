@@ -3,6 +3,9 @@ package com.optiwms.coreapi.operations;
 import com.optiwms.coreapp.operations.ShipmentService;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.users.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -45,6 +48,41 @@ public class ShipmentController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(shipmentDtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedShipmentResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<Shipment> shipmentPage = service.findPaged(
+                orderId != null && !orderId.isBlank() ? UUID.fromString(orderId) : null,
+                status,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
+        );
+
+        List<ShipmentDto> data = shipmentPage.getContent().stream()
+                .map(this::toDto)
+                .toList();
+
+        return ResponseEntity.ok(new PagedShipmentResponse(
+                data,
+                shipmentPage.getNumber(),
+                shipmentPage.getSize(),
+                shipmentPage.getTotalElements(),
+                shipmentPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -190,6 +228,14 @@ public class ShipmentController {
             String deliveryConfirmedAt
     ) {}
 
+    public record PagedShipmentResponse(
+            List<ShipmentDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
     private boolean isManagerOrAdmin(Authentication authentication) {
         if (authentication == null || authentication.getAuthorities() == null) {
             return false;
@@ -232,5 +278,15 @@ public class ShipmentController {
         } catch (Exception ex) {
             throw new IllegalArgumentException("Invalid eta date format. Use YYYY-MM-DD.");
         }
+    }
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) {
+            return "createdAt";
+        }
+        return switch (sortBy) {
+            case "createdAt", "shipmentNumber", "status", "carrier", "destination", "eta", "shippedAt", "deliveredAt" -> sortBy;
+            default -> "createdAt";
+        };
     }
 }

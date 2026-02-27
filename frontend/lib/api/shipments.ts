@@ -19,6 +19,14 @@ export interface Shipment {
   deliveryConfirmedAt?: string;
 }
 
+export interface PagedShipmentsResponse {
+  data: Shipment[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const shipmentsApi = {
   getAll: async (orderId?: string, status?: string): Promise<Shipment[]> => {
     const params = new URLSearchParams();
@@ -26,6 +34,34 @@ export const shipmentsApi = {
     if (status) params.append('status', status);
     const query = params.toString();
     return apiClient.get<Shipment[]>(`/shipments${query ? `?${query}` : ''}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 25,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    orderId,
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    orderId?: string;
+    status?: string;
+    q?: string;
+  }): Promise<PagedShipmentsResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (orderId) params.append("orderId", orderId);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedShipmentsResponse>(`/shipments/paged?${params.toString()}`);
   },
 
   getById: async (id: string): Promise<Shipment> => {

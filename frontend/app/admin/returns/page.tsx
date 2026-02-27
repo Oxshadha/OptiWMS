@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
 import Link from "next/link";
@@ -43,6 +44,8 @@ export default function ReturnsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [flowFilter, setFlowFilter] = useState<"all" | "inbound" | "outbound">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
@@ -50,6 +53,8 @@ export default function ReturnsPage() {
   const [returns, setReturns] = useState<ReturnDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
@@ -57,33 +62,86 @@ export default function ReturnsPage() {
       setLoading(true);
       setError(null);
       
-      const [returnsData, warehousesData, customersData, suppliersData, ordersData] = await Promise.all([
-        returnsApi.getAll(),
+      const [returnsPage, warehousesData] = await Promise.all([
+        returnsApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          returnFlow: flowFilter === "all" ? undefined : flowFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         warehousesApi.getAll(),
-        customersApi.getAll(),
-        suppliersApi.getAll(),
-        ordersApi.getAll(),
+      ]);
+
+      const orderIds = Array.from(
+        new Set(
+          returnsPage.data
+            .map((r) => r.originalOrderId)
+            .filter((value): value is string => !!value)
+        )
+      );
+      const orderEntries = await Promise.all(
+        orderIds.map(async (id) => {
+          try {
+            const order = await ordersApi.getById(id);
+            return [id, order] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const ordersMap = new Map<string, Awaited<ReturnType<typeof ordersApi.getById>>>();
+      for (const entry of orderEntries) {
+        if (!entry) continue;
+        ordersMap.set(entry[0], entry[1]);
+      }
+
+      const customerIds = new Set<string>();
+      const supplierIds = new Set<string>();
+      for (const ret of returnsPage.data) {
+        if (ret.customerId) customerIds.add(ret.customerId);
+        const linkedOrder = ret.originalOrderId ? ordersMap.get(ret.originalOrderId) : undefined;
+        if (linkedOrder?.customerId) customerIds.add(linkedOrder.customerId);
+        if (linkedOrder?.supplierId) supplierIds.add(linkedOrder.supplierId);
+      }
+
+      const [customerEntries, supplierEntries] = await Promise.all([
+        Promise.all(
+          Array.from(customerIds).map(async (id) => {
+            try {
+              const customer = await customersApi.getById(id);
+              return [id, customer.name] as const;
+            } catch {
+              return [id, "Unknown Customer"] as const;
+            }
+          })
+        ),
+        Promise.all(
+          Array.from(supplierIds).map(async (id) => {
+            try {
+              const supplier = await suppliersApi.getById(id);
+              return [id, supplier.name] as const;
+            } catch {
+              return [id, "Unknown Supplier"] as const;
+            }
+          })
+        ),
       ]);
 
       // Build maps
       const warehousesMap = buildLookupMap(warehousesData, (wh) => wh.id, (wh) => wh.name);
-      const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
-      const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
-      const ordersMap = buildLookupMap(ordersData, (o) => o.id, (o) => ({
-        orderNumber: o.orderNumber,
-        orderType: o.orderType,
-        customerId: o.customerId,
-        supplierId: o.supplierId,
-      }));
+      const customersMap = new Map(customerEntries);
+      const suppliersMap = new Map(supplierEntries);
 
       // Transform API data to display format
-      const displayReturns: ReturnDisplay[] = returnsData.map((r) => {
+      const displayReturns: ReturnDisplay[] = returnsPage.data.map((r) => {
         const warehouseName = r.warehouseId
           ? getLookupValue(warehousesMap, r.warehouseId, "Unknown")
           : "Unknown";
-        const orderInfo = r.originalOrderId
-          ? getLookupValue(ordersMap, r.originalOrderId, null)
-          : null;
+        const orderInfo = r.originalOrderId ? ordersMap.get(r.originalOrderId) : null;
         const orderNumber = orderInfo?.orderNumber || r.originalOrderId || "N/A";
         const orderType = orderInfo?.orderType || null;
         const returnFlow = (r.returnFlow === "inbound" || r.returnFlow === "outbound")
@@ -99,11 +157,11 @@ export default function ReturnsPage() {
               : "unknown";
         const counterpartyName =
           counterpartyType === "supplier"
-            ? (supplierId ? getLookupValue(suppliersMap, supplierId, "Unknown Supplier") : "Unknown Supplier")
+            ? (supplierId ? suppliersMap.get(supplierId) || "Unknown Supplier" : "Unknown Supplier")
             : counterpartyType === "customer"
-              ? (customerId ? getLookupValue(customersMap, customerId, "Unknown Customer") : "Unknown Customer")
+              ? (customerId ? customersMap.get(customerId) || "Unknown Customer" : "Unknown Customer")
               : "Unknown";
-        const customerName = customerId ? getLookupValue(customersMap, customerId, counterpartyName) : counterpartyName;
+        const customerName = customerId ? customersMap.get(customerId) || counterpartyName : counterpartyName;
 
         return {
           id: r.id,
@@ -128,6 +186,8 @@ export default function ReturnsPage() {
       });
 
       setReturns(displayReturns);
+      setTotalItems(returnsPage.totalElements);
+      setTotalPages(Math.max(returnsPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load returns:", err);
       setError(err instanceof Error ? err.message : "Failed to load returns");
@@ -141,40 +201,8 @@ export default function ReturnsPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  // Filter returns by warehouse for warehouse managers
-  const returnsForWarehouse = isWarehouseManager && assignedWarehouseId
-    ? returns.filter((r) => r.warehouseId === assignedWarehouseId)
-    : returns;
-
-  const filteredReturns = returnsForWarehouse.filter((returnItem) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      returnItem.returnNumber.toLowerCase().includes(query) ||
-      returnItem.originalOrder.toLowerCase().includes(query) ||
-      returnItem.counterpartyName.toLowerCase().includes(query) ||
-      returnItem.customerName.toLowerCase().includes(query) ||
-      returnItem.warehouse.toLowerCase().includes(query) ||
-      returnItem.status.toLowerCase().includes(query) ||
-      returnItem.reason.toLowerCase().includes(query) ||
-      returnItem.returnDate.toLowerCase().includes(query) ||
-      (returnItem.resolution &&
-        returnItem.resolution.toLowerCase().includes(query)) ||
-      (returnItem.receivedBy &&
-        returnItem.receivedBy.toLowerCase().includes(query)) ||
-      (returnItem.inspectedBy &&
-        returnItem.inspectedBy.toLowerCase().includes(query)) ||
-      returnItem.id.toLowerCase().includes(query);
-    const matchesStatus =
-      statusFilter === "all" || returnItem.status === statusFilter;
-    const matchesFlow =
-      flowFilter === "all" ||
-      returnItem.returnFlow === flowFilter;
-    return matchesSearch && matchesStatus && matchesFlow;
-  });
+    void loadData();
+  }, [currentPage, itemsPerPage, searchQuery, statusFilter, flowFilter, isWarehouseManager, assignedWarehouseId]);
 
   const handleRowClick = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
@@ -211,25 +239,25 @@ export default function ReturnsPage() {
   const summaryCards = [
     {
       label: "Total Returns This Month",
-      value: returnsForWarehouse.length,
+      value: totalItems,
       icon: "keyboard_return",
       color: "primary" as const,
     },
     {
       label: "Inbound Returns",
-      value: returnsForWarehouse.filter((r) => r.returnFlow === "inbound").length,
+      value: returns.filter((r) => r.returnFlow === "inbound").length,
       icon: "move_to_inbox",
       color: "info" as const,
     },
     {
       label: "Outbound Returns",
-      value: returnsForWarehouse.filter((r) => r.returnFlow === "outbound").length,
+      value: returns.filter((r) => r.returnFlow === "outbound").length,
       icon: "outbox",
       color: "success" as const,
     },
     {
       label: "Pending Inspection",
-      value: returnsForWarehouse.filter(
+      value: returns.filter(
         (r) => r.status === "pending" || r.status === "received"
       ).length,
       icon: "pending_actions",
@@ -484,7 +512,10 @@ export default function ReturnsPage() {
               placeholder="Search returns..."
               className="input input-bordered w-full max-w-xs"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -497,32 +528,50 @@ export default function ReturnsPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>
                   All Status
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("pending")}>
+                <button onClick={() => {
+                  setStatusFilter("pending");
+                  setCurrentPage(1);
+                }}>
                   Pending
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("received")}>
+                <button onClick={() => {
+                  setStatusFilter("received");
+                  setCurrentPage(1);
+                }}>
                   Received
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("inspecting")}>
+                <button onClick={() => {
+                  setStatusFilter("inspecting");
+                  setCurrentPage(1);
+                }}>
                   Inspecting
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("approved")}>
+                <button onClick={() => {
+                  setStatusFilter("approved");
+                  setCurrentPage(1);
+                }}>
                   Approved
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("rejected")}>
+                <button onClick={() => {
+                  setStatusFilter("rejected");
+                  setCurrentPage(1);
+                }}>
                   Rejected
                 </button>
               </li>
@@ -544,19 +593,28 @@ export default function ReturnsPage() {
       <div className="flex gap-2">
         <button
           className={`btn btn-sm ${flowFilter === "all" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => setFlowFilter("all")}
+          onClick={() => {
+            setFlowFilter("all");
+            setCurrentPage(1);
+          }}
         >
           All
         </button>
         <button
           className={`btn btn-sm ${flowFilter === "inbound" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => setFlowFilter("inbound")}
+          onClick={() => {
+            setFlowFilter("inbound");
+            setCurrentPage(1);
+          }}
         >
           Inbound
         </button>
         <button
           className={`btn btn-sm ${flowFilter === "outbound" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => setFlowFilter("outbound")}
+          onClick={() => {
+            setFlowFilter("outbound");
+            setCurrentPage(1);
+          }}
         >
           Outbound
         </button>
@@ -564,11 +622,23 @@ export default function ReturnsPage() {
 
       {/* Returns Table */}
       <DataTable
-        data={filteredReturns}
+        data={returns}
         columns={columns}
         keyExtractor={(returnItem) => returnItem.id}
         onRowClick={handleRowClick}
         actions={renderActions}
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       {/* Create Return Modal */}

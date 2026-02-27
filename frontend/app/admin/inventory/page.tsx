@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { useAdmin } from "@/contexts/AdminContext";
+import { Pagination } from "@/components/Pagination";
 import { InventoryDisplayItem } from "./types";
 import { useInventoryData } from "./hooks/useInventoryData";
 import { ImportInventoryModal } from "./components/ImportInventoryModal";
@@ -32,6 +33,8 @@ export default function InventoryPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
@@ -58,6 +61,8 @@ export default function InventoryPage() {
     availableItems,
     isLoading,
     error,
+    totalPages,
+    totalElements,
     reload,
   } = useInventoryData({
     isWarehouseManager,
@@ -68,6 +73,8 @@ export default function InventoryPage() {
     searchQuery,
     sortBy,
     sortDirection,
+    currentPage,
+    itemsPerPage,
   });
 
   useEffect(() => {
@@ -247,7 +254,10 @@ export default function InventoryPage() {
                 className="grow"
                 placeholder="Search by SKU or name..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
               />
             </label>
           </div>
@@ -259,7 +269,10 @@ export default function InventoryPage() {
             {itemTypes.map((type) => (
               <button
                 key={type}
-                onClick={() => setActiveItemType(type)}
+                onClick={() => {
+                  setActiveItemType(type);
+                  setCurrentPage(1);
+                }}
                 className={clsx(
                   "px-4 py-2 rounded-lg text-sm transition-all",
                   activeItemType === type
@@ -277,7 +290,10 @@ export default function InventoryPage() {
             {stockFilters.map((stock) => (
               <button
                 key={stock}
-                onClick={() => setActiveStock(stock)}
+                onClick={() => {
+                  setActiveStock(stock);
+                  setCurrentPage(1);
+                }}
                 className={clsx(
                   "px-4 py-2 rounded-lg text-sm transition-all",
                   activeStock === stock
@@ -296,7 +312,10 @@ export default function InventoryPage() {
               <select
                 className="select select-bordered select-sm"
                 value={activeWarehouse}
-                onChange={(e) => setActiveWarehouse(e.target.value)}
+                onChange={(e) => {
+                  setActiveWarehouse(e.target.value);
+                  setCurrentPage(1);
+                }}
               >
                 <option value="All">All Warehouses</option>
                 {Array.from(warehouses.entries()).map(([id, name]) => (
@@ -324,6 +343,18 @@ export default function InventoryPage() {
           }}
         />
       </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalElements}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
+      />
 
       {selectedItem && (
         <InventoryItemDetailModal

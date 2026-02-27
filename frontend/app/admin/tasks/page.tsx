@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -61,11 +62,15 @@ export default function TasksPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   
   // API state
   const [tasks, setTasks] = useState<TaskDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
@@ -74,8 +79,17 @@ export default function TasksPage() {
       setError(null);
 
         // Load tasks, users, and warehouses in parallel
-        const [tasksData, usersData, warehousesData] = await Promise.all([
-          tasksApi.getAll(),
+        const [tasksPage, usersData, warehousesData] = await Promise.all([
+          tasksApi.getPaged({
+            page: currentPage - 1,
+            size: itemsPerPage,
+            sortBy: "createdAt",
+            sortDir: "desc",
+            taskType: typeFilter === "all" ? undefined : typeFilter,
+            status: statusFilter === "all" ? undefined : statusFilter,
+            warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+            q: searchQuery.trim() || undefined,
+          }),
           usersApi.getAll(),
           warehousesApi.getAll(),
         ]);
@@ -92,7 +106,7 @@ export default function TasksPage() {
         });
 
       // Transform tasks to display format
-      const displayTasks: TaskDisplay[] = tasksData.map((task) => {
+      const displayTasks: TaskDisplay[] = tasksPage.data.map((task) => {
         const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
         const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
         
@@ -150,6 +164,8 @@ export default function TasksPage() {
       });
 
       setTasks(displayTasks);
+      setTotalItems(tasksPage.totalElements);
+      setTotalPages(Math.max(tasksPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load tasks:", err);
       setError("Failed to load tasks. Please try again.");
@@ -160,45 +176,18 @@ export default function TasksPage() {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentPage, itemsPerPage, typeFilter, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
-  // Filter tasks by warehouse for warehouse managers
-  const tasksForWarehouse = isWarehouseManager && assignedWarehouseId
-    ? tasks.filter((t) => t.warehouseId === assignedWarehouseId)
-    : tasks;
   const availableTaskTypes = Object.entries(taskTypeConfig);
 
   // Calculate summary from tasks
   const today = new Date().toISOString().split("T")[0];
   const summary = {
-    totalTasksToday: tasksForWarehouse.filter((t) => t.assignedDate.includes(today)).length,
-    pending: tasksForWarehouse.filter((t) => t.status === "assigned" || t.status === "pending").length,
-    inProgress: tasksForWarehouse.filter((t) => t.status === "in_progress").length,
-    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && (t.completedAt || "").includes(today)).length,
+    totalTasksToday: tasks.filter((t) => t.assignedDate.includes(today)).length,
+    pending: tasks.filter((t) => t.status === "assigned" || t.status === "pending").length,
+    inProgress: tasks.filter((t) => t.status === "in_progress").length,
+    completedToday: tasks.filter((t) => t.status === "completed" && (t.completedAt || "").includes(today)).length,
   };
-
-  const filteredTasks = tasksForWarehouse.filter((task) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      task.taskNumber.toLowerCase().includes(query) ||
-      task.workerName.toLowerCase().includes(query) ||
-      task.warehouseName.toLowerCase().includes(query) ||
-      task.taskType.toLowerCase().includes(query) ||
-      task.priority.toLowerCase().includes(query) ||
-      task.status.toLowerCase().includes(query) ||
-      (task.details && task.details.toLowerCase().includes(query)) ||
-      (task.notes && task.notes.toLowerCase().includes(query)) ||
-      (task.referenceId && task.referenceId.toLowerCase().includes(query)) ||
-      task.assignedDate.toLowerCase().includes(query) ||
-      (task.startedAt && task.startedAt.toLowerCase().includes(query)) ||
-      (task.completedAt && task.completedAt.toLowerCase().includes(query)) ||
-      (task.duration && task.duration.toString().includes(query));
-    const matchesType = typeFilter === "all" || task.taskType === typeFilter;
-    const matchesStatus =
-      statusFilter === "all" || task.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
 
   const summaryCards = [
     {
@@ -441,7 +430,10 @@ export default function TasksPage() {
               placeholder="Search tasks..."
               className="input input-bordered input-sm w-64"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -455,43 +447,67 @@ export default function TasksPage() {
             >
               <li className="menu-title">Task Type</li>
               <li>
-                <button onClick={() => setTypeFilter("all")}>All Types</button>
+                <button onClick={() => {
+                  setTypeFilter("all");
+                  setCurrentPage(1);
+                }}>All Types</button>
               </li>
               {availableTaskTypes.map(([taskType, typeInfo]) => (
                 <li key={taskType}>
-                  <button onClick={() => setTypeFilter(taskType)}>
+                  <button onClick={() => {
+                    setTypeFilter(taskType);
+                    setCurrentPage(1);
+                  }}>
                     {typeInfo.label}
                   </button>
                 </li>
               ))}
               <li className="menu-title mt-2">Status</li>
               <li>
-                <button onClick={() => setStatusFilter("all")}>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>
                   All Status
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("assigned")}>
+                <button onClick={() => {
+                  setStatusFilter("assigned");
+                  setCurrentPage(1);
+                }}>
                   Assigned
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("pending")}>
+                <button onClick={() => {
+                  setStatusFilter("pending");
+                  setCurrentPage(1);
+                }}>
                   Pending
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("in_progress")}>
+                <button onClick={() => {
+                  setStatusFilter("in_progress");
+                  setCurrentPage(1);
+                }}>
                   In Progress
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("completed")}>
+                <button onClick={() => {
+                  setStatusFilter("completed");
+                  setCurrentPage(1);
+                }}>
                   Completed
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("cancelled")}>
+                <button onClick={() => {
+                  setStatusFilter("cancelled");
+                  setCurrentPage(1);
+                }}>
                   Cancelled
                 </button>
               </li>
@@ -512,7 +528,7 @@ export default function TasksPage() {
 
       {/* Tasks Table */}
       <DataTable
-        data={filteredTasks}
+        data={tasks}
         columns={columns}
         keyExtractor={(task) => task.id}
         onRowClick={(task) => {
@@ -521,6 +537,18 @@ export default function TasksPage() {
         }}
         actions={renderActions}
         emptyMessage="No tasks found"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       {/* Create Task Modal */}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Pagination } from "@/components/Pagination";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi } from "@/lib/api/suppliers";
@@ -25,6 +26,16 @@ function getInboundStatusTone(status: string): StatusTone {
   return "warning";
 }
 
+function toApiInboundStatus(status: string): string | undefined {
+  if (status === "all") return undefined;
+  if (status === "in_transit") return "shipped";
+  if (status === "arrived") return "delivered";
+  if (status === "receiving") return "processing";
+  if (status === "completed") return "fulfilled";
+  if (status === "ordered") return "pending";
+  return status;
+}
+
 export default function InboundOrdersPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -35,11 +46,16 @@ export default function InboundOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState<InboundOrderDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [supplierFilterName, setSupplierFilterName] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
   
   // API state
   const [orders, setOrders] = useState<InboundOrderDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
@@ -48,8 +64,17 @@ export default function InboundOrdersPage() {
       setError(null);
 
         // Load orders, suppliers, and warehouses in parallel
-        const [ordersData, suppliersData, warehousesData] = await Promise.all([
-          ordersApi.getAllInbound(),
+        const [ordersPage, suppliersData, warehousesData] = await Promise.all([
+          ordersApi.getPaged({
+            page: currentPage - 1,
+            size: itemsPerPage,
+            sortBy: "createdAt",
+            sortDir: "desc",
+            orderType: "inbound",
+            status: toApiInboundStatus(statusFilter),
+            supplierId: supplierFilterId || undefined,
+            q: searchQuery.trim() || undefined,
+          }),
           suppliersApi.getAll(),
           warehousesApi.getAll(),
         ]);
@@ -57,10 +82,13 @@ export default function InboundOrdersPage() {
         // Create lookup maps
         const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
         const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
+        setSupplierFilterName(
+          supplierFilterId ? getLookupValue(suppliersMap, supplierFilterId, "Selected Supplier") : null
+        );
 
       // Fetch order items for all orders in parallel
       const ordersWithItems = await Promise.all(
-        ordersData.map(async (order) => {
+        ordersPage.data.map(async (order) => {
           try {
             const orderItems = await orderItemsApi.getByOrderId(order.id);
             const totalItems = orderItems.length;
@@ -109,6 +137,8 @@ export default function InboundOrdersPage() {
       });
 
       setOrders(displayOrders);
+      setTotalItems(ordersPage.totalElements);
+      setTotalPages(Math.max(ordersPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load inbound orders:", err);
       setError("Failed to load inbound orders. Please try again.");
@@ -118,8 +148,8 @@ export default function InboundOrdersPage() {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery, supplierFilterId]);
 
   // Calculate summary from orders
   const summary = {
@@ -128,31 +158,6 @@ export default function InboundOrdersPage() {
     receiving: orders.filter((o) => o.status === "receiving").length,
     completedThisMonth: orders.filter((o) => o.status === "completed").length,
   };
-
-  const filteredOrders = orders.filter((order) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
-      order.orderNumber.toLowerCase().includes(query) ||
-      order.supplierName.toLowerCase().includes(query) ||
-      order.warehouseName.toLowerCase().includes(query) ||
-      order.status.toLowerCase().includes(query) ||
-      order.orderDate.toLowerCase().includes(query) ||
-      order.expectedDelivery.toLowerCase().includes(query) ||
-      order.totalItems.toString().includes(query) ||
-      order.receivedItems.toString().includes(query) ||
-      order.id.toLowerCase().includes(query)
-    );
-    const matchesStatus = statusFilter === "all" || order.status === statusFilter;
-    const matchesSupplier =
-      !supplierFilterId || order.supplierId === supplierFilterId;
-    return matchesSearch && matchesStatus && matchesSupplier;
-  });
-
-  const supplierFilterName =
-    supplierFilterId
-      ? orders.find((o) => o.supplierId === supplierFilterId)?.supplierName ||
-        "Selected Supplier"
-      : null;
 
   if (isLoading) {
     return (
@@ -200,7 +205,7 @@ export default function InboundOrdersPage() {
         <div className="flex gap-3">
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => void loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -211,7 +216,10 @@ export default function InboundOrdersPage() {
               placeholder="Search orders..."
               className="input input-bordered input-sm w-64"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -224,22 +232,40 @@ export default function InboundOrdersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>All Status</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("in_transit")}>In Transit</button>
+                <button onClick={() => {
+                  setStatusFilter("in_transit");
+                  setCurrentPage(1);
+                }}>In Transit</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("arrived")}>Arrived</button>
+                <button onClick={() => {
+                  setStatusFilter("arrived");
+                  setCurrentPage(1);
+                }}>Arrived</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("receiving")}>Receiving</button>
+                <button onClick={() => {
+                  setStatusFilter("receiving");
+                  setCurrentPage(1);
+                }}>Receiving</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("completed")}>Completed</button>
+                <button onClick={() => {
+                  setStatusFilter("completed");
+                  setCurrentPage(1);
+                }}>Completed</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+                <button onClick={() => {
+                  setStatusFilter("cancelled");
+                  setCurrentPage(1);
+                }}>Cancelled</button>
               </li>
             </ul>
           </div>
@@ -311,7 +337,7 @@ export default function InboundOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((order) => {
+              {orders.map((order) => {
                 const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.ordered;
                 return (
                   <tr key={order.id} className="hover:bg-base-200/50">
@@ -436,6 +462,18 @@ export default function InboundOrdersPage() {
           </table>
         </div>
       </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
+      />
 
       {/* Create Inbound Order Modal */}
       {showCreateModal && (

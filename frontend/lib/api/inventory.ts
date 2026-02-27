@@ -36,10 +36,52 @@ export interface InventoryItem {
   palletRequirement?: string;
 }
 
+export interface PagedInventoryResponse {
+  data: InventoryItem[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const inventoryApi = {
   getAll: async (materialType?: string): Promise<InventoryItem[]> => {
     const params = materialType ? `?materialType=${materialType}` : '';
     return apiClient.get<InventoryItem[]>(`/inventory${params}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 25,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    materialId,
+    warehouseId,
+    materialType,
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    materialId?: string;
+    warehouseId?: string;
+    materialType?: string;
+    status?: string;
+    q?: string;
+  }): Promise<PagedInventoryResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (materialId) params.append("materialId", materialId);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (materialType) params.append("materialType", materialType);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedInventoryResponse>(`/inventory/paged?${params.toString()}`);
   },
 
   getById: async (id: string): Promise<InventoryItem> => {

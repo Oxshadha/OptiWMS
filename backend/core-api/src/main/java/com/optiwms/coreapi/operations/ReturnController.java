@@ -3,6 +3,9 @@ package com.optiwms.coreapi.operations;
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.domain.operations.ReturnRecord;
 import com.optiwms.infra.users.UserRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -46,6 +49,47 @@ public class ReturnController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(returnDtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedReturnResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String returnFlow,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<ReturnRecord> returnPage = service.findPaged(
+                orderId != null && !orderId.isBlank() ? UUID.fromString(orderId) : null,
+                customerId != null && !customerId.isBlank() ? UUID.fromString(customerId) : null,
+                warehouseId != null && !warehouseId.isBlank() ? UUID.fromString(warehouseId) : null,
+                status,
+                returnFlow,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
+        );
+
+        List<ReturnDto> data = returnPage.getContent().stream()
+                .map(this::toDto)
+                .toList();
+
+        return ResponseEntity.ok(new PagedReturnResponse(
+                data,
+                returnPage.getNumber(),
+                returnPage.getSize(),
+                returnPage.getTotalElements(),
+                returnPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -293,6 +337,14 @@ public class ReturnController {
             String lastStatusChangedAt
     ) {}
 
+    public record PagedReturnResponse(
+            List<ReturnDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
     public record SupplierQualityMetricDto(
             String supplierId,
             int totalReturns,
@@ -318,5 +370,15 @@ public class ReturnController {
         return userRepository.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
+    }
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) {
+            return "createdAt";
+        }
+        return switch (sortBy) {
+            case "createdAt", "returnDate", "returnNumber", "status", "returnFlow", "lastStatusChangedAt" -> sortBy;
+            default -> "createdAt";
+        };
     }
 }

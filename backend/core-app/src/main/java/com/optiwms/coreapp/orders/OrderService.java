@@ -3,9 +3,14 @@ package com.optiwms.coreapp.orders;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderEntity;
 import com.optiwms.infra.orders.OrderRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -27,6 +32,50 @@ public class OrderService {
         return repository.findAll().stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public Page<Order> findPaged(
+            String orderType,
+            String status,
+            String priority,
+            java.util.UUID warehouseId,
+            java.util.UUID supplierId,
+            java.util.UUID customerId,
+            String q,
+            Pageable pageable
+    ) {
+        Specification<OrderEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (orderType != null && !orderType.isBlank()) {
+                predicates.add(cb.equal(root.get("orderType"), orderType));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (priority != null && !priority.isBlank()) {
+                predicates.add(cb.equal(root.get("priority"), priority));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (supplierId != null) {
+                predicates.add(cb.equal(root.get("supplierId"), supplierId));
+            }
+            if (customerId != null) {
+                predicates.add(cb.equal(root.get("customerId"), customerId));
+            }
+            if (q != null && !q.isBlank()) {
+                String pattern = "%" + q.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("orderNumber")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("priority")), pattern),
+                        cb.like(cb.lower(root.get("notes")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public List<Order> findByType(String orderType) {
