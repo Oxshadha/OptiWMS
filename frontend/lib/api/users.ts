@@ -15,6 +15,7 @@ export interface User {
   deviceId?: string;
   blindReceivingMode?: boolean;
   lastLoginAt?: string;
+  dashboardSettings?: string | Record<string, any>;
 }
 
 export interface PagedUsersResponse {
@@ -90,7 +91,7 @@ export const usersApi = {
     return apiClient.delete<void>(`/users/${id}`);
   },
 
-  updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean }): Promise<User> => {
+  updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean; dashboardSettings?: Record<string, any> }): Promise<User> => {
     return apiClient.put<User>(`/users/${id}/preferences`, preferences);
   },
 

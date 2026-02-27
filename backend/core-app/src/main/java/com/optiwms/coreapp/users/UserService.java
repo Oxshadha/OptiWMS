@@ -139,6 +139,7 @@ public class UserService {
         entity.setStatus(user.getStatus() != null ? user.getStatus() : "active");
         entity.setDeviceId(user.getDeviceId());
         entity.setBlindReceivingMode(user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false);
+        entity.setDashboardSettings(user.getDashboardSettings());
 
         UserEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -172,6 +173,7 @@ public class UserService {
         if (user.getStatus() != null) entity.setStatus(user.getStatus());
         if (user.getDeviceId() != null) entity.setDeviceId(user.getDeviceId());
         if (user.getBlindReceivingMode() != null) entity.setBlindReceivingMode(user.getBlindReceivingMode());
+        if (user.getDashboardSettings() != null) entity.setDashboardSettings(user.getDashboardSettings());
 
         UserEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -206,6 +208,7 @@ public class UserService {
         u.setStatus(entity.getStatus());
         u.setDeviceId(entity.getDeviceId());
         u.setBlindReceivingMode(entity.getBlindReceivingMode() != null ? entity.getBlindReceivingMode() : false);
+        u.setDashboardSettings(entity.getDashboardSettings());
         u.setLastLoginAt(entity.getLastLoginAt());
         u.setCreatedAt(entity.getCreatedAt());
         u.setUpdatedAt(entity.getUpdatedAt());

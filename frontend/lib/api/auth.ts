@@ -167,9 +167,11 @@ export const authApi = {
     return localStorage.getItem('refreshToken');
   },
 
-  updatePreferences: async (preferences: { blindReceivingMode?: boolean }): Promise<{ success: boolean; blindReceivingMode?: boolean }> => {
+  updatePreferences: async (
+    preferences: { blindReceivingMode?: boolean; dashboardSettings?: Record<string, any> }
+  ): Promise<{ success: boolean; blindReceivingMode?: boolean; dashboardSettings?: string }> => {
     try {
-      return await apiClient.put<{ success: boolean; blindReceivingMode?: boolean }>('/auth/me/preferences', preferences);
+      return await apiClient.put<{ success: boolean; blindReceivingMode?: boolean; dashboardSettings?: string }>('/auth/me/preferences', preferences);
     } catch (error: any) {
       // Provide more helpful error message for 404
       if (error.message && error.message.includes('404')) {

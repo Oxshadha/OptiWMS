@@ -1,25 +1,73 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { logger } from "@/lib/utils/logger";
+import { useAdmin } from "@/contexts/AdminContext";
+import { usersApi } from "@/lib/api/users";
+import { showToast } from "@/lib/utils/toast";
+
+const defaultSettings = {
+  darkMode: false,
+  autoRefresh: true,
+  refreshInterval: "30",
+  itemsPerPage: "10",
+  defaultView: "grid",
+  showCharts: true,
+  showNotifications: true,
+  dateFormat: "MM/DD/YYYY",
+  timeFormat: "12h",
+  language: "en",
+};
 
 export default function DashboardSettingsPage() {
-  const [settings, setSettings] = useState({
-    darkMode: false,
-    autoRefresh: true,
-    refreshInterval: "30",
-    itemsPerPage: "25",
-    defaultView: "grid",
-    showCharts: true,
-    showNotifications: true,
-    dateFormat: "MM/DD/YYYY",
-    timeFormat: "12h",
-    language: "en",
-  });
+  const { admin } = useAdmin();
+  const [settings, setSettings] = useState(defaultSettings);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    // TODO: API call to save dashboard settings
-    logger.debug("Saving dashboard settings:", settings);
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!admin?.id) return;
+      try {
+        const user = await usersApi.getById(admin.id);
+        if (!user.dashboardSettings) return;
+        const parsed = typeof user.dashboardSettings === "string"
+          ? JSON.parse(user.dashboardSettings)
+          : user.dashboardSettings;
+        setSettings((prev) => ({ ...prev, ...parsed }));
+      } catch (error) {
+        logger.error("Failed to load dashboard settings:", error);
+      }
+    };
+    void loadSettings();
+  }, [admin?.id]);
+
+  const handleSave = async () => {
+    if (!admin?.id) {
+      showToast.error("Admin session not ready");
+      return;
+    }
+    setSaving(true);
+    try {
+      await usersApi.updatePreferences(admin.id, { dashboardSettings: settings });
+      showToast.success("Dashboard settings saved");
+    } catch (error) {
+      logger.error("Failed to save dashboard settings:", error);
+      showToast.error(error instanceof Error ? error.message : "Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setSettings(defaultSettings);
+    if (admin?.id) {
+      try {
+        await usersApi.updatePreferences(admin.id, { dashboardSettings: defaultSettings });
+        showToast.success("Settings reset to defaults");
+      } catch (error) {
+        logger.error("Failed to reset dashboard settings:", error);
+      }
+    }
   };
 
   return (
@@ -185,14 +233,13 @@ export default function DashboardSettingsPage() {
       </div>
 
       <div className="flex justify-end gap-3">
-        <button className="btn btn-ghost">
+        <button className="btn btn-ghost" onClick={() => void handleReset()}>
           Reset to Defaults
         </button>
-        <button className="btn btn-primary" onClick={handleSave}>
-          Save Settings
+        <button className="btn btn-primary" onClick={() => void handleSave()} disabled={saving}>
+          {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
     </div>
   );
 }
-

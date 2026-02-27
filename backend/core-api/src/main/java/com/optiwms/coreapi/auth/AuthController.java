@@ -1,5 +1,6 @@
 package com.optiwms.coreapi.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.optiwms.coreapp.users.UserService;
 import com.optiwms.domain.users.User;
 import com.optiwms.infra.users.UserEntity;
@@ -21,16 +22,19 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserService userService;
+    private final ObjectMapper objectMapper;
 
     public AuthController(
             JwtTokenProvider tokenProvider,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            UserService userService) {
+            UserService userService,
+            ObjectMapper objectMapper) {
         this.tokenProvider = tokenProvider;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.userService = userService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/login")
@@ -199,12 +203,17 @@ public class AuthController {
                     ? (Boolean) value 
                     : Boolean.parseBoolean(value.toString());
                 user.setBlindReceivingMode(blindMode);
-                userRepository.save(user);
             }
+            if (preferences.containsKey("dashboardSettings")) {
+                Object settings = preferences.get("dashboardSettings");
+                user.setDashboardSettings(objectMapper.writeValueAsString(settings));
+            }
+            userRepository.save(user);
             
             return ResponseEntity.ok(Map.of(
                 "success", true,
-                "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false
+                "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false,
+                "dashboardSettings", user.getDashboardSettings() != null ? user.getDashboardSettings() : "{}"
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
