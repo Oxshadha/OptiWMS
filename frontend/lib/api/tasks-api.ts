@@ -65,7 +65,7 @@ export const tasksApi = {
 
   getPaged: async ({
     page = 0,
-    size = 25,
+    size = 10,
     sortBy = 'createdAt',
     sortDir = 'desc',
     taskType,

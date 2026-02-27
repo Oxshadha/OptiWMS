@@ -2,6 +2,9 @@ package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.DeliveryPartnerService;
 import com.optiwms.domain.master.DeliveryPartner;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +39,36 @@ public class DeliveryPartnerController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedDeliveryPartnerResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<DeliveryPartner> partnerPage = service.findPaged(
+                status,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
+        );
+
+        List<DeliveryPartnerDto> data = partnerPage.getContent().stream().map(this::toDto).toList();
+        return ResponseEntity.ok(new PagedDeliveryPartnerResponse(
+                data,
+                partnerPage.getNumber(),
+                partnerPage.getSize(),
+                partnerPage.getTotalElements(),
+                partnerPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -195,5 +228,20 @@ public class DeliveryPartnerController {
             Integer totalShipments,
             String onTimeDeliveryRate
     ) {}
-}
 
+    public record PagedDeliveryPartnerResponse(
+            List<DeliveryPartnerDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        return switch (sortBy) {
+            case "id", "partnerCode", "companyName", "contactPerson", "status", "city", "country", "createdAt", "rating", "costPerDelivery", "totalShipments" -> sortBy;
+            default -> "createdAt";
+        };
+    }
+}

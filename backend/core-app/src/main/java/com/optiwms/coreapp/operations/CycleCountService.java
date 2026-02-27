@@ -11,12 +11,17 @@ import com.optiwms.infra.cyclecount.CycleCountEntity;
 import com.optiwms.infra.cyclecount.CycleCountRecountEntity;
 import com.optiwms.infra.cyclecount.CycleCountRecountRepository;
 import com.optiwms.infra.cyclecount.CycleCountRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -57,6 +62,29 @@ public class CycleCountService {
 
     public List<CycleCount> findByStatus(String status) {
         return repository.findByStatus(status).stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public Page<CycleCount> findPaged(UUID warehouseId, String status, String query, Pageable pageable) {
+        Specification<CycleCountEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("countNumber")), pattern),
+                        cb.like(cb.lower(root.get("locationCode")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("notes")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public CycleCount findById(UUID id) {

@@ -2,16 +2,25 @@ package com.optiwms.coreapp.master;
 
 import com.optiwms.domain.master.Material;
 import com.optiwms.infra.master.MaterialEntity;
+import com.optiwms.infra.master.MaterialDefaultLocationRepository;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.orders.OrderItemRepository;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -20,14 +29,17 @@ public class MaterialService {
     private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs", "unit");
 
     private final MaterialRepository repository;
+    private final MaterialDefaultLocationRepository materialDefaultLocationRepository;
     private final OrderItemRepository orderItemRepository;
     private final InventoryItemRepository inventoryItemRepository;
 
     public MaterialService(
             MaterialRepository repository,
+            MaterialDefaultLocationRepository materialDefaultLocationRepository,
             OrderItemRepository orderItemRepository,
             InventoryItemRepository inventoryItemRepository) {
         this.repository = repository;
+        this.materialDefaultLocationRepository = materialDefaultLocationRepository;
         this.orderItemRepository = orderItemRepository;
         this.inventoryItemRepository = inventoryItemRepository;
     }
@@ -97,6 +109,71 @@ public class MaterialService {
         }
         
         throw new RuntimeException("Material not found: " + materialCode);
+    }
+
+    public Page<Material> findPaged(String materialType, String query, Pageable pageable) {
+        Set<UUID> materialIdsForLocationQuery = Collections.emptySet();
+        String normalizedQuery = null;
+        if (query != null && !query.isBlank()) {
+            normalizedQuery = normalizeForSearch(query);
+            final String normalizedQueryValue = normalizedQuery;
+            materialIdsForLocationQuery = materialDefaultLocationRepository.findAll().stream()
+                    .filter(loc -> normalizeForSearch(loc.getLocationCode()).contains(normalizedQueryValue))
+                    .map(loc -> loc.getMaterialId())
+                    .collect(Collectors.toSet());
+        }
+
+        final Set<UUID> finalMaterialIdsForLocationQuery = materialIdsForLocationQuery;
+        final String finalNormalizedQuery = normalizedQuery;
+        Specification<MaterialEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (materialType != null && !materialType.isBlank()) {
+                predicates.add(cb.equal(root.get("materialType"), materialType));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                Predicate textMatch = cb.or(
+                        cb.like(cb.lower(root.get("materialCode")), pattern),
+                        cb.like(cb.lower(root.get("description")), pattern),
+                        cb.like(cb.lower(root.get("unitType")), pattern),
+                        cb.like(cb.lower(root.get("storageType")), pattern),
+                        cb.like(cb.lower(root.get("materialType")), pattern)
+                );
+                if (!finalMaterialIdsForLocationQuery.isEmpty()) {
+                    textMatch = cb.or(
+                            textMatch,
+                            root.get("id").in(finalMaterialIdsForLocationQuery)
+                    );
+                }
+
+                if (finalNormalizedQuery != null && !finalNormalizedQuery.isBlank()) {
+                    var normalizedMaterialCode = cb.function("replace", String.class,
+                            cb.function("replace", String.class,
+                                    cb.function("replace", String.class, cb.lower(root.get("materialCode")), cb.literal("-"), cb.literal("")),
+                                    cb.literal(" "), cb.literal("")),
+                            cb.literal("_"), cb.literal(""));
+                    var normalizedDescription = cb.function("replace", String.class,
+                            cb.function("replace", String.class,
+                                    cb.function("replace", String.class, cb.lower(root.get("description")), cb.literal("-"), cb.literal("")),
+                                    cb.literal(" "), cb.literal("")),
+                            cb.literal("_"), cb.literal(""));
+                    String normalizedPattern = "%" + finalNormalizedQuery + "%";
+                    textMatch = cb.or(
+                            textMatch,
+                            cb.like(normalizedMaterialCode, normalizedPattern),
+                            cb.like(normalizedDescription, normalizedPattern)
+                    );
+                }
+                predicates.add(textMatch);
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    private String normalizeForSearch(String value) {
+        if (value == null) return "";
+        return value.toLowerCase().replaceAll("[^a-z0-9]", "");
     }
 
     @Transactional

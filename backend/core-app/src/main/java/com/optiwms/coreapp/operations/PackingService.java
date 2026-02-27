@@ -6,10 +6,15 @@ import com.optiwms.domain.operations.PackingRecord;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.PackingRecordEntity;
 import com.optiwms.infra.operations.PackingRecordRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -76,6 +81,35 @@ public class PackingService {
         return repository.findByPackerId(packerId).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public Page<PackingRecord> findPaged(
+            String status,
+            UUID packerId,
+            String query,
+            Pageable pageable
+    ) {
+        Specification<PackingRecordEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (packerId != null) {
+                predicates.add(cb.equal(root.get("packerId"), packerId));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("orderNumber")), pattern),
+                        cb.like(cb.lower(root.get("trackingNumber")), pattern),
+                        cb.like(cb.lower(root.get("boxType")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("packingNotes")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public PackingRecord findById(UUID id) {

@@ -36,13 +36,18 @@ export function useInventoryData({
   const [inventoryItems, setInventoryItems] = useState<InventoryDisplayItem[]>([]);
   const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalElements, setTotalElements] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
   const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
       let materialTypeFilter: string | undefined;
@@ -65,7 +70,7 @@ export function useInventoryData({
         inventoryApi.getPaged({
           page: currentPage - 1,
           size: itemsPerPage,
-          sortBy: "createdAt",
+          sortBy: "id",
           sortDir: "desc",
           warehouseId: effectiveWarehouse,
           materialType: materialTypeFilter,
@@ -154,17 +159,20 @@ export function useInventoryData({
       setInventoryItems(mapped);
       setTotalElements(inventoryPage.totalElements);
       setTotalPages(Math.max(inventoryPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load inventory data", err);
       setError("Failed to load inventory data. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   }, [
     activeItemType,
     activeWarehouse,
     assignedWarehouseId,
     currentPage,
+    hasLoadedOnce,
     isWarehouseManager,
     itemsPerPage,
     searchQuery,
@@ -219,6 +227,7 @@ export function useInventoryData({
     lowStockItems,
     availableItems,
     isLoading,
+    isFetching,
     error,
     totalPages,
     totalElements,

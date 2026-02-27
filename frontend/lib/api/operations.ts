@@ -159,6 +159,14 @@ export interface StockTransferLine {
   notes?: string;
 }
 
+export interface PagedStockTransfersResponse {
+  data: StockTransfer[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export interface CreateStockTransferRequest {
   transferNumber?: string;
   transferType: string;
@@ -218,6 +226,14 @@ export interface CycleCountResult {
   variance?: string | null;
   recountRequired?: boolean;
   approvalRequired?: boolean;
+}
+
+export interface PagedCycleCountsResponse {
+  data: CycleCount[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 }
 
 export const operationsApi = {
@@ -280,6 +296,37 @@ export const operationsApi = {
     return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
   },
 
+  getStockTransfersPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    warehouseId,
+    status,
+    transferType,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    warehouseId?: string;
+    status?: string;
+    transferType?: string;
+    q?: string;
+  }): Promise<PagedStockTransfersResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (status) params.append("status", status);
+    if (transferType) params.append("transferType", transferType);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedStockTransfersResponse>(`/operations/stock-transfers/paged?${params.toString()}`);
+  },
+
   createStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
     return apiClient.post<StockTransfer>('/operations/stock-transfers', request);
   },
@@ -338,6 +385,34 @@ export const operationsApi = {
   // Cycle Count
   getCycleCounts: async (): Promise<CycleCount[]> => {
     return apiClient.get<CycleCount[]>('/operations/cycle-counts');
+  },
+
+  getCycleCountsPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    warehouseId,
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    warehouseId?: string;
+    status?: string;
+    q?: string;
+  }): Promise<PagedCycleCountsResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedCycleCountsResponse>(`/operations/cycle-counts/paged?${params.toString()}`);
   },
 
   getCycleCountById: async (id: string): Promise<CycleCount> => {

@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { deliveryPartnersApi, DeliveryPartner as ApiDeliveryPartner } from "@/lib/api/deliveryPartners";
+import {
+  deliveryPartnersApi,
+  DeliveryPartner as ApiDeliveryPartner,
+} from "@/lib/api/deliveryPartners";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatCurrency } from "./utils";
@@ -20,7 +23,6 @@ import {
   EditDeliveryPartnerModal,
 } from "./components/DeliveryPartnerModals";
 
-
 export default function DeliveryPartnersPage() {
   const router = useRouter();
   const { hasPermission } = useAdmin();
@@ -28,34 +30,44 @@ export default function DeliveryPartnersPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedPartner, setSelectedPartner] = useState<DeliveryPartnerDisplay | null>(null);
+  const [selectedPartner, setSelectedPartner] =
+    useState<DeliveryPartnerDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "local" | "foreign">(
+    "all"
+  );
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const canCreate = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "delete");
 
-  // API state
-  const [deliveryPartners, setDeliveryPartners] = useState<DeliveryPartnerDisplay[]>([]);
+  const [deliveryPartners, setDeliveryPartners] = useState<
+    DeliveryPartnerDisplay[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Function to transform API data to display format
-  const transformPartnerData = (p: ApiDeliveryPartner): DeliveryPartnerDisplay => {
-    // Parse service areas from JSON string
+  const transformPartnerData = (
+    p: ApiDeliveryPartner
+  ): DeliveryPartnerDisplay => {
     let serviceAreas: string[] = [];
     if (p.serviceAreas) {
       try {
-        const parsed = typeof p.serviceAreas === 'string' ? JSON.parse(p.serviceAreas) : p.serviceAreas;
-        
-        // Handle different JSON structures
+        const parsed =
+          typeof p.serviceAreas === "string"
+            ? JSON.parse(p.serviceAreas)
+            : p.serviceAreas;
         if (Array.isArray(parsed)) {
-          // Direct array: ["Colombo", "Kandy"]
           serviceAreas = parsed;
-        } else if (parsed && typeof parsed === 'object') {
-          // Object with keys: {"districts": [...]} or {"countries": [...]} or {"serviceAreas": [...]}
+        } else if (parsed && typeof parsed === "object") {
           if (parsed.districts && Array.isArray(parsed.districts)) {
             serviceAreas = parsed.districts;
           } else if (parsed.countries && Array.isArray(parsed.countries)) {
@@ -63,26 +75,33 @@ export default function DeliveryPartnersPage() {
           } else if (parsed.serviceAreas && Array.isArray(parsed.serviceAreas)) {
             serviceAreas = parsed.serviceAreas;
           } else {
-            // Try to extract any array value from the object
             const values = Object.values(parsed);
-            const firstArray = values.find(v => Array.isArray(v)) as string[] | undefined;
+            const firstArray = values.find((v) => Array.isArray(v)) as
+              | string[]
+              | undefined;
             serviceAreas = firstArray || [];
           }
         } else {
           serviceAreas = [String(p.serviceAreas)];
         }
-      } catch (e) {
-        // If parsing fails, treat as string
-        serviceAreas = typeof p.serviceAreas === 'string' ? [p.serviceAreas] : [];
+      } catch {
+        serviceAreas = typeof p.serviceAreas === "string" ? [p.serviceAreas] : [];
       }
     }
 
-    // Infer type from country or service areas
-    const isForeign = p.country && p.country.toLowerCase() !== "usa" && p.country.toLowerCase() !== "united states";
-    const type: "local" | "foreign" = isForeign || serviceAreas.some(area => 
-      area.toLowerCase().includes("international") || 
-      area.toLowerCase().includes("cross-border")
-    ) ? "foreign" : "local";
+    const isForeign =
+      p.country &&
+      p.country.toLowerCase() !== "usa" &&
+      p.country.toLowerCase() !== "united states";
+    const type: "local" | "foreign" =
+      isForeign ||
+      serviceAreas.some(
+        (area) =>
+          area.toLowerCase().includes("international") ||
+          area.toLowerCase().includes("cross-border")
+      )
+        ? "foreign"
+        : "local";
 
     return {
       id: p.id,
@@ -95,62 +114,67 @@ export default function DeliveryPartnersPage() {
       type,
       rating: p.rating ? parseFloat(p.rating) : 0,
       costPerDelivery: p.costPerDelivery ? parseFloat(p.costPerDelivery) : 0,
-      currencyCode: p.currencyCode || "USD", // Default to USD if not specified
+      currencyCode: p.currencyCode || "USD",
       status: p.status || "active",
     };
   };
 
-  // Load data from API
   const loadData = async () => {
     try {
-      setLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setLoading(true);
+      }
       setError(null);
-      const partnersData = await deliveryPartnersApi.getAll();
-
-      // Transform API data to display format
-      const displayPartners: DeliveryPartnerDisplay[] = partnersData.map(transformPartnerData);
-
+      const partnersPage = await deliveryPartnersApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        status: statusFilter === "all" ? undefined : statusFilter,
+        q: searchQuery.trim() || undefined,
+      });
+      const displayPartners = partnersPage.data.map(transformPartnerData);
       setDeliveryPartners(displayPartners);
+      setTotalItems(partnersPage.totalElements);
+      setTotalPages(Math.max(partnersPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load delivery partners:", err);
-      setError(err instanceof Error ? err.message : "Failed to load delivery partners");
-      // Don't fallback to mock data - show error instead
+      setError(
+        err instanceof Error ? err.message : "Failed to load delivery partners"
+      );
       setDeliveryPartners([]);
       showToast.error("Failed to load delivery partners. Please try again.");
     } finally {
       setLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const filteredPartners =
+    typeFilter === "all"
+      ? deliveryPartners
+      : deliveryPartners.filter((partner) => partner.type === typeFilter);
 
   const summary = {
-    totalPartners: deliveryPartners.length,
+    totalPartners: totalItems,
     active: deliveryPartners.filter((p) => p.status === "active").length,
     local: deliveryPartners.filter((p) => p.type === "local").length,
     foreign: deliveryPartners.filter((p) => p.type === "foreign").length,
   };
-
-  const filteredPartners = deliveryPartners.filter((partner) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
-      partner.companyName.toLowerCase().includes(query) ||
-      partner.partnerCode.toLowerCase().includes(query) ||
-      partner.email.toLowerCase().includes(query) ||
-      partner.contactPerson.toLowerCase().includes(query) ||
-      partner.phone.toLowerCase().includes(query) ||
-      partner.status.toLowerCase().includes(query) ||
-      partner.type.toLowerCase().includes(query) ||
-      partner.rating.toString().includes(query) ||
-      partner.costPerDelivery.toString().includes(query) ||
-      partner.serviceAreas.some(area => area.toLowerCase().includes(query))
-    );
-    const matchesStatus = statusFilter === "all" || partner.status === statusFilter;
-    const matchesType = typeFilter === "all" || partner.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
-  });
 
   if (loading) {
     return (
@@ -165,7 +189,7 @@ export default function DeliveryPartnersPage() {
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading delivery partners: {error}</span>
-        <button className="btn btn-sm" onClick={loadData}>
+        <button className="btn btn-sm" onClick={() => void loadData()}>
           Retry
         </button>
       </div>
@@ -180,19 +204,19 @@ export default function DeliveryPartnersPage() {
       color: "primary" as const,
     },
     {
-      label: "Active",
+      label: "Active (Page)",
       value: summary.active,
       icon: "check_circle",
       color: "success" as const,
     },
     {
-      label: "Local Partners",
+      label: "Local (Page)",
       value: summary.local,
       icon: "location_on",
       color: "success" as const,
     },
     {
-      label: "Foreign Partners",
+      label: "Foreign (Page)",
       value: summary.foreign,
       icon: "public",
       color: "info" as const,
@@ -241,7 +265,10 @@ export default function DeliveryPartnersPage() {
       key: "type",
       label: "Type",
       render: (partner: DeliveryPartnerDisplay) => (
-        <StatusChip label={partner.type === "local" ? "Local" : "Foreign"} tone="neutral" />
+        <StatusChip
+          label={partner.type === "local" ? "Local" : "Foreign"}
+          tone="neutral"
+        />
       ),
       sortable: true,
     },
@@ -251,10 +278,19 @@ export default function DeliveryPartnersPage() {
       render: (partner: DeliveryPartnerDisplay) => (
         <div className="flex flex-wrap gap-1">
           {partner.serviceAreas.slice(0, 2).map((area, idx) => (
-            <StatusChip key={idx} label={area} tone="neutral" className="whitespace-nowrap" />
+            <StatusChip
+              key={idx}
+              label={area}
+              tone="neutral"
+              className="whitespace-nowrap"
+            />
           ))}
           {partner.serviceAreas.length > 2 && (
-            <StatusChip label={`+${partner.serviceAreas.length - 2}`} tone="neutral" className="whitespace-nowrap" />
+            <StatusChip
+              label={`+${partner.serviceAreas.length - 2}`}
+              tone="neutral"
+              className="whitespace-nowrap"
+            />
           )}
         </div>
       ),
@@ -275,9 +311,13 @@ export default function DeliveryPartnersPage() {
       label: "Cost per Delivery",
       render: (partner: typeof deliveryPartners[0]) => (
         <div>
-          <span className="font-semibold">{formatCurrency(partner.costPerDelivery, partner.currencyCode)}</span>
+          <span className="font-semibold">
+            {formatCurrency(partner.costPerDelivery, partner.currencyCode)}
+          </span>
           {partner.currencyCode && (
-            <span className="text-xs text-base-content/60 ml-2">({partner.currencyCode})</span>
+            <span className="text-xs text-base-content/60 ml-2">
+              ({partner.currencyCode})
+            </span>
           )}
         </div>
       ),
@@ -335,7 +375,9 @@ export default function DeliveryPartnersPage() {
               router.push(`/admin/shipments?partner=${partner.id}`);
             }}
           >
-            <span className="material-symbols-outlined text-sm">local_shipping</span>
+            <span className="material-symbols-outlined text-sm">
+              local_shipping
+            </span>
             View Shipments
           </button>
         </li>
@@ -351,7 +393,7 @@ export default function DeliveryPartnersPage() {
         </li>
         {canDelete && (
           <li>
-            <button 
+            <button
               className="text-error"
               onClick={(e) => {
                 e.stopPropagation();
@@ -370,28 +412,44 @@ export default function DeliveryPartnersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Delivery Partners</h1>
-          <p className="text-sm text-base-content/60 mt-1">Manage delivery partner relationships</p>
+          <h1 className="text-3xl font-bold text-base-content">
+            Delivery Partners
+          </h1>
+          <p className="text-sm text-base-content/60 mt-1">
+            Manage delivery partner relationships
+          </p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() => void loadData()}
+            title="Refresh data"
+          >
+            <span className="material-symbols-outlined">refresh</span>
+          </button>
           <div className="form-control">
             <div className="relative">
               <input
                 type="text"
                 placeholder="Search by name, code, email, service areas..."
                 className="input input-bordered input-sm w-64 pl-10 pr-10"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
               />
               <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm pointer-events-none">
                 search
               </span>
-              {searchQuery && (
+              {searchInput && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => setSearchInput("")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-circle"
                   type="button"
                 >
@@ -413,25 +471,67 @@ export default function DeliveryPartnersPage() {
                 <span>Status</span>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setCurrentPage(1);
+                  }}
+                >
+                  All Status
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("active")}>Active</button>
+                <button
+                  onClick={() => {
+                    setStatusFilter("active");
+                    setCurrentPage(1);
+                  }}
+                >
+                  Active
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("inactive")}>Inactive</button>
+                <button
+                  onClick={() => {
+                    setStatusFilter("inactive");
+                    setCurrentPage(1);
+                  }}
+                >
+                  Inactive
+                </button>
               </li>
               <li className="menu-title">
                 <span>Type</span>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("all")}>All Types</button>
+                <button
+                  onClick={() => {
+                    setTypeFilter("all");
+                    setCurrentPage(1);
+                  }}
+                >
+                  All Types
+                </button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("local")}>Local</button>
+                <button
+                  onClick={() => {
+                    setTypeFilter("local");
+                    setCurrentPage(1);
+                  }}
+                >
+                  Local
+                </button>
               </li>
               <li>
-                <button onClick={() => setTypeFilter("foreign")}>Foreign</button>
+                <button
+                  onClick={() => {
+                    setTypeFilter("foreign");
+                    setCurrentPage(1);
+                  }}
+                >
+                  Foreign
+                </button>
               </li>
             </ul>
           </div>
@@ -447,18 +547,18 @@ export default function DeliveryPartnersPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
       <SummaryCards cards={summaryCards} columns={3} />
 
-      {/* Search Results Info */}
       {searchQuery && (
         <div className="text-sm text-base-content/60 flex items-center gap-2">
           <span className="material-symbols-outlined text-sm">search</span>
-          <span>Found {filteredPartners.length} partner{filteredPartners.length !== 1 ? 's' : ''} matching "{searchQuery}"</span>
+          <span>
+            Showing {totalItems} partner{totalItems !== 1 ? "s" : ""} matching "
+            {searchQuery}"
+          </span>
         </div>
       )}
 
-      {/* Delivery Partners Table */}
       <DataTable
         data={filteredPartners}
         columns={columns}
@@ -468,17 +568,31 @@ export default function DeliveryPartnersPage() {
           setShowDetailModal(true);
         }}
         actions={renderActions}
-        emptyMessage={searchQuery ? `No delivery partners found matching "${searchQuery}"` : "No delivery partners found"}
+        emptyMessage={
+          searchQuery
+            ? `No delivery partners found matching "${searchQuery}"`
+            : "No delivery partners found"
+        }
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
-      {/* Create Delivery Partner Modal */}
       <CreateDeliveryPartnerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={loadData}
       />
 
-      {/* Delivery Partner Detail Modal */}
       {selectedPartner && (
         <DeliveryPartnerDetailModal
           isOpen={showDetailModal}
@@ -495,7 +609,6 @@ export default function DeliveryPartnersPage() {
         />
       )}
 
-      {/* Edit Delivery Partner Modal */}
       {selectedPartner && (
         <EditDeliveryPartnerModal
           isOpen={showEditModal}
@@ -508,7 +621,6 @@ export default function DeliveryPartnersPage() {
         />
       )}
 
-      {/* Delete Delivery Partner Modal */}
       {selectedPartner && (
         <DeleteDeliveryPartnerModal
           isOpen={showDeleteModal}
@@ -518,17 +630,19 @@ export default function DeliveryPartnersPage() {
           }}
           onConfirm={async () => {
             if (!selectedPartner) return;
-            
             try {
               await deliveryPartnersApi.delete(selectedPartner.id);
               showToast.success("Delivery partner deleted successfully");
               setShowDeleteModal(false);
               setSelectedPartner(null);
-              // Reload data
               await loadData();
             } catch (err) {
               logger.error("Failed to delete delivery partner:", err);
-              showToast.error(err instanceof Error ? err.message : "Failed to delete delivery partner");
+              showToast.error(
+                err instanceof Error
+                  ? err.message
+                  : "Failed to delete delivery partner"
+              );
             }
           }}
           partner={selectedPartner}

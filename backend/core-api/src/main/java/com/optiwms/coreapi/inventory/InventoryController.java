@@ -53,7 +53,7 @@ public class InventoryController {
     @GetMapping("/paged")
     public ResponseEntity<PagedInventoryResponse> listPaged(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "10") int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) UUID materialId,
@@ -66,6 +66,9 @@ public class InventoryController {
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
         String safeSortBy = sanitizeSortBy(sortBy);
+        Sort sort = "id".equals(safeSortBy)
+                ? Sort.by(direction, "id")
+                : Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"));
 
         Page<com.optiwms.domain.inventory.InventoryItem> itemPage = inventoryService.findPaged(
                 materialId,
@@ -73,7 +76,7 @@ public class InventoryController {
                 materialType,
                 status,
                 q,
-                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
+                PageRequest.of(safePage, safeSize, sort)
         );
 
         List<InventoryItemDto> data = itemPage.getContent().stream()
@@ -405,7 +408,7 @@ public class InventoryController {
             return "createdAt";
         }
         return switch (sortBy) {
-            case "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
+            case "id", "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
             default -> "createdAt";
         };
     }

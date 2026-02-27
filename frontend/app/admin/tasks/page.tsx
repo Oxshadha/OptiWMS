@@ -59,15 +59,18 @@ export default function TasksPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [, setShowCancelModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(25);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // API state
   const [tasks, setTasks] = useState<TaskDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -75,7 +78,10 @@ export default function TasksPage() {
   // Load data from API
   const loadData = async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
         // Load tasks, users, and warehouses in parallel
@@ -166,17 +172,27 @@ export default function TasksPage() {
       setTasks(displayTasks);
       setTotalItems(tasksPage.totalElements);
       setTotalPages(Math.max(tasksPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load tasks:", err);
       setError("Failed to load tasks. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [currentPage, itemsPerPage, typeFilter, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const availableTaskTypes = Object.entries(taskTypeConfig);
 
@@ -424,15 +440,20 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <div className="form-control">
             <input
               type="text"
               placeholder="Search tasks..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
+              value={searchInput}
               onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
+                setSearchInput(e.target.value);
               }}
             />
           </div>

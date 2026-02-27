@@ -43,7 +43,7 @@ export const returnsApi = {
 
   getPaged: async ({
     page = 0,
-    size = 25,
+    size = 10,
     sortBy = "createdAt",
     sortDir = "desc",
     orderId,

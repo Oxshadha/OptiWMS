@@ -23,6 +23,14 @@ export interface PackingRecord {
   completedAt?: string;
 }
 
+export interface PagedPackingResponse {
+  data: PackingRecord[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const packingApi = {
   getAll: async (orderId?: string, orderNumber?: string, status?: string, packerId?: string): Promise<PackingRecord[]> => {
     const params = new URLSearchParams();
@@ -32,6 +40,34 @@ export const packingApi = {
     if (packerId) params.append('packerId', packerId);
     const query = params.toString();
     return apiClient.get<PackingRecord[]>(`/packing${query ? `?${query}` : ''}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    status,
+    packerId,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    status?: string;
+    packerId?: string;
+    q?: string;
+  }): Promise<PagedPackingResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (status) params.append("status", status);
+    if (packerId) params.append("packerId", packerId);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedPackingResponse>(`/packing/paged?${params.toString()}`);
   },
 
   getById: async (id: string): Promise<PackingRecord> => {
@@ -58,4 +94,3 @@ export const packingApi = {
     return apiClient.delete<void>(`/packing/${id}`);
   },
 };
-
