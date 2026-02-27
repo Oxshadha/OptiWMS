@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAdmin } from "@/contexts/AdminContext";
+import { Pagination } from "@/components/Pagination";
 import { operationsApi } from "@/lib/api/operations";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
@@ -17,13 +18,18 @@ import type { StockTransfer, TransferStatus, TransferType } from "./types";
 export default function StockTransfersPage() {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
-  const assignedWarehouseName = admin?.warehouseName;
+  const assignedWarehouseId = admin?.warehouseId;
 
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransfer | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TransferStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const [transfers, setTransfers] = useState<StockTransfer[]>([]);
   const [workers, setWorkers] = useState<User[]>([]);
@@ -54,8 +60,17 @@ export default function StockTransfersPage() {
       setLoading(true);
       setError(null);
 
-      const [transfersData, warehousesData, materialsData, workersData] = await Promise.all([
-        operationsApi.getStockTransfers(),
+      const [transfersPage, warehousesData, materialsData, workersData] = await Promise.all([
+        operationsApi.getStockTransfersPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+          status: statusFilter === "all" ? undefined : statusFilter,
+          transferType: typeFilter === "all" ? undefined : typeFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         warehousesApi.getAll(),
         materialsApi.getAll(),
         usersApi.getAll(undefined, undefined, "active"),
@@ -75,7 +90,7 @@ export default function StockTransfersPage() {
         });
       });
 
-      const displayTransfers: StockTransfer[] = transfersData.map((transfer) => {
+      const displayTransfers: StockTransfer[] = transfersPage.data.map((transfer) => {
         const firstLine = transfer.lines?.[0];
         const materialId = firstLine?.materialId || transfer.materialId || "";
         const sourceWarehouseId = firstLine?.sourceWarehouseId || transfer.sourceWarehouseId || "";
@@ -105,49 +120,33 @@ export default function StockTransfersPage() {
       });
 
       setTransfers(displayTransfers);
+      setTotalItems(transfersPage.totalElements);
+      setTotalPages(Math.max(transfersPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load stock transfers:", err);
       setError(err instanceof Error ? err.message : "Failed to load stock transfers");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPage, itemsPerPage, statusFilter, typeFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const transfersForWarehouse =
-    isWarehouseManager && assignedWarehouseName
-      ? transfers.filter(
-          (transfer) =>
-            transfer.sourceWarehouse === assignedWarehouseName ||
-            transfer.destWarehouse === assignedWarehouseName ||
-            (!transfer.sourceWarehouse && !transfer.destWarehouse)
-        )
-      : transfers;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const filteredTransfers = transfersForWarehouse.filter((transfer) => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      !searchQuery.trim() ||
-      transfer.transferNumber.toLowerCase().includes(query) ||
-      transfer.itemSku.toLowerCase().includes(query) ||
-      transfer.itemName.toLowerCase().includes(query) ||
-      transfer.sourceLocationCode.toLowerCase().includes(query) ||
-      transfer.destLocationCode.toLowerCase().includes(query);
-
-    const matchesStatus = statusFilter === "all" || transfer.status === statusFilter;
-    const matchesType = typeFilter === "all" || transfer.transferType === typeFilter;
-
-    return matchesSearch && matchesStatus && matchesType;
-  });
-
-  const totalTransfers = transfersForWarehouse.length;
-  const inTransitCount = transfersForWarehouse.filter((transfer) => transfer.status === "in_transit").length;
-  const receivedCount = transfersForWarehouse.filter((transfer) => transfer.status === "received").length;
-  const pendingCount = transfersForWarehouse.filter((transfer) => transfer.status === "draft").length;
-  const releasedCount = transfersForWarehouse.filter((transfer) => transfer.status === "released").length;
+  const totalTransfers = totalItems;
+  const inTransitCount = transfers.filter((transfer) => transfer.status === "in_transit").length;
+  const receivedCount = transfers.filter((transfer) => transfer.status === "received").length;
+  const pendingCount = transfers.filter((transfer) => transfer.status === "draft").length;
+  const releasedCount = transfers.filter((transfer) => transfer.status === "released").length;
 
   const handleViewDetails = (transfer: StockTransfer) => {
     setSelectedTransfer(transfer);
@@ -295,12 +294,18 @@ export default function StockTransfersPage() {
     <div className="space-y-6">
       <StockTransferHeader
         totalTransfers={totalTransfers}
-        searchQuery={searchQuery}
+        searchQuery={searchInput}
         statusFilter={statusFilter}
         typeFilter={typeFilter}
-        onSearchChange={setSearchQuery}
-        onStatusFilterChange={setStatusFilter}
-        onTypeFilterChange={setTypeFilter}
+        onSearchChange={setSearchInput}
+        onStatusFilterChange={(value) => {
+          setStatusFilter(value);
+          setCurrentPage(1);
+        }}
+        onTypeFilterChange={(value) => {
+          setTypeFilter(value);
+          setCurrentPage(1);
+        }}
         onCreateTransfer={() => setShowCreateModal(true)}
       />
 
@@ -312,10 +317,22 @@ export default function StockTransfersPage() {
       />
 
       <StockTransferTable
-        transfers={filteredTransfers}
+        transfers={transfers}
         onViewDetails={handleViewDetails}
         onCancelTransfer={handleCancelTransfer}
         onPrintSlip={handlePrintTransferSlip}
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       <StockTransferDetailModal

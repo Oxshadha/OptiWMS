@@ -2,6 +2,7 @@ package com.optiwms.coreapi.operations;
 
 import com.optiwms.coreapp.operations.LocationSuggestionService;
 import com.optiwms.coreapp.operations.PutawayService;
+import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,12 +14,15 @@ public class PutawayController {
 
     private final PutawayService putawayService;
     private final LocationSuggestionService locationSuggestionService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
 
     public PutawayController(
             PutawayService putawayService,
-            LocationSuggestionService locationSuggestionService) {
+            LocationSuggestionService locationSuggestionService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService) {
         this.putawayService = putawayService;
         this.locationSuggestionService = locationSuggestionService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
     }
 
     @PostMapping("/complete/{taskId}")
@@ -88,6 +92,21 @@ public class PutawayController {
         }
     }
 
+    @PostMapping("/split-plan")
+    public ResponseEntity<?> splitPlan(@RequestBody SplitPlanRequest request) {
+        try {
+            var result = putawayCapacityPlanningService.suggestSplitPlan(
+                    UUID.fromString(request.warehouseId()),
+                    UUID.fromString(request.materialId()),
+                    request.quantity(),
+                    request.preferredLocationCode()
+            );
+            return ResponseEntity.ok(result);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new PutawayResponse(false, e.getMessage(), null));
+        }
+    }
+
     public record CompletePutawayRequest(
             String locationCode, 
             String lpn,
@@ -102,6 +121,13 @@ public class PutawayController {
             String materialId,
             Integer quantity,
             String materialType) {}
+
+    public record SplitPlanRequest(
+            String warehouseId,
+            String materialId,
+            Integer quantity,
+            String preferredLocationCode
+    ) {}
     
     public record LocationSuggestionResponse(
             String suggestedLocation,

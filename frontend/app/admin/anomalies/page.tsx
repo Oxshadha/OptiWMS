@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, type FormEvent } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
@@ -101,17 +102,22 @@ const formatDate = (value?: string | null): string => {
 export default function AnomaliesPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
-  const assignedWarehouseName = admin?.warehouseName;
+  const assignedWarehouseId = admin?.warehouseId;
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
 
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<AnomalyDisplay | null>(null);
   const [targetStatus, setTargetStatus] = useState<Status>("resolved");
 
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<"all" | Severity>("all");
   const [statusFilter, setStatusFilter] = useState<"all" | Status>("all");
   const [domainFilter, setDomainFilter] = useState<"all" | Domain>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const [anomalies, setAnomalies] = useState<AnomalyDisplay[]>([]);
   const [loading, setLoading] = useState(true);
@@ -122,8 +128,18 @@ export default function AnomaliesPage() {
       setLoading(true);
       setError(null);
 
-      const [anomaliesData, warehousesData, materialsData, usersData] = await Promise.all([
-        anomaliesApi.getAll(),
+      const [anomaliesPage, warehousesData, materialsData, usersData] = await Promise.all([
+        anomaliesApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+          status: statusFilter === "all" ? undefined : toApiStatus(statusFilter),
+          severity: severityFilter === "all" ? undefined : severityFilter.toUpperCase(),
+          domain: domainFilter === "all" ? undefined : domainFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         warehousesApi.getAll(),
         materialsApi.getAll(),
         usersApi.getAll(),
@@ -141,7 +157,7 @@ export default function AnomaliesPage() {
         usersMap.set(u.id, displayName);
       });
 
-      const displayAnomalies: AnomalyDisplay[] = anomaliesData.map((a) => {
+      const displayAnomalies: AnomalyDisplay[] = anomaliesPage.data.map((a) => {
         const domain = getAnomalyDomain(a.anomalyType);
         const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
         const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
@@ -167,6 +183,8 @@ export default function AnomaliesPage() {
       });
 
       setAnomalies(displayAnomalies);
+      setTotalItems(anomaliesPage.totalElements);
+      setTotalPages(Math.max(anomaliesPage.totalPages, 1));
     } catch (err) {
       logger.error("Failed to load anomalies:", err);
       setError(err instanceof Error ? err.message : "Failed to load anomalies");
@@ -177,40 +195,26 @@ export default function AnomaliesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentPage, itemsPerPage, statusFilter, severityFilter, domainFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const anomaliesForWarehouse = isWarehouseManager && assignedWarehouseName
-    ? anomalies.filter((a) => a.warehouseName === assignedWarehouseName)
-    : anomalies;
-
   const summary = {
-    totalAnomalies: anomaliesForWarehouse.length,
-    cycleCount: anomaliesForWarehouse.filter((a) => a.domain === "cycle_count").length,
-    picking: anomaliesForWarehouse.filter((a) => a.domain === "picking").length,
-    open: anomaliesForWarehouse.filter((a) => a.status === "open" || a.status === "investigating").length,
+    totalAnomalies: totalItems,
+    cycleCount: anomalies.filter((a) => a.domain === "cycle_count").length,
+    picking: anomalies.filter((a) => a.domain === "picking").length,
+    open: anomalies.filter((a) => a.status === "open" || a.status === "investigating").length,
   };
 
-  const filteredAnomalies = anomaliesForWarehouse.filter((anomaly) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
-      anomaly.anomalyId.toLowerCase().includes(query) ||
-      anomaly.description.toLowerCase().includes(query) ||
-      anomaly.anomalyTypeLabel.toLowerCase().includes(query) ||
-      anomaly.severity.toLowerCase().includes(query) ||
-      anomaly.warehouseName.toLowerCase().includes(query) ||
-      anomaly.relatedEntityType.toLowerCase().includes(query) ||
-      anomaly.relatedEntityId.toLowerCase().includes(query) ||
-      anomaly.status.toLowerCase().includes(query)
-    );
-    const matchesSeverity = severityFilter === "all" || anomaly.severity === severityFilter;
-    const matchesStatus = statusFilter === "all" || anomaly.status === statusFilter;
-    const matchesDomain = domainFilter === "all" || anomaly.domain === domainFilter;
-    return matchesSearch && matchesSeverity && matchesStatus && matchesDomain;
-  });
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const handleStatusUpdate = async (anomaly: AnomalyDisplay, nextStatus: Status, notes: string) => {
     try {
@@ -401,8 +405,8 @@ export default function AnomaliesPage() {
               type="text"
               placeholder="Search anomalies..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -412,24 +416,24 @@ export default function AnomaliesPage() {
             </label>
             <ul tabIndex={0} className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-72 border border-base-300 z-10">
               <li className="menu-title">Domain</li>
-              <li><button onClick={() => setDomainFilter("all")}>All Domains</button></li>
-              <li><button onClick={() => setDomainFilter("cycle_count")}>Cycle Count</button></li>
-              <li><button onClick={() => setDomainFilter("picking")}>Picking</button></li>
-              <li><button onClick={() => setDomainFilter("other")}>Other</button></li>
+              <li><button onClick={() => { setDomainFilter("all"); setCurrentPage(1); }}>All Domains</button></li>
+              <li><button onClick={() => { setDomainFilter("cycle_count"); setCurrentPage(1); }}>Cycle Count</button></li>
+              <li><button onClick={() => { setDomainFilter("picking"); setCurrentPage(1); }}>Picking</button></li>
+              <li><button onClick={() => { setDomainFilter("other"); setCurrentPage(1); }}>Other</button></li>
 
               <li className="menu-title mt-2">Severity</li>
-              <li><button onClick={() => setSeverityFilter("all")}>All Severity</button></li>
-              <li><button onClick={() => setSeverityFilter("critical")}>Critical</button></li>
-              <li><button onClick={() => setSeverityFilter("high")}>High</button></li>
-              <li><button onClick={() => setSeverityFilter("medium")}>Medium</button></li>
-              <li><button onClick={() => setSeverityFilter("low")}>Low</button></li>
+              <li><button onClick={() => { setSeverityFilter("all"); setCurrentPage(1); }}>All Severity</button></li>
+              <li><button onClick={() => { setSeverityFilter("critical"); setCurrentPage(1); }}>Critical</button></li>
+              <li><button onClick={() => { setSeverityFilter("high"); setCurrentPage(1); }}>High</button></li>
+              <li><button onClick={() => { setSeverityFilter("medium"); setCurrentPage(1); }}>Medium</button></li>
+              <li><button onClick={() => { setSeverityFilter("low"); setCurrentPage(1); }}>Low</button></li>
 
               <li className="menu-title mt-2">Status</li>
-              <li><button onClick={() => setStatusFilter("all")}>All Status</button></li>
-              <li><button onClick={() => setStatusFilter("open")}>Open</button></li>
-              <li><button onClick={() => setStatusFilter("investigating")}>Investigating</button></li>
-              <li><button onClick={() => setStatusFilter("resolved")}>Resolved</button></li>
-              <li><button onClick={() => setStatusFilter("false_positive")}>False Positive</button></li>
+              <li><button onClick={() => { setStatusFilter("all"); setCurrentPage(1); }}>All Status</button></li>
+              <li><button onClick={() => { setStatusFilter("open"); setCurrentPage(1); }}>Open</button></li>
+              <li><button onClick={() => { setStatusFilter("investigating"); setCurrentPage(1); }}>Investigating</button></li>
+              <li><button onClick={() => { setStatusFilter("resolved"); setCurrentPage(1); }}>Resolved</button></li>
+              <li><button onClick={() => { setStatusFilter("false_positive"); setCurrentPage(1); }}>False Positive</button></li>
             </ul>
           </div>
           <button className="btn btn-sm btn-ghost" onClick={() => void loadData()}>
@@ -443,7 +447,7 @@ export default function AnomaliesPage() {
 
       <div className="overflow-hidden">
         <DataTable
-          data={filteredAnomalies}
+          data={anomalies}
           columns={columns}
           keyExtractor={(anomaly) => anomaly.id}
           onRowClick={(anomaly) => {
@@ -454,6 +458,18 @@ export default function AnomaliesPage() {
           actions={renderActions}
           emptyMessage="No anomalies found"
           className="overflow-hidden"
+        />
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          itemsPerPage={itemsPerPage}
+          totalItems={totalItems}
+          showItemsPerPage
+          onItemsPerPageChange={(next) => {
+            setItemsPerPage(next);
+            setCurrentPage(1);
+          }}
         />
       </div>
 
@@ -519,7 +535,11 @@ function ResolveAnomalyModal({
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Severity:</span>
-            <span className={`badge ${severityConfig[anomaly.severity].class}`}>{severityConfig[anomaly.severity].label}</span>
+            <StatusChip
+              label={severityConfig[anomaly.severity].label}
+              tone={severityConfig[anomaly.severity].tone}
+              showDot
+            />
           </div>
           <div className="flex justify-between">
             <span className="text-base-content/60">Description:</span>

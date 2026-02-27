@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import clsx from "clsx";
 import { useAdmin } from "@/contexts/AdminContext";
+import { Pagination } from "@/components/Pagination";
 import { InventoryDisplayItem } from "./types";
 import { useInventoryData } from "./hooks/useInventoryData";
 import { ImportInventoryModal } from "./components/ImportInventoryModal";
@@ -13,17 +14,19 @@ import { InventoryColumnSelector } from "./components/InventoryColumnSelector";
 import { InventoryTable } from "./components/InventoryTable";
 
 const itemTypes = ["All", "Raw Material", "Packaging", "Product"];
+const stockFilters: Array<"All" | "Low" | "Available"> = ["All", "Low", "Available"];
 
 export default function InventoryPage() {
   const { admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseId = admin?.warehouseId;
 
-  const [activeCategory, setActiveCategory] = useState("All");
   const [activeItemType, setActiveItemType] = useState("All");
+  const [activeStock, setActiveStock] = useState<"All" | "Low" | "Available">("All");
   const [activeWarehouse, setActiveWarehouse] = useState<string>(
     isWarehouseManager && assignedWarehouseId ? assignedWarehouseId : "All"
   );
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -31,6 +34,8 @@ export default function InventoryPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [sortBy, setSortBy] = useState<"name" | "sku" | "qty" | "location" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedItem, setSelectedItem] = useState<InventoryDisplayItem | null>(null);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
@@ -38,7 +43,6 @@ export default function InventoryPage() {
       "sku",
       "name",
       "type",
-      "category",
       "warehouse",
       "quantity",
       "location",
@@ -51,24 +55,28 @@ export default function InventoryPage() {
   );
 
   const {
-    categories,
     warehouses,
     filteredInventory,
     totalItems,
     lowStockItems,
     availableItems,
     isLoading,
+    isFetching,
     error,
+    totalPages,
+    totalElements,
     reload,
   } = useInventoryData({
     isWarehouseManager,
     assignedWarehouseId,
-    activeCategory,
     activeItemType,
+    activeStock,
     activeWarehouse,
     searchQuery,
     sortBy,
     sortDirection,
+    currentPage,
+    itemsPerPage,
   });
 
   useEffect(() => {
@@ -78,10 +86,12 @@ export default function InventoryPage() {
   }, [isWarehouseManager, assignedWarehouseId]);
 
   useEffect(() => {
-    if (!categories.includes(activeCategory)) {
-      setActiveCategory("All");
-    }
-  }, [categories, activeCategory]);
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   if (isLoading) {
     return (
@@ -112,6 +122,12 @@ export default function InventoryPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-base-content">Inventory</h1>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-outline"
             onClick={() => setShowImportModal(true)}
@@ -148,7 +164,7 @@ export default function InventoryPage() {
             </label>
             <ul
               tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-[80]"
             >
               <li>
                 <button
@@ -234,10 +250,12 @@ export default function InventoryPage() {
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm text-base-content/60">Categories</div>
-              <div className="text-2xl font-bold text-base-content">{categories.length - 1}</div>
+              <div className="text-sm text-base-content/60">Warehouses</div>
+              <div className="text-2xl font-bold text-base-content">
+                {isWarehouseManager ? 1 : warehouses.size}
+              </div>
             </div>
-            <span className="material-symbols-outlined text-3xl text-info">category</span>
+            <span className="material-symbols-outlined text-3xl text-info">warehouse</span>
           </div>
         </div>
       </div>
@@ -251,8 +269,10 @@ export default function InventoryPage() {
                 type="text"
                 className="grow"
                 placeholder="Search by SKU or name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => {
+                  setSearchInput(e.target.value);
+                }}
               />
             </label>
           </div>
@@ -264,7 +284,10 @@ export default function InventoryPage() {
             {itemTypes.map((type) => (
               <button
                 key={type}
-                onClick={() => setActiveItemType(type)}
+                onClick={() => {
+                  setActiveItemType(type);
+                  setCurrentPage(1);
+                }}
                 className={clsx(
                   "px-4 py-2 rounded-lg text-sm transition-all",
                   activeItemType === type
@@ -278,19 +301,22 @@ export default function InventoryPage() {
           </div>
 
           <div className="flex gap-2 bg-base-100 p-1 rounded-xl border border-base-300">
-            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Category:</span>
-            {categories.map((cat) => (
+            <span className="px-2 py-2 text-xs text-base-content/60 font-medium">Stock:</span>
+            {stockFilters.map((stock) => (
               <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
+                key={stock}
+                onClick={() => {
+                  setActiveStock(stock);
+                  setCurrentPage(1);
+                }}
                 className={clsx(
                   "px-4 py-2 rounded-lg text-sm transition-all",
-                  activeCategory === cat
+                  activeStock === stock
                     ? "bg-neutral text-neutral-content font-medium"
                     : "text-base-content/60 hover:text-base-content"
                 )}
               >
-                {cat}
+                {stock}
               </button>
             ))}
           </div>
@@ -301,7 +327,10 @@ export default function InventoryPage() {
               <select
                 className="select select-bordered select-sm"
                 value={activeWarehouse}
-                onChange={(e) => setActiveWarehouse(e.target.value)}
+                onChange={(e) => {
+                  setActiveWarehouse(e.target.value);
+                  setCurrentPage(1);
+                }}
               >
                 <option value="All">All Warehouses</option>
                 {Array.from(warehouses.entries()).map(([id, name]) => (
@@ -329,6 +358,18 @@ export default function InventoryPage() {
           }}
         />
       </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalElements}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
+      />
 
       {selectedItem && (
         <InventoryItemDetailModal

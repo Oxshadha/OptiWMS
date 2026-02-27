@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { Modal } from "@/components/Modal";
 import { StatusChip } from "@/components/StatusChip";
@@ -8,10 +8,19 @@ import { reportsApi, Report } from "@/lib/api/reports";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
-const reportTypes = ["All", "inbound", "outbound", "inventory", "sales", "analytics", "customer"];
+const reportTypes = ["All", "inbound", "outbound", "inventory", "sales", "analytics", "customer", "audit"];
+const reportTemplates = [
+  { type: "inventory", name: "Inventory Snapshot", description: "Stock by location, quantity, and reorder controls." },
+  { type: "inbound", name: "Inbound Operations", description: "Receiving and putaway progress for inbound orders." },
+  { type: "outbound", name: "Outbound Operations", description: "Pick-pack-ship performance and shipment readiness." },
+  { type: "sales", name: "Sales Fulfillment", description: "Outbound order value and delivery completion status." },
+  { type: "customer", name: "Customer Service", description: "Customer order lifecycle and open-order visibility." },
+  { type: "analytics", name: "WMS Analytics Summary", description: "KPI summary with chart for key warehouse metrics." },
+  { type: "audit", name: "Audit and Compliance", description: "Cycle count and anomaly logs for audit evidence." },
+];
 
 // Map report types to icons
-const getReportIcon = (type: string): string => {
+  const getReportIcon = (type: string): string => {
   const iconMap: Record<string, string> = {
     inbound: "download",
     outbound: "upload",
@@ -19,6 +28,7 @@ const getReportIcon = (type: string): string => {
     sales: "payments",
     analytics: "warehouse",
     customer: "group",
+    audit: "fact_check",
   };
   return iconMap[type.toLowerCase()] || "description";
 };
@@ -74,27 +84,52 @@ export default function ReportsPage() {
     fetchReports();
   }, [activeType]);
 
-  const filteredReports = reports.filter(r => {
+  const latestReportByType = useMemo(() => {
+    const map = new Map<string, Report>();
+    const sorted = [...reports].sort((a, b) => {
+      const aTime = a.generatedAt ? new Date(a.generatedAt).getTime() : 0;
+      const bTime = b.generatedAt ? new Date(b.generatedAt).getTime() : 0;
+      return bTime - aTime;
+    });
+    sorted.forEach((r) => {
+      if (!map.has(r.reportType.toLowerCase())) {
+        map.set(r.reportType.toLowerCase(), r);
+      }
+    });
+    return map;
+  }, [reports]);
+
+  const filteredTemplates = reportTemplates.filter((t) => {
     const query = searchQuery.trim().toLowerCase();
-    const matchesType = activeType === "All" || r.reportType.toLowerCase() === activeType.toLowerCase();
+    const matchesType = activeType === "All" || t.type.toLowerCase() === activeType.toLowerCase();
     const matchesSearch = !query || (
-      r.reportName.toLowerCase().includes(query) ||
-      (r.description?.toLowerCase().includes(query) ?? false) ||
-      r.reportType.toLowerCase().includes(query)
+      t.name.toLowerCase().includes(query) ||
+      t.description.toLowerCase().includes(query) ||
+      t.type.toLowerCase().includes(query)
     );
     return matchesType && matchesSearch;
   });
 
-  const handleDownload = async (reportId: string) => {
+  const triggerBrowserDownload = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (reportType: string, format: "pdf" | "csv") => {
     try {
-      const filePath = await reportsApi.downloadReport(reportId);
-      showToast.success("Report ready for download");
-      if (typeof window !== "undefined" && filePath) {
-        window.open(filePath, "_blank", "noopener,noreferrer");
-      }
+      const response = await reportsApi.exportReport({ reportType, format });
+      triggerBrowserDownload(response.blob, response.fileName);
+      showToast.success(`${reportType} report exported as ${format.toUpperCase()}`);
+      await fetchReports();
     } catch (err) {
-      logger.error("Failed to download report:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to download report");
+      logger.error("Failed to export report:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to export report");
     }
   };
 
@@ -171,48 +206,71 @@ export default function ReportsPage() {
 
       {/* Reports Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredReports.map((r) => (
+        {filteredTemplates.map((template) => {
+          const latest = latestReportByType.get(template.type);
+          return (
           <div 
-            key={r.id} 
+            key={template.type} 
             className="card bg-base-100 border border-base-300 rounded-xl p-6 hover:border-primary transition-colors cursor-pointer"
             onClick={() => {
-              setSelectedReport(r);
+              setSelectedReport(latest || {
+                id: template.type,
+                reportName: template.name,
+                reportType: template.type,
+                description: template.description,
+                reportConfig: null,
+                generatedAt: null,
+                fileSizeBytes: null,
+                filePath: null,
+                createdBy: null,
+              });
               setShowDetailModal(true);
             }}
           >
             <div className="flex items-start justify-between mb-4">
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
                 <span className="material-symbols-outlined text-primary text-2xl">
-                  {getReportIcon(r.reportType)}
+                  {getReportIcon(template.type)}
                 </span>
               </div>
-              <StatusChip label={r.reportType} tone="neutral" className="capitalize" />
+              <StatusChip label={template.type} tone="neutral" className="capitalize" />
             </div>
-            <h3 className="text-lg font-bold text-base-content mb-2">{r.reportName}</h3>
-            <p className="text-sm text-base-content/60 mb-4">{r.description || "No description"}</p>
+            <h3 className="text-lg font-bold text-base-content mb-2">{template.name}</h3>
+            <p className="text-sm text-base-content/60 mb-4">{template.description}</p>
             <div className="flex items-center justify-between pt-4 border-t border-base-200">
               <div className="text-xs text-base-content/50">
-                <div>Size: {formatFileSize(r.fileSizeBytes)}</div>
-                <div>Last: {formatDate(r.generatedAt)}</div>
+                <div>Last size: {formatFileSize(latest?.fileSizeBytes ?? null)}</div>
+                <div>Last generated: {formatDate(latest?.generatedAt ?? null)}</div>
               </div>
               <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                 <button 
                   className="btn btn-primary btn-sm"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDownload(r.id);
+                    handleExport(template.type, "pdf");
                   }}
                 >
                   <span className="material-symbols-outlined">download</span>
-                  <span>Download</span>
+                  <span>PDF</span>
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExport(template.type, "csv");
+                  }}
+                >
+                  <span className="material-symbols-outlined">table_view</span>
+                  <span>CSV</span>
                 </button>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
-      {filteredReports.length === 0 && (
+      {filteredTemplates.length === 0 && (
         <div className="card bg-base-100 border border-base-300 rounded-xl p-12 text-center">
           <span className="material-symbols-outlined text-6xl text-base-content/30 mb-4">description</span>
           <h3 className="text-lg font-semibold text-base-content mb-2">No reports found</h3>
@@ -229,7 +287,7 @@ export default function ReportsPage() {
             setSelectedReport(null);
           }}
           report={selectedReport}
-          onDownload={handleDownload}
+          onDownload={handleExport}
         />
       )}
 
@@ -260,7 +318,7 @@ function ReportDetailModal({
   isOpen: boolean;
   onClose: () => void;
   report: Report;
-  onDownload: (reportId: string) => Promise<void>;
+  onDownload: (reportType: string, format: "pdf" | "csv") => Promise<void>;
 }) {
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Report: ${report.reportName}`} size="lg">
@@ -301,10 +359,17 @@ function ReportDetailModal({
           </button>
           <button 
             className="btn btn-primary"
-            onClick={() => onDownload(report.id)}
+            onClick={() => onDownload(report.reportType, "pdf")}
           >
             <span className="material-symbols-outlined">download</span>
-            Download Report
+            Export PDF
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => onDownload(report.reportType, "csv")}
+          >
+            <span className="material-symbols-outlined">table_view</span>
+            Export CSV
           </button>
         </div>
       </div>
@@ -378,6 +443,7 @@ function ScheduleReportModal({
             <option value="sales">Sales</option>
             <option value="analytics">Analytics</option>
             <option value="customer">Customer</option>
+            <option value="audit">Audit</option>
           </select>
         </div>
         <div className="form-control">
@@ -538,6 +604,7 @@ function CreateCustomReportModal({
             <option value="sales">Sales</option>
             <option value="analytics">Analytics</option>
             <option value="customer">Customer</option>
+            <option value="audit">Audit</option>
           </select>
         </div>
         <div className="form-control">

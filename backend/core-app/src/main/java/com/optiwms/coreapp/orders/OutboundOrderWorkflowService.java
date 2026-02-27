@@ -14,8 +14,13 @@ import com.optiwms.infra.orders.OrderItemRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -96,6 +101,9 @@ public class OutboundOrderWorkflowService {
             // Find all locations where this material is stored
             List<MaterialLocationAssignmentService.LocationInventory> materialLocations = 
                     materialLocationService.findMaterialLocations(item.getMaterialId(), order.getWarehouseId());
+            materialLocations = materialLocations.stream()
+                    .sorted(locationAllocationComparator())
+                    .toList();
 
             if (materialLocations.isEmpty()) {
                 // Material not in any location yet - create task without location (worker will need to find it)
@@ -151,7 +159,12 @@ public class OutboundOrderWorkflowService {
                         location.rowNumber() != null ? location.rowNumber() : "N/A",
                         location.bayNumber() != null ? location.bayNumber() : "N/A",
                         location.levelNumber() != null ? location.levelNumber().toString() : "N/A",
-                        location.binPosition() != null ? location.binPosition() : "N/A"));
+                        location.binPosition() != null ? location.binPosition() : "N/A")
+                        + String.format(" [Policy=%s%s]",
+                        location.expiryDate() != null ? "FEFO" : "FIFO",
+                        location.batchNumber() != null && !location.batchNumber().isBlank()
+                                ? ", Batch=" + location.batchNumber()
+                                : ""));
                 
                 // Set due date based on order expected date
                 if (order.getExpectedDate() != null) {
@@ -163,7 +176,14 @@ public class OutboundOrderWorkflowService {
                 taskService.create(pickingTask);
                 remainingQuantity -= quantityToPick;
                 allocatedForItem += quantityToPick;
-                reserveInventoryForPick(order.getWarehouseId(), item.getMaterialId(), quantityToPick, location.locationCode());
+                reserveInventoryForPick(
+                        order.getWarehouseId(),
+                        item.getMaterialId(),
+                        quantityToPick,
+                        location.locationCode(),
+                        location.batchNumber(),
+                        location.expiryDate()
+                );
             }
 
             // If still have remaining quantity, create additional tasks
@@ -303,28 +323,97 @@ public class OutboundOrderWorkflowService {
         }
     }
 
-    private void reserveInventoryForPick(UUID warehouseId, UUID materialId, Integer quantity, String locationCode) {
+    private void reserveInventoryForPick(
+            UUID warehouseId,
+            UUID materialId,
+            Integer quantity,
+            String locationCode,
+            String batchNumber,
+            LocalDate expiryDate
+    ) {
         List<InventoryItem> inventoryItems = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         if (inventoryItems.isEmpty()) {
             return;
         }
 
-        InventoryItem inventoryItem = inventoryItems.stream()
-                .filter(item -> locationCode != null && locationCode.equals(item.getLocationCode()))
-                .findFirst()
-                .orElse(inventoryItems.get(0));
+        String normalizedLocation = normalize(locationCode);
+        String normalizedBatch = normalize(batchNumber);
+        int remaining = quantity != null ? quantity : 0;
 
-        int available = inventoryItem.getAvailableQuantity() != null ? inventoryItem.getAvailableQuantity() : 0;
-        if (available <= 0) {
-            return;
+        List<InventoryItem> candidates = inventoryItems.stream()
+                .filter(item -> normalizedLocation == null || Objects.equals(normalize(item.getLocationCode()), normalizedLocation))
+                .filter(item -> normalizedBatch == null || Objects.equals(normalize(item.getBatchNumber()), normalizedBatch))
+                .filter(item -> expiryDate == null || Objects.equals(item.getExpiryDate(), expiryDate))
+                .filter(item -> (item.getAvailableQuantity() != null ? item.getAvailableQuantity() : 0) > 0)
+                .sorted(inventoryReservationComparator())
+                .toList();
+
+        if (candidates.isEmpty()) {
+            candidates = inventoryItems.stream()
+                    .filter(item -> normalizedLocation == null || Objects.equals(normalize(item.getLocationCode()), normalizedLocation))
+                    .filter(item -> (item.getAvailableQuantity() != null ? item.getAvailableQuantity() : 0) > 0)
+                    .sorted(inventoryReservationComparator())
+                    .toList();
         }
 
-        int reserveQty = Math.min(quantity, available);
-        int reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
+        for (InventoryItem inventoryItem : candidates) {
+            if (remaining <= 0) {
+                break;
+            }
+            int available = inventoryItem.getAvailableQuantity() != null ? inventoryItem.getAvailableQuantity() : 0;
+            if (available <= 0) {
+                continue;
+            }
 
-        inventoryItem.setAvailableQuantity(available - reserveQty);
-        inventoryItem.setReservedQuantity(reserved + reserveQty);
-        inventoryService.createOrUpdate(inventoryItem);
+            int reserveQty = Math.min(remaining, available);
+            int reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
+
+            inventoryItem.setAvailableQuantity(available - reserveQty);
+            inventoryItem.setReservedQuantity(reserved + reserveQty);
+            inventoryService.createOrUpdate(inventoryItem);
+            remaining -= reserveQty;
+        }
+    }
+
+    private Comparator<MaterialLocationAssignmentService.LocationInventory> locationAllocationComparator() {
+        return Comparator
+                .comparing((MaterialLocationAssignmentService.LocationInventory loc) -> loc.expiryDate() == null)
+                .thenComparing(loc -> loc.expiryDate() != null ? loc.expiryDate() : LocalDate.MAX)
+                .thenComparing(loc -> loc.receivedAt() != null ? loc.receivedAt() : OffsetDateTime.MAX)
+                .thenComparing(loc -> loc.levelNumber() != null ? loc.levelNumber() : Integer.MAX_VALUE)
+                .thenComparing(MaterialLocationAssignmentService.LocationInventory::locationCode, String.CASE_INSENSITIVE_ORDER);
+    }
+
+    private Comparator<InventoryItem> inventoryReservationComparator() {
+        return Comparator
+                .comparing((InventoryItem item) -> item.getExpiryDate() == null)
+                .thenComparing(item -> item.getExpiryDate() != null ? item.getExpiryDate() : LocalDate.MAX)
+                .thenComparing(item -> item.getCreatedAt() != null ? item.getCreatedAt() : OffsetDateTime.MAX)
+                .thenComparing(item -> extractLevel(item.getLocationCode()))
+                .thenComparing(item -> normalize(item.getLocationCode()), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private int extractLevel(String locationCode) {
+        if (locationCode == null) {
+            return Integer.MAX_VALUE;
+        }
+        String[] parts = locationCode.split("-");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            try {
+                return Integer.parseInt(parts[i]);
+            } catch (NumberFormatException ignored) {
+                // continue
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 
     /**

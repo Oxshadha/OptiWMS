@@ -4,8 +4,10 @@ export interface InventoryDisplayItem {
   name: string;
   qty: number;
   location: string;
+  locations?: string[];
+  batches?: string[];
+  nearestExpiryDate?: string;
   status: "Available" | "Low" | "Out of Stock";
-  category: string;
   warehouseName: string;
   itemType: "Product" | "Raw Material" | "Packaging";
   materialId: string;

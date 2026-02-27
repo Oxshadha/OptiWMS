@@ -16,8 +16,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -181,25 +186,74 @@ public class PickingService {
 
         // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
         Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
-        
-        InventoryItem inventoryItem = existing.stream()
-                .filter(item -> locationCode != null && locationCode.equals(item.getLocationCode()))
-                .findFirst()
-                .orElse(existing.get(0));
 
-        Integer reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
-        Integer onHand = inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0;
+        String normalizedLocation = normalize(locationCode);
+        int remaining = qtyInteger;
+        List<InventoryItem> candidates = existing.stream()
+                .filter(item -> normalizedLocation == null || Objects.equals(normalize(item.getLocationCode()), normalizedLocation))
+                .filter(item -> (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0) > 0)
+                .sorted(inventoryConsumptionComparator())
+                .toList();
 
-        if (reserved < qtyInteger) {
+        int totalReserved = candidates.stream().mapToInt(item -> item.getReservedQuantity() != null ? item.getReservedQuantity() : 0).sum();
+        int totalOnHand = candidates.stream().mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0).sum();
+        if (totalReserved < qtyInteger) {
             throw new RuntimeException("Insufficient reserved inventory for material: " + materialId + " at location: " + locationCode);
         }
-        if (onHand < qtyInteger) {
-            throw new RuntimeException("Insufficient on-hand inventory for material: " + materialId);
+        if (totalOnHand < qtyInteger) {
+            throw new RuntimeException("Insufficient on-hand inventory for material: " + materialId + " at location: " + locationCode);
         }
 
-        inventoryItem.setReservedQuantity(reserved - qtyInteger);
-        inventoryItem.setQuantity(onHand - qtyInteger);
-        inventoryService.createOrUpdate(inventoryItem);
+        for (InventoryItem inventoryItem : candidates) {
+            if (remaining <= 0) {
+                break;
+            }
+            int reserved = inventoryItem.getReservedQuantity() != null ? inventoryItem.getReservedQuantity() : 0;
+            int onHand = inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0;
+            if (reserved <= 0 || onHand <= 0) {
+                continue;
+            }
+
+            int consumeQty = Math.min(remaining, Math.min(reserved, onHand));
+            inventoryItem.setReservedQuantity(reserved - consumeQty);
+            inventoryItem.setQuantity(onHand - consumeQty);
+            inventoryItem.setLastMovementDate(LocalDate.now());
+            inventoryItem.setDaysSinceLastMovement(0);
+            inventoryService.createOrUpdate(inventoryItem);
+            remaining -= consumeQty;
+        }
+    }
+
+    private Comparator<InventoryItem> inventoryConsumptionComparator() {
+        return Comparator
+                .comparing((InventoryItem item) -> item.getExpiryDate() == null)
+                .thenComparing(item -> item.getExpiryDate() != null ? item.getExpiryDate() : LocalDate.MAX)
+                .thenComparing(item -> item.getCreatedAt() != null ? item.getCreatedAt() : OffsetDateTime.MAX)
+                .thenComparing(item -> extractLevel(item.getLocationCode()))
+                .thenComparing(item -> normalize(item.getLocationCode()), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private int extractLevel(String locationCode) {
+        if (locationCode == null) {
+            return Integer.MAX_VALUE;
+        }
+        String[] parts = locationCode.split("-");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            try {
+                return Integer.parseInt(parts[i]);
+            } catch (NumberFormatException ignored) {
+                // continue
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    private String normalize(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 
     public record PickedItem(UUID materialId, BigDecimal quantity, String locationCode) {}

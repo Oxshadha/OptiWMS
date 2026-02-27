@@ -76,6 +76,7 @@ project(":core-app") {
     dependencies {
         implementation(project(":core-domain"))
         implementation("org.springframework.boot:spring-boot-starter")
+        implementation("org.apache.pdfbox:pdfbox:2.0.32")
     }
 }
 
@@ -110,5 +111,4 @@ tasks.register("bootRun") {
     group = "application"
     description = "Runs the Spring Boot application"
 }
-
 

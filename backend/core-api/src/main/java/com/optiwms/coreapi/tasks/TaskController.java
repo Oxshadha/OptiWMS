@@ -3,6 +3,9 @@ package com.optiwms.coreapi.tasks;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.tasks.Task;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -71,6 +74,47 @@ public class TaskController {
                 .map(this::toDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(taskDtos);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedTaskResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) String taskType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String assignedTo,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) Boolean availableOnly,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+
+        Page<Task> taskPage = taskService.findPaged(
+                taskType,
+                status,
+                assignedTo != null && !assignedTo.isBlank() ? UUID.fromString(assignedTo) : null,
+                warehouseId != null && !warehouseId.isBlank() ? UUID.fromString(warehouseId) : null,
+                availableOnly,
+                q,
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
+        );
+
+        List<TaskDto> taskDtos = taskPage.getContent().stream()
+                .map(this::toDto)
+                .toList();
+
+        return ResponseEntity.ok(new PagedTaskResponse(
+                taskDtos,
+                taskPage.getNumber(),
+                taskPage.getSize(),
+                taskPage.getTotalElements(),
+                taskPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -142,6 +186,7 @@ public class TaskController {
                 task.getPriority(),
                 task.getStatus(),
                 task.getDueDate() != null ? task.getDueDate().toString() : null,
+                task.getStartedAt() != null ? task.getStartedAt().toString() : null,
                 task.getCompletedAt() != null ? task.getCompletedAt().toString() : null,
                 task.getLocationCode(),
                 task.getReferenceType(),
@@ -183,10 +228,29 @@ public class TaskController {
             String priority,
             String status,
             String dueDate,
+            String startedAt,
             String completedAt,
             String locationCode,
             String referenceType,
             String referenceId,
             String notes
     ) {}
+
+    public record PagedTaskResponse(
+            List<TaskDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) {
+            return "createdAt";
+        }
+        return switch (sortBy) {
+            case "taskNumber", "taskType", "priority", "status", "dueDate", "startedAt", "completedAt", "createdAt" -> sortBy;
+            default -> "createdAt";
+        };
+    }
 }

@@ -8,6 +8,7 @@ import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/li
 import { RackUnit, LocationBin, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, Location } from "@/lib/api/locations";
+import { showToast } from "@/lib/utils/toast";
 import { useAdmin } from "@/contexts/AdminContext";
 import { LocationCreateModal } from "@/components/LocationCreateModal";
 import { LocationEditModal } from "@/components/LocationEditModal";
@@ -16,6 +17,10 @@ import { WarehouseHeader } from "./components/WarehouseHeader";
 import { WarehouseStatsCards } from "./components/WarehouseStatsCards";
 import { WarehouseLayoutCard } from "./components/WarehouseLayoutCard";
 import { WarehouseLegend } from "./components/WarehouseLegend";
+import { BulkRackCreateModal } from "./components/BulkRackCreateModal";
+import { SlottingPlannerModal } from "./components/SlottingPlannerModal";
+import { SimpleSlottingView } from "./components/SimpleSlottingView";
+import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
 import { calculateWarehouseStats } from "./types";
 
 export default function WarehousesPage() {
@@ -41,6 +46,9 @@ export default function WarehousesPage() {
   const [showEditLocationModal, setShowEditLocationModal] = useState(false);
   const [editingLocation, setEditingLocation] = useState<Location | null>(null);
   const [showVelocity, setShowVelocity] = useState(false);
+  const [showBulkRackModal, setShowBulkRackModal] = useState(false);
+  const [showSlottingPlannerModal, setShowSlottingPlannerModal] = useState(false);
+  const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple">("detailed");
 
   // Load warehouses on mount
   useEffect(() => {
@@ -223,11 +231,41 @@ export default function WarehousesPage() {
   // Check if user can edit racks
   const canEditRacks = isSystemAdmin || isWarehouseManager;
 
+  const handleCreateZoneARacks = async (payload: {
+    area: string;
+    rowsToAdd: number;
+    baysPerRow: number;
+    levelsPerRack: number;
+    binsPerLevel: number;
+  }) => {
+    if (!selectedWarehouseId) return;
+    try {
+      const result = await locationsApi.bulkCreateRacks({
+        warehouseId: selectedWarehouseId,
+        area: payload.area,
+        rowsToAdd: payload.rowsToAdd,
+        baysPerRow: payload.baysPerRow,
+        levelsPerRack: payload.levelsPerRack,
+        binsPerLevel: payload.binsPerLevel,
+      });
+      showToast.success(result.message);
+      if (result.skippedRacks && result.skippedRacks.length > 0) {
+        showToast.warning(`${result.skippedRacks.length} existing rack(s) were skipped safely.`);
+      }
+      await loadWarehouseLayout(selectedWarehouseId);
+    } catch (error) {
+      logger.error("Failed to create Zone A racks:", error);
+      showToast.error(error instanceof Error ? error.message : "Failed to create racks.");
+      throw error;
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <WarehouseHeader
         isSystemAdmin={isSystemAdmin}
         isWarehouseManager={isWarehouseManager}
+        canEditRacks={canEditRacks}
         assignedWarehouseName={assignedWarehouseName}
         selectedWarehouseId={selectedWarehouseId}
         availableWarehouses={availableWarehouses}
@@ -237,23 +275,45 @@ export default function WarehousesPage() {
             void loadWarehouseLayout(selectedWarehouseId);
           }
         }}
+        onOpenBulkRackCreate={() => setShowBulkRackModal(true)}
+        onOpenSlottingPlanner={() => setShowSlottingPlannerModal(true)}
         onWarehouseChange={(warehouseId) => {
           void handleWarehouseChange(warehouseId);
         }}
       />
 
       <WarehouseStatsCards stats={stats} />
+      <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
-      <WarehouseLegend />
+      {layoutViewMode === "detailed" && <WarehouseLegend />}
 
-      <WarehouseLayoutCard
-        layout={layout}
-        showVelocity={showVelocity}
-        canEditRacks={canEditRacks}
-        selectedRackId={selectedRack?.id || null}
-        onToggleVelocity={setShowVelocity}
-        onRackClick={handleRackClick}
-      />
+      <div className="tabs tabs-boxed w-fit">
+        <button
+          className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
+          onClick={() => setLayoutViewMode("detailed")}
+        >
+          Detailed Layout
+        </button>
+        <button
+          className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
+          onClick={() => setLayoutViewMode("simple")}
+        >
+          Simple Slotting
+        </button>
+      </div>
+
+      {layoutViewMode === "detailed" ? (
+        <WarehouseLayoutCard
+          layout={layout}
+          showVelocity={showVelocity}
+          canEditRacks={canEditRacks}
+          selectedRackId={selectedRack?.id || null}
+          onToggleVelocity={setShowVelocity}
+          onRackClick={handleRackClick}
+        />
+      ) : (
+        <SimpleSlottingView layout={layout} />
+      )}
 
       {/* Side Elevation View Modal */}
       {selectedRack && (
@@ -314,6 +374,23 @@ export default function WarehousesPage() {
           }}
         />
       )}
+
+      <BulkRackCreateModal
+        isOpen={showBulkRackModal}
+        onClose={() => setShowBulkRackModal(false)}
+        onSubmit={handleCreateZoneARacks}
+      />
+
+      <SlottingPlannerModal
+        isOpen={showSlottingPlannerModal}
+        warehouseId={selectedWarehouseId}
+        onClose={() => setShowSlottingPlannerModal(false)}
+        onUpdated={() => {
+          if (selectedWarehouseId) {
+            void loadWarehouseLayout(selectedWarehouseId);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { showToast } from "@/lib/utils/toast";
 import { ordersApi } from "@/lib/api/orders";
 import { orderItemsApi, OrderItem } from "@/lib/api/orderItems";
 import { materialsApi } from "@/lib/api/materials";
+import { tasksApi } from "@/lib/api/tasks-api";
 import { useWorker } from "@/contexts/WorkerContext";
 import { authApi } from "@/lib/api/auth";
 import { formatMaterialDisplay } from "@/lib/utils/material-display";
@@ -37,6 +38,7 @@ export default function ReceivingPage() {
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [notes, setNotes] = useState<string>("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [startedReceivingOrderIds, setStartedReceivingOrderIds] = useState<Set<string>>(new Set());
 
   // Load user preference for blind receiving mode
   useEffect(() => {
@@ -117,6 +119,29 @@ export default function ReceivingPage() {
         
         logger.debug("[Receiving] Order found:", order);
         setOrderDetails(order);
+        if (order?.id && !startedReceivingOrderIds.has(order.id)) {
+          try {
+            const tasks = await tasksApi.getAll(
+              "receiving",
+              undefined,
+              undefined,
+              (worker?.warehouseId || order.warehouseId) ?? undefined,
+              false
+            );
+            const receivingTask = tasks.find(
+              (task) =>
+                task.referenceType === "order" &&
+                task.referenceId === order.id &&
+                task.status !== "completed"
+            );
+            if (receivingTask) {
+              await tasksApi.updateStatus(receivingTask.id, "in_progress", worker?.id);
+              setStartedReceivingOrderIds((prev) => new Set(prev).add(order.id));
+            }
+          } catch (taskStartError) {
+            logger.warn("[Receiving] Could not mark receiving task in progress:", taskStartError);
+          }
+        }
         
         // Load order items
         let orderItems: OrderItem[] = [];
@@ -152,7 +177,13 @@ export default function ReceivingPage() {
         const itemsWithDetails = await Promise.all(
           orderItems.map(async (orderItem: OrderItem) => {
             try {
-              const material = await materialsApi.getById(orderItem.materialId);
+              const material =
+                orderItem.materialCode || orderItem.materialName
+                  ? {
+                      materialCode: orderItem.materialCode,
+                      description: orderItem.materialName,
+                    }
+                  : await materialsApi.getById(orderItem.materialId);
               const display = formatMaterialDisplay(
                 material.materialCode,
                 material.description,
@@ -168,11 +199,16 @@ export default function ReceivingPage() {
               };
             } catch (err) {
               logger.warn(`[Receiving] Failed to load material ${orderItem.materialId}:`, err);
-              // If material fetch fails, show user-friendly message instead of UUID
+              // Fallback to order item payload before forcing N/A.
+              const display = formatMaterialDisplay(
+                orderItem.materialCode || null,
+                orderItem.materialName || null,
+                orderItem.materialId
+              );
               return {
                 id: orderItem.id,
-                sku: "N/A", // Don't show UUID
-                name: "Material details not available",
+                sku: display.sku,
+                name: display.name,
                 expected: orderItem.quantity,
                 received: 0,
                 materialId: orderItem.materialId,
@@ -211,7 +247,7 @@ export default function ReceivingPage() {
     }, 500);
     
     return () => clearTimeout(timeoutId);
-  }, [scannedValue, isOnline, blindMode]);
+  }, [scannedValue, isOnline, blindMode, startedReceivingOrderIds, worker?.id, worker?.warehouseId]);
 
   const handleScan = () => {
     setShowScanner(true);
@@ -385,6 +421,7 @@ export default function ReceivingPage() {
       setOrderDetails(null);
       setNotes("");
       setPhotos([]);
+      setStartedReceivingOrderIds(new Set());
     } catch (error: any) {
       logger.error("Error confirming receipt:", error);
       const errorMessage = error?.message || "Error confirming receipt. Please try again.";

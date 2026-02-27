@@ -17,6 +17,7 @@ export interface Location {
   createdAt?: string;
   // Rack system fields
   rackStatus?: string;
+  amalgamatedClass?: string;
   description?: string;
   notes?: string;
   accessibilityRating?: number;
@@ -24,6 +25,9 @@ export interface Location {
   coordinateY?: number;
   maxPalletCapacity?: number;
   currentPalletCount?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
 }
 
 export interface CreateLocationRequest {
@@ -49,6 +53,7 @@ export interface UpdateLocationRequest {
   capacity?: number;
   isActive?: boolean;
   rackStatus?: string;
+  amalgamatedClass?: string;
   description?: string;
   notes?: string;
   accessibilityRating?: number;
@@ -56,13 +61,49 @@ export interface UpdateLocationRequest {
   coordinateY?: number;
   maxPalletCapacity?: number;
   currentPalletCount?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
 }
 
 export interface UpdateRackRequest {
   rackStatus?: string;
+  amalgamatedClass?: string;
   description?: string;
   notes?: string;
   accessibilityRating?: number;
+  capacity?: number;
+  maxPalletCapacity?: number;
+  maxWeightKg?: number;
+  maxVolumeCm3?: number;
+  maxLpnCount?: number;
+}
+
+export interface BulkCreateRacksRequest {
+  warehouseId: string;
+  area: string;
+  rowsToAdd?: number;
+  baysPerRow?: number;
+  levelsPerRack?: number;
+  binsPerLevel?: number;
+  startRow?: number;
+  startBay?: number;
+}
+
+export interface BulkCreateRacksResponse {
+  message: string;
+  area: string;
+  createdRacks: number;
+  createdLocations: number;
+  skippedRacks: string[];
+}
+
+export interface RackDeleteResponse {
+  message: string;
+  area: string;
+  rowNumber: string;
+  bayNumber: string;
+  deletedLocations: number;
 }
 
 export interface LocationHierarchy {
@@ -131,5 +172,23 @@ export const locationsApi = {
   updateRack: async (id: string, updates: UpdateRackRequest): Promise<Location> => {
     return apiClient.put<Location>(`/master/locations/racks/${id}`, updates);
   },
-};
 
+  bulkCreateRacks: async (request: BulkCreateRacksRequest): Promise<BulkCreateRacksResponse> => {
+    return apiClient.post<BulkCreateRacksResponse>('/master/locations/bulk-racks', request);
+  },
+
+  deleteRack: async (
+    warehouseId: string,
+    area: string,
+    rowNumber: string,
+    bayNumber: string
+  ): Promise<RackDeleteResponse> => {
+    const params = new URLSearchParams({
+      warehouseId,
+      area,
+      rowNumber,
+      bayNumber,
+    });
+    return apiClient.delete<RackDeleteResponse>(`/master/locations/racks?${params.toString()}`);
+  },
+};

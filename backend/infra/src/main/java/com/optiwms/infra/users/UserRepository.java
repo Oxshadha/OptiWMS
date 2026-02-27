@@ -1,6 +1,7 @@
 package com.optiwms.infra.users;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -8,7 +9,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface UserRepository extends JpaRepository<UserEntity, UUID> {
+public interface UserRepository extends JpaRepository<UserEntity, UUID>, JpaSpecificationExecutor<UserEntity> {
     Optional<UserEntity> findByUsername(String username);
     Optional<UserEntity> findByEmail(String email);
     Optional<UserEntity> findByEmployeeId(String employeeId);
@@ -16,4 +17,3 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
     List<UserEntity> findByWarehouseId(UUID warehouseId);
     List<UserEntity> findByStatus(String status);
 }
-

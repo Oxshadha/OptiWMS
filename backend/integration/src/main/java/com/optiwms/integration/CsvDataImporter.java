@@ -117,10 +117,19 @@ public class CsvDataImporter {
         int inventoryCreated = 0;
         AtomicInteger supplyPlansCreated = new AtomicInteger(0);
         int errors = 0;
+        Map<UUID, InventoryItemEntity> inventoryByMaterial = new HashMap<>();
 
         // Verify warehouse exists
         if (!warehouseRepository.existsById(warehouseId)) {
             throw new RuntimeException("Warehouse not found: " + warehouseId);
+        }
+
+        // Preload existing inventory rows for this warehouse so repeated lines update
+        // the same entity instead of creating duplicate inventory records.
+        for (InventoryItemEntity existing : inventoryItemRepository.findByWarehouseId(warehouseId)) {
+            if (existing.getMaterialId() != null) {
+                inventoryByMaterial.putIfAbsent(existing.getMaterialId(), existing);
+            }
         }
 
         try (BufferedReader reader = new BufferedReader(new FileReader(path.toFile()))) {
@@ -210,19 +219,12 @@ public class CsvDataImporter {
                     BigDecimal palletRequirement = parseBigDecimal(values, 27); // Column 27 = Pallet requirement
 
                     // Create or update inventory
-                    List<InventoryItemEntity> existingList = inventoryItemRepository
-                            .findByMaterialIdAndWarehouseId(material.getId(), warehouseId);
-                    Optional<InventoryItemEntity> existingInventory = existingList.isEmpty() 
-                            ? Optional.empty() 
-                            : Optional.of(existingList.get(0));
-
-                    InventoryItemEntity inventory;
-                    if (existingInventory.isPresent()) {
-                        inventory = existingInventory.get();
-                    } else {
+                    InventoryItemEntity inventory = inventoryByMaterial.get(material.getId());
+                    if (inventory == null) {
                         inventory = new InventoryItemEntity();
                         inventory.setMaterialId(material.getId());
                         inventory.setWarehouseId(warehouseId);
+                        inventoryByMaterial.put(material.getId(), inventory);
                     }
 
                     // Always update quantity if available (even if 0, to ensure data consistency)
@@ -254,7 +256,8 @@ public class CsvDataImporter {
                     inventory.setStatus("active");
                     // Set material_type from material (denormalized for filtering)
                     inventory.setMaterialType(material.getMaterialType());
-                    inventoryItemRepository.save(inventory);
+                    InventoryItemEntity savedInventory = inventoryItemRepository.save(inventory);
+                    inventoryByMaterial.put(material.getId(), savedInventory);
                     inventoryCreated++;
 
                     // Parse and create supply plans (Jul, Aug, Sep, Oct, Nov 2024)
@@ -514,4 +517,3 @@ public class CsvDataImporter {
         }
     }
 }
-

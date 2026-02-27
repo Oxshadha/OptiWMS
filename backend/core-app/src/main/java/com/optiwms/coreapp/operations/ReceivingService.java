@@ -104,7 +104,18 @@ public class ReceivingService {
             orderItemRepository.save(orderItem);
 
             // Update inventory to worker's warehouse (or order's warehouse if worker warehouse not provided)
-            updateInventory(warehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            String effectiveBatchNumber = firstNonBlank(receivedItem.batchNumber(), orderItem.getBatchNumber());
+            java.time.LocalDate effectiveExpiryDate =
+                    receivedItem.expiryDate() != null ? receivedItem.expiryDate() : orderItem.getExpiryDate();
+
+            updateInventory(
+                    warehouseId,
+                    receivedItem.materialId(),
+                    receivedItem.quantity(),
+                    receivedItem.locationCode(),
+                    effectiveBatchNumber,
+                    effectiveExpiryDate
+            );
         }
 
         // Update order status using centralized service
@@ -204,7 +215,14 @@ public class ReceivingService {
                     itemWarehouseId = warehouses.get(0).getId();
                 }
             }
-            updateInventory(itemWarehouseId, receivedItem.materialId(), receivedItem.quantity(), receivedItem.locationCode());
+            updateInventory(
+                    itemWarehouseId,
+                    receivedItem.materialId(),
+                    receivedItem.quantity(),
+                    receivedItem.locationCode(),
+                    receivedItem.batchNumber(),
+                    receivedItem.expiryDate()
+            );
             
             // Blind receiving has no quality gate context, so putaway task is created immediately.
             try {
@@ -339,13 +357,22 @@ public class ReceivingService {
                 || "grams".equals(normalized);
     }
     
-    private void updateInventory(UUID warehouseId, UUID materialId, BigDecimal quantity, String locationCode) {
+    private void updateInventory(
+            UUID warehouseId,
+            UUID materialId,
+            BigDecimal quantity,
+            String locationCode,
+            String batchNumber,
+            java.time.LocalDate expiryDate
+    ) {
         List<InventoryItem> existing = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
         
         // Convert from BigDecimal (demand forecast) to Integer (actual pallet quantity) using ceil
         Integer qtyInteger = (int) Math.ceil(quantity.doubleValue());
         
         InventoryItem inventoryItem;
+        String normalizedLocation = normalizeLocationCode(locationCode);
+        String normalizedBatch = normalizeLocationCode(batchNumber);
         if (existing.isEmpty()) {
             inventoryItem = new InventoryItem();
             inventoryItem.setMaterialId(materialId);
@@ -354,16 +381,32 @@ public class ReceivingService {
             inventoryItem.setAvailableQuantity(0);
             inventoryItem.setReservedQuantity(0);
         } else {
-            inventoryItem = existing.get(0);
+            inventoryItem = existing.stream()
+                    .filter(item -> java.util.Objects.equals(normalizeLocationCode(item.getLocationCode()), normalizedLocation))
+                    .filter(item -> java.util.Objects.equals(normalizeLocationCode(item.getBatchNumber()), normalizedBatch))
+                    .filter(item -> java.util.Objects.equals(item.getExpiryDate(), expiryDate))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        InventoryItem fresh = new InventoryItem();
+                        fresh.setMaterialId(materialId);
+                        fresh.setWarehouseId(warehouseId);
+                        fresh.setQuantity(0);
+                        fresh.setAvailableQuantity(0);
+                        fresh.setReservedQuantity(0);
+                        return fresh;
+                    });
         }
 
-        String normalizedLocation = normalizeLocationCode(locationCode);
         if (normalizedLocation != null) {
             inventoryItem.setLocationCode(normalizedLocation);
         } else if (existing.isEmpty()) {
             // Keep new inventory rows nullable when receiving has no confirmed location yet.
             inventoryItem.setLocationCode(null);
         }
+        inventoryItem.setBatchNumber(normalizedBatch);
+        inventoryItem.setExpiryDate(expiryDate);
+        inventoryItem.setLastMovementDate(java.time.LocalDate.now());
+        inventoryItem.setDaysSinceLastMovement(0);
         Integer newQuantity = (inventoryItem.getQuantity() != null ? inventoryItem.getQuantity() : 0) + qtyInteger;
         inventoryItem.setQuantity(newQuantity);
         inventoryItem.setAvailableQuantity(newQuantity);
@@ -378,6 +421,14 @@ public class ReceivingService {
         }
         String trimmed = locationCode.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String firstNonBlank(String primary, String fallback) {
+        String normalizedPrimary = normalizeLocationCode(primary);
+        if (normalizedPrimary != null) {
+            return normalizedPrimary;
+        }
+        return normalizeLocationCode(fallback);
     }
 
     private void completeReceivingTasks(UUID orderId, UUID workerId) {
@@ -420,7 +471,13 @@ public class ReceivingService {
         return prefix + "-" + ref + "-" + suffix;
     }
 
-    public record ReceivedItem(UUID materialId, BigDecimal quantity, String locationCode) {}
+    public record ReceivedItem(
+            UUID materialId,
+            BigDecimal quantity,
+            String locationCode,
+            String batchNumber,
+            java.time.LocalDate expiryDate
+    ) {}
 
     public record ReceivingResult(boolean success, String message, UUID orderId) {}
 }

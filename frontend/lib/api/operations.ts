@@ -83,6 +83,47 @@ export interface SkipPutawayRequest {
   workerId?: string;
 }
 
+export interface PutawaySplitPlanRequest {
+  warehouseId: string;
+  materialId: string;
+  quantity: number;
+  preferredLocationCode?: string;
+}
+
+export interface PutawaySplitCapacitySnapshot {
+  quantityUsed?: number | null;
+  quantityCapacity?: number | null;
+  quantityFillPercent?: string | null;
+  weightUsedKg?: string | null;
+  weightCapacityKg?: string | null;
+  weightFillPercent?: string | null;
+  volumeUsedCm3?: string | null;
+  volumeCapacityCm3?: string | null;
+  volumeFillPercent?: string | null;
+  lpnUsed?: number | null;
+  lpnCapacity?: number | null;
+  lpnFillPercent?: string | null;
+}
+
+export interface PutawaySplitPlanLine {
+  locationCode: string;
+  allocatedQuantity: number;
+  reason: string;
+  projectedAfter?: PutawaySplitCapacitySnapshot;
+}
+
+export interface PutawaySplitPlanResponse {
+  feasible: boolean;
+  requestedQuantity: number;
+  plannedQuantity: number;
+  unplannedQuantity: number;
+  requiredPalletSlots?: number | null;
+  availablePalletSlots?: number | null;
+  unitsPerPallet?: string | null;
+  allocations: PutawaySplitPlanLine[];
+  notes: string[];
+}
+
 // Stock Transfer Operations
 export interface StockTransfer {
   id: string;
@@ -116,6 +157,14 @@ export interface StockTransferLine {
   status: string;
   assignedWorkerId?: string;
   notes?: string;
+}
+
+export interface PagedStockTransfersResponse {
+  data: StockTransfer[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
 }
 
 export interface CreateStockTransferRequest {
@@ -179,6 +228,14 @@ export interface CycleCountResult {
   approvalRequired?: boolean;
 }
 
+export interface PagedCycleCountsResponse {
+  data: CycleCount[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const operationsApi = {
   // Receiving
   getOrderByNumber: async (orderNumber: string): Promise<OrderDetail> => {
@@ -230,9 +287,44 @@ export const operationsApi = {
     return apiClient.post<PutawayResponse>(`/operations/putaway/skip/${taskId}`, request);
   },
 
+  planPutawaySplit: async (request: PutawaySplitPlanRequest): Promise<PutawaySplitPlanResponse> => {
+    return apiClient.post<PutawaySplitPlanResponse>('/operations/putaway/split-plan', request);
+  },
+
   // Stock Transfer
   getStockTransfers: async (): Promise<StockTransfer[]> => {
     return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
+  },
+
+  getStockTransfersPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    warehouseId,
+    status,
+    transferType,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    warehouseId?: string;
+    status?: string;
+    transferType?: string;
+    q?: string;
+  }): Promise<PagedStockTransfersResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (status) params.append("status", status);
+    if (transferType) params.append("transferType", transferType);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedStockTransfersResponse>(`/operations/stock-transfers/paged?${params.toString()}`);
   },
 
   createStockTransfer: async (request: CreateStockTransferRequest): Promise<StockTransfer> => {
@@ -293,6 +385,34 @@ export const operationsApi = {
   // Cycle Count
   getCycleCounts: async (): Promise<CycleCount[]> => {
     return apiClient.get<CycleCount[]>('/operations/cycle-counts');
+  },
+
+  getCycleCountsPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    warehouseId,
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    warehouseId?: string;
+    status?: string;
+    q?: string;
+  }): Promise<PagedCycleCountsResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedCycleCountsResponse>(`/operations/cycle-counts/paged?${params.toString()}`);
   },
 
   getCycleCountById: async (id: string): Promise<CycleCount> => {

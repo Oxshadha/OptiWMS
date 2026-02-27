@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -22,21 +23,26 @@ import java.util.stream.Collectors;
  */
 @Service
 public class MaterialLocationAssignmentService {
+    private static final java.util.Set<String> BLOCKED_RACK_STATUSES =
+            java.util.Set.of("reserved", "maintenance", "out_of_service");
 
     private final InventoryService inventoryService;
     private final LocationService locationService;
     private final LocationSuggestionService locationSuggestionService;
     private final MaterialService materialService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
 
     public MaterialLocationAssignmentService(
             InventoryService inventoryService,
             LocationService locationService,
             LocationSuggestionService locationSuggestionService,
-            MaterialService materialService) {
+            MaterialService materialService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService) {
         this.inventoryService = inventoryService;
         this.locationService = locationService;
         this.locationSuggestionService = locationSuggestionService;
         this.materialService = materialService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
     }
 
     /**
@@ -60,6 +66,10 @@ public class MaterialLocationAssignmentService {
         
         if (!Boolean.TRUE.equals(location.getIsActive())) {
             throw new RuntimeException("Location is not active: " + locationCode);
+        }
+        if (!isRackStatusPutawayAllowed(location.getRackStatus())) {
+            throw new RuntimeException("Location is not available for putaway due to rack status '"
+                    + normalizeRackStatus(location.getRackStatus()) + "': " + locationCode);
         }
 
         validateLocationCapacity(location, warehouseId, quantity, materialId);
@@ -105,29 +115,14 @@ public class MaterialLocationAssignmentService {
         if (putawayQuantity == null || putawayQuantity <= 0) {
             throw new RuntimeException("Invalid putaway quantity");
         }
-
-        List<InventoryItem> locationInventory = inventoryService.findByWarehouse(warehouseId).stream()
-                .filter(item -> location.getLocationCode().equals(item.getLocationCode()))
-                .collect(Collectors.toList());
-
-        int currentQuantity = locationInventory.stream()
-                .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
-                .sum();
-
-        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
-            int capacityUnits = location.getCapacity().intValue();
-            if (currentQuantity + putawayQuantity > capacityUnits) {
-                throw new RuntimeException("Location capacity exceeded for " + location.getLocationCode()
-                        + ". Capacity: " + capacityUnits + ", Current: " + currentQuantity
-                        + ", Requested: " + putawayQuantity);
-            }
-        }
-
-        boolean hasMaterialAlready = locationInventory.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
-        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
-            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
-                throw new RuntimeException("Location pallet capacity reached for " + location.getLocationCode());
-            }
+        var validation = putawayCapacityPlanningService.validateSingleLocation(
+                warehouseId,
+                materialId,
+                putawayQuantity,
+                location.getLocationCode()
+        );
+        if (!validation.valid()) {
+            throw new RuntimeException(String.join("; ", validation.violations()));
         }
     }
 
@@ -152,7 +147,10 @@ public class MaterialLocationAssignmentService {
                             location != null ? location.getBayNumber() : null,
                             location != null ? location.getLevelNumber() : null,
                             location != null ? location.getBinPosition() : null,
-                            item.getAvailableQuantity()
+                            item.getAvailableQuantity(),
+                            item.getBatchNumber(),
+                            item.getExpiryDate(),
+                            item.getCreatedAt()
                     );
                 })
                 .collect(Collectors.toList());
@@ -208,6 +206,24 @@ public class MaterialLocationAssignmentService {
             String bayNumber,
             Integer levelNumber,
             String binPosition,
-            Integer availableQuantity
+            Integer availableQuantity,
+            String batchNumber,
+            java.time.LocalDate expiryDate,
+            java.time.OffsetDateTime receivedAt
     ) {}
+
+    private boolean isRackStatusPutawayAllowed(String rackStatus) {
+        return !BLOCKED_RACK_STATUSES.contains(normalizeRackStatus(rackStatus));
+    }
+
+    private String normalizeRackStatus(String rackStatus) {
+        if (rackStatus == null || rackStatus.isBlank()) {
+            return "active";
+        }
+        String normalized = rackStatus.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if ("outofservice".equals(normalized)) {
+            return "out_of_service";
+        }
+        return normalized;
+    }
 }

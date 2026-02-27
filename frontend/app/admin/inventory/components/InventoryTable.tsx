@@ -34,7 +34,6 @@ export function InventoryTable({
               {visibleColumns.has("sku") && <th className="font-semibold text-base-content">SKU</th>}
               {visibleColumns.has("name") && <th className="font-semibold text-base-content">Item Name</th>}
               {visibleColumns.has("type") && <th className="font-semibold text-base-content">Type</th>}
-              {visibleColumns.has("category") && <th className="font-semibold text-base-content">Category</th>}
               {visibleColumns.has("warehouse") && <th className="font-semibold text-base-content">Warehouse</th>}
               {visibleColumns.has("quantity") && <th className="font-semibold text-base-content">Quantity</th>}
               {visibleColumns.has("location") && <th className="font-semibold text-base-content">Location</th>}
@@ -89,11 +88,6 @@ export function InventoryTable({
                     })()}
                   </td>
                 )}
-                {visibleColumns.has("category") && (
-                  <td>
-                    <StatusChip label={item.category} tone="neutral" className="whitespace-nowrap" />
-                  </td>
-                )}
                 {visibleColumns.has("warehouse") && (
                   <td>
                     <StatusChip label={item.warehouseName} tone="neutral" className="whitespace-nowrap" />
@@ -102,7 +96,15 @@ export function InventoryTable({
                 {visibleColumns.has("quantity") && <td className="font-semibold">{Math.ceil(item.qty)}</td>}
                 {visibleColumns.has("location") && (
                   <td>
-                    <StatusChip label={item.location} tone="neutral" className="whitespace-nowrap" />
+                    <StatusChip
+                      label={
+                        item.locations && item.locations.length > 1
+                          ? `${item.location} +${item.locations.length - 1}`
+                          : item.location
+                      }
+                      tone="neutral"
+                      className="whitespace-nowrap"
+                    />
                   </td>
                 )}
                 {visibleColumns.has("status") && (

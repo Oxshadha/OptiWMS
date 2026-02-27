@@ -4,12 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
-import {
-  WorkerRole,
-  getRoleDisplayName,
-} from "@/lib/worker-roles";
+import { WorkerRole, getRoleDisplayName } from "@/lib/worker-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { usersApi } from "@/lib/api/users";
@@ -29,135 +27,162 @@ export default function WorkersPage() {
   const { hasPermission, role, admin } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
   const assignedWarehouseName = admin?.warehouseName;
+  const assignedWarehouseId = admin?.warehouseId;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedWorker, setSelectedWorker] = useState<WorkerDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  
-  // API state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const [workers, setWorkers] = useState<WorkerDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  // Load data from API
   const loadData = async () => {
     try {
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
         setIsLoading(true);
-        setError(null);
-        
-        // Load all users, warehouses, and tasks
-        // We'll filter for worker roles on the frontend
-        const [allUsersData, warehousesData, tasksData] = await Promise.all([
-          usersApi.getAll(), // Get all users
-          warehousesApi.getAll(),
-          tasksApi.getAll(),
-        ]);
-        
-        // Filter for worker roles
-        const workerRoles = [
-          'forklift_operator', 'stacker_operator', 'powered_pallet_truck_operator',
-          'unloading_worker', 'cycle_count_worker', 'picker', 'packer',
-          'shipment_worker', 'returns_worker', 'vehicle_inspector', 'warehouse_safekeeping_worker'
-        ];
-        const usersData = allUsersData.filter(u => workerRoles.includes(u.role?.toLowerCase()));
-        
-        // Create warehouse lookup
-        const warehousesMap = new Map<string, string>();
-        warehousesData.forEach((w) => {
-          warehousesMap.set(w.id, w.name);
-        });
-        
-        // Count tasks per worker
-        const taskCounts = new Map<string, number>();
-        const completedTaskCounts = new Map<string, number>();
-        tasksData.forEach((task) => {
-          if (task.assignedTo) {
-            taskCounts.set(task.assignedTo, (taskCounts.get(task.assignedTo) || 0) + 1);
-            if (task.status === "completed") {
-              completedTaskCounts.set(task.assignedTo, (completedTaskCounts.get(task.assignedTo) || 0) + 1);
-            }
+      }
+      setError(null);
+
+      const userStatus =
+        statusFilter === "all"
+          ? undefined
+          : statusFilter === "offline"
+            ? "inactive"
+            : "active";
+
+      const [usersPage, warehousesData] = await Promise.all([
+        usersApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "createdAt",
+          sortDir: "desc",
+          role: "worker",
+          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+          status: userStatus,
+          q: searchQuery.trim() || undefined,
+        }),
+        warehousesApi.getAll(),
+      ]);
+
+      const warehousesMap = new Map<string, string>();
+      warehousesData.forEach((w) => {
+        warehousesMap.set(w.id, w.name);
+      });
+
+      const totalTaskCounts = new Map<string, number>();
+      const completedTaskCounts = new Map<string, number>();
+      await Promise.all(
+        usersPage.data.map(async (u) => {
+          try {
+            const [totalTasks, completedTasks] = await Promise.all([
+              tasksApi.getPaged({
+                page: 0,
+                size: 1,
+                assignedTo: u.id,
+              }),
+              tasksApi.getPaged({
+                page: 0,
+                size: 1,
+                assignedTo: u.id,
+                status: "completed",
+              }),
+            ]);
+            totalTaskCounts.set(u.id, totalTasks.totalElements);
+            completedTaskCounts.set(u.id, completedTasks.totalElements);
+          } catch {
+            totalTaskCounts.set(u.id, 0);
+            completedTaskCounts.set(u.id, 0);
           }
-        });
-        
-        // Transform to display format
-        const displayWorkers: WorkerDisplay[] = usersData.map((u) => {
-          const warehouseName = u.warehouseId ? warehousesMap.get(u.warehouseId) || "Unknown" : "Unassigned";
-          const tasksToday = taskCounts.get(u.id) || 0;
-          const totalCompleted = completedTaskCounts.get(u.id) || 0;
-          
-          // Map user role to WorkerRole
-          const workerRole: WorkerRole = (u.role?.toLowerCase() || "picker") as WorkerRole;
-          
-          return {
-            id: u.id,
-            workerId: u.employeeId || u.id.slice(0, 6),
-            name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
-            warehouseName,
-            availabilityStatus: u.status === "active" ? "available" : "offline",
-            shiftStart: "08:00", // TODO: Get from user data
-            shiftEnd: "17:00", // TODO: Get from user data
-            tasksToday,
-            totalTasksCompleted: totalCompleted,
-            avgTaskTime: 15.0, // TODO: Calculate from task data
-            lastActive: u.lastLoginAt || "Never",
-            avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
-            role: workerRole,
-          };
-        });
-        
-        setWorkers(displayWorkers);
-      } catch (err) {
-        logger.error("Failed to load workers:", err);
-        setError(err instanceof Error ? err.message : "Failed to load workers");
-        setWorkers([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load workers. Please try again.");
+        })
+      );
+
+      const displayWorkers: WorkerDisplay[] = usersPage.data.map((u) => {
+        const warehouseName = u.warehouseId
+          ? warehousesMap.get(u.warehouseId) || "Unknown"
+          : "Unassigned";
+        const tasksToday = totalTaskCounts.get(u.id) || 0;
+        const totalCompleted = completedTaskCounts.get(u.id) || 0;
+        const workerRole: WorkerRole = (u.role?.toLowerCase() || "picker") as WorkerRole;
+
+        let availabilityStatus: WorkerDisplay["availabilityStatus"] = "available";
+        if (u.status !== "active") {
+          availabilityStatus = "offline";
+        } else if (tasksToday > 0) {
+          availabilityStatus = "busy";
         }
+
+        return {
+          id: u.id,
+          workerId: u.employeeId || u.id.slice(0, 6),
+          name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
+          warehouseName,
+          availabilityStatus,
+          tasksToday,
+          totalTasksCompleted: totalCompleted,
+          lastActive: u.lastLoginAt || "Never",
+          avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
+          role: workerRole,
+        };
+      });
+
+      const filteredForStatus =
+        statusFilter === "all"
+          ? displayWorkers
+          : displayWorkers.filter((worker) => worker.availabilityStatus === statusFilter);
+
+      setWorkers(filteredForStatus);
+      setTotalItems(usersPage.totalElements);
+      setTotalPages(Math.max(usersPage.totalPages, 1));
+      setHasLoadedOnce(true);
+    } catch (err) {
+      logger.error("Failed to load workers:", err);
+      setError(err instanceof Error ? err.message : "Failed to load workers");
+      setWorkers([]);
+      if (err instanceof Error && !err.message.includes("Not authenticated")) {
+        showToast.error("Failed to load workers. Please try again.");
+      }
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.WORKERS, "delete");
-  // Filter workers by warehouse for warehouse managers
-  const filteredWorkersByWarehouse = isWarehouseManager && assignedWarehouseName
-    ? workers.filter((w) => w.warehouseName === assignedWarehouseName)
-    : workers;
 
   const summary = {
-    totalWorkers: filteredWorkersByWarehouse.length,
-    activeNow: filteredWorkersByWarehouse.filter((w) => w.availabilityStatus === "available" || w.availabilityStatus === "busy").length,
-    offline: filteredWorkersByWarehouse.filter((w) => w.availabilityStatus === "offline").length,
-    tasksCompletedToday: filteredWorkersByWarehouse.reduce((sum, w) => sum + w.tasksToday, 0),
+    totalWorkers: totalItems,
+    activeNow: workers.filter(
+      (w) => w.availabilityStatus === "available" || w.availabilityStatus === "busy"
+    ).length,
+    offline: workers.filter((w) => w.availabilityStatus === "offline").length,
+    tasksCompletedToday: workers.reduce((sum, w) => sum + w.tasksToday, 0),
   };
-
-  const filteredWorkers = filteredWorkersByWarehouse.filter((worker) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      worker.name.toLowerCase().includes(query) ||
-      worker.workerId.toLowerCase().includes(query) ||
-      worker.warehouseName.toLowerCase().includes(query) ||
-      worker.availabilityStatus.toLowerCase().includes(query) ||
-      worker.shiftStart.toLowerCase().includes(query) ||
-      worker.shiftEnd.toLowerCase().includes(query) ||
-      worker.tasksToday.toString().includes(query) ||
-      worker.totalTasksCompleted.toString().includes(query) ||
-      worker.avgTaskTime.toString().includes(query) ||
-      worker.lastActive.toLowerCase().includes(query);
-    const matchesStatus =
-      statusFilter === "all" || worker.availabilityStatus === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
 
   const summaryCards = [
     {
@@ -179,7 +204,7 @@ export default function WorkersPage() {
       color: "error" as const,
     },
     {
-      label: "Tasks Completed Today",
+      label: "Tasks",
       value: summary.tasksCompletedToday,
       icon: "task_alt",
       color: "info" as const,
@@ -232,8 +257,7 @@ export default function WorkersPage() {
       key: "role",
       label: "Role",
       render: (worker: (typeof workers)[0]) => {
-        if (!worker.role)
-          return <span className="text-base-content/50">-</span>;
+        if (!worker.role) return <span className="text-base-content/50">-</span>;
         return (
           <div className="inline-block max-w-full">
             <span className=" whitespace-normal break-words block w-fit">
@@ -248,17 +272,10 @@ export default function WorkersPage() {
       key: "availabilityStatus",
       label: "Status",
       render: (worker: (typeof workers)[0]) => {
-        const status =
-          statusConfig[worker.availabilityStatus as keyof typeof statusConfig];
+        const status = statusConfig[worker.availabilityStatus];
         return <StatusChip label={status.label} tone={status.tone} showDot />;
       },
       sortable: true,
-    },
-    {
-      key: "shift",
-      label: "Shift",
-      render: (worker: (typeof workers)[0]) =>
-        `${worker.shiftStart} - ${worker.shiftEnd}`,
     },
     {
       key: "tasksToday",
@@ -268,12 +285,6 @@ export default function WorkersPage() {
     {
       key: "totalTasksCompleted",
       label: "Total Completed",
-      sortable: true,
-    },
-    {
-      key: "avgTaskTime",
-      label: "Avg Time (min)",
-      render: (worker: (typeof workers)[0]) => `${worker.avgTaskTime} min`,
       sortable: true,
     },
     {
@@ -294,9 +305,7 @@ export default function WorkersPage() {
       >
         <li>
           <Link href={`/admin/workers/${worker.id}`}>
-            <span className="material-symbols-outlined text-sm">
-              visibility
-            </span>
+            <span className="material-symbols-outlined text-sm">visibility</span>
             View Details
           </Link>
         </li>
@@ -341,14 +350,15 @@ export default function WorkersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-base-content">Workers</h1>
             {isWarehouseManager && assignedWarehouseName && (
               <div className="badge badge-primary badge-lg">
-                <span className="material-symbols-outlined text-sm mr-1">warehouse</span>
+                <span className="material-symbols-outlined text-sm mr-1">
+                  warehouse
+                </span>
                 {assignedWarehouseName}
               </div>
             )}
@@ -360,9 +370,15 @@ export default function WorkersPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => void loadData()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -372,8 +388,8 @@ export default function WorkersPage() {
               type="text"
               placeholder="Search workers..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -386,20 +402,42 @@ export default function WorkersPage() {
               className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
             >
               <li>
-                <button onClick={() => setStatusFilter("all")}>
+                <button
+                  onClick={() => {
+                    setStatusFilter("all");
+                    setCurrentPage(1);
+                  }}
+                >
                   All Status
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("available")}>
+                <button
+                  onClick={() => {
+                    setStatusFilter("available");
+                    setCurrentPage(1);
+                  }}
+                >
                   Available
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("busy")}>Busy</button>
+                <button
+                  onClick={() => {
+                    setStatusFilter("busy");
+                    setCurrentPage(1);
+                  }}
+                >
+                  Busy
+                </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("offline")}>
+                <button
+                  onClick={() => {
+                    setStatusFilter("offline");
+                    setCurrentPage(1);
+                  }}
+                >
                   Offline
                 </button>
               </li>
@@ -417,15 +455,13 @@ export default function WorkersPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
       <SummaryCards cards={summaryCards} />
 
-      {/* Workers Table */}
       {error && (
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
             Retry
           </button>
         </div>
@@ -439,27 +475,39 @@ export default function WorkersPage() {
         </div>
       )}
       {!isLoading && (
-        <DataTable
-          data={filteredWorkers}
-          columns={columns}
-          keyExtractor={(worker) => worker.id}
-          onRowClick={(worker) => {
-            setSelectedWorker(worker);
-            setShowDetailModal(true);
-          }}
-          actions={renderActions}
-          emptyMessage="No workers found"
-        />
+        <>
+          <DataTable
+            data={workers}
+            columns={columns}
+            keyExtractor={(worker) => worker.id}
+            onRowClick={(worker) => {
+              setSelectedWorker(worker);
+              setShowDetailModal(true);
+            }}
+            actions={renderActions}
+            emptyMessage="No workers found"
+          />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={totalItems}
+            showItemsPerPage
+            onItemsPerPageChange={(next) => {
+              setItemsPerPage(next);
+              setCurrentPage(1);
+            }}
+          />
+        </>
       )}
 
-      {/* Create Worker Modal */}
       <CreateWorkerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         onSuccess={loadData}
       />
 
-      {/* Worker Detail Modal */}
       {selectedWorker && (
         <WorkerDetailModal
           isOpen={showDetailModal}
@@ -477,7 +525,6 @@ export default function WorkersPage() {
         />
       )}
 
-      {/* Edit Worker Modal */}
       {selectedWorker && (
         <EditWorkerModal
           isOpen={showEditModal}
@@ -490,7 +537,6 @@ export default function WorkersPage() {
         />
       )}
 
-      {/* Delete Worker Modal */}
       {selectedWorker && (
         <DeleteWorkerModal
           isOpen={showDeleteModal}
@@ -500,7 +546,7 @@ export default function WorkersPage() {
           }}
           onConfirm={async () => {
             if (!selectedWorker) return;
-            
+
             try {
               await usersApi.delete(selectedWorker.id);
               showToast.success("Worker deleted successfully");
@@ -509,7 +555,9 @@ export default function WorkersPage() {
               await loadData();
             } catch (err) {
               logger.error("Failed to delete worker:", err);
-              showToast.error(err instanceof Error ? err.message : "Failed to delete worker");
+              showToast.error(
+                err instanceof Error ? err.message : "Failed to delete worker"
+              );
             }
           }}
           worker={selectedWorker}

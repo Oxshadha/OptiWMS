@@ -52,6 +52,18 @@ export interface CreateCustomReportRequest {
   createdBy?: string;
 }
 
+export interface ExportReportRequest {
+  reportType: string;
+  format: "pdf" | "csv";
+  createdBy?: string;
+}
+
+export interface ExportReportResponse {
+  blob: Blob;
+  fileName: string;
+  reportId?: string | null;
+}
+
 export const reportsApi = {
   // Get all reports
   getAllReports: async (
@@ -113,5 +125,33 @@ export const reportsApi = {
   createCustomReport: async (request: CreateCustomReportRequest): Promise<Report> => {
     return apiClient.post<Report>('/reports/custom', request);
   },
-};
 
+  exportReport: async (request: ExportReportRequest): Promise<ExportReportResponse> => {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api'}/reports/export`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Export failed (${response.status}): ${message || response.statusText}`);
+    }
+
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+    const fileName = match?.[1] || `${request.reportType}-report.${request.format}`;
+    const reportId = response.headers.get("x-report-id");
+
+    return {
+      blob: await response.blob(),
+      fileName,
+      reportId,
+    };
+  },
+};

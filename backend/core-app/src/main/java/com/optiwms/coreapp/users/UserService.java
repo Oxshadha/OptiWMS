@@ -3,17 +3,30 @@ package com.optiwms.coreapp.users;
 import com.optiwms.domain.users.User;
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class UserService {
+    private static final Set<String> WORKER_ROLES = new HashSet<>(Arrays.asList(
+            "forklift_operator", "stacker_operator", "powered_pallet_truck_operator",
+            "unloading_worker", "cycle_count_worker", "picker", "packer",
+            "shipment_worker", "returns_worker", "vehicle_inspector", "warehouse_safekeeping_worker"
+    ));
 
     private final UserRepository repository;
     private final PasswordEncoder passwordEncoder;
@@ -57,6 +70,42 @@ public class UserService {
         return repository.findByUsername(username)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("User not found: " + username));
+    }
+
+    public Page<User> findPaged(String role, UUID warehouseId, String status, String query, Pageable pageable) {
+        Specification<UserEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(cb.lower(root.get("status")), status.toLowerCase()));
+            }
+            if (role != null && !role.isBlank()) {
+                if ("worker".equalsIgnoreCase(role)) {
+                    predicates.add(cb.lower(root.get("role")).in(WORKER_ROLES));
+                } else {
+                    predicates.add(cb.equal(cb.lower(root.get("role")), role.toLowerCase()));
+                }
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("username")), pattern),
+                        cb.like(cb.lower(root.get("email")), pattern),
+                        cb.like(cb.lower(root.get("employeeId")), pattern),
+                        cb.like(cb.lower(root.get("firstName")), pattern),
+                        cb.like(cb.lower(root.get("lastName")), pattern),
+                        cb.like(cb.lower(root.get("phone")), pattern),
+                        cb.like(cb.lower(root.get("role")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern)
+                ));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     @Transactional
@@ -163,4 +212,3 @@ public class UserService {
         return u;
     }
 }
-

@@ -4,11 +4,16 @@ export interface OrderItem {
   id: string;
   orderId: string;
   materialId: string;
+  materialCode?: string;
+  materialName?: string;
   quantity: number;
   unitPrice?: string;
   pickedQuantity: number;
   packedQuantity: number;
   locationCode?: string;
+  batchNumber?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
   status: string;
 }
 
@@ -17,6 +22,9 @@ export interface CreateOrderItemRequest {
   quantity: number;
   unitPrice?: string;
   locationCode?: string;
+  batchNumber?: string;
+  manufactureDate?: string;
+  expiryDate?: string;
 }
 
 export const orderItemsApi = {
@@ -55,4 +63,16 @@ export interface PutawayItem {
   suggestedLocation: string | null;
   existingLocations?: string[];
   status: string;
+  splitPlan?: {
+    feasible: boolean;
+    requestedQuantity: number;
+    plannedQuantity: number;
+    unplannedQuantity: number;
+    allocations: Array<{
+      locationCode: string;
+      allocatedQuantity: number;
+      reason: string;
+    }>;
+    notes: string[];
+  } | null;
 }

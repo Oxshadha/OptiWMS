@@ -10,6 +10,7 @@ export interface Pick {
   qty: number;
   taskStatus?: string;
   skipReason?: string;
+  allocationPolicy?: string;
   status: "current" | "upcoming" | "completed";
   pickedLocations?: string[];
 }

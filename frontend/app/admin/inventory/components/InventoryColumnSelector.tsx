@@ -4,7 +4,6 @@ const COLUMN_OPTIONS = [
   { key: "sku", label: "SKU" },
   { key: "name", label: "Item Name" },
   { key: "type", label: "Type" },
-  { key: "category", label: "Category" },
   { key: "warehouse", label: "Warehouse" },
   { key: "quantity", label: "Quantity" },
   { key: "location", label: "Location" },
@@ -42,12 +41,16 @@ export function InventoryColumnSelector({
 }: InventoryColumnSelectorProps) {
   return (
     <div className="dropdown dropdown-end">
-      <button className="btn btn-ghost btn-sm" onClick={onToggleMenu}>
+      <button
+        className="btn btn-ghost btn-sm"
+        onClick={onToggleMenu}
+        title="Choose which table columns to show or hide"
+      >
         <span className="material-symbols-outlined">view_column</span>
         <span>Columns</span>
       </button>
       {showColumnMenu && (
-        <ul className="dropdown-content menu bg-base-100 border border-base-300 rounded-box shadow-lg z-50 p-2 w-64 max-h-96 overflow-y-auto">
+        <ul className="dropdown-content menu bg-base-100 border border-base-300 rounded-box shadow-lg z-[80] p-2 w-64 max-h-96 overflow-y-auto">
           {COLUMN_OPTIONS.map((col) => (
             <li key={col.key}>
               <label className="label cursor-pointer">
@@ -66,4 +69,3 @@ export function InventoryColumnSelector({
     </div>
   );
 }
-

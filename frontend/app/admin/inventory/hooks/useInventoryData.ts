@@ -11,42 +11,46 @@ type SortDirection = "asc" | "desc";
 interface UseInventoryDataParams {
   isWarehouseManager: boolean;
   assignedWarehouseId?: string;
-  activeCategory: string;
   activeItemType: string;
+  activeStock: "All" | "Low" | "Available";
   activeWarehouse: string;
   searchQuery: string;
   sortBy: SortBy;
   sortDirection: SortDirection;
+  currentPage: number;
+  itemsPerPage: number;
 }
 
 export function useInventoryData({
   isWarehouseManager,
   assignedWarehouseId,
-  activeCategory,
   activeItemType,
+  activeStock,
   activeWarehouse,
   searchQuery,
   sortBy,
   sortDirection,
+  currentPage,
+  itemsPerPage,
 }: UseInventoryDataParams) {
   const [inventoryItems, setInventoryItems] = useState<InventoryDisplayItem[]>([]);
   const [warehouses, setWarehouses] = useState<Map<string, string>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const categories = useMemo(() => {
-    const uniqueCategories = Array.from(
-      new Set(inventoryItems.map((item) => item.category).filter(Boolean))
-    ).sort();
-    return ["All", ...uniqueCategories];
-  }, [inventoryItems]);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const loadData = useCallback(async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
-      let materialTypeFilter: string | undefined = undefined;
+      let materialTypeFilter: string | undefined;
       if (activeItemType === "Raw Material") {
         materialTypeFilter = "raw_material";
       } else if (activeItemType === "Packaging") {
@@ -55,13 +59,28 @@ export function useInventoryData({
         materialTypeFilter = "product";
       }
 
-      const [inventoryData, materialsData, warehousesData] = await Promise.all([
-        inventoryApi.getAll(materialTypeFilter),
+      const effectiveWarehouse =
+        isWarehouseManager && assignedWarehouseId
+          ? assignedWarehouseId
+          : activeWarehouse !== "All"
+            ? activeWarehouse
+            : undefined;
+
+      const [inventoryPage, materialsData, warehousesData] = await Promise.all([
+        inventoryApi.getPaged({
+          page: currentPage - 1,
+          size: itemsPerPage,
+          sortBy: "id",
+          sortDir: "desc",
+          warehouseId: effectiveWarehouse,
+          materialType: materialTypeFilter,
+          q: searchQuery.trim() || undefined,
+        }),
         materialsApi.getAll(),
         warehousesApi.getAll(),
       ]);
 
-      const materialsMap = new Map();
+      const materialsMap = new Map<string, { materialCode?: string; description?: string; materialType?: string }>();
       materialsData.forEach((m) => {
         materialsMap.set(m.id, {
           materialCode: m.materialCode,
@@ -70,13 +89,13 @@ export function useInventoryData({
         });
       });
 
-      const warehousesMap = new Map();
+      const warehousesMap = new Map<string, string>();
       warehousesData.forEach((w) => {
         warehousesMap.set(w.id, w.name);
       });
       setWarehouses(warehousesMap);
 
-      const displayItems: InventoryDisplayItem[] = inventoryData.map((item) => {
+      const mapped: InventoryDisplayItem[] = inventoryPage.data.map((item) => {
         const material = materialsMap.get(item.materialId);
         const warehouseName = warehousesMap.get(item.warehouseId) || "Unknown";
         const qty = Math.ceil(parseFloat(item.quantity) || 0);
@@ -85,10 +104,7 @@ export function useInventoryData({
         let status: "Available" | "Low" | "Out of Stock" = "Available";
         const reorderPoint = item.reorderPoint ? parseFloat(item.reorderPoint) : null;
         const bufferStock = item.bufferStock ? parseFloat(item.bufferStock) : null;
-
-        if (item.status === "non_moving") {
-          status = "Out of Stock";
-        } else if (qty === 0) {
+        if (item.status === "non_moving" || qty === 0) {
           status = "Out of Stock";
         } else if (reorderPoint != null && qty <= reorderPoint) {
           status = "Low";
@@ -99,23 +115,24 @@ export function useInventoryData({
         }
 
         const materialType = item.materialType || material?.materialType || "raw_material";
-        let itemType: "Product" | "Raw Material" | "Packaging";
+        let itemType: "Product" | "Raw Material" | "Packaging" = "Raw Material";
         if (materialType.toLowerCase().includes("packaging")) {
           itemType = "Packaging";
         } else if (materialType.toLowerCase().includes("product")) {
           itemType = "Product";
-        } else {
-          itemType = "Raw Material";
         }
 
+        const location = item.locationCode || "N/A";
         return {
           id: item.id,
           sku: material?.materialCode || item.materialId,
           name: material?.description || "Unknown Material",
           qty,
-          location: item.locationCode || "N/A",
+          location,
+          locations: item.locationCode ? [item.locationCode] : [],
+          batches: item.batchNumber ? [item.batchNumber] : [],
+          nearestExpiryDate: item.expiryDate,
           status,
-          category: "General",
           warehouseName,
           itemType,
           materialId: item.materialId,
@@ -139,49 +156,44 @@ export function useInventoryData({
         };
       });
 
-      setInventoryItems(displayItems);
+      setInventoryItems(mapped);
+      setTotalElements(inventoryPage.totalElements);
+      setTotalPages(Math.max(inventoryPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load inventory data", err);
       setError("Failed to load inventory data. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
-  }, [activeItemType]);
+  }, [
+    activeItemType,
+    activeWarehouse,
+    assignedWarehouseId,
+    currentPage,
+    hasLoadedOnce,
+    isWarehouseManager,
+    itemsPerPage,
+    searchQuery,
+  ]);
 
   useEffect(() => {
     void loadData();
-  }, [loadData, assignedWarehouseId]);
-
-  const inventoryForWarehouse =
-    isWarehouseManager && assignedWarehouseId
-      ? inventoryItems.filter((item) => item.warehouseId === assignedWarehouseId)
-      : inventoryItems;
+  }, [loadData]);
 
   const inStockItems = useMemo(
-    () => inventoryForWarehouse.filter((item) => item.qty > 0),
-    [inventoryForWarehouse]
+    () => inventoryItems.filter((item) => item.qty > 0),
+    [inventoryItems]
   );
 
   const filteredInventory = useMemo(() => {
     let filtered = inStockItems.filter((item) => {
-      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
-      const matchesItemType =
-        activeItemType === "All" ||
-        (activeItemType === "Product" && item.itemType === "Product") ||
-        (activeItemType === "Raw Material" && item.itemType === "Raw Material") ||
-        (activeItemType === "Packaging" && item.itemType === "Packaging");
-      const matchesWarehouse = activeWarehouse === "All" || item.warehouseId === activeWarehouse;
-      const query = searchQuery.trim().toLowerCase();
-      if (!query) return matchesCategory && matchesItemType && matchesWarehouse;
-      const matchesSearch =
-        item.name.toLowerCase().includes(query) ||
-        item.sku.toLowerCase().includes(query) ||
-        item.location.toLowerCase().includes(query) ||
-        item.status.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query) ||
-        item.warehouseName.toLowerCase().includes(query) ||
-        item.qty.toString().includes(query);
-      return matchesCategory && matchesItemType && matchesWarehouse && matchesSearch;
+      const matchesStock =
+        activeStock === "All" ||
+        (activeStock === "Low" && item.status === "Low") ||
+        (activeStock === "Available" && item.status === "Available");
+      return matchesStock;
     });
 
     if (sortBy) {
@@ -202,30 +214,23 @@ export function useInventoryData({
     }
 
     return filtered;
-  }, [
-    inStockItems,
-    activeCategory,
-    activeItemType,
-    activeWarehouse,
-    searchQuery,
-    sortBy,
-    sortDirection,
-  ]);
+  }, [inStockItems, activeStock, sortBy, sortDirection]);
 
-  const totalItems = Math.ceil(inStockItems.reduce((sum, item) => sum + item.qty, 0));
+  const totalItems = totalElements;
   const lowStockItems = inStockItems.filter((item) => item.status === "Low").length;
   const availableItems = inStockItems.filter((item) => item.status === "Available").length;
 
   return {
-    categories,
     warehouses,
     filteredInventory,
     totalItems,
     lowStockItems,
     availableItems,
     isLoading,
+    isFetching,
     error,
+    totalPages,
+    totalElements,
     reload: loadData,
   };
 }
-

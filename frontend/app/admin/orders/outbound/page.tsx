@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -50,6 +51,13 @@ function getOutboundPriorityTone(priority: string): StatusTone {
   return "neutral";
 }
 
+function toApiOutboundStatus(status: string): string | undefined {
+  if (status === "all") return undefined;
+  if (status === "picking") return "processing";
+  if (status === "ready_to_ship") return "ready";
+  return status;
+}
+
 export default function OutboundOrdersPage() {
   const router = useRouter();
   const { hasPermission } = useAdmin();
@@ -57,24 +65,43 @@ export default function OutboundOrdersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingOrder, setEditingOrder] = useState<OutboundOrderDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // API state
   const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
         // Load orders, customers, and warehouses in parallel
-        const [ordersData, customersData, warehousesData] = await Promise.all([
-          ordersApi.getAllOutbound(),
+        const [ordersPage, customersData, warehousesData] = await Promise.all([
+          ordersApi.getPaged({
+            page: currentPage - 1,
+            size: itemsPerPage,
+            sortBy: "createdAt",
+            sortDir: "desc",
+            orderType: "outbound",
+            status: toApiOutboundStatus(statusFilter),
+            priority: priorityFilter === "all" ? undefined : priorityFilter,
+            q: searchQuery.trim() || undefined,
+          }),
           customersApi.getAll(),
           warehousesApi.getAll(),
         ]);
@@ -85,7 +112,7 @@ export default function OutboundOrdersPage() {
 
       // Fetch order items for all orders in parallel
       const ordersWithItems = await Promise.all(
-        ordersData.map(async (order) => {
+        ordersPage.data.map(async (order) => {
           try {
             const { orderItemsApi } = await import("@/lib/api/orderItems");
             const orderItems = await orderItemsApi.getByOrderId(order.id);
@@ -138,6 +165,9 @@ export default function OutboundOrdersPage() {
       });
 
       setOrders(displayOrders);
+      setTotalItems(ordersPage.totalElements);
+      setTotalPages(Math.max(ordersPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       const isDev = process.env.NODE_ENV === 'development';
       if (isDev) {
@@ -146,12 +176,21 @@ export default function OutboundOrdersPage() {
       setError("Failed to load outbound orders. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, statusFilter, priorityFilter, searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Calculate summary from orders
   const summary = {
@@ -160,25 +199,6 @@ export default function OutboundOrdersPage() {
     readyToShip: orders.filter((o) => o.status === "ready_to_ship").length,
     shippedToday: orders.filter((o) => o.status === "shipped" || o.status === "delivered").length,
   };
-
-  const filteredOrders = orders.filter((order) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch = !query || (
-      order.orderNumber.toLowerCase().includes(query) ||
-      order.customerName.toLowerCase().includes(query) ||
-      order.warehouseName.toLowerCase().includes(query) ||
-      order.status.toLowerCase().includes(query) ||
-      order.priority.toLowerCase().includes(query) ||
-      order.orderDate.toLowerCase().includes(query) ||
-      order.requiredDelivery.toLowerCase().includes(query) ||
-      order.totalItems.toString().includes(query) ||
-      order.pickedItems.toString().includes(query) ||
-      order.id.toLowerCase().includes(query)
-    );
-    const matchesStatus = statusFilter === "all" || order.status === statusFilter;
-    const matchesPriority = priorityFilter === "all" || order.priority === priorityFilter;
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
 
   const summaryCards = [
     {
@@ -437,6 +457,12 @@ export default function OutboundOrdersPage() {
           <p className="text-sm text-base-content/60 mt-1">Manage customer orders and fulfillment</p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <button
             className="btn btn-sm btn-ghost"
             onClick={() => loadData()}
@@ -449,8 +475,10 @@ export default function OutboundOrdersPage() {
               type="text"
               placeholder="Search orders..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+              }}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -464,35 +492,65 @@ export default function OutboundOrdersPage() {
             >
               <li className="menu-title">Status</li>
               <li>
-                <button onClick={() => setStatusFilter("all")}>All Status</button>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>All Status</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("pending")}>Pending</button>
+                <button onClick={() => {
+                  setStatusFilter("pending");
+                  setCurrentPage(1);
+                }}>Pending</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("picking")}>Picking</button>
+                <button onClick={() => {
+                  setStatusFilter("picking");
+                  setCurrentPage(1);
+                }}>Picking</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("ready_to_ship")}>Ready to Ship</button>
+                <button onClick={() => {
+                  setStatusFilter("ready_to_ship");
+                  setCurrentPage(1);
+                }}>Ready to Ship</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("shipped")}>Shipped</button>
+                <button onClick={() => {
+                  setStatusFilter("shipped");
+                  setCurrentPage(1);
+                }}>Shipped</button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("cancelled")}>Cancelled</button>
+                <button onClick={() => {
+                  setStatusFilter("cancelled");
+                  setCurrentPage(1);
+                }}>Cancelled</button>
               </li>
               <li className="menu-title mt-2">Priority</li>
               <li>
-                <button onClick={() => setPriorityFilter("all")}>All Priority</button>
+                <button onClick={() => {
+                  setPriorityFilter("all");
+                  setCurrentPage(1);
+                }}>All Priority</button>
               </li>
               <li>
-                <button onClick={() => setPriorityFilter("urgent")}>Urgent</button>
+                <button onClick={() => {
+                  setPriorityFilter("urgent");
+                  setCurrentPage(1);
+                }}>Urgent</button>
               </li>
               <li>
-                <button onClick={() => setPriorityFilter("high")}>High</button>
+                <button onClick={() => {
+                  setPriorityFilter("high");
+                  setCurrentPage(1);
+                }}>High</button>
               </li>
               <li>
-                <button onClick={() => setPriorityFilter("normal")}>Normal</button>
+                <button onClick={() => {
+                  setPriorityFilter("normal");
+                  setCurrentPage(1);
+                }}>Normal</button>
               </li>
             </ul>
           </div>
@@ -514,7 +572,7 @@ export default function OutboundOrdersPage() {
 
       {/* Orders Table */}
       <DataTable
-        data={filteredOrders}
+        data={orders}
         columns={columns}
         keyExtractor={(order) => order.id}
         onRowClick={(order) => {
@@ -522,6 +580,18 @@ export default function OutboundOrdersPage() {
         }}
         actions={renderActions}
         emptyMessage="No orders found"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       {/* Create Outbound Order Modal */}

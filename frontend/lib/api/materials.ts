@@ -7,7 +7,13 @@ export interface Material {
   unitType?: string;
   storageType?: string;
   materialType?: string;
+  lengthCm?: number;
+  widthCm?: number;
+  heightCm?: number;
   weightKg?: number;
+  volumeCm3?: number;
+  palletSpaces?: number;
+  maxPalletWeightKg?: number;
   // ABC/FMS Classification for storage zone assignment
   abcClass?: string;      // A, B, C (volume-based)
   fmsClass?: string;      // F, M, S (frequency-based)
@@ -20,16 +26,53 @@ export interface ImportResponse {
   errors: string[];
 }
 
+export interface PagedMaterialsResponse {
+  data: Material[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const materialsApi = {
-  getAll: async (materialType?: string): Promise<Material[]> => {
+  getAll: async (materialType?: string, supplierId?: string): Promise<Material[]> => {
     const params = new URLSearchParams();
     if (materialType) params.append('materialType', materialType);
+    if (supplierId) params.append('supplierId', supplierId);
     const query = params.toString();
     return apiClient.get<Material[]>(`/master/materials${query ? `?${query}` : ''}`);
   },
 
   getById: async (id: string): Promise<Material> => {
     return apiClient.get<Material>(`/master/materials/${id}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    materialType,
+    supplierId,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    materialType?: string;
+    supplierId?: string;
+    q?: string;
+  }): Promise<PagedMaterialsResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (materialType) params.append("materialType", materialType);
+    if (supplierId) params.append("supplierId", supplierId);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedMaterialsResponse>(`/master/materials/paged?${params.toString()}`);
   },
 
   getByCode: async (materialCode: string): Promise<Material> => {
