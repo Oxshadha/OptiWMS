@@ -34,19 +34,24 @@ public class LocationSuggestionService {
     private final MaterialService materialService;
     private final AIServiceAdapter aiServiceAdapter;
     private final com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService;
+    private final PutawayCapacityPlanningService putawayCapacityPlanningService;
 
     public LocationSuggestionService(
             LocationService locationService,
             InventoryService inventoryService,
             MaterialService materialService,
             AIServiceAdapter aiServiceAdapter,
-            com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService) {
+            com.optiwms.coreapp.master.MaterialDefaultLocationService defaultLocationService,
+            PutawayCapacityPlanningService putawayCapacityPlanningService) {
         this.locationService = locationService;
         this.inventoryService = inventoryService;
         this.materialService = materialService;
         this.aiServiceAdapter = aiServiceAdapter;
         this.defaultLocationService = defaultLocationService;
+        this.putawayCapacityPlanningService = putawayCapacityPlanningService;
     }
+
+    private static final Set<String> BLOCKED_RACK_STATUSES = Set.of("reserved", "maintenance", "out_of_service");
 
     /**
      * Suggest putaway location for material
@@ -73,8 +78,9 @@ public class LocationSuggestionService {
                     Location location = locationService.findByLocationCode(defaultLoc.getLocationCode());
                     if (location != null
                         && warehouseId.equals(location.getWarehouseId())
-                        && Boolean.TRUE.equals(location.getIsActive()) && 
-                        ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
+                        && Boolean.TRUE.equals(location.getIsActive())
+                        && isRackStatusPutawayAllowed(location.getRackStatus())
+                        && ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
                         logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
                         return new LocationSuggestion(
                             defaultLoc.getLocationCode(),
@@ -134,6 +140,7 @@ public class LocationSuggestionService {
                     if (location != null
                         && warehouseId.equals(location.getWarehouseId())
                         && Boolean.TRUE.equals(location.getIsActive())
+                        && isRackStatusPutawayAllowed(location.getRackStatus())
                         && hasCapacity(location, quantity, materialId)) {
                         return new LocationSuggestion(
                             location.getLocationCode(),
@@ -166,6 +173,9 @@ public class LocationSuggestionService {
             .sorted(Comparator
                 .comparing((Location loc) -> isFastMoving ? getAccessibilityScore(loc) : 0)
                 .reversed()
+                .thenComparing((Location loc) -> isFastMoving
+                        ? (loc.getLevelNumber() != null ? loc.getLevelNumber() : Integer.MAX_VALUE)
+                        : -(loc.getLevelNumber() != null ? loc.getLevelNumber() : 0))
                 .thenComparing(Location::getLocationCode))
             .collect(Collectors.toList());
         
@@ -202,41 +212,35 @@ public class LocationSuggestionService {
      * Check if location has capacity for quantity
      */
     private boolean hasCapacity(Location location, Integer quantity, UUID materialId) {
-        // Get current inventory at location
-        List<InventoryItem> locationInventory = inventoryService.findByWarehouse(location.getWarehouseId())
-            .stream()
-            .filter(item -> location.getLocationCode().equals(item.getLocationCode()))
-            .collect(Collectors.toList());
-        
-        int currentQuantity = locationInventory.stream()
-            .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
-            .sum();
-        
-        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
-            int capacityUnits = location.getCapacity().intValue();
-            if ((currentQuantity + quantity) > capacityUnits) {
-                return false;
-            }
+        try {
+            var validation = putawayCapacityPlanningService.validateSingleLocation(
+                    location.getWarehouseId(),
+                    materialId,
+                    quantity,
+                    location.getLocationCode()
+            );
+            return validation.valid();
+        } catch (RuntimeException e) {
+            return false;
         }
-
-        boolean hasMaterialAlready = locationInventory.stream()
-            .anyMatch(item -> item.getMaterialId() != null && item.getMaterialId().equals(materialId));
-        if (location.getMaxPalletCapacity() != null && location.getCurrentPalletCount() != null) {
-            if (location.getCurrentPalletCount() >= location.getMaxPalletCapacity() && !hasMaterialAlready) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /**
      * Check if location is available (not reserved, not full)
      */
     private boolean isLocationAvailable(Location location) {
-        // Check if location is not reserved for other operations
-        // This can be enhanced with reservation system
-        return Boolean.TRUE.equals(location.getIsActive());
+        return Boolean.TRUE.equals(location.getIsActive()) && isRackStatusPutawayAllowed(location.getRackStatus());
+    }
+
+    private boolean isRackStatusPutawayAllowed(String rackStatus) {
+        if (rackStatus == null || rackStatus.isBlank()) {
+            return true;
+        }
+        String normalized = rackStatus.trim().toLowerCase(Locale.ROOT).replace('-', '_');
+        if ("outofservice".equals(normalized)) {
+            normalized = "out_of_service";
+        }
+        return !BLOCKED_RACK_STATUSES.contains(normalized);
     }
 
     /**

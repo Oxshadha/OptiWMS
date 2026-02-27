@@ -8,6 +8,8 @@ import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi } from "@/lib/api/materials";
+import { operationsApi } from "@/lib/api/operations";
+import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { statusConfig, type InboundOrderDisplay } from "../types";
@@ -210,6 +212,19 @@ export function CreateInboundOrderModal({
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+  const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
+  const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
+  const [capacityPlansByItem, setCapacityPlansByItem] = useState<
+    Map<number, {
+      feasible: boolean;
+      plannedQuantity: number;
+      requestedQuantity: number;
+      requiredPalletSlots?: number | null;
+      availablePalletSlots?: number | null;
+      unitsPerPallet?: string | null;
+      notes: string[];
+    }>
+  >(new Map());
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -224,24 +239,132 @@ export function CreateInboundOrderModal({
       expiryDate: string;
     }>,
   });
+  const hasInfeasibleCapacity = formData.items.some((_, idx) => {
+    const plan = capacityPlansByItem.get(idx);
+    return !!plan && !plan.feasible;
+  });
 
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [suppliersData, warehousesData, materialsData] = await Promise.all([
+        const [suppliersData, warehousesData] = await Promise.all([
           suppliersApi.getAll(),
           warehousesApi.getAll(),
-          materialsApi.getAll(),
         ]);
         setSuppliers(suppliersData);
         setWarehouses(warehousesData);
-        setMaterials(materialsData);
       } catch (err) {
-        logger.error("Failed to load data:", err);
+        logger.error("Failed to load suppliers/warehouses:", err);
       }
     };
     void loadData();
   }, []);
+
+  useEffect(() => {
+    const loadSupplierMaterials = async () => {
+      if (!formData.supplierId) {
+        setMaterials([]);
+        setSupplierHasMaterialLinks(true);
+        return;
+      }
+
+      try {
+        const supplierMaterials = await materialsApi.getAll(undefined, formData.supplierId);
+        if (supplierMaterials.length > 0) {
+          setSupplierHasMaterialLinks(true);
+          setMaterials(supplierMaterials);
+
+          // Keep only items still valid for the selected supplier.
+          setFormData((prev) => ({
+            ...prev,
+            items: prev.items.filter((item) =>
+              supplierMaterials.some((m) => m.id === item.productId)
+            ),
+          }));
+        } else {
+          // Legacy bootstrap path: allow initial material selection and create links on submit.
+          setSupplierHasMaterialLinks(false);
+          const allMaterials = await materialsApi.getAll();
+          setMaterials(allMaterials);
+        }
+      } catch (err) {
+        logger.error("Failed to load supplier materials:", err);
+        setSupplierHasMaterialLinks(true);
+        setMaterials([]);
+      }
+    };
+
+    void loadSupplierMaterials();
+  }, [formData.supplierId]);
+
+  useEffect(() => {
+    const runCapacityCheck = async () => {
+      if (step !== 3 || !formData.warehouseId || formData.items.length === 0) {
+        setCapacityPlansByItem(new Map());
+        setCapacityCheckLoading(false);
+        return;
+      }
+
+      setCapacityCheckLoading(true);
+      const resultMap = new Map<number, {
+        feasible: boolean;
+        plannedQuantity: number;
+        requestedQuantity: number;
+        requiredPalletSlots?: number | null;
+        availablePalletSlots?: number | null;
+        unitsPerPallet?: string | null;
+        notes: string[];
+      }>();
+
+      for (let idx = 0; idx < formData.items.length; idx += 1) {
+        const item = formData.items[idx];
+        if (!item.productId || !item.quantityOrdered || item.quantityOrdered <= 0) {
+          continue;
+        }
+        try {
+          let preferredLocationCode: string | undefined;
+          try {
+            const defaults = await materialDefaultLocationsApi.getDefaultLocations(item.productId, formData.warehouseId);
+            const primary = defaults.find((d) => d.priority === 1) || defaults[0];
+            preferredLocationCode = primary?.locationCode || undefined;
+          } catch {
+            preferredLocationCode = undefined;
+          }
+          const plan = await operationsApi.planPutawaySplit({
+            warehouseId: formData.warehouseId,
+            materialId: item.productId,
+            quantity: item.quantityOrdered,
+            preferredLocationCode,
+          });
+          resultMap.set(idx, {
+            feasible: !!plan.feasible,
+            plannedQuantity: plan.plannedQuantity,
+            requestedQuantity: plan.requestedQuantity,
+            requiredPalletSlots: plan.requiredPalletSlots,
+            availablePalletSlots: plan.availablePalletSlots,
+            unitsPerPallet: plan.unitsPerPallet,
+            notes: plan.notes || [],
+          });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : "Capacity check failed";
+          resultMap.set(idx, {
+            feasible: false,
+            plannedQuantity: 0,
+            requestedQuantity: item.quantityOrdered,
+            requiredPalletSlots: null,
+            availablePalletSlots: null,
+            unitsPerPallet: null,
+            notes: [msg],
+          });
+        }
+      }
+
+      setCapacityPlansByItem(resultMap);
+      setCapacityCheckLoading(false);
+    };
+
+    void runCapacityCheck();
+  }, [step, formData.warehouseId, formData.items]);
 
   const handleSubmit = async () => {
     try {
@@ -296,6 +419,15 @@ export function CreateInboundOrderModal({
         return;
       }
 
+      const infeasibleItems = formData.items.filter((_, idx) => {
+        const plan = capacityPlansByItem.get(idx);
+        return !!plan && !plan.feasible;
+      });
+      if (infeasibleItems.length > 0) {
+        setError("One or more items do not have enough storage capacity. Adjust quantities or locations before creating this order.");
+        return;
+      }
+
       const orderNumber = `PO-${Date.now()}`;
       const createdOrder = await ordersApi.create({
         orderNumber,
@@ -309,6 +441,16 @@ export function CreateInboundOrderModal({
         priority: "normal",
       });
 
+      // Bootstrap supplier-material links for suppliers that do not have mapping yet.
+      if (!supplierHasMaterialLinks) {
+        const uniqueMaterialIds = Array.from(
+          new Set(formData.items.map((item) => item.productId).filter(Boolean))
+        );
+        if (uniqueMaterialIds.length > 0) {
+          await suppliersApi.replaceMaterials(formData.supplierId, uniqueMaterialIds);
+        }
+      }
+
       const { orderItemsApi } = await import("@/lib/api/orderItems");
       try {
         await Promise.all(
@@ -317,6 +459,9 @@ export function CreateInboundOrderModal({
               materialId: item.productId,
               quantity: item.quantityOrdered,
               locationCode: undefined,
+              batchNumber: item.batchNumber || undefined,
+              manufactureDate: item.manufactureDate || undefined,
+              expiryDate: item.expiryDate || undefined,
             })
           )
         );
@@ -332,7 +477,7 @@ export function CreateInboundOrderModal({
       onClose();
     } catch (err) {
       logger.error("Failed to create inbound order:", err);
-      setError("Failed to create order. Please try again.");
+      setError(err instanceof Error ? err.message : "Failed to create order. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -382,7 +527,13 @@ export function CreateInboundOrderModal({
               <select
                 className="select select-bordered w-full"
                 value={formData.supplierId}
-                onChange={(e) => setFormData({ ...formData, supplierId: e.target.value })}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    supplierId: e.target.value,
+                    items: [],
+                  })
+                }
                 required
               >
                 <option value="">Select supplier</option>
@@ -464,6 +615,25 @@ export function CreateInboundOrderModal({
         {step === 2 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content mb-4">Add Items</h3>
+            {!formData.supplierId && (
+              <div className="alert alert-warning">
+                <span>Select a supplier first to load available materials.</span>
+              </div>
+            )}
+            {formData.supplierId && materials.length === 0 && (
+              <div className="alert alert-info">
+                <span>
+                  No materials are linked to this supplier yet. Add supplier-material links before creating the inbound order.
+                </span>
+              </div>
+            )}
+            {formData.supplierId && materials.length > 0 && !supplierHasMaterialLinks && (
+              <div className="alert alert-info">
+                <span>
+                  No supplier-material links exist yet. Selected items will initialize the supplier mapping.
+                </span>
+              </div>
+            )}
             <div className="space-y-4">
               {formData.items.map((item, idx) => (
                 <div key={idx} className="card bg-base-200 p-4 rounded-lg">
@@ -601,6 +771,7 @@ export function CreateInboundOrderModal({
               ))}
               <button
                 className="btn btn-outline btn-sm w-full"
+                disabled={!formData.supplierId || materials.length === 0}
                 onClick={() => {
                   setFormData({
                     ...formData,
@@ -665,11 +836,41 @@ export function CreateInboundOrderModal({
             <div className="space-y-2">
               <h4 className="font-semibold">Items:</h4>
               {formData.items.map((item, idx) => (
-                <div key={idx} className="flex justify-between text-sm">
-                  <span>Item {idx + 1}</span>
-                  <span>Qty: {item.quantityOrdered}</span>
+                <div key={idx} className="rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span>Item {idx + 1}</span>
+                    <span>Qty: {item.quantityOrdered}</span>
+                  </div>
+                  {capacityPlansByItem.get(idx) && (
+                    <div className="text-xs">
+                      {capacityPlansByItem.get(idx)?.feasible ? (
+                        <span className="text-success">
+                          Capacity OK ({capacityPlansByItem.get(idx)?.plannedQuantity}/{capacityPlansByItem.get(idx)?.requestedQuantity})
+                        </span>
+                      ) : (
+                        <span className="text-error">
+                          Capacity insufficient ({capacityPlansByItem.get(idx)?.plannedQuantity}/{capacityPlansByItem.get(idx)?.requestedQuantity})
+                          {capacityPlansByItem.get(idx)?.notes?.[0] ? ` - ${capacityPlansByItem.get(idx)?.notes?.[0]}` : ""}
+                        </span>
+                      )}
+                      {capacityPlansByItem.get(idx)?.requiredPalletSlots != null && (
+                        <div className="text-base-content/70 mt-1">
+                          Required pallet slots: {capacityPlansByItem.get(idx)?.requiredPalletSlots} | Available: {capacityPlansByItem.get(idx)?.availablePalletSlots ?? 0}
+                          {capacityPlansByItem.get(idx)?.unitsPerPallet
+                            ? ` | Units/Pallet: ${capacityPlansByItem.get(idx)?.unitsPerPallet}`
+                            : ""}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
+              {capacityCheckLoading && (
+                <div className="text-xs text-base-content/60 flex items-center gap-2">
+                  <span className="loading loading-spinner loading-xs"></span>
+                  Checking storage capacity...
+                </div>
+              )}
             </div>
             {error && (
               <div className="alert alert-error">
@@ -684,7 +885,7 @@ export function CreateInboundOrderModal({
               >
                 Back
               </button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>
                 {isSubmitting ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>

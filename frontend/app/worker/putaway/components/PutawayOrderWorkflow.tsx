@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { LocationPicker } from "@/components/LocationPicker";
+import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import { PutawayItem } from "@/lib/api/orderItems";
 import { ItemDetailsDisplay } from "./ItemDetailsDisplay";
 
@@ -107,6 +108,42 @@ export function PutawayOrderWorkflow({
               <div className="font-semibold">{currentItem.receivedQuantity} units</div>
               <div className="text-xs text-base-content/60">Remaining: {remainingQuantity} units</div>
             </div>
+            {!!currentItem.splitPlan && (
+              <div className="p-3 bg-base-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Suggested Putaway Plan</div>
+                  <div className={`text-xs ${currentItem.splitPlan.feasible ? "text-success" : "text-warning"}`}>
+                    {currentItem.splitPlan.feasible ? "Feasible" : "Partial"}
+                  </div>
+                </div>
+                <div className="text-xs text-base-content/60">
+                  Planned {currentItem.splitPlan.plannedQuantity}/{currentItem.splitPlan.requestedQuantity}
+                </div>
+                <div className="space-y-1">
+                  {currentItem.splitPlan.allocations.slice(0, 4).map((line) => (
+                    <button
+                      key={`${line.locationCode}-${line.allocatedQuantity}`}
+                      type="button"
+                      className="w-full text-left px-2 py-1 rounded border border-base-300 hover:border-primary"
+                      onClick={() => {
+                        onLocationChange(line.locationCode);
+                        onAllocationQuantityChange(line.allocatedQuantity);
+                      }}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono">{line.locationCode}</span>
+                        <span>Qty: {line.allocatedQuantity}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {currentItem.splitPlan.notes?.length > 0 && (
+                  <div className="text-xs text-base-content/60">
+                    {currentItem.splitPlan.notes[0]}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="form-control">
               <label className="label">
                 <span className="label-text font-medium">Putaway Quantity (this location)</span>
@@ -162,6 +199,11 @@ export function PutawayOrderWorkflow({
                 Use Suggested: {currentItem.suggestedLocation}
               </button>
             )}
+            <WorkerRouteGuide
+              warehouseId={warehouseId}
+              targetLocationCode={scannedLocation || currentItem.suggestedLocation}
+              operationType="putaway"
+            />
           </div>
 
           <button

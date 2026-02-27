@@ -20,6 +20,7 @@ public class Location {
     
     // Rack system fields
     private String rackStatus;
+    private String amalgamatedClass;
     private String description;
     private String notes;
     private Integer accessibilityRating;
@@ -28,6 +29,9 @@ public class Location {
     private BigDecimal coordinateZ;
     private Integer maxPalletCapacity;
     private Integer currentPalletCount;
+    private BigDecimal maxWeightKg;
+    private BigDecimal maxVolumeCm3;
+    private Integer maxLpnCount;
 
     // Getters and Setters
     public UUID getId() { return id; }
@@ -60,6 +64,8 @@ public class Location {
     // Rack system getters and setters
     public String getRackStatus() { return rackStatus; }
     public void setRackStatus(String rackStatus) { this.rackStatus = rackStatus; }
+    public String getAmalgamatedClass() { return amalgamatedClass; }
+    public void setAmalgamatedClass(String amalgamatedClass) { this.amalgamatedClass = amalgamatedClass; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
     public String getNotes() { return notes; }
@@ -76,5 +82,10 @@ public class Location {
     public void setMaxPalletCapacity(Integer maxPalletCapacity) { this.maxPalletCapacity = maxPalletCapacity; }
     public Integer getCurrentPalletCount() { return currentPalletCount; }
     public void setCurrentPalletCount(Integer currentPalletCount) { this.currentPalletCount = currentPalletCount; }
+    public BigDecimal getMaxWeightKg() { return maxWeightKg; }
+    public void setMaxWeightKg(BigDecimal maxWeightKg) { this.maxWeightKg = maxWeightKg; }
+    public BigDecimal getMaxVolumeCm3() { return maxVolumeCm3; }
+    public void setMaxVolumeCm3(BigDecimal maxVolumeCm3) { this.maxVolumeCm3 = maxVolumeCm3; }
+    public Integer getMaxLpnCount() { return maxLpnCount; }
+    public void setMaxLpnCount(Integer maxLpnCount) { this.maxLpnCount = maxLpnCount; }
 }
-

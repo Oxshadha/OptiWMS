@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -33,6 +34,21 @@ function getTaskPriorityTone(priority: string): StatusTone {
   return "neutral";
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString();
+}
+
+function getDurationMinutes(startedAt?: string | null, completedAt?: string | null): number | null {
+  if (!startedAt || !completedAt) return null;
+  const start = new Date(startedAt);
+  const end = new Date(completedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / (1000 * 60)));
+}
+
 export default function TasksPage() {
   const { hasPermission, admin, role } = useAdmin();
   const isWarehouseManager = role === "warehouse_manager";
@@ -43,24 +59,43 @@ export default function TasksPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [, setShowCancelModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskDisplay | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   
   // API state
   const [tasks, setTasks] = useState<TaskDisplay[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Load data from API
   const loadData = async () => {
     try {
-      setIsLoading(true);
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
       setError(null);
 
         // Load tasks, users, and warehouses in parallel
-        const [tasksData, usersData, warehousesData] = await Promise.all([
-          tasksApi.getAll(),
+        const [tasksPage, usersData, warehousesData] = await Promise.all([
+          tasksApi.getPaged({
+            page: currentPage - 1,
+            size: itemsPerPage,
+            sortBy: "createdAt",
+            sortDir: "desc",
+            taskType: typeFilter === "all" ? undefined : typeFilter,
+            status: statusFilter === "all" ? undefined : statusFilter,
+            warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+            q: searchQuery.trim() || undefined,
+          }),
           usersApi.getAll(),
           warehousesApi.getAll(),
         ]);
@@ -77,7 +112,7 @@ export default function TasksPage() {
         });
 
       // Transform tasks to display format
-      const displayTasks: TaskDisplay[] = tasksData.map((task) => {
+      const displayTasks: TaskDisplay[] = tasksPage.data.map((task) => {
         const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
         const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
         
@@ -87,13 +122,7 @@ export default function TasksPage() {
         if (status === "completed") status = "completed";
         if (status === "cancelled") status = "cancelled";
 
-        // Calculate duration if completed
-        let duration: number | null = null;
-        if (task.completedAt && task.dueDate) {
-          const start = new Date(task.dueDate);
-          const end = new Date(task.completedAt);
-          duration = Math.round((end.getTime() - start.getTime()) / (1000 * 60)); // minutes
-        }
+        const duration = getDurationMinutes(task.startedAt, task.completedAt);
 
         const notePairs = new Map<string, string>();
         (task.notes || "")
@@ -129,7 +158,7 @@ export default function TasksPage() {
           priority: task.priority || "normal",
           status,
           assignedDate: task.dueDate || new Date().toISOString(),
-          startedAt: task.dueDate || null,
+          startedAt: task.startedAt || null,
           completedAt: task.completedAt || null,
           duration,
           locationCode: task.locationCode || null,
@@ -141,54 +170,40 @@ export default function TasksPage() {
       });
 
       setTasks(displayTasks);
+      setTotalItems(tasksPage.totalElements);
+      setTotalPages(Math.max(tasksPage.totalPages, 1));
+      setHasLoadedOnce(true);
     } catch (err) {
       logger.error("Failed to load tasks:", err);
       setError("Failed to load tasks. Please try again.");
     } finally {
       setIsLoading(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+  }, [currentPage, itemsPerPage, typeFilter, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
-  // Filter tasks by warehouse for warehouse managers
-  const tasksForWarehouse = isWarehouseManager && assignedWarehouseId
-    ? tasks.filter((t) => t.warehouseId === assignedWarehouseId)
-    : tasks;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const availableTaskTypes = Object.entries(taskTypeConfig);
 
   // Calculate summary from tasks
   const today = new Date().toISOString().split("T")[0];
   const summary = {
-    totalTasksToday: tasksForWarehouse.filter((t) => t.assignedDate.includes(today)).length,
-    pending: tasksForWarehouse.filter((t) => t.status === "assigned" || t.status === "pending").length,
-    inProgress: tasksForWarehouse.filter((t) => t.status === "in_progress").length,
-    completedToday: tasksForWarehouse.filter((t) => t.status === "completed" && t.assignedDate.includes(today)).length,
+    totalTasksToday: tasks.filter((t) => t.assignedDate.includes(today)).length,
+    pending: tasks.filter((t) => t.status === "assigned" || t.status === "pending").length,
+    inProgress: tasks.filter((t) => t.status === "in_progress").length,
+    completedToday: tasks.filter((t) => t.status === "completed" && (t.completedAt || "").includes(today)).length,
   };
-
-  const filteredTasks = tasksForWarehouse.filter((task) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesSearch =
-      !query ||
-      task.taskNumber.toLowerCase().includes(query) ||
-      task.workerName.toLowerCase().includes(query) ||
-      task.warehouseName.toLowerCase().includes(query) ||
-      task.taskType.toLowerCase().includes(query) ||
-      task.priority.toLowerCase().includes(query) ||
-      task.status.toLowerCase().includes(query) ||
-      (task.details && task.details.toLowerCase().includes(query)) ||
-      (task.notes && task.notes.toLowerCase().includes(query)) ||
-      (task.referenceId && task.referenceId.toLowerCase().includes(query)) ||
-      task.assignedDate.toLowerCase().includes(query) ||
-      (task.startedAt && task.startedAt.toLowerCase().includes(query)) ||
-      (task.completedAt && task.completedAt.toLowerCase().includes(query)) ||
-      (task.duration && task.duration.toString().includes(query));
-    const matchesType = typeFilter === "all" || task.taskType === typeFilter;
-    const matchesStatus =
-      statusFilter === "all" || task.status === statusFilter;
-    return matchesSearch && matchesType && matchesStatus;
-  });
 
   const summaryCards = [
     {
@@ -331,7 +346,21 @@ export default function TasksPage() {
     {
       key: "assignedDate",
       label: "Assigned Date",
-      render: (task: TaskDisplay) => task.assignedDate.split(" ")[0],
+      render: (task: TaskDisplay) => formatDateTime(task.assignedDate),
+      className: "text-base-content/70",
+      sortable: true,
+    },
+    {
+      key: "startedAt",
+      label: "Started At",
+      render: (task: TaskDisplay) => formatDateTime(task.startedAt),
+      className: "text-base-content/70",
+      sortable: true,
+    },
+    {
+      key: "completedAt",
+      label: "Completed At",
+      render: (task: TaskDisplay) => formatDateTime(task.completedAt),
       className: "text-base-content/70",
       sortable: true,
     },
@@ -339,7 +368,7 @@ export default function TasksPage() {
       key: "duration",
       label: "Duration",
       render: (task: TaskDisplay) =>
-        task.duration ? `${task.duration} min` : "-",
+        task.duration !== null ? `${task.duration} min` : "-",
       sortable: true,
     },
   ];
@@ -351,7 +380,7 @@ export default function TasksPage() {
       </label>
       <ul
         tabIndex={0}
-        className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-10"
+        className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-52 border border-base-300 z-[80]"
       >
         <li>
           <Link href={`/admin/tasks/${task.id}`}>
@@ -411,13 +440,21 @@ export default function TasksPage() {
           </p>
         </div>
         <div className="flex gap-3">
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
           <div className="form-control">
             <input
               type="text"
               placeholder="Search tasks..."
               className="input input-bordered input-sm w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+              }}
             />
           </div>
           <div className="dropdown dropdown-end">
@@ -427,51 +464,72 @@ export default function TasksPage() {
             </label>
             <ul
               tabIndex={0}
-              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300 z-10"
+              className="dropdown-content menu p-2 shadow-lg bg-base-100 rounded-box w-64 border border-base-300 z-[80]"
             >
               <li className="menu-title">Task Type</li>
               <li>
-                <button onClick={() => setTypeFilter("all")}>All Types</button>
+                <button onClick={() => {
+                  setTypeFilter("all");
+                  setCurrentPage(1);
+                }}>All Types</button>
               </li>
-              <li>
-                <button onClick={() => setTypeFilter("receiving")}>
-                  Receiving
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("picking")}>
-                  Picking
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("putaway")}>
-                  Putaway
-                </button>
-              </li>
-              <li>
-                <button onClick={() => setTypeFilter("cycle_count")}>
-                  Cycle Count
-                </button>
-              </li>
+              {availableTaskTypes.map(([taskType, typeInfo]) => (
+                <li key={taskType}>
+                  <button onClick={() => {
+                    setTypeFilter(taskType);
+                    setCurrentPage(1);
+                  }}>
+                    {typeInfo.label}
+                  </button>
+                </li>
+              ))}
               <li className="menu-title mt-2">Status</li>
               <li>
-                <button onClick={() => setStatusFilter("all")}>
+                <button onClick={() => {
+                  setStatusFilter("all");
+                  setCurrentPage(1);
+                }}>
                   All Status
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("pending")}>
+                <button onClick={() => {
+                  setStatusFilter("assigned");
+                  setCurrentPage(1);
+                }}>
+                  Assigned
+                </button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setStatusFilter("pending");
+                  setCurrentPage(1);
+                }}>
                   Pending
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("in_progress")}>
+                <button onClick={() => {
+                  setStatusFilter("in_progress");
+                  setCurrentPage(1);
+                }}>
                   In Progress
                 </button>
               </li>
               <li>
-                <button onClick={() => setStatusFilter("completed")}>
+                <button onClick={() => {
+                  setStatusFilter("completed");
+                  setCurrentPage(1);
+                }}>
                   Completed
+                </button>
+              </li>
+              <li>
+                <button onClick={() => {
+                  setStatusFilter("cancelled");
+                  setCurrentPage(1);
+                }}>
+                  Cancelled
                 </button>
               </li>
             </ul>
@@ -491,7 +549,7 @@ export default function TasksPage() {
 
       {/* Tasks Table */}
       <DataTable
-        data={filteredTasks}
+        data={tasks}
         columns={columns}
         keyExtractor={(task) => task.id}
         onRowClick={(task) => {
@@ -500,6 +558,18 @@ export default function TasksPage() {
         }}
         actions={renderActions}
         emptyMessage="No tasks found"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       {/* Create Task Modal */}

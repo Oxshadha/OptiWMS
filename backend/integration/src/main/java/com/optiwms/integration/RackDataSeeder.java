@@ -30,7 +30,7 @@ import java.util.UUID;
  */
 @Component
 @Order(20) // Run after warehouse seeding
-@ConditionalOnProperty(name = "optiwms.seed.racks", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(name = "optiwms.seed.racks", havingValue = "true", matchIfMissing = false)
 public class RackDataSeeder implements CommandLineRunner {
 
     private final LocationRepository locationRepository;

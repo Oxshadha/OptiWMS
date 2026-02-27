@@ -12,6 +12,10 @@ import com.optiwms.infra.operations.StockTransferLineEventEntity;
 import com.optiwms.infra.operations.StockTransferLineEventRepository;
 import com.optiwms.infra.operations.StockTransferLineRepository;
 import com.optiwms.infra.operations.StockTransferRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,6 +64,42 @@ public class StockTransferService {
         return repository.findByStatus(status).stream()
                 .map(this::toDomainWithLines)
                 .collect(Collectors.toList());
+    }
+
+    public Page<StockTransfer> findPaged(
+            UUID warehouseId,
+            String status,
+            String transferType,
+            String query,
+            Pageable pageable
+    ) {
+        Specification<StockTransferEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (warehouseId != null) {
+                predicates.add(cb.or(
+                        cb.equal(root.get("sourceWarehouseId"), warehouseId),
+                        cb.equal(root.get("destWarehouseId"), warehouseId)
+                ));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (transferType != null && !transferType.isBlank()) {
+                predicates.add(cb.equal(root.get("transferType"), transferType));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("transferNumber")), pattern),
+                        cb.like(cb.lower(root.get("sourceLocationCode")), pattern),
+                        cb.like(cb.lower(root.get("destLocationCode")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("notes")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomainWithLines);
     }
 
     public StockTransfer findById(UUID id) {

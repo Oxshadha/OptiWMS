@@ -19,6 +19,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class MaterialDefaultLocationService {
+    private static final java.util.Set<String> BLOCKED_RACK_STATUSES = java.util.Set.of(
+            "reserved", "maintenance", "out_of_service");
 
     private final MaterialDefaultLocationRepository repository;
     private final MaterialService materialService;
@@ -50,7 +52,7 @@ public class MaterialDefaultLocationService {
             String materialType) {
 
         // Verify material exists
-        materialService.findById(materialId);
+        Material material = materialService.findById(materialId);
 
         // Verify location exists and is a storage location (not
         // staging/receiving/shipment/packing)
@@ -68,6 +70,33 @@ public class MaterialDefaultLocationService {
                     + location.getLocationType());
         }
 
+        if (!Boolean.TRUE.equals(location.getIsActive())) {
+            throw new RuntimeException("Cannot assign inactive location as default: " + locationCode);
+        }
+
+        String rackStatus = normalize(location.getRackStatus(), "active");
+        if (BLOCKED_RACK_STATUSES.contains(rackStatus)) {
+            throw new RuntimeException("Cannot assign blocked rack status location as default: " + locationCode);
+        }
+
+        validateMaterialStorageCompatibility(material, locationCode, location.getLocationType());
+
+        Integer resolvedPriority = priority != null ? priority : 1;
+        if (resolvedPriority <= 0) {
+            throw new RuntimeException("Priority must be >= 1");
+        }
+
+        // Keep one primary material per location per warehouse to avoid ambiguous putaway defaults.
+        if (resolvedPriority == 1) {
+            var existingPrimary = repository.findByWarehouseIdAndLocationCodeAndPriority(warehouseId, locationCode, 1);
+            for (MaterialDefaultLocationEntity existing : existingPrimary) {
+                if (!existing.getMaterialId().equals(materialId)) {
+                    throw new RuntimeException(
+                            "Location " + locationCode + " is already primary for another material. Use a different primary bin or lower priority.");
+                }
+            }
+        }
+
         MaterialDefaultLocationEntity entity = repository
                 .findByMaterialIdAndWarehouseIdAndLocationCode(materialId, warehouseId, locationCode)
                 .orElse(new MaterialDefaultLocationEntity());
@@ -75,7 +104,7 @@ public class MaterialDefaultLocationService {
         entity.setMaterialId(materialId);
         entity.setWarehouseId(warehouseId);
         entity.setLocationCode(locationCode);
-        entity.setPriority(priority != null ? priority : 1);
+        entity.setPriority(resolvedPriority);
         entity.setMaterialType(materialType);
 
         MaterialDefaultLocationEntity saved = repository.save(entity);
@@ -93,6 +122,26 @@ public class MaterialDefaultLocationService {
         }
 
         return toDomain(saved);
+    }
+
+    private void validateMaterialStorageCompatibility(Material material, String locationCode, String locationTypeRaw) {
+        String storageType = normalize(material.getStorageType(), "pallet");
+        String locationType = normalize(locationTypeRaw, "storage");
+        boolean locationIsBulk = "bulk".equals(locationType);
+        if ("bulk".equals(storageType) && !locationIsBulk) {
+            throw new RuntimeException("Bulk material must use a bulk location. Location " + locationCode
+                    + " is type '" + locationType + "'");
+        }
+        if (!"bulk".equals(storageType) && locationIsBulk) {
+            throw new RuntimeException("Non-bulk material cannot use bulk location " + locationCode);
+        }
+    }
+
+    private String normalize(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.trim().toLowerCase();
     }
 
     /**

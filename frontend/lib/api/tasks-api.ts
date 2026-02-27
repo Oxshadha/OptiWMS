@@ -9,6 +9,7 @@ export interface Task {
   priority: string;
   status: string;
   dueDate?: string;
+  startedAt?: string;
   completedAt?: string;
   locationCode?: string;
   referenceType?: string;
@@ -36,6 +37,14 @@ export interface AssignTaskRequest {
   warnings?: string[];
 }
 
+export interface PagedTasksResponse {
+  data: Task[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const tasksApi = {
   getAll: async (
     taskType?: string, 
@@ -52,6 +61,43 @@ export const tasksApi = {
     if (availableOnly) params.append('availableOnly', 'true');
     const query = params.toString();
     return apiClient.get<Task[]>(`/tasks${query ? `?${query}` : ''}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = 'createdAt',
+    sortDir = 'desc',
+    taskType,
+    status,
+    assignedTo,
+    warehouseId,
+    availableOnly,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: 'asc' | 'desc';
+    taskType?: string;
+    status?: string;
+    assignedTo?: string;
+    warehouseId?: string;
+    availableOnly?: boolean;
+    q?: string;
+  }): Promise<PagedTasksResponse> => {
+    const params = new URLSearchParams();
+    params.append('page', String(page));
+    params.append('size', String(size));
+    params.append('sortBy', sortBy);
+    params.append('sortDir', sortDir);
+    if (taskType) params.append('taskType', taskType);
+    if (status) params.append('status', status);
+    if (assignedTo) params.append('assignedTo', assignedTo);
+    if (warehouseId) params.append('warehouseId', warehouseId);
+    if (availableOnly) params.append('availableOnly', 'true');
+    if (q && q.trim()) params.append('q', q.trim());
+    return apiClient.get<PagedTasksResponse>(`/tasks/paged?${params.toString()}`);
   },
 
   getById: async (id: string): Promise<Task> => {

@@ -6,6 +6,85 @@ import { materialsApi, type Material } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
+const HANDLING_UNITS = [
+  { value: "bag", label: "Bag" },
+  { value: "drum", label: "Drum" },
+  { value: "reel", label: "Reel" },
+  { value: "bucket", label: "Bucket" },
+  { value: "pallet", label: "Pallet" },
+  { value: "pcs", label: "Pieces" },
+];
+
+const inferStorageType = (unitType?: string) => {
+  const unit = (unitType || "").toLowerCase();
+  if (unit === "drum" || unit === "bucket") return "bulk";
+  if (unit === "reel") return "rack";
+  return "pallet";
+};
+
+const parsePositive = (value: string) => {
+  if (!value || !value.trim()) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  return parsed;
+};
+
+const isInvalidPositiveInput = (value: string) => {
+  if (!value || !value.trim()) return false;
+  const parsed = Number(value);
+  return !Number.isFinite(parsed) || parsed <= 0;
+};
+
+const validateMaterialForm = (formData: {
+  materialCode: string;
+  description: string;
+  unitType: string;
+  storageType: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightKg: string;
+  volumeCm3: string;
+  palletSpaces: string;
+  maxPalletWeightKg: string;
+}) => {
+  if (!formData.materialCode.trim() || !formData.description.trim()) {
+    return "Product code and description are required";
+  }
+
+  const weightKg = parsePositive(formData.weightKg);
+  if (isInvalidPositiveInput(formData.weightKg)) return "Unit weight (kg) must be greater than 0";
+  if (weightKg === undefined) return "Unit weight (kg) is required";
+
+  const lengthCm = parsePositive(formData.lengthCm);
+  if (isInvalidPositiveInput(formData.lengthCm)) return "Length (cm) must be greater than 0";
+  const widthCm = parsePositive(formData.widthCm);
+  if (isInvalidPositiveInput(formData.widthCm)) return "Width (cm) must be greater than 0";
+  const heightCm = parsePositive(formData.heightCm);
+  if (isInvalidPositiveInput(formData.heightCm)) return "Height (cm) must be greater than 0";
+
+  const volumeCm3 = parsePositive(formData.volumeCm3);
+  if (isInvalidPositiveInput(formData.volumeCm3)) return "Unit volume (cm3) must be greater than 0";
+  const hasCompleteDims = lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined;
+  if (volumeCm3 === undefined && !hasCompleteDims) {
+    return "Provide unit volume (cm3) or complete dimensions (L/W/H)";
+  }
+
+  if (formData.storageType === "pallet") {
+    const unitsPerPallet = parsePositive(formData.palletSpaces);
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
+    if (unitsPerPallet === undefined) return "Units per pallet is required for pallet storage";
+    const maxPalletWeightKg = parsePositive(formData.maxPalletWeightKg);
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
+    if (maxPalletWeightKg === undefined) return "Max pallet weight is required for pallet storage";
+  } else {
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
+  }
+
+  return null;
+};
+
 export function CreateMaterialModal({
   isOpen,
   onClose,
@@ -21,17 +100,33 @@ export function CreateMaterialModal({
     materialCode: "",
     description: "",
     materialType: "raw_material" as string,
-    unitType: "",
+    unitType: "bag",
     storageType: "pallet",
+    lengthCm: "",
+    widthCm: "",
+    heightCm: "",
     weightKg: "",
+    volumeCm3: "",
+    palletSpaces: "",
+    maxPalletWeightKg: "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!formData.materialCode.trim() || !formData.description.trim()) {
-      showToast.error("Product code and description are required");
+    const validationError = validateMaterialForm(formData);
+    if (validationError) {
+      showToast.error(validationError);
       return;
     }
+
+    const lengthCm = parsePositive(formData.lengthCm);
+    const widthCm = parsePositive(formData.widthCm);
+    const heightCm = parsePositive(formData.heightCm);
+    const computedVolume =
+      lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined
+        ? Number((lengthCm * widthCm * heightCm).toFixed(2))
+        : undefined;
+    const volumeCm3 = parsePositive(formData.volumeCm3) ?? computedVolume;
 
     await onSubmit({
       materialCode: formData.materialCode.trim(),
@@ -39,7 +134,13 @@ export function CreateMaterialModal({
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
-      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
+      lengthCm,
+      widthCm,
+      heightCm,
+      weightKg: parsePositive(formData.weightKg),
+      volumeCm3,
+      palletSpaces: parsePositive(formData.palletSpaces),
+      maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
     });
   };
 
@@ -93,16 +194,26 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
+              <span className="label-text font-medium">Handling Unit Type</span>
             </label>
-            <input
-              type="text"
-              className="input input-bordered"
-              placeholder="e.g., kg, pcs, pallet"
+            <select
+              className="select select-bordered"
               value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  unitType: e.target.value,
+                  storageType: inferStorageType(e.target.value),
+                })
+              }
               disabled={isLoading}
-            />
+            >
+              {HANDLING_UNITS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-control">
@@ -118,29 +229,130 @@ export function CreateMaterialModal({
               <option value="pallet">Pallet</option>
               <option value="bulk">Bulk</option>
               <option value="loose">Loose</option>
+              <option value="rack">Rack</option>
               <option value="cold">Cold Storage</option>
             </select>
           </div>
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Unit Weight (kg)</span>
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            min="0"
-            className="input input-bordered"
-            placeholder="e.g., 0.250"
-            value={formData.weightKg}
-            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-            disabled={isLoading}
-          />
-          <label className="label">
-            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
-          </label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+              {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 50"
+              value={formData.palletSpaces}
+              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+              {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 1500"
+              value={formData.maxPalletWeightKg}
+              onChange={(e) => setFormData({ ...formData, maxPalletWeightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+              <span className="label-text-alt text-error">Required</span>
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 0.250"
+              value={formData.weightKg}
+              onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Volume (cm3)</span>
+              <span className="label-text-alt">or provide L/W/H</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 1200"
+              value={formData.volumeCm3}
+              onChange={(e) => setFormData({ ...formData, volumeCm3: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Length (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.lengthCm}
+              onChange={(e) => setFormData({ ...formData, lengthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Width (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.widthCm}
+              onChange={(e) => setFormData({ ...formData, widthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Height (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.heightCm}
+              onChange={(e) => setFormData({ ...formData, heightCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <label className="label">
+          <span className="label-text-alt">Used for putaway split and bin capacity checks.</span>
+        </label>
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>
@@ -172,9 +384,16 @@ export function EditMaterialModal({
     materialCode: material.materialCode,
     description: material.description || "",
     materialType: material.materialType || "raw_material",
-    unitType: material.unitType || "",
+    unitType: material.unitType || "bag",
     storageType: material.storageType || "pallet",
+    lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
+    widthCm: material.widthCm != null ? String(material.widthCm) : "",
+    heightCm: material.heightCm != null ? String(material.heightCm) : "",
     weightKg: material.weightKg != null ? String(material.weightKg) : "",
+    volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
+    palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+    maxPalletWeightKg:
+      material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
   });
 
   useEffect(() => {
@@ -182,21 +401,49 @@ export function EditMaterialModal({
       materialCode: material.materialCode,
       description: material.description || "",
       materialType: material.materialType || "raw_material",
-      unitType: material.unitType || "",
+      unitType: material.unitType || "bag",
       storageType: material.storageType || "pallet",
+      lengthCm: material.lengthCm != null ? String(material.lengthCm) : "",
+      widthCm: material.widthCm != null ? String(material.widthCm) : "",
+      heightCm: material.heightCm != null ? String(material.heightCm) : "",
       weightKg: material.weightKg != null ? String(material.weightKg) : "",
+      volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
+      palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+      maxPalletWeightKg:
+        material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
     });
   }, [material]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    const validationError = validateMaterialForm(formData);
+    if (validationError) {
+      showToast.error(validationError);
+      return;
+    }
+
+    const lengthCm = parsePositive(formData.lengthCm);
+    const widthCm = parsePositive(formData.widthCm);
+    const heightCm = parsePositive(formData.heightCm);
+    const computedVolume =
+      lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined
+        ? Number((lengthCm * widthCm * heightCm).toFixed(2))
+        : undefined;
+    const volumeCm3 = parsePositive(formData.volumeCm3) ?? computedVolume;
+
     await onSubmit(material.id, {
       materialCode: formData.materialCode.trim(),
       description: formData.description.trim(),
       materialType: formData.materialType || undefined,
       unitType: formData.unitType || undefined,
       storageType: formData.storageType || undefined,
-      weightKg: formData.weightKg ? Number(formData.weightKg) : undefined,
+      lengthCm,
+      widthCm,
+      heightCm,
+      weightKg: parsePositive(formData.weightKg),
+      volumeCm3,
+      palletSpaces: parsePositive(formData.palletSpaces),
+      maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
     });
   };
 
@@ -250,15 +497,26 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Type</span>
+              <span className="label-text font-medium">Handling Unit Type</span>
             </label>
-            <input
-              type="text"
-              className="input input-bordered"
+            <select
+              className="select select-bordered"
               value={formData.unitType}
-              onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  unitType: e.target.value,
+                  storageType: inferStorageType(e.target.value),
+                })
+              }
               disabled={isLoading}
-            />
+            >
+              {HANDLING_UNITS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="form-control">
@@ -274,28 +532,122 @@ export function EditMaterialModal({
               <option value="pallet">Pallet</option>
               <option value="bulk">Bulk</option>
               <option value="loose">Loose</option>
+              <option value="rack">Rack</option>
               <option value="cold">Cold Storage</option>
             </select>
           </div>
         </div>
 
-        <div className="form-control">
-          <label className="label">
-            <span className="label-text font-medium">Unit Weight (kg)</span>
-          </label>
-          <input
-            type="number"
-            step="0.001"
-            min="0"
-            className="input input-bordered"
-            value={formData.weightKg}
-            onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-            disabled={isLoading}
-          />
-          <label className="label">
-            <span className="label-text-alt">Used for receiving weight validation when unit type is not kg.</span>
-          </label>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.palletSpaces}
+              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.maxPalletWeightKg}
+              onChange={(e) => setFormData({ ...formData, maxPalletWeightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Weight (kg)</span>
+            </label>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              className="input input-bordered"
+              value={formData.weightKg}
+              onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Unit Volume (cm3)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.volumeCm3}
+              onChange={(e) => setFormData({ ...formData, volumeCm3: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Length (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.lengthCm}
+              onChange={(e) => setFormData({ ...formData, lengthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Width (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.widthCm}
+              onChange={(e) => setFormData({ ...formData, widthCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Height (cm)</span>
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered"
+              value={formData.heightCm}
+              onChange={(e) => setFormData({ ...formData, heightCm: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+        </div>
+
+        <label className="label">
+          <span className="label-text-alt">Used for putaway split and bin capacity checks.</span>
+        </label>
 
         <div className="flex justify-end gap-3 pt-4">
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={isLoading}>

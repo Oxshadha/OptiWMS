@@ -3,12 +3,17 @@ package com.optiwms.coreapp.anomalies;
 import com.optiwms.domain.anomalies.Anomaly;
 import com.optiwms.infra.anomalies.AnomalyEntity;
 import com.optiwms.infra.anomalies.AnomalyRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -43,6 +48,52 @@ public class AnomalyService {
         return repository.findBySeverity(severity).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    public Page<Anomaly> findPaged(
+            UUID warehouseId,
+            String status,
+            String severity,
+            String domain,
+            String query,
+            Pageable pageable
+    ) {
+        Specification<AnomalyEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (severity != null && !severity.isBlank()) {
+                predicates.add(cb.equal(root.get("severity"), severity));
+            }
+            if (domain != null && !domain.isBlank()) {
+                String d = domain.toLowerCase();
+                if ("cycle_count".equals(d)) {
+                    predicates.add(cb.like(cb.upper(root.get("anomalyType")), "%CYCLE_COUNT%"));
+                } else if ("picking".equals(d)) {
+                    predicates.add(cb.like(cb.upper(root.get("anomalyType")), "%PICKING%"));
+                } else if ("other".equals(d)) {
+                    predicates.add(cb.and(
+                            cb.notLike(cb.upper(root.get("anomalyType")), "%CYCLE_COUNT%"),
+                            cb.notLike(cb.upper(root.get("anomalyType")), "%PICKING%")
+                    ));
+                }
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("anomalyType")), pattern),
+                        cb.like(cb.lower(root.get("severity")), pattern),
+                        cb.like(cb.lower(root.get("description")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public Anomaly findById(UUID id) {

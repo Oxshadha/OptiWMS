@@ -41,7 +41,9 @@ public class ReceivingController {
                     .map(item -> new ReceivingService.ReceivedItem(
                             UUID.fromString(item.materialId()),
                             new BigDecimal(item.quantity()),
-                            item.locationCode()
+                            item.locationCode(),
+                            item.batchNumber(),
+                            item.expiryDate()
                     ))
                     .toList();
 
@@ -72,7 +74,9 @@ public class ReceivingController {
                     .map(item -> new ReceivingService.ReceivedItem(
                             UUID.fromString(item.materialId()),
                             new BigDecimal(item.quantity()),
-                            item.locationCode()
+                            item.locationCode(),
+                            item.batchNumber(),
+                            item.expiryDate()
                     ))
                     .toList();
 
@@ -115,7 +119,9 @@ public class ReceivingController {
     public record ReceivedItemDto(
             String materialId,
             String quantity,
-            String locationCode
+            String locationCode,
+            String batchNumber,
+            java.time.LocalDate expiryDate
     ) {}
 
     public record ReceivingResponse(
@@ -124,4 +130,3 @@ public class ReceivingController {
             String orderId
     ) {}
 }
-

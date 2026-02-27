@@ -86,9 +86,11 @@ public class AnalyticsService {
 
             if ("completed".equals(task.getStatus()) && task.getCompletedAt() != null) {
                 metrics.completedTasks++;
-                if (task.getCreatedAt() != null && task.getCompletedAt() != null) {
-                    long minutes = ChronoUnit.MINUTES.between(task.getCreatedAt(), task.getCompletedAt());
-                    metrics.totalTimeMinutes += minutes;
+                if (task.getStartedAt() != null) {
+                    long minutes = ChronoUnit.MINUTES.between(task.getStartedAt(), task.getCompletedAt());
+                    if (minutes > 0) {
+                        metrics.totalTimeMinutes += minutes;
+                    }
                 }
             }
         }

@@ -86,12 +86,6 @@ export function InventoryItemDetailModal({
               <p className="font-semibold">{item.name}</p>
             </div>
             <div>
-              <label className="text-sm text-base-content/60">Category</label>
-              <p>
-                <StatusChip label={item.category} tone="neutral" />
-              </p>
-            </div>
-            <div>
               <label className="text-sm text-base-content/60">Type</label>
               <p>
                 {(() => {
@@ -107,11 +101,26 @@ export function InventoryItemDetailModal({
             <div>
               <label className="text-sm text-base-content/60">Location</label>
               <p className="font-semibold">{item.location}</p>
+              {item.locations && item.locations.length > 1 && (
+                <p className="text-xs text-base-content/60 mt-1">
+                  Also in: {item.locations.slice(1).join(", ")}
+                </p>
+              )}
             </div>
             <div>
               <label className="text-sm text-base-content/60">Status</label>
               <p>
                 <StatusChip label={item.status} tone={inventoryStatusTone(item.status)} showDot />
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Nearest Expiry</label>
+              <p className="font-semibold">{item.nearestExpiryDate || "N/A"}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Batch / Lot</label>
+              <p className="font-semibold">
+                {item.batches && item.batches.length > 0 ? item.batches.join(", ") : "N/A"}
               </p>
             </div>
           </div>

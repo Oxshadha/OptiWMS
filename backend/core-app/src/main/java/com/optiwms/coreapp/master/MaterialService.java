@@ -2,29 +2,44 @@ package com.optiwms.coreapp.master;
 
 import com.optiwms.domain.master.Material;
 import com.optiwms.infra.master.MaterialEntity;
+import com.optiwms.infra.master.MaterialDefaultLocationRepository;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.orders.OrderItemRepository;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class MaterialService {
+    private static final List<String> ALLOWED_STORAGE_TYPES = List.of("pallet", "bulk", "loose", "rack", "cold");
+    private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs", "unit");
 
     private final MaterialRepository repository;
+    private final MaterialDefaultLocationRepository materialDefaultLocationRepository;
     private final OrderItemRepository orderItemRepository;
     private final InventoryItemRepository inventoryItemRepository;
 
     public MaterialService(
             MaterialRepository repository,
+            MaterialDefaultLocationRepository materialDefaultLocationRepository,
             OrderItemRepository orderItemRepository,
             InventoryItemRepository inventoryItemRepository) {
         this.repository = repository;
+        this.materialDefaultLocationRepository = materialDefaultLocationRepository;
         this.orderItemRepository = orderItemRepository;
         this.inventoryItemRepository = inventoryItemRepository;
     }
@@ -96,8 +111,74 @@ public class MaterialService {
         throw new RuntimeException("Material not found: " + materialCode);
     }
 
+    public Page<Material> findPaged(String materialType, String query, Pageable pageable) {
+        Set<UUID> materialIdsForLocationQuery = Collections.emptySet();
+        String normalizedQuery = null;
+        if (query != null && !query.isBlank()) {
+            normalizedQuery = normalizeForSearch(query);
+            final String normalizedQueryValue = normalizedQuery;
+            materialIdsForLocationQuery = materialDefaultLocationRepository.findAll().stream()
+                    .filter(loc -> normalizeForSearch(loc.getLocationCode()).contains(normalizedQueryValue))
+                    .map(loc -> loc.getMaterialId())
+                    .collect(Collectors.toSet());
+        }
+
+        final Set<UUID> finalMaterialIdsForLocationQuery = materialIdsForLocationQuery;
+        final String finalNormalizedQuery = normalizedQuery;
+        Specification<MaterialEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (materialType != null && !materialType.isBlank()) {
+                predicates.add(cb.equal(root.get("materialType"), materialType));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                Predicate textMatch = cb.or(
+                        cb.like(cb.lower(root.get("materialCode")), pattern),
+                        cb.like(cb.lower(root.get("description")), pattern),
+                        cb.like(cb.lower(root.get("unitType")), pattern),
+                        cb.like(cb.lower(root.get("storageType")), pattern),
+                        cb.like(cb.lower(root.get("materialType")), pattern)
+                );
+                if (!finalMaterialIdsForLocationQuery.isEmpty()) {
+                    textMatch = cb.or(
+                            textMatch,
+                            root.get("id").in(finalMaterialIdsForLocationQuery)
+                    );
+                }
+
+                if (finalNormalizedQuery != null && !finalNormalizedQuery.isBlank()) {
+                    var normalizedMaterialCode = cb.function("replace", String.class,
+                            cb.function("replace", String.class,
+                                    cb.function("replace", String.class, cb.lower(root.get("materialCode")), cb.literal("-"), cb.literal("")),
+                                    cb.literal(" "), cb.literal("")),
+                            cb.literal("_"), cb.literal(""));
+                    var normalizedDescription = cb.function("replace", String.class,
+                            cb.function("replace", String.class,
+                                    cb.function("replace", String.class, cb.lower(root.get("description")), cb.literal("-"), cb.literal("")),
+                                    cb.literal(" "), cb.literal("")),
+                            cb.literal("_"), cb.literal(""));
+                    String normalizedPattern = "%" + finalNormalizedQuery + "%";
+                    textMatch = cb.or(
+                            textMatch,
+                            cb.like(normalizedMaterialCode, normalizedPattern),
+                            cb.like(normalizedDescription, normalizedPattern)
+                    );
+                }
+                predicates.add(textMatch);
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+        return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    private String normalizeForSearch(String value) {
+        if (value == null) return "";
+        return value.toLowerCase().replaceAll("[^a-z0-9]", "");
+    }
+
     @Transactional
     public Material create(Material material) {
+        validateOperationalData(material, true);
         if (repository.existsByMaterialCode(material.getMaterialCode())) {
             throw new RuntimeException("Material code already exists: " + material.getMaterialCode());
         }
@@ -106,6 +187,7 @@ public class MaterialService {
 
     @Transactional
     public Material update(java.util.UUID id, Material material) {
+        validateOperationalData(material, false);
         MaterialEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Material not found: " + id));
 
@@ -118,10 +200,16 @@ public class MaterialService {
 
         entity.setMaterialCode(material.getMaterialCode());
         entity.setDescription(material.getDescription());
-        entity.setUnitType(material.getUnitType());
-        entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
+        entity.setUnitType(normalizeUnitType(material.getUnitType()));
+        entity.setStorageType(normalizeStorageType(material.getStorageType()));
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setLengthCm(material.getLengthCm());
+        entity.setWidthCm(material.getWidthCm());
+        entity.setHeightCm(material.getHeightCm());
         entity.setWeightKg(material.getWeightKg());
+        entity.setVolumeCm3(material.getVolumeCm3());
+        entity.setPalletSpaces(material.getPalletSpaces());
+        entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
 
         MaterialEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -170,11 +258,23 @@ public class MaterialService {
 
         entity.setMaterialCode(material.getMaterialCode());
         entity.setDescription(material.getDescription());
-        entity.setUnitType(material.getUnitType());
-        entity.setStorageType(material.getStorageType() != null ? material.getStorageType() : "pallet");
+        entity.setUnitType(normalizeUnitType(material.getUnitType()));
+        entity.setStorageType(normalizeStorageType(material.getStorageType()));
         entity.setMaterialType(normalizeMaterialType(material.getMaterialType()));
+        entity.setLengthCm(material.getLengthCm());
+        entity.setWidthCm(material.getWidthCm());
+        entity.setHeightCm(material.getHeightCm());
         if (material.getWeightKg() != null) {
             entity.setWeightKg(material.getWeightKg());
+        }
+        if (material.getVolumeCm3() != null) {
+            entity.setVolumeCm3(material.getVolumeCm3());
+        }
+        if (material.getPalletSpaces() != null) {
+            entity.setPalletSpaces(material.getPalletSpaces());
+        }
+        if (material.getMaxPalletWeightKg() != null) {
+            entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
         }
 
         MaterialEntity saved = repository.save(entity);
@@ -186,6 +286,100 @@ public class MaterialService {
         return materials.stream()
                 .map(this::createOrUpdate)
                 .collect(Collectors.toList());
+    }
+
+    private void validateOperationalData(Material material, boolean strictForCreate) {
+        if (material == null) {
+            throw new RuntimeException("Material payload is required");
+        }
+        if (isBlank(material.getMaterialCode())) {
+            throw new RuntimeException("Material code is required");
+        }
+        if (isBlank(material.getDescription())) {
+            throw new RuntimeException("Description is required");
+        }
+
+        String unitType = normalizeUnitType(material.getUnitType());
+        String storageType = normalizeStorageType(material.getStorageType());
+        material.setUnitType(unitType);
+        material.setStorageType(storageType);
+
+        if (strictForCreate) {
+            if (isBlank(unitType)) {
+                throw new RuntimeException("Handling unit type is required");
+            }
+            if (isBlank(storageType)) {
+                throw new RuntimeException("Storage type is required");
+            }
+        }
+
+        validatePositiveIfPresent("weight_kg", material.getWeightKg());
+        validatePositiveIfPresent("volume_cm3", material.getVolumeCm3());
+        validatePositiveIfPresent("length_cm", material.getLengthCm());
+        validatePositiveIfPresent("width_cm", material.getWidthCm());
+        validatePositiveIfPresent("height_cm", material.getHeightCm());
+        validatePositiveIfPresent("pallet_spaces", material.getPalletSpaces());
+        validatePositiveIfPresent("max_pallet_weight_kg", material.getMaxPalletWeightKg());
+
+        if (material.getVolumeCm3() == null && material.getLengthCm() != null
+                && material.getWidthCm() != null && material.getHeightCm() != null) {
+            material.setVolumeCm3(material.getLengthCm().multiply(material.getWidthCm()).multiply(material.getHeightCm()));
+        }
+
+        if (strictForCreate) {
+            if (material.getWeightKg() == null) {
+                throw new RuntimeException("Unit weight (kg) is required for putaway capacity checks");
+            }
+            if (material.getVolumeCm3() == null) {
+                throw new RuntimeException("Unit volume (cm3) or complete dimensions are required");
+            }
+            if ("pallet".equals(storageType)) {
+                if (material.getPalletSpaces() == null) {
+                    throw new RuntimeException("Units per pallet is required for pallet storage");
+                }
+                if (material.getMaxPalletWeightKg() == null) {
+                    throw new RuntimeException("Max pallet weight (kg) is required for pallet storage");
+                }
+            }
+        }
+    }
+
+    private String normalizeStorageType(String storageType) {
+        if (isBlank(storageType)) {
+            return "pallet";
+        }
+        String normalized = storageType.trim().toLowerCase();
+        if ("cold_storage".equals(normalized)) {
+            normalized = "cold";
+        }
+        if (!ALLOWED_STORAGE_TYPES.contains(normalized)) {
+            throw new RuntimeException("Invalid storage type: " + storageType);
+        }
+        return normalized;
+    }
+
+    private String normalizeUnitType(String unitType) {
+        if (isBlank(unitType)) {
+            return "unit";
+        }
+        String normalized = unitType.trim().toLowerCase();
+        if ("piece".equals(normalized) || "pieces".equals(normalized)) {
+            normalized = "pcs";
+        }
+        if (!ALLOWED_UNIT_TYPES.contains(normalized)) {
+            throw new RuntimeException("Invalid unit type: " + unitType);
+        }
+        return normalized;
+    }
+
+    private void validatePositiveIfPresent(String field, BigDecimal value) {
+        if (value != null && value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new RuntimeException(field + " must be greater than 0");
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.trim().isEmpty();
     }
 
     private Material toDomain(MaterialEntity entity) {

@@ -17,6 +17,14 @@ export interface User {
   lastLoginAt?: string;
 }
 
+export interface PagedUsersResponse {
+  data: User[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+}
+
 export const usersApi = {
   getAll: async (role?: string, warehouseId?: string, status?: string): Promise<User[]> => {
     const params = new URLSearchParams();
@@ -29,6 +37,37 @@ export const usersApi = {
 
   getById: async (id: string): Promise<User> => {
     return apiClient.get<User>(`/users/${id}`);
+  },
+
+  getPaged: async ({
+    page = 0,
+    size = 10,
+    sortBy = "createdAt",
+    sortDir = "desc",
+    role,
+    warehouseId,
+    status,
+    q,
+  }: {
+    page?: number;
+    size?: number;
+    sortBy?: string;
+    sortDir?: "asc" | "desc";
+    role?: string;
+    warehouseId?: string;
+    status?: string;
+    q?: string;
+  }): Promise<PagedUsersResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", String(page));
+    params.append("size", String(size));
+    params.append("sortBy", sortBy);
+    params.append("sortDir", sortDir);
+    if (role) params.append("role", role);
+    if (warehouseId) params.append("warehouseId", warehouseId);
+    if (status) params.append("status", status);
+    if (q && q.trim()) params.append("q", q.trim());
+    return apiClient.get<PagedUsersResponse>(`/users/paged?${params.toString()}`);
   },
 
   getByUsername: async (username: string): Promise<User> => {
@@ -59,4 +98,3 @@ export const usersApi = {
     return apiClient.put<User>(`/users/${id}/assign-warehouse`, { warehouseId });
   },
 };
-

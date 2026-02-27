@@ -79,6 +79,7 @@ export default function PutawayPage() {
   const [allocatedByItem, setAllocatedByItem] = useState<Map<string, number>>(new Map());
   const [skippedReasonsByItem, setSkippedReasonsByItem] = useState<Map<string, string>>(new Map());
   const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
+  const [startedPutawayTaskItemIds, setStartedPutawayTaskItemIds] = useState<Set<string>>(new Set());
   
   const getFirstPendingItemIndex = (
     items: PutawayItem[],
@@ -124,12 +125,14 @@ export default function PutawayPage() {
   useEffect(() => {
     if (!selectedOrder) {
       setPutawayItems([]);
+      setStartedPutawayTaskItemIds(new Set());
       return;
     }
 
     const loadPutawayItems = async () => {
       try {
         setIsLoading(true);
+        setStartedPutawayTaskItemIds(new Set());
         const items = await orderItemsApi.getPutawayItems(selectedOrder.id);
         setPutawayItems(items);
         logger.debug("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
@@ -226,6 +229,40 @@ export default function PutawayPage() {
       }
     }
   }, [currentItemIndex, putawayItems, putawayProgress, skippedReasonsByItem]);
+
+  useEffect(() => {
+    const startCurrentPutawayTask = async () => {
+      const currentItem = putawayItems[currentItemIndex];
+      if (!currentItem) return;
+      if (!selectedOrder) return;
+      if (putawayProgress.get(currentItem.itemId)) return;
+      if (startedPutawayTaskItemIds.has(currentItem.itemId)) return;
+      try {
+        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+        const itemTask = tasks.find(
+          (t: any) =>
+            t.referenceType === "order_item" &&
+            t.referenceId === currentItem.itemId &&
+            (t.status === "pending" || t.status === "assigned")
+        );
+        if (itemTask) {
+          await tasksApi.updateStatus(itemTask.id, "in_progress", worker?.id);
+        }
+        setStartedPutawayTaskItemIds((prev) => new Set(prev).add(currentItem.itemId));
+      } catch (error) {
+        logger.warn("[Putaway] Could not mark task in progress for item:", currentItem.itemId, error);
+      }
+    };
+    void startCurrentPutawayTask();
+  }, [
+    currentItemIndex,
+    putawayItems,
+    putawayProgress,
+    selectedOrder,
+    worker?.warehouseId,
+    worker?.id,
+    startedPutawayTaskItemIds,
+  ]);
 
   const handleLocationSelect = async (locationCode: string) => {
     setValidatingLocation(true);

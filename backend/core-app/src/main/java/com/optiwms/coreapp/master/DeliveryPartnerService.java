@@ -3,9 +3,14 @@ package com.optiwms.coreapp.master;
 import com.optiwms.domain.master.DeliveryPartner;
 import com.optiwms.infra.master.DeliveryPartnerEntity;
 import com.optiwms.infra.master.DeliveryPartnerRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -41,6 +46,31 @@ public class DeliveryPartnerService {
         return repository.findByPartnerCode(partnerCode)
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Delivery partner not found: " + partnerCode));
+    }
+
+    public Page<DeliveryPartner> findPaged(String status, String query, Pageable pageable) {
+        Specification<DeliveryPartnerEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(cb.lower(root.get("status")), status.toLowerCase()));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("partnerCode")), pattern),
+                        cb.like(cb.lower(root.get("companyName")), pattern),
+                        cb.like(cb.lower(root.get("contactPerson")), pattern),
+                        cb.like(cb.lower(root.get("email")), pattern),
+                        cb.like(cb.lower(root.get("phone")), pattern),
+                        cb.like(cb.lower(root.get("city")), pattern),
+                        cb.like(cb.lower(root.get("country")), pattern),
+                        cb.like(cb.lower(root.get("serviceAreas")), pattern)
+                ));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     @Transactional
@@ -122,4 +152,3 @@ public class DeliveryPartnerService {
         return p;
     }
 }
-

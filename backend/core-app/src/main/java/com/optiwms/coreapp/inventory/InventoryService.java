@@ -1,21 +1,33 @@
 package com.optiwms.coreapp.inventory;
 
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class InventoryService {
 
     private final InventoryItemRepository repository;
+    private final MaterialRepository materialRepository;
 
-    public InventoryService(InventoryItemRepository repository) {
+    public InventoryService(InventoryItemRepository repository, MaterialRepository materialRepository) {
         this.repository = repository;
+        this.materialRepository = materialRepository;
     }
 
     public List<InventoryItem> listAll() {
@@ -84,6 +96,82 @@ public class InventoryService {
                 .collect(Collectors.toList());
     }
 
+    public Page<InventoryItem> findPaged(
+            UUID materialId,
+            UUID warehouseId,
+            String materialType,
+            String status,
+            String query,
+            Pageable pageable
+    ) {
+        Set<UUID> materialIdsForQuery = Collections.emptySet();
+        if (query != null && !query.isBlank()) {
+            String trimmed = query.trim();
+            materialIdsForQuery = materialRepository
+                    .findByMaterialCodeContainingIgnoreCaseOrDescriptionContainingIgnoreCase(trimmed, trimmed)
+                    .stream()
+                    .map(m -> m.getId())
+                    .collect(Collectors.toSet());
+        }
+        String normalizedQuery = (query == null || query.isBlank()) ? null : normalizeForSearch(query);
+
+        final Set<UUID> finalMaterialIdsForQuery = materialIdsForQuery;
+        final String finalNormalizedQuery = normalizedQuery;
+        Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (materialId != null) {
+                predicates.add(cb.equal(root.get("materialId"), materialId));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (materialType != null && !materialType.isBlank()) {
+                predicates.add(cb.equal(root.get("materialType"), materialType));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                String normalizedPattern = "%" + finalNormalizedQuery + "%";
+
+                var normalizedLocation = cb.function("replace", String.class,
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class, cb.lower(root.get("locationCode")), cb.literal("-"), cb.literal("")),
+                                cb.literal(" "), cb.literal("")),
+                        cb.literal("_"), cb.literal(""));
+                var normalizedLpn = cb.function("replace", String.class,
+                        cb.function("replace", String.class,
+                                cb.function("replace", String.class, cb.lower(root.get("lpnCode")), cb.literal("-"), cb.literal("")),
+                                cb.literal(" "), cb.literal("")),
+                        cb.literal("_"), cb.literal(""));
+
+                Predicate textMatch = cb.or(
+                        cb.like(cb.lower(root.get("locationCode")), pattern),
+                        cb.like(cb.lower(root.get("lpnCode")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("batchNumber")), pattern),
+                        cb.like(normalizedLocation, normalizedPattern),
+                        cb.like(normalizedLpn, normalizedPattern)
+                );
+                if (!finalMaterialIdsForQuery.isEmpty()) {
+                    textMatch = cb.or(textMatch, root.get("materialId").in(finalMaterialIdsForQuery));
+                }
+                predicates.add(textMatch);
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    private String normalizeForSearch(String value) {
+        if (value == null) return "";
+        return value.toLowerCase().replaceAll("[^a-z0-9]", "");
+    }
+
     @Transactional
     public InventoryItem update(java.util.UUID id, InventoryItem item) {
         InventoryItemEntity entity = repository.findById(id)
@@ -128,6 +216,10 @@ public class InventoryService {
         if (item.getMaterialType() != null) {
             entity.setMaterialType(item.getMaterialType());
         }
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -138,6 +230,7 @@ public class InventoryService {
         InventoryItemEntity entity = repository.findByMaterialIdAndWarehouseId(
                 item.getMaterialId(), item.getWarehouseId())
                 .stream()
+                .filter(existing -> sameInventoryBucket(existing, item))
                 .findFirst()
                 .orElse(new InventoryItemEntity());
 
@@ -166,6 +259,10 @@ public class InventoryService {
         entity.setPalletRequirement(item.getPalletRequirement());
         entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
         entity.setMaterialType(item.getMaterialType());
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -199,6 +296,10 @@ public class InventoryService {
         entity.setPalletRequirement(item.getPalletRequirement());
         entity.setStatus(item.getStatus() != null ? item.getStatus() : "active");
         entity.setMaterialType(item.getMaterialType());
+        entity.setBatchNumber(item.getBatchNumber());
+        entity.setExpiryDate(item.getExpiryDate());
+        entity.setLastMovementDate(item.getLastMovementDate());
+        entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -239,6 +340,38 @@ public class InventoryService {
         item.setPalletRequirement(entity.getPalletRequirement());
         item.setStatus(entity.getStatus());
         item.setMaterialType(entity.getMaterialType());
+        item.setBatchNumber(entity.getBatchNumber());
+        item.setExpiryDate(entity.getExpiryDate());
+        item.setLastMovementDate(entity.getLastMovementDate());
+        item.setDaysSinceLastMovement(entity.getDaysSinceLastMovement());
+        if (entity.getCreatedAt() != null) {
+            item.setCreatedAt(entity.getCreatedAt().atOffset(ZoneOffset.UTC));
+        }
+        if (entity.getUpdatedAt() != null) {
+            item.setUpdatedAt(entity.getUpdatedAt().atOffset(ZoneOffset.UTC));
+        }
         return item;
+    }
+
+    private boolean sameInventoryBucket(InventoryItemEntity existing, InventoryItem incoming) {
+        String existingLocation = normalize(existing.getLocationCode());
+        String incomingLocation = normalize(incoming.getLocationCode());
+        String existingLpn = normalize(existing.getLpnCode());
+        String incomingLpn = normalize(incoming.getLpnCode());
+        String existingBatch = normalize(existing.getBatchNumber());
+        String incomingBatch = normalize(incoming.getBatchNumber());
+        java.time.LocalDate existingExpiry = existing.getExpiryDate();
+        java.time.LocalDate incomingExpiry = incoming.getExpiryDate();
+
+        return java.util.Objects.equals(existingLocation, incomingLocation)
+                && java.util.Objects.equals(existingLpn, incomingLpn)
+                && java.util.Objects.equals(existingBatch, incomingBatch)
+                && java.util.Objects.equals(existingExpiry, incomingExpiry);
+    }
+
+    private String normalize(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

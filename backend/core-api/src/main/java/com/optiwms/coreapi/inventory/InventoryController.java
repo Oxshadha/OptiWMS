@@ -1,6 +1,9 @@
 package com.optiwms.coreapi.inventory;
 
 import com.optiwms.coreapp.inventory.InventoryService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -45,6 +48,48 @@ public class InventoryController {
                 .map(item -> toDto(item))
                 .toList();
         return ResponseEntity.ok(data);
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<PagedInventoryResponse> listPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(required = false) UUID materialId,
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String materialType,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String q
+    ) {
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 200);
+        Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
+        String safeSortBy = sanitizeSortBy(sortBy);
+        Sort sort = "id".equals(safeSortBy)
+                ? Sort.by(direction, "id")
+                : Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"));
+
+        Page<com.optiwms.domain.inventory.InventoryItem> itemPage = inventoryService.findPaged(
+                materialId,
+                warehouseId,
+                materialType,
+                status,
+                q,
+                PageRequest.of(safePage, safeSize, sort)
+        );
+
+        List<InventoryItemDto> data = itemPage.getContent().stream()
+                .map(this::toDto)
+                .toList();
+
+        return ResponseEntity.ok(new PagedInventoryResponse(
+                data,
+                itemPage.getNumber(),
+                itemPage.getSize(),
+                itemPage.getTotalElements(),
+                itemPage.getTotalPages()
+        ));
     }
 
     @GetMapping("/{id}")
@@ -172,6 +217,8 @@ public class InventoryController {
             item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
             item.setLeadTimeDays(request.leadTimeDays());
             item.setStatus(request.status() != null ? request.status() : "active");
+            item.setBatchNumber(request.batchNumber());
+            item.setExpiryDate(request.expiryDate());
 
             var created = inventoryService.createOrUpdate(item);
             return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
@@ -204,6 +251,8 @@ public class InventoryController {
             item.setMoq(request.moq() != null ? new java.math.BigDecimal(request.moq()) : null);
             item.setLeadTimeDays(request.leadTimeDays());
             item.setStatus(request.status());
+            item.setBatchNumber(request.batchNumber());
+            item.setExpiryDate(request.expiryDate());
 
             var updated = inventoryService.update(id, item);
             return ResponseEntity.ok(toDto(updated));
@@ -232,6 +281,8 @@ public class InventoryController {
                 item.getLeadTimeDays(),
                 item.getStatus(),
                 item.getMaterialType(),
+                item.getBatchNumber(),
+                item.getExpiryDate(),
                 // Additional planning fields
                 item.getBufferDays(),
                 item.getLeadTimeMonths() != null ? item.getLeadTimeMonths().toString() : null,
@@ -275,6 +326,8 @@ public class InventoryController {
             Integer leadTimeDays,
             String status,
             String materialType,  // raw_material, packaging_material, product
+            String batchNumber,
+            java.time.LocalDate expiryDate,
             // Additional planning fields
             Integer bufferDays,
             String leadTimeMonths,
@@ -303,6 +356,14 @@ public class InventoryController {
             String qualityCheckId
     ) {}
 
+    public record PagedInventoryResponse(
+            List<InventoryItemDto> data,
+            int page,
+            int size,
+            long totalElements,
+            int totalPages
+    ) {}
+
     public record CreateInventoryRequest(
             UUID materialId,
             UUID warehouseId,
@@ -318,7 +379,9 @@ public class InventoryController {
             Integer stackQuantity,
             String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            String status,
+            String batchNumber,
+            java.time.LocalDate expiryDate
     ) {}
 
     public record UpdateInventoryRequest(
@@ -335,7 +398,18 @@ public class InventoryController {
             Integer stackingQuantity,
             String moq,  // Accept as String
             Integer leadTimeDays,
-            String status
+            String status,
+            String batchNumber,
+            java.time.LocalDate expiryDate
     ) {}
-}
 
+    private String sanitizeSortBy(String sortBy) {
+        if (sortBy == null || sortBy.isBlank()) {
+            return "createdAt";
+        }
+        return switch (sortBy) {
+            case "id", "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
+            default -> "createdAt";
+        };
+    }
+}

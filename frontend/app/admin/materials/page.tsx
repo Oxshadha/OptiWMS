@@ -1,24 +1,35 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { Modal } from "@/components/Modal";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { type Material } from "@/lib/api/materials";
+import { materialsApi, type Material } from "@/lib/api/materials";
 import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
-import { locationsApi } from "@/lib/api/locations";
 import { warehousesApi } from "@/lib/api/warehouses";
-import { useMaterials, useCreateMaterial, useUpdateMaterial, useDeleteMaterial } from "@/lib/hooks/useQuery";
-import { AssignBinLocationModal, BulkAssignBinLocationsModal } from "./AssignBinLocationModal";
+import {
+  useCreateMaterial,
+  useUpdateMaterial,
+  useDeleteMaterial,
+} from "@/lib/hooks/useQuery";
+import {
+  AssignBinLocationModal,
+  BulkAssignBinLocationsModal,
+} from "./AssignBinLocationModal";
 import { MaterialDetailModal } from "./MaterialDetailModal";
-import { CreateMaterialModal, EditMaterialModal, ImportMaterialModal } from "./MaterialModals";
+import {
+  CreateMaterialModal,
+  EditMaterialModal,
+  ImportMaterialModal,
+} from "./MaterialModals";
 import { logger } from "@/lib/utils/logger";
 
-// Material type options (industry standard)
 const MATERIAL_TYPES = [
   { value: "all", label: "All Products" },
   { value: "raw_material", label: "Raw Materials" },
@@ -26,18 +37,25 @@ const MATERIAL_TYPES = [
   { value: "packaging_material", label: "Packaging" },
 ] as const;
 
-type MaterialTypeFilter = typeof MATERIAL_TYPES[number]["value"];
+type MaterialTypeFilter = (typeof MATERIAL_TYPES)[number]["value"];
+type SortBy = "name" | "sku" | "type" | null;
+type SortDirection = "asc" | "desc";
+type MaterialLocationSummary = {
+  primary: string;
+  all: string[];
+};
 
 const cleanDisplayName = (description?: string) => {
   if (!description) return "—";
-  // Legacy imports sometimes append metadata like: "Rice 5kg Bag,raw_material,kg,pallet"
   const first = description.split(",")[0]?.trim();
   return first || description;
 };
 
 export default function MaterialsPage() {
+  const searchParams = useSearchParams();
+  const supplierFilterId = searchParams.get("supplier")?.trim() || "";
   const { hasPermission } = useAdmin();
-  // Support URL query parameter for type filter (for redirects from legacy pages)
+
   const [typeFilter, setTypeFilter] = useState<MaterialTypeFilter>(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -57,56 +75,114 @@ export default function MaterialsPage() {
   const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
-  const [materialsWithLocations, setMaterialsWithLocations] = useState<Map<string, string>>(new Map()); // materialId -> locationCode
+  const [sortBy, setSortBy] = useState<SortBy>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(
+    null
+  );
+  const [materialsWithLocations, setMaterialsWithLocations] = useState<
+    Map<string, MaterialLocationSummary>
+  >(new Map());
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totalItems, setTotalItems] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   const canEdit = hasPermission(ADMIN_ROUTES.MATERIALS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
 
-  // Use React Query for data fetching (centralized, cached)
-  const {
-    data: allMaterialsData,
-    isLoading,
-    error,
-    refetch,
-  } = useMaterials();
-  const allMaterials: Material[] = Array.isArray(allMaterialsData)
-    ? allMaterialsData
-    : [];
   const createMutation = useCreateMaterial();
   const updateMutation = useUpdateMaterial();
   const deleteMutation = useDeleteMaterial();
 
-  // Load materials with their bin locations
-  const loadMaterialLocations = async () => {
-    if (!allMaterials || allMaterials.length === 0) return;
-
+  const loadData = async () => {
     try {
-      // Get all warehouses
+      setIsFetching(true);
+      if (!hasLoadedOnce) {
+        setIsLoading(true);
+      }
+      setError(null);
+
+      const backendSortBy =
+        sortBy === "name"
+          ? "description"
+          : sortBy === "sku"
+            ? "materialCode"
+            : sortBy === "type"
+              ? "materialType"
+              : "createdAt";
+
+      const materialsPage = await materialsApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: backendSortBy,
+        sortDir: sortDirection,
+        materialType: typeFilter === "all" ? undefined : typeFilter,
+        supplierId: supplierFilterId || undefined,
+        q: searchQuery.trim() || undefined,
+      });
+
+      setMaterials(materialsPage.data);
+      setTotalItems(materialsPage.totalElements);
+      setTotalPages(Math.max(materialsPage.totalPages, 1));
+      setHasLoadedOnce(true);
+    } catch (err) {
+      logger.error("Failed to load products:", err);
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setMaterials([]);
+    } finally {
+      setIsLoading(false);
+      setIsFetching(false);
+    }
+  };
+
+  const loadMaterialLocations = async () => {
+    if (!materials || materials.length === 0) return;
+    try {
       const warehouses = await warehousesApi.getAll();
-      logger.debug("[MaterialsPage] ✅ Loaded warehouses for locations:", warehouses.length);
       if (warehouses.length === 0) return;
 
-      // For each warehouse, get materials with locations
-      const locationMap = new Map<string, string>();
+      const byMaterial = new Map<
+        string,
+        Array<{ locationCode: string; priority: number }>
+      >();
       for (const warehouse of warehouses) {
         try {
-          const materialsWithLocs = await materialDefaultLocationsApi.getMaterialsWithLocations(warehouse.id);
-          logger.debug(`[MaterialsPage] 📍 Warehouse ${warehouse.name}: ${materialsWithLocs.length} materials with locations`);
-          if (materialsWithLocs.length > 0) {
-            logger.debug("[MaterialsPage] Sample location data:", materialsWithLocs[0]);
-          }
-          materialsWithLocs.forEach(m => {
-            if (m.locationCode) {
-              locationMap.set(m.materialId, m.locationCode);
-            }
+          const materialsWithLocs =
+            await materialDefaultLocationsApi.getMaterialsWithLocations(
+              warehouse.id
+            );
+          materialsWithLocs.forEach((m) => {
+            if (!m.locationCode) return;
+            const list = byMaterial.get(m.materialId) || [];
+            list.push({ locationCode: m.locationCode, priority: m.priority || 999 });
+            byMaterial.set(m.materialId, list);
           });
         } catch (err) {
           logger.error(`Failed to load locations for warehouse ${warehouse.id}:`, err);
         }
       }
-      logger.debug("[MaterialsPage] 🗺️ Final location map size:", locationMap.size);
+
+      const locationMap = new Map<string, MaterialLocationSummary>();
+      byMaterial.forEach((list, materialId) => {
+        const uniqueSorted = list
+          .sort((a, b) => a.priority - b.priority)
+          .map((entry) => entry.locationCode)
+          .filter((code, index, arr) => arr.indexOf(code) === index);
+        if (uniqueSorted.length > 0) {
+          locationMap.set(materialId, {
+            primary: uniqueSorted[0],
+            all: uniqueSorted,
+          });
+        }
+      });
       setMaterialsWithLocations(locationMap);
     } catch (err) {
       logger.error("Failed to load material locations:", err);
@@ -114,69 +190,44 @@ export default function MaterialsPage() {
   };
 
   useEffect(() => {
-    loadMaterialLocations();
-  }, [allMaterials]);
+    void loadData();
+  }, [
+    currentPage,
+    itemsPerPage,
+    typeFilter,
+    searchQuery,
+    sortBy,
+    sortDirection,
+    supplierFilterId,
+  ]);
 
-  // Filter materials by type and search query
-  const filteredMaterials = React.useMemo(() => {
-    if (!allMaterials) return [];
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-    let filtered = allMaterials;
+  useEffect(() => {
+    void loadMaterialLocations();
+  }, [materials]);
 
-    // Filter by type
-    if (typeFilter !== "all") {
-      filtered = filtered.filter((m) => {
-        // If materialType is null/undefined, default to raw_material for backward compatibility
-        const actualType = m.materialType || "raw_material";
-        return actualType === typeFilter;
-      });
-    }
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (m) =>
-          m.materialCode?.toLowerCase().includes(query) ||
-          m.description?.toLowerCase().includes(query)
-      );
-    }
-
-    return filtered;
-  }, [allMaterials, typeFilter, searchQuery]);
-
-  // Summary statistics
-  const summaryStats = React.useMemo(() => {
-    if (!allMaterials) {
-      return {
-        total: 0,
-        rawMaterials: 0,
-        products: 0,
-        packaging: 0,
-      };
-    }
-
-    return {
-      total: allMaterials.length,
-      rawMaterials: allMaterials.filter(
-        (m) => {
-          const type = m.materialType || "raw_material"; // Default to raw_material if null
-          return type === "raw_material";
-        }
-      ).length,
-      products: allMaterials.filter((m) => m.materialType === "product").length,
-      packaging: allMaterials.filter((m) => m.materialType === "packaging_material").length,
-    };
-  }, [allMaterials]);
+  const summaryStats = {
+    total: totalItems,
+    rawMaterials: materials.filter((m) => (m.materialType || "raw_material") === "raw_material")
+      .length,
+    products: materials.filter((m) => m.materialType === "product").length,
+    packaging: materials.filter((m) => m.materialType === "packaging_material").length,
+  };
 
   const handleCreate = async (materialData: Omit<Material, "id">) => {
     try {
       await createMutation.mutateAsync(materialData);
       setShowCreateModal(false);
-      refetch();
+      await loadData();
     } catch (error) {
       logger.error("[Materials] Failed to create material:", error);
-      // Error toast handled by mutation
     }
   };
 
@@ -185,10 +236,9 @@ export default function MaterialsPage() {
       await updateMutation.mutateAsync({ id, data: materialData });
       setShowEditModal(false);
       setEditingMaterial(null);
-      refetch();
+      await loadData();
     } catch (error) {
       logger.error("[Materials] Failed to update material:", error);
-      // Error toast handled by mutation
     }
   };
 
@@ -197,43 +247,18 @@ export default function MaterialsPage() {
       await deleteMutation.mutateAsync(id);
       setShowDeleteModal(false);
       setSelectedMaterial(null);
-      refetch();
+      await loadData();
     } catch (error) {
       logger.error("[Materials] Failed to delete material:", error);
-      // Error toast handled by mutation
     }
   };
-
-  // Debug logging
-  React.useEffect(() => {
-    logger.debug("[MaterialsPage] State:", {
-      isLoading,
-      hasData: !!allMaterials,
-      dataLength: allMaterials?.length || 0,
-      error: error ? String(error) : null,
-      filteredLength: filteredMaterials.length,
-    });
-    if (allMaterials) {
-      logger.debug(`[MaterialsPage] ✅ Loaded ${allMaterials.length} materials from API`);
-      if (allMaterials.length > 0) {
-        logger.debug("[MaterialsPage] First material sample:", allMaterials[0]);
-      }
-    }
-    if (error) {
-      logger.error("[MaterialsPage] ❌ Error loading materials:", error);
-      logger.error("[Materials] Error loading materials:", error);
-    }
-    if (isLoading) {
-      logger.debug("[MaterialsPage] ⏳ Loading materials...");
-    }
-  }, [allMaterials, error, isLoading, filteredMaterials.length]);
 
   if (error) {
     return (
       <div className="p-6">
         <div className="alert alert-error">
-          <span>Failed to load products: {error instanceof Error ? error.message : "Unknown error"}</span>
-          <button className="btn btn-sm btn-outline" onClick={() => refetch()}>
+          <span>Failed to load products: {error}</span>
+          <button className="btn btn-sm btn-outline" onClick={() => void loadData()}>
             Retry
           </button>
         </div>
@@ -243,7 +268,6 @@ export default function MaterialsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Product Catalog</h1>
@@ -252,10 +276,13 @@ export default function MaterialsPage() {
           </p>
         </div>
         <div className="flex gap-3">
-          <button
-            className="btn btn-outline"
-            onClick={() => setShowImportModal(true)}
-          >
+          {isFetching && (
+            <div className="flex items-center text-sm text-base-content/60">
+              <span className="loading loading-spinner loading-xs mr-2"></span>
+              Updating...
+            </div>
+          )}
+          <button className="btn btn-outline" onClick={() => setShowImportModal(true)}>
             <span className="material-symbols-outlined">upload</span>
             Import CSV
           </button>
@@ -269,10 +296,7 @@ export default function MaterialsPage() {
                 <span className="material-symbols-outlined">location_on</span>
                 Assign Bin Locations (Bulk)
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => setShowCreateModal(true)}
-              >
+              <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                 <span className="material-symbols-outlined">add</span>
                 Add Product
               </button>
@@ -281,7 +305,6 @@ export default function MaterialsPage() {
         </div>
       </div>
 
-      {/* Summary Cards */}
       <SummaryCards
         cards={[
           {
@@ -307,10 +330,8 @@ export default function MaterialsPage() {
         ]}
       />
 
-      {/* Filters */}
       <div className="card bg-base-100 border border-base-300 p-4">
         <div className="flex gap-4 items-center">
-          {/* Type Filter */}
           <div className="form-control">
             <label className="label">
               <span className="label-text font-medium">Material Type</span>
@@ -318,7 +339,10 @@ export default function MaterialsPage() {
             <select
               className="select select-bordered"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value as MaterialTypeFilter)}
+              onChange={(e) => {
+                setTypeFilter(e.target.value as MaterialTypeFilter);
+                setCurrentPage(1);
+              }}
             >
               {MATERIAL_TYPES.map((type) => (
                 <option key={type.value} value={type.value}>
@@ -328,7 +352,6 @@ export default function MaterialsPage() {
             </select>
           </div>
 
-          {/* Search */}
           <div className="form-control flex-1">
             <label className="label">
               <span className="label-text font-medium">Search</span>
@@ -337,14 +360,52 @@ export default function MaterialsPage() {
               type="text"
               placeholder="Search by code or description..."
               className="input input-bordered w-full"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
+          </div>
+
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Sort</span>
+            </label>
+            <div className="flex gap-2">
+              <select
+                className="select select-bordered"
+                value={sortBy || ""}
+                onChange={(e) => {
+                  setSortBy((e.target.value || null) as SortBy);
+                  setCurrentPage(1);
+                }}
+              >
+                <option value="">No Sort</option>
+                <option value="name">Name</option>
+                <option value="sku">SKU</option>
+                <option value="type">Type</option>
+              </select>
+              <button
+                className="btn btn-outline"
+                type="button"
+                onClick={() => {
+                  setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+                  setCurrentPage(1);
+                }}
+                title={`Sort ${sortDirection === "asc" ? "Ascending" : "Descending"}`}
+              >
+                {sortDirection === "asc" ? "A-Z" : "Z-A"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Materials Table */}
+      {supplierFilterId && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <span>Showing products linked to the selected supplier.</span>
+        </div>
+      )}
+
       <div className="card bg-base-100 border border-base-300 p-6">
         {isLoading ? (
           <div className="flex justify-center items-center py-12">
@@ -352,21 +413,25 @@ export default function MaterialsPage() {
           </div>
         ) : (
           <DataTable
-            data={filteredMaterials}
+            data={materials}
             keyExtractor={(material) => material.id}
             columns={[
               {
                 key: "materialCode",
                 label: "SKU Code",
                 render: (material: Material) => (
-                  <span className="font-mono font-semibold text-primary">{material.materialCode}</span>
+                  <span className="font-mono font-semibold text-primary">
+                    {material.materialCode}
+                  </span>
                 ),
               },
               {
                 key: "description",
                 label: "Product Name",
                 render: (material: Material) => (
-                  <span className="text-base-content">{cleanDisplayName(material.description)}</span>
+                  <span className="text-base-content">
+                    {cleanDisplayName(material.description)}
+                  </span>
                 ),
               },
               {
@@ -374,14 +439,22 @@ export default function MaterialsPage() {
                 label: "Type",
                 render: (material: Material) => {
                   const typeChip = getMaterialTypeChip(material.materialType);
-                  return <StatusChip label={typeChip.label} tone={typeChip.tone} className={typeChip.className} />;
+                  return (
+                    <StatusChip
+                      label={typeChip.label}
+                      tone={typeChip.tone}
+                      className={typeChip.className}
+                    />
+                  );
                 },
               },
               {
                 key: "unitType",
-                label: "Unit",
+                label: "Handling Unit",
                 render: (material: Material) => (
-                  <span className="text-base-content/60">{material.unitType || "—"}</span>
+                  <span className="text-base-content/60 uppercase">
+                    {material.unitType || "—"}
+                  </span>
                 ),
               },
               {
@@ -397,13 +470,20 @@ export default function MaterialsPage() {
                 key: "binLocation",
                 label: "Bin Location",
                 render: (material: Material) => {
-                  const locationCode = materialsWithLocations.get(material.id);
-                  return locationCode ? (
-                    <span className="font-mono text-xs text-primary font-semibold">
-                      {locationCode}
-                    </span>
-                  ) : (
-                    <span className="text-base-content/40 text-xs">—</span>
+                  const summary = materialsWithLocations.get(material.id);
+                  if (!summary)
+                    return <span className="text-base-content/40 text-xs">—</span>;
+                  return (
+                    <div className="flex flex-col leading-tight">
+                      <span className="font-mono text-xs text-primary font-semibold">
+                        {summary.primary}
+                      </span>
+                      {summary.all.length > 1 && (
+                        <span className="text-[11px] text-base-content/60">
+                          +{summary.all.length - 1} fallback
+                        </span>
+                      )}
+                    </div>
                   );
                 },
               },
@@ -458,8 +538,19 @@ export default function MaterialsPage() {
           />
         )}
       </div>
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={totalItems}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
+      />
 
-      {/* Create Material Modal */}
       {showCreateModal && (
         <CreateMaterialModal
           isOpen={showCreateModal}
@@ -469,7 +560,6 @@ export default function MaterialsPage() {
         />
       )}
 
-      {/* Edit Material Modal */}
       {editingMaterial && (
         <EditMaterialModal
           isOpen={showEditModal}
@@ -483,7 +573,6 @@ export default function MaterialsPage() {
         />
       )}
 
-      {/* Detail Modal */}
       {selectedMaterial && (
         <MaterialDetailModal
           isOpen={showDetailModal}
@@ -511,7 +600,6 @@ export default function MaterialsPage() {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
       {selectedMaterial && (
         <Modal
           isOpen={showDeleteModal}
@@ -527,7 +615,8 @@ export default function MaterialsPage() {
               <strong>{selectedMaterial.materialCode}</strong>?
             </p>
             <p className="text-sm text-base-content/60">
-              This action cannot be undone. All associated inventory records will also be affected.
+              This action cannot be undone. All associated inventory records will also
+              be affected.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -542,7 +631,7 @@ export default function MaterialsPage() {
               </button>
               <button
                 className="btn btn-error"
-                onClick={() => handleDelete(selectedMaterial.id)}
+                onClick={() => void handleDelete(selectedMaterial.id)}
                 disabled={deleteMutation.isPending}
               >
                 {deleteMutation.isPending ? (
@@ -556,19 +645,17 @@ export default function MaterialsPage() {
         </Modal>
       )}
 
-      {/* Import Modal */}
       {showImportModal && (
         <ImportMaterialModal
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
           onSuccess={() => {
             setShowImportModal(false);
-            refetch();
+            void loadData();
           }}
         />
       )}
 
-      {/* Assign Bin Location Modal */}
       {selectedMaterial && (
         <AssignBinLocationModal
           isOpen={showAssignLocationModal}
@@ -579,18 +666,17 @@ export default function MaterialsPage() {
           material={selectedMaterial}
           warehouseId={selectedWarehouseId}
           onSuccess={() => {
-            loadMaterialLocations(); // Refresh locations after assignment
+            void loadMaterialLocations();
           }}
         />
       )}
 
-      {/* Bulk Assign Bin Locations Modal */}
       {showBulkAssignModal && (
         <BulkAssignBinLocationsModal
           isOpen={showBulkAssignModal}
           onClose={() => setShowBulkAssignModal(false)}
           onSuccess={() => {
-            loadMaterialLocations(); // Refresh locations after bulk assignment
+            void loadMaterialLocations();
           }}
         />
       )}

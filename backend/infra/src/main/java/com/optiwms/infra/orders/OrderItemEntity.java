@@ -39,6 +39,15 @@ public class OrderItemEntity {
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
+    @Column(name = "batch_number", length = 100)
+    private String batchNumber;
+
+    @Column(name = "manufacture_date")
+    private java.time.LocalDate manufactureDate;
+
+    @Column(name = "expiry_date")
+    private java.time.LocalDate expiryDate;
+
     @Column(name = "status", length = 50)
     private String status;
 
@@ -126,6 +135,30 @@ public class OrderItemEntity {
         this.status = status;
     }
 
+    public String getBatchNumber() {
+        return batchNumber;
+    }
+
+    public void setBatchNumber(String batchNumber) {
+        this.batchNumber = batchNumber;
+    }
+
+    public java.time.LocalDate getManufactureDate() {
+        return manufactureDate;
+    }
+
+    public void setManufactureDate(java.time.LocalDate manufactureDate) {
+        this.manufactureDate = manufactureDate;
+    }
+
+    public java.time.LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(java.time.LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -134,4 +167,3 @@ public class OrderItemEntity {
         this.createdAt = createdAt;
     }
 }
-

@@ -8,7 +8,6 @@ export interface CustomerDisplay {
   phone: string;
   orders: number;
   status: string;
-  joinDate: string;
 }
 
 export const customerStatusTone = (s: string): StatusTone => {

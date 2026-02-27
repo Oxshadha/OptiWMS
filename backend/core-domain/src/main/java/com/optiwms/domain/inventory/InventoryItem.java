@@ -21,6 +21,10 @@ public class InventoryItem extends BaseEntity {
     private Integer leadTimeDays;
     private String status;
     private String materialType; // raw_material, packaging_material, product
+    private String batchNumber;
+    private java.time.LocalDate expiryDate;
+    private java.time.LocalDate lastMovementDate;
+    private Integer daysSinceLastMovement;
     
     // Additional planning fields
     private Integer bufferDays;
@@ -162,6 +166,38 @@ public class InventoryItem extends BaseEntity {
         this.materialType = materialType;
     }
 
+    public String getBatchNumber() {
+        return batchNumber;
+    }
+
+    public void setBatchNumber(String batchNumber) {
+        this.batchNumber = batchNumber;
+    }
+
+    public java.time.LocalDate getExpiryDate() {
+        return expiryDate;
+    }
+
+    public void setExpiryDate(java.time.LocalDate expiryDate) {
+        this.expiryDate = expiryDate;
+    }
+
+    public java.time.LocalDate getLastMovementDate() {
+        return lastMovementDate;
+    }
+
+    public void setLastMovementDate(java.time.LocalDate lastMovementDate) {
+        this.lastMovementDate = lastMovementDate;
+    }
+
+    public Integer getDaysSinceLastMovement() {
+        return daysSinceLastMovement;
+    }
+
+    public void setDaysSinceLastMovement(Integer daysSinceLastMovement) {
+        this.daysSinceLastMovement = daysSinceLastMovement;
+    }
+
     public Integer getBufferDays() { return bufferDays; }
     public void setBufferDays(Integer bufferDays) { this.bufferDays = bufferDays; }
 
@@ -189,4 +225,3 @@ public class InventoryItem extends BaseEntity {
     public BigDecimal getPalletRequirement() { return palletRequirement; }
     public void setPalletRequirement(BigDecimal palletRequirement) { this.palletRequirement = palletRequirement; }
 }
-

@@ -23,6 +23,7 @@ export function RackEditModal({
   const [status, setStatus] = useState<RackStatus>("active");
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
+  const [amalgamatedClass, setAmalgamatedClass] = useState("CM");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function RackEditModal({
       setStatus(rack.status);
       setDescription(rack.description || "");
       setNotes(rack.notes || "");
+      setAmalgamatedClass((rack.amalgamatedClass || "CM").toUpperCase());
     }
   }, [rack]);
 
@@ -41,7 +43,7 @@ export function RackEditModal({
       
       logger.debug("Saving rack:", rack.id, "Status:", status);
       
-      // Rack ID is in format "area-row-bay" (e.g., "RC-01-004")
+      // Rack ID is in format "area-row-bay" (e.g., "A-01-01")
       // We need to find all locations in this rack and update them
       const parts = rack.id.split('-');
       if (parts.length < 3) {
@@ -62,9 +64,9 @@ export function RackEditModal({
       // Normalize row and bay numbers (handle leading zeros)
       const rackLocations = allLocations.filter((loc) => {
         const locRow = loc.rowNumber?.padStart(2, '0') || '';
-        const locBay = loc.bayNumber?.padStart(3, '0') || '';
+        const locBay = loc.bayNumber?.padStart(2, '0') || '';
         const matchRow = locRow === row || locRow === row.padStart(2, '0');
-        const matchBay = locBay === bay || locBay === bay.padStart(3, '0');
+        const matchBay = locBay === bay || locBay === bay.padStart(2, '0');
         return loc.area === area && matchRow && matchBay;
       });
       
@@ -82,6 +84,7 @@ export function RackEditModal({
           logger.debug(`Updating location ${location.id} (${location.locationCode})`);
           const updateData: any = {};
           updateData.rackStatus = status.toString();
+          updateData.amalgamatedClass = amalgamatedClass;
           updateData.description = description.trim();
           updateData.notes = notes.trim();
           
@@ -101,6 +104,7 @@ export function RackEditModal({
       const updatedRack: RackUnit = {
         ...rack,
         status,
+        amalgamatedClass,
         description: description.trim() || undefined,
         notes: notes.trim() || undefined,
       };
@@ -177,7 +181,7 @@ export function RackEditModal({
               Edit Rack: {rack.id}
             </h2>
             <p className="text-sm text-base-content/70 mt-1">
-              Zone: {rack.zone} | Aisle: {rack.aisle.toString().padStart(2, "0")} | Bay: {rack.bay.toString().padStart(3, "0")}
+              Zone: {rack.zone} | Aisle: {rack.aisle.toString().padStart(2, "0")} | Bay: {rack.bay.toString().padStart(2, "0")}
             </p>
           </div>
           <button
@@ -242,6 +246,25 @@ export function RackEditModal({
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Description */}
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Slotting Class</span>
+              <span className="label-text-alt text-base-content/50">AF / AM / AS / BF / BM / BS / CF / CM / CS</span>
+            </label>
+            <select
+              className="select select-bordered w-full"
+              value={amalgamatedClass}
+              onChange={(e) => setAmalgamatedClass(e.target.value)}
+            >
+              {["AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"].map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Description */}

@@ -3,10 +3,15 @@ package com.optiwms.coreapp.tasks;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.tasks.TaskEntity;
 import com.optiwms.infra.tasks.TaskRepository;
+import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -22,6 +27,51 @@ public class TaskService {
 
     public List<Task> listAll() {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public Page<Task> findPaged(
+            String taskType,
+            String status,
+            UUID assignedTo,
+            UUID warehouseId,
+            Boolean availableOnly,
+            String query,
+            Pageable pageable
+    ) {
+        Specification<TaskEntity> spec = (root, cq, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (taskType != null && !taskType.isBlank()) {
+                predicates.add(cb.equal(root.get("taskType"), taskType));
+            }
+            if (status != null && !status.isBlank()) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (assignedTo != null) {
+                predicates.add(cb.equal(root.get("assignedTo"), assignedTo));
+            }
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouseId"), warehouseId));
+            }
+            if (Boolean.TRUE.equals(availableOnly)) {
+                predicates.add(cb.isNull(root.get("assignedTo")));
+                predicates.add(cb.equal(root.get("status"), "pending"));
+            }
+            if (query != null && !query.isBlank()) {
+                String pattern = "%" + query.toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("taskNumber")), pattern),
+                        cb.like(cb.lower(root.get("taskType")), pattern),
+                        cb.like(cb.lower(root.get("status")), pattern),
+                        cb.like(cb.lower(root.get("locationCode")), pattern),
+                        cb.like(cb.lower(root.get("notes")), pattern)
+                ));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return repository.findAll(spec, pageable).map(this::toDomain);
     }
 
     public List<Task> findByType(String taskType) {
@@ -134,6 +184,9 @@ public class TaskService {
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
         entity.setAssignedTo(workerId);
         entity.setStatus("assigned");
+        if (entity.getStartedAt() == null) {
+            entity.setStartedAt(LocalDateTime.now());
+        }
         TaskEntity saved = repository.save(entity);
         return toDomain(saved);
     }

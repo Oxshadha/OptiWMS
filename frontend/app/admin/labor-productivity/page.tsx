@@ -7,6 +7,7 @@ import { analyticsApi, WorkerProductivityMetrics, LeaderboardEntry } from "@/lib
 import { SummaryCards } from "@/components/SummaryCards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
+import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
@@ -17,7 +18,9 @@ export default function LaborProductivityPage() {
 
   const [productivityMetrics, setProductivityMetrics] = useState<WorkerProductivityMetrics[]>([]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("weekly");
+  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("monthly");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +49,10 @@ export default function LaborProductivityPage() {
 
   useEffect(() => {
     loadData();
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    setCurrentPage(1);
   }, [selectedPeriod]);
 
   useEffect(() => {
@@ -98,6 +105,11 @@ export default function LaborProductivityPage() {
     totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
     topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
   };
+  const pagedMetrics = productivityMetrics.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+  const totalPages = Math.max(Math.ceil(productivityMetrics.length / itemsPerPage), 1);
 
   return (
     <div className="space-y-6">
@@ -192,7 +204,7 @@ export default function LaborProductivityPage() {
                 </tr>
               </thead>
               <tbody>
-                {productivityMetrics.map((metric) => (
+                {pagedMetrics.map((metric) => (
                   <tr key={metric.workerId}>
                     <td className="font-semibold">{metric.workerName}</td>
                     <td>
@@ -216,9 +228,28 @@ export default function LaborProductivityPage() {
                     </td>
                   </tr>
                 ))}
+                {pagedMetrics.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="text-center py-8 text-base-content/60">
+                      No productivity data found for the selected period.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={productivityMetrics.length}
+            showItemsPerPage
+            onItemsPerPageChange={(next) => {
+              setItemsPerPage(next);
+              setCurrentPage(1);
+            }}
+          />
         </div>
       </div>
     </div>

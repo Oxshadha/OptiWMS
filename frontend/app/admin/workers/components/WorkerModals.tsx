@@ -44,8 +44,8 @@ export function WorkerDetailModal({
     if (isOpen && worker) {
       getWorkerAvailabilityDetails({
         id: worker.id,
-        shiftStart: worker.shiftStart,
-        shiftEnd: worker.shiftEnd,
+        shiftStart: worker.shiftStart || undefined,
+        shiftEnd: worker.shiftEnd || undefined,
         availabilityStatus: worker.availabilityStatus as
           | "available"
           | "busy"
@@ -108,7 +108,9 @@ export function WorkerDetailModal({
           <div>
             <label className="text-sm text-base-content/60">Shift</label>
             <p className="font-semibold">
-              {worker.shiftStart} - {worker.shiftEnd}
+              {worker.shiftStart && worker.shiftEnd
+                ? `${worker.shiftStart} - ${worker.shiftEnd}`
+                : "—"}
             </p>
           </div>
           <div>
@@ -125,7 +127,11 @@ export function WorkerDetailModal({
             <label className="text-sm text-base-content/60">
               Average Task Time
             </label>
-            <p className="font-semibold">{worker.avgTaskTime} min</p>
+            <p className="font-semibold">
+              {typeof worker.avgTaskTime === "number"
+                ? `${worker.avgTaskTime} min`
+                : "—"}
+            </p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Last Active</label>
@@ -565,8 +571,8 @@ export function EditWorkerModal({
     phone: "",
     workerId: worker.workerId,
     warehouseId: "",
-    shiftStart: worker.shiftStart,
-    shiftEnd: worker.shiftEnd,
+    shiftStart: worker.shiftStart || "",
+    shiftEnd: worker.shiftEnd || "",
     password: "",
     role: worker.role || ("" as WorkerRole | ""),
     avatar: null as File | null,

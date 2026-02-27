@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { QRScanner } from "@/components/QRScanner";
+import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
 import { operationsApi } from "@/lib/api/operations";
@@ -13,6 +14,7 @@ import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { Pick } from "./types";
 
 type OrderOption = { id: string; orderNumber: string; status: string };
@@ -30,6 +32,12 @@ const parseMaterialCode = (notes?: string): string | null => {
   const match = notes.match(/Pick\s+\d+\s+units\s+of\s+(.+?)\s+from\s+location/i);
   if (!match?.[1]) return null;
   return match[1].trim();
+};
+
+const parseAllocationPolicy = (notes?: string): string | null => {
+  if (!notes) return null;
+  const match = notes.match(/\[Policy=([^\]]+)\]/i);
+  return match?.[1]?.trim() || null;
 };
 
 const parseSkipReason = (notes?: string): string | null => {
@@ -67,7 +75,8 @@ export default function PickingPage() {
 
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isLoadingPicks, setIsLoadingPicks] = useState(false);
-  const [claimingTaskId, setClaimingTaskId] = useState<string | null>(null);
+  const [startingTaskId, setStartingTaskId] = useState<string | null>(null);
+  const [startedTaskIds, setStartedTaskIds] = useState<Set<string>>(new Set());
   const [resolvedWarehouseId, setResolvedWarehouseId] = useState<string | null>(null);
   const [resolvingWarehouse, setResolvingWarehouse] = useState(false);
 
@@ -98,6 +107,29 @@ export default function PickingPage() {
   const transformTasksToPicks = async (tasks: Task[], orderId: string, orderNumber: string): Promise<Pick[]> => {
     const orderItems = await orderItemsApi.getByOrderId(orderId);
     const materialByCode = new Map<string, string>();
+    const materialDisplayById = new Map<string, { sku: string; name: string }>();
+
+    orderItems.forEach((item) => {
+      if (item.materialId) {
+        const display = formatMaterialDisplay(item.materialCode || null, item.materialName || null, item.materialId);
+        materialDisplayById.set(item.materialId, { sku: display.sku, name: display.name });
+      }
+    });
+
+    const materialIdsToFetch = Array.from(
+      new Set(orderItems.map((item) => item.materialId).filter((id) => !!id && !materialDisplayById.get(id)))
+    );
+    await Promise.all(
+      materialIdsToFetch.map(async (materialId) => {
+        try {
+          const material = await materialsApi.getById(materialId);
+          const display = formatMaterialDisplay(material.materialCode, material.description, material.id);
+          materialDisplayById.set(materialId, { sku: display.sku, name: display.name });
+        } catch {
+          // keep fallback from parse/ID
+        }
+      })
+    );
 
     const resolveMaterialId = async (task: Task): Promise<string> => {
       const parsedCode = parseMaterialCode(task.notes || "");
@@ -123,16 +155,24 @@ export default function PickingPage() {
     const picksFromTasks = await Promise.all(
       tasks.map(async (task) => {
         const materialId = await resolveMaterialId(task);
+        const materialDisplay = materialId ? materialDisplayById.get(materialId) : undefined;
+        const parsedCode = parseMaterialCode(task.notes || "");
+        const display = formatMaterialDisplay(
+          materialDisplay?.sku || parsedCode || null,
+          materialDisplay?.name || null,
+          materialId || null
+        );
         return {
           id: task.id,
           taskId: task.id,
           order: orderNumber,
           orderId,
           location: task.locationCode || "",
-          item: parseMaterialCode(task.notes || "") || "Item",
-          sku: parseMaterialCode(task.notes || "") || "N/A",
+          item: display.name || "Item",
+          sku: display.sku,
           materialId,
           qty: parsePickQuantity(task.notes || ""),
+          allocationPolicy: parseAllocationPolicy(task.notes || "") || undefined,
           taskStatus: task.status,
           skipReason: parseSkipReason(task.notes || "") || undefined,
           status: task.status === "completed" ? "completed" : "upcoming",
@@ -240,6 +280,7 @@ export default function PickingPage() {
 
       const transformed = await transformTasksToPicks(orderTasks, order.id, order.orderNumber);
       setPicks(transformed);
+      setStartedTaskIds(new Set());
       const firstCurrent = transformed.find((p) => p.status === "current");
       if (firstCurrent) {
         setPickedQty(firstCurrent.qty);
@@ -318,6 +359,29 @@ export default function PickingPage() {
     setIssueReason("");
   }, [currentPick?.id]);
 
+  useEffect(() => {
+    const startCurrentTask = async () => {
+      if (!currentPick?.taskId || !worker?.id) return;
+      if (currentPick.taskStatus === "completed") return;
+      if (startedTaskIds.has(currentPick.taskId)) return;
+      try {
+        setStartingTaskId(currentPick.taskId);
+        await tasksApi.updateStatus(currentPick.taskId, "in_progress", worker.id);
+        setStartedTaskIds((prev) => new Set(prev).add(currentPick.taskId));
+        setPicks((prev) =>
+          prev.map((pick) =>
+            pick.taskId === currentPick.taskId ? { ...pick, taskStatus: "in_progress" } : pick
+          )
+        );
+      } catch (error) {
+        logger.warn("Could not mark pick task in progress:", error);
+      } finally {
+        setStartingTaskId(null);
+      }
+    };
+    void startCurrentTask();
+  }, [currentPick?.taskId, currentPick?.taskStatus, worker?.id, startedTaskIds]);
+
   const handleOrderScan = (result: string) => {
     const normalized = result.trim().toUpperCase();
     setScannedOrderNumber(normalized);
@@ -372,20 +436,6 @@ export default function PickingPage() {
     });
   };
 
-  const handleClaimTask = async (taskId: string) => {
-    if (!worker?.id) {
-      showToast.error("Worker information not available");
-      return;
-    }
-
-    try {
-      setClaimingTaskId(taskId);
-      await tasksApi.claim(taskId, worker.id);
-    } finally {
-      setClaimingTaskId(null);
-    }
-  };
-
   const handleConfirmPick = async () => {
     if (!currentPick) return;
     if (!currentPick.materialId) {
@@ -402,9 +452,6 @@ export default function PickingPage() {
     }
 
     try {
-      if (worker?.id) {
-        await handleClaimTask(currentPick.taskId);
-      }
       await operationsApi.completePicking(
         currentPick.taskId,
         {
@@ -619,6 +666,10 @@ export default function PickingPage() {
               <div className="text-xs text-base-content/60">Required Qty</div>
               <div className="font-semibold">{currentPick.qty}</div>
             </div>
+            <div className="col-span-2">
+              <div className="text-xs text-base-content/60">Allocation Policy</div>
+              <div className="font-medium">{currentPick.allocationPolicy || "FIFO/FEFO standard rule"}</div>
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -643,6 +694,12 @@ export default function PickingPage() {
             <div className="text-xs text-info">Task has no fixed location. Confirm actual bin before picking.</div>
           )}
 
+          <WorkerRouteGuide
+            warehouseId={effectiveWarehouseId || undefined}
+            targetLocationCode={currentPick.location}
+            operationType="picking"
+          />
+
           <div>
             <label className="label">
               <span className="label-text">Picked Quantity</span>
@@ -663,7 +720,7 @@ export default function PickingPage() {
             disabled={
               pickedQty <= 0 ||
               pickedQty > currentPick.qty ||
-              claimingTaskId === currentPick.taskId ||
+              startingTaskId === currentPick.taskId ||
               (Boolean(currentPick.location) && !locationVerified)
             }
           >
@@ -744,6 +801,9 @@ export default function PickingPage() {
                       {pick.location || "TBD"} • {pick.item}
                     </div>
                     <div className="text-xs text-base-content/60">Qty: {pick.qty}</div>
+                    {pick.allocationPolicy && (
+                      <div className="text-xs text-base-content/60">Policy: {pick.allocationPolicy}</div>
+                    )}
                   </div>
                   {isDone ? (
                     <span className="badge badge-success">Done</span>
