@@ -173,6 +173,14 @@ export default function CycleCountsPage() {
     return () => window.removeEventListener("reloadCycleCounts", handleReload);
   }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
   const summary = {
     scheduledThisMonth: cycleCounts.filter((cc) => cc.status === "scheduled").length,
     inProgress: cycleCounts.filter((cc) => cc.status === "in_progress").length,
@@ -196,14 +204,6 @@ export default function CycleCountsPage() {
       </div>
     );
   }
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchQuery(searchInput);
-      setCurrentPage(1);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
 
   const summaryCards = [
     {

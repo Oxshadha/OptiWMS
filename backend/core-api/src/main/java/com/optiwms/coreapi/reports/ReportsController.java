@@ -3,7 +3,9 @@ package com.optiwms.coreapi.reports;
 import com.optiwms.coreapp.reports.ReportsService;
 import com.optiwms.domain.reports.Report;
 import com.optiwms.domain.reports.ScheduledReport;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -60,6 +62,29 @@ public class ReportsController {
 
             Report created = service.createReport(report);
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/export")
+    public ResponseEntity<byte[]> exportReport(@RequestBody ExportReportRequest request) {
+        try {
+            ReportsService.ExportedReportFile exported = service.exportReport(
+                    request.reportType(),
+                    request.format(),
+                    request.createdBy()
+            );
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType(exported.contentType()));
+            headers.setContentLength(exported.fileSizeBytes());
+            headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + exported.fileName() + "\"");
+            headers.set("X-Report-Id", exported.reportId().toString());
+            headers.set("X-Report-Type", exported.reportType());
+            headers.set("X-Report-Format", exported.format());
+
+            return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
         }
@@ -246,5 +271,10 @@ public class ReportsController {
             String reportConfig, // JSON string with custom configuration
             UUID createdBy
     ) {}
-}
 
+    public record ExportReportRequest(
+            String reportType,
+            String format,
+            UUID createdBy
+    ) {}
+}
