@@ -11,6 +11,8 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { ordersApi } from "@/lib/api/orders";
 import {
+  useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
   usePagedAdminQuery,
   useReferenceCustomers,
   useReferenceWarehouses,
@@ -136,6 +138,11 @@ export default function OutboundOrdersPage() {
 
   const customersQuery = useReferenceCustomers();
   const warehousesQuery = useReferenceWarehouses();
+  const invalidateOutboundOrders = useInvalidateAdminList(["admin-orders", "outbound"]);
+  const invalidateOutboundOrdersAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-orders", "outbound"],
+    (id) => ["admin-orders", "outbound", "detail", id]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -198,11 +205,7 @@ export default function OutboundOrdersPage() {
   const totalPages = Math.max(ordersQuery.data?.page.totalPages ?? 1, 1);
   const reload = async () => {
     try {
-      await Promise.all([
-        ordersQuery.refetch(),
-        customersQuery.refetch(),
-        warehousesQuery.refetch(),
-      ]);
+      await invalidateOutboundOrders();
     } catch (err) {
       const isDev = process.env.NODE_ENV === "development";
       if (isDev) {
@@ -425,7 +428,7 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.cancel(order.id);
                       showToast.success("Order cancelled successfully");
-                      await reload();
+                      await invalidateOutboundOrdersAndDetail(order.id);
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
@@ -449,7 +452,7 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.delete(order.id);
                       showToast.success("Order deleted successfully");
-                      await reload();
+                      await invalidateOutboundOrdersAndDetail(order.id);
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {

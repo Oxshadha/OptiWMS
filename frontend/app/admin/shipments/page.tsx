@@ -5,7 +5,11 @@ import clsx from "clsx";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
-import { usePagedAdminQuery } from "@/lib/hooks/useQuery";
+import {
+  useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
+  usePagedAdminQuery,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CreateShipmentModal, ShipmentDetailModal } from "./components/ShipmentModals";
@@ -123,10 +127,15 @@ export default function ShipmentsPage() {
       : null;
   const totalItems = shipmentsQuery.data?.totalElements ?? 0;
   const totalPages = Math.max(shipmentsQuery.data?.totalPages ?? 1, 1);
+  const invalidateShipmentList = useInvalidateAdminList(["admin-shipments"]);
+  const invalidateShipmentListAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-shipments"],
+    (id) => ["admin-shipments", "detail", id]
+  );
   const totalShipments = totalItems;
   const reload = async () => {
     try {
-      await shipmentsQuery.refetch();
+      await invalidateShipmentList();
     } catch (err) {
       logger.error("Failed to reload shipments:", err);
     }
@@ -166,7 +175,7 @@ export default function ShipmentsPage() {
     try {
       await shipmentsApi.confirmDelivery(shipment.shipmentId);
       showToast.success(`Delivery confirmed for ${shipment.id}`);
-      await reload();
+      await invalidateShipmentListAndDetail(shipment.shipmentId);
     } catch (err) {
       logger.error("Failed to confirm delivery:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to confirm delivery");

@@ -10,6 +10,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceUsers,
   useReferenceWarehouses,
@@ -94,6 +95,7 @@ export default function TasksPage() {
 
   const usersQuery = useReferenceUsers();
   const warehousesQuery = useReferenceWarehouses();
+  const invalidateTaskList = useInvalidateAdminList(["admin-tasks"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -191,11 +193,7 @@ export default function TasksPage() {
   const totalPages = Math.max(tasksQuery.data?.totalPages ?? 1, 1);
   const reload = async () => {
     try {
-      await Promise.all([
-        tasksQuery.refetch(),
-        usersQuery.refetch(),
-        warehousesQuery.refetch(),
-      ]);
+      await invalidateTaskList();
     } catch (err) {
       logger.error("Failed to reload tasks:", err);
     }

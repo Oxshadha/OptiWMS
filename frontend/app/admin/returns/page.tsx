@@ -11,6 +11,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { returnsApi } from "@/lib/api/returns";
 import { ordersApi } from "@/lib/api/orders";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceCustomers,
   useReferenceSuppliers,
@@ -110,6 +111,7 @@ export default function ReturnsPage() {
   const warehousesQuery = useReferenceWarehouses();
   const customersQuery = useReferenceCustomers();
   const suppliersQuery = useReferenceSuppliers();
+  const invalidateReturnsList = useInvalidateAdminList(["admin-returns"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -216,12 +218,7 @@ export default function ReturnsPage() {
   const totalPages = Math.max(returnsQuery.data?.page.totalPages ?? 1, 1);
   const reload = async () => {
     try {
-      await Promise.all([
-        returnsQuery.refetch(),
-        warehousesQuery.refetch(),
-        customersQuery.refetch(),
-        suppliersQuery.refetch(),
-      ]);
+      await invalidateReturnsList();
     } catch (err) {
       logger.error("Failed to reload returns:", err);
     }

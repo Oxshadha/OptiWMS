@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { shipmentsApi, type Shipment } from "@/lib/api/shipments";
 
 export default function ShipmentDetailPage() {
   const params = useParams();
-  const [shipment, setShipment] = useState<Shipment | null>(null);
-  const [loading, setLoading] = useState(true);
+  const shipmentId = params.id as string;
+  const shipmentQuery = useQuery({
+    queryKey: ["admin-shipments", "detail", shipmentId],
+    queryFn: () => shipmentsApi.getById(shipmentId),
+    enabled: !!shipmentId,
+  });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setShipment(await shipmentsApi.getById(params.id as string));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [params.id]);
+  const shipment = shipmentQuery.data as Shipment | undefined;
+  const loading = shipmentQuery.isPending && !shipmentQuery.data;
 
   if (loading) {
     return <div className="flex items-center justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>;

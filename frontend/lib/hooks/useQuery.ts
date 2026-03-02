@@ -307,7 +307,27 @@ export function useInvalidateQuery() {
   const queryClient = useQueryClient();
   
   return (queryKey: readonly unknown[]) => {
-    queryClient.invalidateQueries({ queryKey });
+    return queryClient.invalidateQueries({ queryKey });
+  };
+}
+
+export function useInvalidateAdminList(queryKeyPrefix: readonly unknown[]) {
+  const invalidateQuery = useInvalidateQuery();
+
+  return () => invalidateQuery(queryKeyPrefix);
+}
+
+export function useInvalidateAdminListAndDetail(
+  listKeyPrefix: readonly unknown[],
+  detailKeyFactory: (id: string) => readonly unknown[]
+) {
+  const invalidateQuery = useInvalidateQuery();
+
+  return async (id?: string | null) => {
+    await invalidateQuery(listKeyPrefix);
+    if (id) {
+      await invalidateQuery(detailKeyFactory(id));
+    }
   };
 }
 

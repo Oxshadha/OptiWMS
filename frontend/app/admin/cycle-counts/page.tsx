@@ -9,6 +9,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { operationsApi } from "@/lib/api/operations";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceLocations,
   useReferenceUsers,
@@ -76,15 +77,11 @@ export default function CycleCountsPage() {
   const warehousesQuery = useReferenceWarehouses();
   const usersQuery = useReferenceUsers();
   const locationsQuery = useReferenceLocations();
+  const invalidateCycleCounts = useInvalidateAdminList(["admin-cycle-counts"]);
 
   const reload = async () => {
     try {
-      await Promise.all([
-        countsQuery.refetch(),
-        warehousesQuery.refetch(),
-        usersQuery.refetch(),
-        locationsQuery.refetch(),
-      ]);
+      await invalidateCycleCounts();
     } catch (err) {
       logger.error("Failed to reload cycle counts:", err);
     }
