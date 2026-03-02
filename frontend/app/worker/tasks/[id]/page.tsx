@@ -58,6 +58,7 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [reportingIssue, setReportingIssue] = useState(false);
 
   useEffect(() => {
     const loadTask = async () => {
@@ -101,6 +102,27 @@ export default function TaskDetailPage() {
       showToast.error("Failed to update task");
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const reportTaskIssue = async () => {
+    if (!task || !worker?.id || !isOnline) {
+      showToast.error("You must be online to report issues");
+      return;
+    }
+
+    try {
+      setReportingIssue(true);
+      await tasksApi.reportError(task.id, {
+        workerId: worker.id,
+        message: `Issue reported from worker task screen for ${task.taskNumber}`,
+      });
+      showToast.success("Issue reported");
+    } catch (error) {
+      logger.error("Failed to report task issue:", error);
+      showToast.error("Failed to report issue");
+    } finally {
+      setReportingIssue(false);
     }
   };
 
@@ -204,6 +226,14 @@ export default function TaskDetailPage() {
       </div>
 
       <div className="space-y-2">
+        <button
+          onClick={() => void reportTaskIssue()}
+          className="btn btn-outline w-full"
+          disabled={reportingIssue || updating || !isOnline}
+        >
+          <span className="material-symbols-outlined">report_problem</span>
+          Report Issue
+        </button>
         {canStart && (
           <button
             onClick={() => void updateTaskStatus("in_progress")}

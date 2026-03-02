@@ -1,13 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import clsx from "clsx";
+import { useMemo } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
 import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -16,26 +15,35 @@ import {
 } from "recharts";
 import { InventoryDisplayItem, formatDecimal, inventoryStatusTone } from "../types";
 
-function generateInventoryHistory(currentQty: number, days: number = 30) {
-  const data = [];
-  const today = new Date();
-  let qty = currentQty;
-
-  for (let i = days; i >= 0; i--) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - i);
-    const variation = Math.floor(Math.random() * 20) - 10;
-    qty = Math.max(0, currentQty + variation + Math.floor(Math.random() * 15) - 7);
-    data.push({
-      date: date.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-      }),
-      quantity: qty,
-    });
+function parseOptionalNumber(value?: string) {
+  if (!value) {
+    return null;
   }
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-  return data;
+function buildInventorySnapshot(item: InventoryDisplayItem) {
+  const points = [
+    { label: "On Hand", quantity: item.qty, color: "#CF0F47" },
+    { label: "Available", quantity: item.availableQty ?? item.qty, color: "#0EA5E9" },
+    { label: "Reserved", quantity: item.reservedQty ?? 0, color: "#F59E0B" },
+  ];
+
+  const optionalMetrics = [
+    { label: "Reorder", quantity: parseOptionalNumber(item.reorderPoint), color: "#F97316" },
+    { label: "Buffer", quantity: parseOptionalNumber(item.bufferStock), color: "#8B5CF6" },
+    { label: "Min", quantity: parseOptionalNumber(item.minStock), color: "#EAB308" },
+    { label: "Max", quantity: parseOptionalNumber(item.maxStock), color: "#22C55E" },
+  ];
+
+  optionalMetrics.forEach((metric) => {
+    if (metric.quantity != null) {
+      points.push(metric as { label: string; quantity: number; color: string });
+    }
+  });
+
+  return points;
 }
 
 export function InventoryItemDetailModal({
@@ -49,27 +57,22 @@ export function InventoryItemDetailModal({
   item: InventoryDisplayItem;
   onEdit?: () => void;
 }) {
-  const [timeRange, setTimeRange] = useState<"7d" | "30d" | "90d">("30d");
-  const daysMap = { "7d": 7, "30d": 30, "90d": 90 };
-
-  const inventoryHistory = useMemo(
-    () => generateInventoryHistory(item.qty, daysMap[timeRange]),
-    [item.qty, timeRange]
-  );
-
-  const minQty = Math.min(...inventoryHistory.map((d) => d.quantity));
-  const maxQty = Math.max(...inventoryHistory.map((d) => d.quantity));
+  const snapshotData = useMemo(() => buildInventorySnapshot(item), [item]);
+  const quantities = snapshotData.map((d) => d.quantity);
+  const minQty = Math.min(...quantities);
+  const maxQty = Math.max(...quantities);
   const avgQty = Math.round(
-    inventoryHistory.reduce((sum, d) => sum + d.quantity, 0) / inventoryHistory.length
+    quantities.reduce((sum, quantity) => sum + quantity, 0) / quantities.length
   );
+  const currentAvailable = item.availableQty ?? item.qty;
+  const reservedQty = item.reservedQty ?? 0;
   const trend =
-    inventoryHistory[inventoryHistory.length - 1].quantity > inventoryHistory[0].quantity
+    currentAvailable > item.qty
       ? "up"
-      : inventoryHistory[inventoryHistory.length - 1].quantity < inventoryHistory[0].quantity
+      : currentAvailable < item.qty
       ? "down"
       : "stable";
-  const change =
-    inventoryHistory[inventoryHistory.length - 1].quantity - inventoryHistory[0].quantity;
+  const change = currentAvailable - item.qty;
 
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Inventory: ${item.sku}`} size="xl">
@@ -177,22 +180,10 @@ export function InventoryItemDetailModal({
         <div className="border-t pt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-base-content">Inventory Levels Over Time</h3>
-                <StatusChip label="Mock Data" tone="neutral" />
-              </div>
-              <p className="text-sm text-base-content/60 mt-1">Track inventory changes and trends</p>
-            </div>
-            <div className="flex gap-2">
-              {(["7d", "30d", "90d"] as const).map((range) => (
-                <button
-                  key={range}
-                  onClick={() => setTimeRange(range)}
-                  className={clsx("btn btn-sm", timeRange === range ? "btn-primary" : "btn-ghost")}
-                >
-                  {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
-                </button>
-              ))}
+              <h3 className="text-lg font-semibold text-base-content">Inventory Position Snapshot</h3>
+              <p className="text-sm text-base-content/60 mt-1">
+                Live values from the current inventory record and planning thresholds
+              </p>
             </div>
           </div>
 
@@ -202,36 +193,29 @@ export function InventoryItemDetailModal({
               <div className="text-lg font-bold text-base-content">{item.qty}</div>
             </div>
             <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Average</div>
+              <div className="text-xs text-base-content/60 mb-1">Available</div>
+              <div className="text-lg font-bold text-info">{currentAvailable}</div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Reserved</div>
+              <div className="text-lg font-bold text-warning">{reservedQty}</div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Average Metric</div>
               <div className="text-lg font-bold text-base-content">{avgQty}</div>
-            </div>
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Minimum</div>
-              <div className="text-lg font-bold text-warning">{minQty}</div>
-            </div>
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Maximum</div>
-              <div className="text-lg font-bold text-success">{maxQty}</div>
             </div>
           </div>
 
           <div className="bg-base-200 rounded-lg p-4">
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={inventoryHistory}>
-                  <defs>
-                    <linearGradient id="colorQuantity" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#CF0F47" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#CF0F47" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <BarChart data={snapshotData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" opacity={0.5} />
                   <XAxis
-                    dataKey="date"
+                    dataKey="label"
                     tickLine={false}
                     axisLine={false}
                     tick={{ fontSize: 11, fill: "#6B7280" }}
-                    interval="preserveStartEnd"
                   />
                   <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#6B7280" }} />
                   <Tooltip
@@ -241,24 +225,20 @@ export function InventoryItemDetailModal({
                       borderRadius: "8px",
                       boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                     }}
-                    labelFormatter={(label) => `Date: ${label}`}
+                    labelFormatter={(label) => `${label}`}
                     formatter={(value: number) => [`${value} units`, "Quantity"]}
                   />
-                  <Area
-                    type="monotone"
+                  <Bar
                     dataKey="quantity"
-                    stroke="#CF0F47"
-                    strokeWidth={2}
-                    fill="url(#colorQuantity)"
-                    dot={{ r: 3, fill: "#CF0F47" }}
-                    activeDot={{ r: 5 }}
+                    radius={[6, 6, 0, 0]}
+                    fill="#CF0F47"
                   />
-                </AreaChart>
+                </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-2 text-sm">
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-base-content/60">Trend:</span>
             {trend === "up" && (
               <>
@@ -282,6 +262,17 @@ export function InventoryItemDetailModal({
               Change: {change > 0 ? "+" : ""}
               {change} units
             </span>
+            <span className="text-base-content/60 ml-4">
+              Range: {minQty} to {maxQty} units
+            </span>
+            {item.lastMovementDate && (
+              <span className="text-base-content/60 ml-4">
+                Last movement: {item.lastMovementDate}
+                {typeof item.daysSinceLastMovement === "number"
+                  ? ` (${item.daysSinceLastMovement} day${item.daysSinceLastMovement === 1 ? "" : "s"} ago)`
+                  : ""}
+              </span>
+            )}
           </div>
         </div>
 

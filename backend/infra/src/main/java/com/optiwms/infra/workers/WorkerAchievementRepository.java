@@ -10,4 +10,5 @@ import java.util.UUID;
 public interface WorkerAchievementRepository extends JpaRepository<WorkerAchievementEntity, UUID> {
     List<WorkerAchievementEntity> findByWorkerIdOrderByEarnedAtDesc(UUID workerId);
     List<WorkerAchievementEntity> findByWorkerIdAndAchievementTypeOrderByEarnedAtDesc(UUID workerId, String achievementType);
+    boolean existsByWorkerIdAndAchievementType(UUID workerId, String achievementType);
 }
