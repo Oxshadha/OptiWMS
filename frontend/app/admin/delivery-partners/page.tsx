@@ -21,6 +21,7 @@ import {
   CreateDeliveryPartnerModal,
   DeleteDeliveryPartnerModal,
   DeliveryPartnerDetailModal,
+  DeliveryPartnerMetricsModal,
   EditDeliveryPartnerModal,
 } from "./components/DeliveryPartnerModals";
 
@@ -30,6 +31,7 @@ export default function DeliveryPartnersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showMetricsModal, setShowMetricsModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedPartner, setSelectedPartner] =
     useState<DeliveryPartnerDisplay | null>(null);
@@ -107,6 +109,8 @@ export default function DeliveryPartnersPage() {
       costPerDelivery: p.costPerDelivery ? parseFloat(p.costPerDelivery) : 0,
       currencyCode: p.currencyCode || "USD",
       status: p.status || "active",
+      totalShipments: p.totalShipments ?? 0,
+      onTimeDeliveryRate: p.onTimeDeliveryRate ? parseFloat(p.onTimeDeliveryRate) : 0,
     };
   };
   const partnersQuery = usePagedAdminQuery({
@@ -365,11 +369,12 @@ export default function DeliveryPartnersPage() {
         <li>
           <button
             onClick={() => {
-              showToast.warning("Performance metrics dashboard coming soon");
+              setSelectedPartner(partner);
+              setShowMetricsModal(true);
             }}
           >
             <span className="material-symbols-outlined text-sm">bar_chart</span>
-            Performance Metrics
+            View Metrics
           </button>
         </li>
         {canDelete && (
@@ -587,6 +592,14 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(partnerToEdit);
             setShowEditModal(true);
           }}
+        />
+      )}
+
+      {selectedPartner && (
+        <DeliveryPartnerMetricsModal
+          isOpen={showMetricsModal}
+          onClose={() => setShowMetricsModal(false)}
+          partner={selectedPartner}
         />
       )}
 

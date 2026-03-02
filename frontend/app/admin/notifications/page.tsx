@@ -21,6 +21,7 @@ type NotificationType =
   | "stock_transfer"
   | "dock"
   | "return"
+  | "support"
   | "system";
 
 // Notification data structure
@@ -55,6 +56,7 @@ const typeConfig: Record<NotificationType, { label: string; icon: string; tone: 
   stock_transfer: { label: "Stock Transfer", icon: "swap_horiz", tone: "info" },
   dock: { label: "Dock", icon: "garage", tone: "info" },
   return: { label: "Return", icon: "keyboard_return", tone: "warning" },
+  support: { label: "Support", icon: "support_agent", tone: "warning" },
   system: { label: "System", icon: "settings", tone: "neutral" },
 };
 
