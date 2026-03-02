@@ -9,6 +9,8 @@ import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { useDashboardData } from "./useDashboardData";
 import { usersApi } from "@/lib/api/users";
 import { getScopedSettings } from "@/lib/user-preferences";
+import { applyAppTheme } from "@/lib/theme";
+import { notificationsApi, type Notification } from "@/lib/api/notifications";
 import {
   BarChart,
   Bar,
@@ -32,19 +34,7 @@ const defaultDashboardSettings = {
   showNotifications: true,
   dateFormat: "MM/DD/YYYY",
   timeFormat: "12h",
-  language: "en",
 };
-
-function toLocale(language: string) {
-  switch (language) {
-    case "es":
-      return "es-ES";
-    case "fr":
-      return "fr-FR";
-    default:
-      return "en-US";
-  }
-}
 
 function formatChartDate(date: string, locale: string, dateFormat: string) {
   const parsed = new Date(date);
@@ -75,6 +65,7 @@ export default function DashboardPage() {
   const { role, admin } = useAdmin();
   const [dashboardSettings, setDashboardSettings] = useState(defaultDashboardSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const topProductsLimit = Math.min(
     Math.max(Number.parseInt(dashboardSettings.itemsPerPage, 10) || 4, 1),
@@ -94,7 +85,7 @@ export default function DashboardPage() {
   const isWarehouseManager = role === "warehouse_manager";
   const isInboundCoordinator = role === "inbound_coordinator";
   const isAdmin = role === "admin";
-  const locale = toLocale(dashboardSettings.language);
+  const locale = "en-US";
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -128,11 +119,34 @@ export default function DashboardPage() {
   }, [admin?.id]);
 
   useEffect(() => {
-    document.documentElement.setAttribute(
-      "data-theme",
-      dashboardSettings.darkMode ? "dark" : "light"
-    );
+    applyAppTheme(dashboardSettings.darkMode);
   }, [dashboardSettings.darkMode]);
+
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!admin?.id || !dashboardSettings.showNotifications) {
+        setNotifications([]);
+        return;
+      }
+
+      try {
+        const nextNotifications = await notificationsApi.getAll(admin.id);
+        setNotifications(nextNotifications.slice(0, 5));
+      } catch (loadError) {
+        logger.error("[Dashboard] Failed to load notifications:", loadError);
+        setNotifications([]);
+      }
+    };
+
+    void loadNotifications();
+
+    if (!dashboardSettings.showNotifications) {
+      return;
+    }
+
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [admin?.id, dashboardSettings.showNotifications]);
 
   useEffect(() => {
     if (settingsLoading || !dashboardSettings.autoRefresh) {
@@ -238,6 +252,46 @@ export default function DashboardPage() {
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">warning</span>
           <span>Some dashboard panels could not be refreshed completely.</span>
+        </div>
+      )}
+
+      {dashboardSettings.showNotifications && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-base-content">Operations Feed</h2>
+              <p className="text-sm text-base-content/60">Latest task and order updates across the system</p>
+            </div>
+            <a href="/admin/notifications" className="btn btn-ghost btn-sm">
+              View All
+            </a>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="text-sm text-base-content/60">No recent notifications.</div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  className={`rounded-lg border p-3 ${
+                    notification.read
+                      ? "border-base-300 bg-base-100"
+                      : "border-primary/20 bg-primary/5"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-base-content">{notification.title}</div>
+                      <div className="text-sm text-base-content/70 mt-1">{notification.message}</div>
+                    </div>
+                    <span className="text-xs text-base-content/50 whitespace-nowrap">
+                      {new Date(notification.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

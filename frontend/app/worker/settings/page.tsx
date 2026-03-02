@@ -6,6 +6,7 @@ import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { authApi } from "@/lib/api/auth";
 import { getScopedSettings, parseSettingsContainer, setScopedSettings } from "@/lib/user-preferences";
+import { applyAppTheme } from "@/lib/theme";
 
 const SETTINGS_KEY = "worker_settings";
 
@@ -220,11 +221,7 @@ export default function SettingsPage() {
                 darkMode: e.target.checked,
               });
               // Apply dark mode immediately
-              if (e.target.checked) {
-                document.documentElement.setAttribute("data-theme", "dark");
-              } else {
-                document.documentElement.setAttribute("data-theme", "light");
-              }
+              applyAppTheme(e.target.checked);
             }}
           />
         </div>

@@ -1,5 +1,7 @@
 package com.optiwms.coreapp.tasks;
 
+import com.optiwms.coreapp.notifications.NotificationService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.tasks.TaskEntity;
 import com.optiwms.infra.tasks.TaskRepository;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -20,9 +23,11 @@ import java.util.stream.Collectors;
 public class TaskService {
 
     private final TaskRepository repository;
+    private final NotificationService notificationService;
 
-    public TaskService(TaskRepository repository) {
+    public TaskService(TaskRepository repository, NotificationService notificationService) {
         this.repository = repository;
+        this.notificationService = notificationService;
     }
 
     public List<Task> listAll() {
@@ -134,6 +139,7 @@ public class TaskService {
         entity.setNotes(task.getNotes());
 
         TaskEntity saved = repository.save(entity);
+        createTaskNotifications(saved, saved.getAssignedTo() != null);
         return toDomain(saved);
     }
 
@@ -141,6 +147,7 @@ public class TaskService {
     public Task updateStatus(UUID id, String status) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        String previousStatus = entity.getStatus();
         entity.setStatus(status);
         if ("completed".equals(status)) {
             entity.setCompletedAt(LocalDateTime.now());
@@ -151,6 +158,7 @@ public class TaskService {
             }
         }
         TaskEntity saved = repository.save(entity);
+        createStatusNotification(saved, previousStatus, status);
         return toDomain(saved);
     }
 
@@ -158,6 +166,7 @@ public class TaskService {
     public Task updateStatusWithWorker(UUID id, String status, UUID workerId) {
         TaskEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Task not found: " + id));
+        String previousStatus = entity.getStatus();
         entity.setStatus(status);
         if (workerId != null) {
             // Keep task ownership aligned with actual executor for labor productivity views.
@@ -175,6 +184,7 @@ public class TaskService {
             }
         }
         TaskEntity saved = repository.save(entity);
+        createStatusNotification(saved, previousStatus, status);
         return toDomain(saved);
     }
 
@@ -188,6 +198,7 @@ public class TaskService {
             entity.setStartedAt(LocalDateTime.now());
         }
         TaskEntity saved = repository.save(entity);
+        createAssignedNotification(saved, assignedBy);
         return toDomain(saved);
     }
 
@@ -218,5 +229,118 @@ public class TaskService {
         task.setReferenceId(entity.getReferenceId());
         task.setNotes(entity.getNotes());
         return task;
+    }
+
+    private void createTaskNotifications(TaskEntity entity, boolean includeWorker) {
+        notify(
+                null,
+                "Task Created",
+                "Task " + entity.getTaskNumber() + " is available for execution.",
+                "task",
+                "/admin/tasks/" + entity.getId(),
+                "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"" + entity.getStatus() + "\"}"
+        );
+        if (includeWorker && entity.getAssignedTo() != null) {
+            notify(
+                    entity.getAssignedTo(),
+                    "New Task Assigned",
+                    "Task " + entity.getTaskNumber() + " has been assigned to you.",
+                    "task",
+                    "/worker/tasks/" + entity.getId(),
+                    "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"" + entity.getStatus() + "\"}"
+            );
+        }
+    }
+
+    private void createAssignedNotification(TaskEntity entity, String assignedBy) {
+        if (entity.getAssignedTo() != null) {
+            notify(
+                    entity.getAssignedTo(),
+                    "Task Assigned",
+                    "Task " + entity.getTaskNumber() + " is ready for you to start.",
+                    "task",
+                    "/worker/tasks/" + entity.getId(),
+                    "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"assignedBy\":\"" + (assignedBy != null ? assignedBy : "") + "\"}"
+            );
+        }
+        notify(
+                null,
+                "Task Assigned",
+                "Task " + entity.getTaskNumber() + " was assigned to a worker.",
+                "task",
+                "/admin/tasks/" + entity.getId(),
+                "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"assigned\"}"
+        );
+    }
+
+    private void createStatusNotification(TaskEntity entity, String previousStatus, String nextStatus) {
+        if (nextStatus == null || nextStatus.equalsIgnoreCase(previousStatus)) {
+            return;
+        }
+
+        String normalized = nextStatus.toLowerCase();
+        String title;
+        String message;
+        String actionUrl;
+
+        switch (normalized) {
+            case "in_progress" -> {
+                title = "Task Started";
+                message = "Task " + entity.getTaskNumber() + " is now in progress.";
+                actionUrl = "/admin/tasks/" + entity.getId();
+            }
+            case "completed" -> {
+                title = "Task Completed";
+                message = "Task " + entity.getTaskNumber() + " was completed.";
+                actionUrl = "/admin/tasks/" + entity.getId();
+            }
+            case "cancelled" -> {
+                title = "Task Cancelled";
+                message = "Task " + entity.getTaskNumber() + " was cancelled.";
+                actionUrl = "/admin/tasks/" + entity.getId();
+            }
+            default -> {
+                title = "Task Updated";
+                message = "Task " + entity.getTaskNumber() + " moved to " + normalized + ".";
+                actionUrl = "/admin/tasks/" + entity.getId();
+            }
+        }
+
+        notify(
+                null,
+                title,
+                message,
+                "task",
+                actionUrl,
+                "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"fromStatus\":\"" + (previousStatus != null ? previousStatus : "") + "\",\"status\":\"" + normalized + "\"}"
+        );
+
+        if (entity.getAssignedTo() != null && !"completed".equals(normalized)) {
+            notify(
+                    entity.getAssignedTo(),
+                    title,
+                    message,
+                    "task",
+                    "/worker/tasks/" + entity.getId(),
+                    "{\"taskId\":\"" + entity.getId() + "\",\"taskNumber\":\"" + entity.getTaskNumber() + "\",\"status\":\"" + normalized + "\"}"
+            );
+        }
+    }
+
+    private void notify(UUID userId, String title, String message, String type, String actionUrl, String metadata) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(userId);
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType(type);
+            notification.setRead(false);
+            notification.setActionUrl(actionUrl);
+            notification.setMetadata(metadata);
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block core task state transitions.
+        }
     }
 }

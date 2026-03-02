@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useState, useEffect, type MouseEvent } from "react";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { useWorker } from "@/contexts/WorkerContext";
 import { useOffline } from "@/hooks/useOffline";
@@ -27,6 +28,7 @@ const taskTypeConfig: Record<string, { icon: string; type: string }> = {
 };
 
 export default function WorkerTasksPage() {
+  const router = useRouter();
   const { worker } = useWorker();
   const { isOnline } = useOffline();
   const [selectedFilter, setSelectedFilter] = useState("all");
@@ -35,31 +37,31 @@ export default function WorkerTasksPage() {
   const [showScanner, setShowScanner] = useState(false);
   const [nowTs, setNowTs] = useState<number>(Date.now());
 
+  const loadTasks = async (showErrorToast: boolean = true) => {
+    if (!worker?.id || !isOnline) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const allTasks = await tasksApi.getAll(undefined, undefined, worker.id);
+      const activeTasks = allTasks.filter(
+        task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
+      );
+      setTasks(activeTasks);
+    } catch (error) {
+      logger.error("Failed to load tasks:", error);
+      if (showErrorToast) {
+        showToast.error("Failed to load tasks");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Fetch tasks for the logged-in worker
   useEffect(() => {
-    const loadTasks = async () => {
-      if (!worker?.id || !isOnline) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Fetch tasks assigned to this worker (pending and in_progress)
-        const allTasks = await tasksApi.getAll(undefined, undefined, worker.id);
-        // Show actionable task states for worker flow.
-        const activeTasks = allTasks.filter(
-          task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
-        );
-        setTasks(activeTasks);
-      } catch (error) {
-        logger.error("Failed to load tasks:", error);
-        showToast.error("Failed to load tasks");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTasks();
+    void loadTasks();
   }, [worker?.id, isOnline]);
 
   useEffect(() => {
@@ -132,23 +134,36 @@ export default function WorkerTasksPage() {
       return;
     }
     setLoading(true);
-    // Reload tasks
-    const loadTasks = async () => {
-      try {
-        const allTasks = await tasksApi.getAll(undefined, undefined, worker.id);
-        const activeTasks = allTasks.filter(
-          task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
-        );
-        setTasks(activeTasks);
-        showToast.success("Tasks refreshed");
-      } catch (error) {
-        logger.error("Failed to refresh tasks:", error);
-        showToast.error("Failed to refresh tasks");
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadTasks();
+    void loadTasks(false).then(() => {
+      showToast.success("Tasks refreshed");
+    });
+  };
+
+  const handleTaskAction = async (event: MouseEvent<HTMLButtonElement>, task: Task) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (task.status === "in_progress") {
+      router.push(`/worker/tasks/${task.id}`);
+      return;
+    }
+
+    if (!worker?.id || !isOnline) {
+      showToast.error("You must be online to start tasks");
+      return;
+    }
+
+    try {
+      const updatedTask = await tasksApi.updateStatus(task.id, "in_progress", worker.id);
+      setTasks((prev) =>
+        prev.map((item) => (item.id === task.id ? updatedTask : item))
+      );
+      showToast.success("Task started");
+      router.push(`/worker/tasks/${task.id}`);
+    } catch (error) {
+      logger.error("Failed to start task:", error);
+      showToast.error("Failed to start task");
+    }
   };
 
   if (loading) {
@@ -221,10 +236,7 @@ export default function WorkerTasksPage() {
                   </div>
                 </div>
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    // Handle start task - will navigate to detail page
-                  }}
+                  onClick={(e) => void handleTaskAction(e, task)}
                   className={`btn btn-${config.type} btn-sm ml-2 flex-shrink-0`}
                 >
                   {task.status === "in_progress" ? "Continue" : "Start"}
