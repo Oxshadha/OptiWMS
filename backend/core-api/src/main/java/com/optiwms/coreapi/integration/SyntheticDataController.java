@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.integration;
 
 import com.optiwms.integration.SyntheticDataGenerator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -10,6 +11,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/integration/synthetic")
+@ConditionalOnProperty(name = "optiwms.synthetic-data.enabled", havingValue = "true")
 public class SyntheticDataController {
 
     @Autowired
@@ -261,4 +263,3 @@ public class SyntheticDataController {
         public void setPackingTasks(Integer packingTasks) { this.packingTasks = packingTasks; }
     }
 }
-

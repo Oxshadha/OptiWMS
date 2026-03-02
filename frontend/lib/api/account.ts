@@ -6,6 +6,7 @@ export interface UpdateProfileRequest {
   lastName?: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string;
 }
 
 export interface ChangePasswordRequest {
@@ -21,6 +22,7 @@ export interface UserProfile {
   lastName: string;
   phone: string;
   role: string;
+  avatarUrl?: string;
 }
 
 /**
@@ -48,6 +50,7 @@ export const accountApi = {
       lastName: response.lastName || nameParts.slice(1).join(' ') || '',
       phone: response.phone || '',
       role: response.role,
+      avatarUrl: response.avatarUrl || '',
     };
   },
 

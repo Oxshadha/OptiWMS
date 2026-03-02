@@ -174,6 +174,7 @@ public class AuthController {
                 user.getFirstName(),
                 user.getLastName(),
                 user.getPhone(),
+                user.getAvatarUrl(),
                 user.getDashboardSettings()
         ));
     }
@@ -271,6 +272,10 @@ public class AuthController {
             }
             if (request.phone() != null) {
                 user.setPhone(request.phone().trim());
+            }
+            if (request.avatarUrl() != null) {
+                String trimmedAvatar = request.avatarUrl().trim();
+                user.setAvatarUrl(trimmedAvatar.isEmpty() ? null : trimmedAvatar);
             }
             
             userRepository.save(user);
@@ -392,6 +397,7 @@ public class AuthController {
             String firstName,
             String lastName,
             String phone,
+            String avatarUrl,
             String dashboardSettings
     ) {}
 
@@ -399,7 +405,8 @@ public class AuthController {
             String firstName,
             String lastName,
             String email,
-            String phone
+            String phone,
+            String avatarUrl
     ) {}
 
     public record ChangePasswordRequest(

@@ -40,6 +40,7 @@ export interface UserInfo {
   firstName?: string;
   lastName?: string;
   phone?: string;
+  avatarUrl?: string;
   dashboardSettings?: string;
 }
 

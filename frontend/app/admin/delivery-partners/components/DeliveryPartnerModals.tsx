@@ -117,6 +117,131 @@ export function DeliveryPartnerDetailModal({
   );
 }
 
+export function DeliveryPartnerMetricsModal({
+  isOpen,
+  onClose,
+  partner,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  partner: DeliveryPartnerDisplay;
+}) {
+  const totalShipments = partner.totalShipments;
+  const onTimeRate = partner.onTimeDeliveryRate;
+  const delayedRate = Math.max(0, 100 - onTimeRate);
+  const estimatedSpend = totalShipments * partner.costPerDelivery;
+  const reliability =
+    onTimeRate >= 95 ? "Excellent" : onTimeRate >= 85 ? "Stable" : onTimeRate >= 70 ? "Monitor" : "At Risk";
+
+  return (
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Delivery Metrics: ${partner.companyName}`}
+      size="lg"
+    >
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Tracked Shipments</p>
+            <p className="text-3xl font-bold text-base-content">{totalShipments}</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">On-Time Rate</p>
+            <p className="text-3xl font-bold text-success">{onTimeRate.toFixed(1)}%</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Late / Exception Rate</p>
+            <p className="text-3xl font-bold text-warning">{delayedRate.toFixed(1)}%</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Estimated Spend</p>
+            <p className="text-3xl font-bold text-base-content">
+              {formatCurrency(estimatedSpend, partner.currencyCode)}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-base-300 bg-base-100 p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-base-content">Service Reliability</h3>
+              <p className="text-sm text-base-content/60">
+                Based on the persisted partner scorecard values currently stored in the master record.
+              </p>
+            </div>
+            <StatusChip
+              label={reliability}
+              tone={
+                reliability === "Excellent"
+                  ? "success"
+                  : reliability === "Stable"
+                    ? "info"
+                    : reliability === "Monitor"
+                      ? "warning"
+                      : "danger"
+              }
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm text-base-content/70">
+              <span>On-time deliveries</span>
+              <span>{onTimeRate.toFixed(1)}%</span>
+            </div>
+            <progress
+              className="progress progress-success w-full"
+              value={Math.max(0, Math.min(onTimeRate, 100))}
+              max="100"
+            />
+            <div className="flex items-center justify-between text-sm text-base-content/70">
+              <span>Exceptions / delays</span>
+              <span>{delayedRate.toFixed(1)}%</span>
+            </div>
+            <progress
+              className="progress progress-warning w-full"
+              value={Math.max(0, Math.min(delayedRate, 100))}
+              max="100"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Average Cost Per Shipment</p>
+            <p className="text-xl font-bold text-base-content">
+              {formatCurrency(partner.costPerDelivery, partner.currencyCode)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Coverage</p>
+            <p className="text-xl font-bold text-base-content">{partner.serviceAreas.length} service areas</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Quality Rating</p>
+            <p className="text-xl font-bold text-base-content">{partner.rating.toFixed(1)} / 5.0</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+          <p className="text-sm text-base-content/60 mb-1">Interpretation</p>
+          <p className="text-sm text-base-content/80">
+            Use this view to review the supplier-maintained carrier scorecard before assigning more outbound work.
+            Shipment counts and on-time rate are editable master-data fields today; they can be automated later once
+            shipments are explicitly linked to a delivery partner record.
+          </p>
+        </div>
+
+        <div className="flex justify-end">
+          <button className="btn btn-primary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+    </DetailModal>
+  );
+}
+
 export function EditDeliveryPartnerModal({
   isOpen,
   onClose,
@@ -140,6 +265,8 @@ export function EditDeliveryPartnerModal({
     costPerDelivery: partner.costPerDelivery.toString(),
     currencyCode: partner.currencyCode || "USD",
     rating: partner.rating.toString(),
+    totalShipments: partner.totalShipments.toString(),
+    onTimeDeliveryRate: partner.onTimeDeliveryRate.toString(),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -157,6 +284,10 @@ export function EditDeliveryPartnerModal({
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery ? formData.costPerDelivery : undefined,
         rating: formData.rating ? formData.rating : undefined,
+        totalShipments: formData.totalShipments ? Number(formData.totalShipments) : undefined,
+        onTimeDeliveryRate: formData.onTimeDeliveryRate
+          ? formData.onTimeDeliveryRate
+          : undefined,
       };
 
       await deliveryPartnersApi.update(partner.id, updateData);
@@ -197,6 +328,37 @@ export function EditDeliveryPartnerModal({
               value={formData.companyName}
               onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
               required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Tracked Shipments</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              className="input input-bordered w-full"
+              value={formData.totalShipments}
+              onChange={(e) => setFormData({ ...formData, totalShipments: e.target.value })}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">On-Time Rate (%)</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              className="input input-bordered w-full"
+              value={formData.onTimeDeliveryRate}
+              onChange={(e) =>
+                setFormData({ ...formData, onTimeDeliveryRate: e.target.value })
+              }
             />
           </div>
         </div>
@@ -394,6 +556,8 @@ export function CreateDeliveryPartnerModal({
     costPerDelivery: "",
     currencyCode: "USD",
     rating: "",
+    totalShipments: "0",
+    onTimeDeliveryRate: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -412,6 +576,8 @@ export function CreateDeliveryPartnerModal({
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery || undefined,
         rating: formData.rating || undefined,
+        totalShipments: Number(formData.totalShipments || "0"),
+        onTimeDeliveryRate: formData.onTimeDeliveryRate || undefined,
         status: "active",
       };
 
@@ -432,6 +598,8 @@ export function CreateDeliveryPartnerModal({
         costPerDelivery: "",
         currencyCode: "USD",
         rating: "",
+        totalShipments: "0",
+        onTimeDeliveryRate: "",
       });
     } catch (err) {
       logger.error("Failed to create delivery partner:", err);
@@ -467,6 +635,37 @@ export function CreateDeliveryPartnerModal({
               value={formData.companyName}
               onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
               required
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Tracked Shipments</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              className="input input-bordered w-full"
+              value={formData.totalShipments}
+              onChange={(e) => setFormData({ ...formData, totalShipments: e.target.value })}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">On-Time Rate (%)</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              className="input input-bordered w-full"
+              value={formData.onTimeDeliveryRate}
+              onChange={(e) =>
+                setFormData({ ...formData, onTimeDeliveryRate: e.target.value })
+              }
             />
           </div>
         </div>
