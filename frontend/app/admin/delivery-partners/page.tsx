@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -12,6 +12,7 @@ import {
   deliveryPartnersApi,
   DeliveryPartner as ApiDeliveryPartner,
 } from "@/lib/api/deliveryPartners";
+import { useInvalidateAdminList, usePagedAdminQuery } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatCurrency } from "./utils";
@@ -40,20 +41,10 @@ export default function DeliveryPartnersPage() {
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
   const canCreate = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.DELIVERY_PARTNERS, "delete");
-
-  const [deliveryPartners, setDeliveryPartners] = useState<
-    DeliveryPartnerDisplay[]
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const transformPartnerData = (
     p: ApiDeliveryPartner
@@ -118,43 +109,19 @@ export default function DeliveryPartnersPage() {
       status: p.status || "active",
     };
   };
-
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setLoading(true);
-      }
-      setError(null);
-      const partnersPage = await deliveryPartnersApi.getPaged({
+  const partnersQuery = usePagedAdminQuery({
+    queryKey: ["admin-delivery-partners", currentPage, itemsPerPage, statusFilter, searchQuery],
+    queryFn: () =>
+      deliveryPartnersApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
         sortBy: "createdAt",
         sortDir: "desc",
         status: statusFilter === "all" ? undefined : statusFilter,
         q: searchQuery.trim() || undefined,
-      });
-      const displayPartners = partnersPage.data.map(transformPartnerData);
-      setDeliveryPartners(displayPartners);
-      setTotalItems(partnersPage.totalElements);
-      setTotalPages(Math.max(partnersPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load delivery partners:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load delivery partners"
-      );
-      setDeliveryPartners([]);
-      showToast.error("Failed to load delivery partners. Please try again.");
-    } finally {
-      setLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
+      }),
+  });
+  const reload = useInvalidateAdminList(["admin-delivery-partners"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -163,6 +130,20 @@ export default function DeliveryPartnersPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const deliveryPartners = useMemo(
+    () => (partnersQuery.data?.data || []).map(transformPartnerData),
+    [partnersQuery.data]
+  );
+  const loading = partnersQuery.isPending && !partnersQuery.data;
+  const isFetching = partnersQuery.isFetching;
+  const error = partnersQuery.error
+    ? partnersQuery.error instanceof Error
+      ? partnersQuery.error.message
+      : "Failed to load delivery partners"
+    : null;
+  const totalItems = partnersQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(partnersQuery.data?.totalPages ?? 1, 1);
 
   const filteredPartners =
     typeFilter === "all"
@@ -189,7 +170,7 @@ export default function DeliveryPartnersPage() {
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading delivery partners: {error}</span>
-        <button className="btn btn-sm" onClick={() => void loadData()}>
+        <button className="btn btn-sm" onClick={() => void reload()}>
           Retry
         </button>
       </div>
@@ -430,7 +411,7 @@ export default function DeliveryPartnersPage() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => void loadData()}
+            onClick={() => void reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -590,7 +571,7 @@ export default function DeliveryPartnersPage() {
       <CreateDeliveryPartnerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {selectedPartner && (
@@ -617,7 +598,7 @@ export default function DeliveryPartnersPage() {
             setSelectedPartner(null);
           }}
           partner={selectedPartner}
-          onUpdated={loadData}
+          onUpdated={reload}
         />
       )}
 
@@ -635,7 +616,7 @@ export default function DeliveryPartnersPage() {
               showToast.success("Delivery partner deleted successfully");
               setShowDeleteModal(false);
               setSelectedPartner(null);
-              await loadData();
+              await reload();
             } catch (err) {
               logger.error("Failed to delete delivery partner:", err);
               showToast.error(

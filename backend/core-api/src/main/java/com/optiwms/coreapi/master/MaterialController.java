@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.imports.CsvImportService;
+import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.SupplierMaterialService;
 import org.springframework.data.domain.Page;
@@ -10,6 +11,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.context.request.WebRequest;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +38,8 @@ public class MaterialController {
     @GetMapping
     public ResponseEntity<List<MaterialDto>> list(
             @RequestParam(required = false) String materialType,
-            @RequestParam(required = false) UUID supplierId
+            @RequestParam(required = false) UUID supplierId,
+            WebRequest webRequest
     ) {
         var materials = supplierId != null
                 ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)
@@ -59,7 +62,14 @@ public class MaterialController {
                         m.getPalletSpaces(),
                         m.getMaxPalletWeightKg()))
                 .toList();
-        return ResponseEntity.ok(data);
+        return ReferenceDataCacheSupport.ok(
+                webRequest,
+                data,
+                "materials",
+                materialType,
+                supplierId,
+                data
+        );
     }
 
     @GetMapping("/paged")
