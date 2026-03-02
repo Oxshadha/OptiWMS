@@ -6,6 +6,7 @@ import { Pagination } from "@/components/Pagination";
 import { operationsApi } from "@/lib/api/operations";
 import {
   useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
   usePagedAdminQuery,
   useReferenceMaterials,
   useReferenceUsers,
@@ -78,6 +79,10 @@ export default function StockTransfersPage() {
   const materialsQuery = useReferenceMaterials();
   const usersQuery = useReferenceUsers();
   const invalidateTransferList = useInvalidateAdminList(["admin-stock-transfers"]);
+  const invalidateTransferListAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-stock-transfers"],
+    (id) => ["admin-stock-transfers", "detail", id]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -199,7 +204,7 @@ export default function StockTransfersPage() {
     try {
       await operationsApi.cancelStockTransfer(transfer.id);
       showToast.success("Transfer cancelled successfully");
-      await reload();
+      await invalidateTransferListAndDetail(transfer.id);
     } catch (err) {
       logger.error("Failed to cancel transfer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to cancel transfer");
@@ -302,7 +307,7 @@ export default function StockTransfersPage() {
           },
         ],
       });
-      await reload();
+      await invalidateTransferListAndDetail(created.id);
     } catch (err) {
       logger.error("Failed to create transfer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create transfer");

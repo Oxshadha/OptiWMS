@@ -1,96 +1,151 @@
 "use client";
 
+import { useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
-
-// Mock data - same as in parent page
-const cycleCounts = [
-  {
-    id: "cc-1",
-    countNumber: "CC-2025-001",
-    warehouseName: "Warehouse 1",
-    sectionName: "Section A - Electronics",
-    countType: "scheduled",
-    scheduledDate: "2025-12-20",
-    actualDate: null,
-    status: "scheduled",
-    assignedWorkers: ["John Doe", "Jane Smith"],
-    assignedBy: "Manager A",
-    assignedDate: "2025-12-15 09:00",
-    totalLocations: 120,
-    countedLocations: 0,
-    discrepanciesFound: 0,
-    performedBy: null,
-  },
-  {
-    id: "cc-2",
-    countNumber: "CC-2025-002",
-    warehouseName: "Warehouse 1",
-    sectionName: "Full Warehouse",
-    countType: "full",
-    scheduledDate: "2025-12-18",
-    actualDate: "2025-12-18",
-    status: "completed",
-    assignedWorkers: ["Mike Johnson", "Sarah Lee"],
-    assignedBy: "Manager B",
-    assignedDate: "2025-12-17 10:00",
-    totalLocations: 480,
-    countedLocations: 480,
-    discrepanciesFound: 12,
-    performedBy: "Mike Johnson, Sarah Lee",
-  },
-  {
-    id: "cc-3",
-    countNumber: "CC-2025-003",
-    warehouseName: "Warehouse 2",
-    sectionName: "Section B - Appliances",
-    countType: "ad_hoc",
-    scheduledDate: "2025-12-15",
-    actualDate: "2025-12-15",
-    status: "in_progress",
-    assignedWorkers: ["John Doe"],
-    assignedBy: "Manager C",
-    assignedDate: "2025-12-14 14:00",
-    totalLocations: 80,
-    countedLocations: 45,
-    discrepanciesFound: 3,
-    performedBy: "John Doe",
-  },
-];
+import { operationsApi } from "@/lib/api/operations";
+import {
+  useReferenceLocations,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 
 const countTypeConfig = {
-  scheduled: { label: "Scheduled", class: "badge-info" },
-  ad_hoc: { label: "Ad-Hoc", class: "badge-warning" },
-  full: { label: "Full", class: "badge-primary" },
+  scheduled: { label: "Scheduled" },
+  ad_hoc: { label: "Ad-Hoc" },
+  full: { label: "Full" },
 };
 
 const statusConfig = {
-  scheduled: { label: "Scheduled", class: "badge-outline" },
-  in_progress: { label: "In Progress", class: "badge-primary" },
-  completed: { label: "Completed", class: "badge-success" },
-  cancelled: { label: "Cancelled", class: "badge-error" },
+  scheduled: { label: "Scheduled" },
+  in_progress: { label: "In Progress" },
+  pending_approval: { label: "Pending Approval" },
+  recount_required: { label: "Recount Required" },
+  completed: { label: "Completed" },
+  cancelled: { label: "Cancelled" },
 };
 
 function getCycleCountStatusTone(status: string): StatusTone {
   if (status === "completed") return "success";
   if (status === "cancelled") return "danger";
-  if (status === "in_progress") return "info";
+  if (
+    status === "in_progress" ||
+    status === "pending_approval" ||
+    status === "recount_required"
+  ) {
+    return "info";
+  }
   return "warning";
 }
 
 export default function CycleCountDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const [count, setCount] = useState<typeof cycleCounts[0] | null>(null);
+  const cycleCountId = params.id as string;
 
-  useEffect(() => {
-    const foundCount = cycleCounts.find((c) => c.id === params.id);
-    if (foundCount) {
-      setCount(foundCount);
+  const countQuery = useQuery({
+    queryKey: ["admin-cycle-counts", "detail", cycleCountId],
+    queryFn: () => operationsApi.getCycleCountById(cycleCountId),
+    enabled: !!cycleCountId,
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const usersQuery = useReferenceUsers();
+  const locationsQuery = useReferenceLocations();
+
+  const loading =
+    (countQuery.isPending && !countQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data) ||
+    (locationsQuery.isPending && !locationsQuery.data);
+
+  const count = useMemo(() => {
+    if (!countQuery.data) {
+      return null;
     }
-  }, [params.id]);
+
+    const warehouseName =
+      (warehousesQuery.data || []).find(
+        (warehouse) => warehouse.id === countQuery.data?.warehouseId
+      )?.name || "Unknown";
+
+    const usersMap = new Map<string, string>();
+    (usersQuery.data || []).forEach((user) => {
+      const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+      usersMap.set(user.id, fullName || user.username || user.employeeId || user.id);
+    });
+
+    const allLocationCodes = (locationsQuery.data || [])
+      .filter((location) => location.warehouseId === countQuery.data?.warehouseId)
+      .map((location) => location.locationCode)
+      .filter(Boolean) as string[];
+
+    let sectionName = countQuery.data.locationCode;
+    if (countQuery.data.locationCode === "ALL") {
+      sectionName = "Full Warehouse";
+    } else if (countQuery.data.locationCode.startsWith("AREA:")) {
+      sectionName = `Section ${countQuery.data.locationCode.replace("AREA:", "")}`;
+    }
+
+    let totalLocations = 1;
+    if (countQuery.data.locationCode === "ALL") {
+      totalLocations = Math.max(allLocationCodes.length, 1);
+    } else if (countQuery.data.locationCode.startsWith("AREA:")) {
+      const area = countQuery.data.locationCode.replace("AREA:", "").trim().toUpperCase();
+      totalLocations = Math.max(
+        allLocationCodes.filter((code) => code.toUpperCase().startsWith(`${area}-`)).length,
+        1
+      );
+    }
+
+    const countedLocations =
+      countQuery.data.status === "completed"
+        ? totalLocations
+        : countQuery.data.countedAt
+          ? 1
+          : 0;
+
+    return {
+      id: countQuery.data.id,
+      countNumber: countQuery.data.countNumber,
+      warehouseName,
+      sectionName,
+      countType: countQuery.data.countNumber?.startsWith("ADH-")
+        ? "ad_hoc"
+        : countQuery.data.locationCode === "ALL"
+          ? "full"
+          : "scheduled",
+      scheduledDate: countQuery.data.scheduledDate || "N/A",
+      actualDate: countQuery.data.countedAt
+        ? countQuery.data.countedAt.split("T")[0]
+        : null,
+      status: countQuery.data.status || "scheduled",
+      assignedWorkers:
+        countQuery.data.assignedWorkers?.map((id) => usersMap.get(id) || id) || [],
+      performedBy: countQuery.data.countedBy
+        ? usersMap.get(countQuery.data.countedBy) || countQuery.data.countedBy
+        : null,
+      totalLocations,
+      countedLocations,
+      discrepanciesFound: countQuery.data.variance
+        ? Math.abs(parseFloat(countQuery.data.variance))
+        : 0,
+      expectedQuantity: countQuery.data.expectedQuantity || null,
+      countedQuantity: countQuery.data.countedQuantity || null,
+      variance: countQuery.data.variance || null,
+      approvalRequired: countQuery.data.approvalRequired || false,
+      approvalNotes: countQuery.data.approvalNotes || null,
+    };
+  }, [countQuery.data, locationsQuery.data, usersQuery.data, warehousesQuery.data]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <span className="loading loading-spinner loading-lg"></span>
+      </div>
+    );
+  }
 
   if (!count) {
     return (
@@ -105,6 +160,15 @@ export default function CycleCountDetailPage() {
     );
   }
 
+  const countType =
+    countTypeConfig[count.countType as keyof typeof countTypeConfig] || {
+      label: count.countType,
+    };
+  const status =
+    statusConfig[count.status as keyof typeof statusConfig] || {
+      label: count.status,
+    };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -116,7 +180,9 @@ export default function CycleCountDetailPage() {
             <span className="material-symbols-outlined">arrow_back</span>
             Back
           </button>
-          <h1 className="text-3xl font-bold text-base-content">Cycle Count: {count.countNumber}</h1>
+          <h1 className="text-3xl font-bold text-base-content">
+            Cycle Count: {count.countNumber}
+          </h1>
         </div>
       </div>
 
@@ -138,15 +204,12 @@ export default function CycleCountDetailPage() {
             </div>
             <div>
               <label className="text-sm text-base-content/60">Section</label>
-              <p className="font-semibold">{count.sectionName || "Full Warehouse"}</p>
+              <p className="font-semibold">{count.sectionName}</p>
             </div>
             <div>
               <label className="text-sm text-base-content/60">Count Type</label>
               <p>
-                <StatusChip
-                  label={countTypeConfig[count.countType as keyof typeof countTypeConfig].label}
-                  tone="neutral"
-                />
+                <StatusChip label={countType.label} tone="neutral" />
               </p>
             </div>
             <div>
@@ -161,7 +224,7 @@ export default function CycleCountDetailPage() {
               <label className="text-sm text-base-content/60">Status</label>
               <p>
                 <StatusChip
-                  label={statusConfig[count.status as keyof typeof statusConfig].label}
+                  label={status.label}
                   tone={getCycleCountStatusTone(count.status)}
                   showDot
                 />
@@ -169,7 +232,9 @@ export default function CycleCountDetailPage() {
             </div>
             <div>
               <label className="text-sm text-base-content/60">Progress</label>
-              <p className="font-semibold">{count.countedLocations}/{count.totalLocations}</p>
+              <p className="font-semibold">
+                {count.countedLocations}/{count.totalLocations}
+              </p>
             </div>
           </div>
 
@@ -177,19 +242,15 @@ export default function CycleCountDetailPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm text-base-content/60">Assigned By</label>
-              <p className="font-semibold">{count.assignedBy || "System"}</p>
-            </div>
-            <div>
-              <label className="text-sm text-base-content/60">Assigned Date</label>
-              <p className="font-semibold">{count.assignedDate || "N/A"}</p>
-            </div>
-            <div>
               <label className="text-sm text-base-content/60">Assigned Workers</label>
               <div className="flex flex-wrap gap-2 mt-1">
-                {count.assignedWorkers.map((worker, idx) => (
-                  <StatusChip key={idx} label={worker} tone="neutral" />
-                ))}
+                {count.assignedWorkers.length > 0 ? (
+                  count.assignedWorkers.map((worker, index) => (
+                    <StatusChip key={index} label={worker} tone="neutral" />
+                  ))
+                ) : (
+                  <span className="text-base-content/60">No workers assigned</span>
+                )}
               </div>
             </div>
             {count.performedBy && (
@@ -212,10 +273,34 @@ export default function CycleCountDetailPage() {
               <p className="font-semibold">{count.countedLocations}</p>
             </div>
             <div>
+              <label className="text-sm text-base-content/60">Expected Quantity</label>
+              <p className="font-semibold">{count.expectedQuantity || "N/A"}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Counted Quantity</label>
+              <p className="font-semibold">{count.countedQuantity || "N/A"}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Variance</label>
+              <p className="font-semibold">{count.variance || "N/A"}</p>
+            </div>
+            <div>
               <label className="text-sm text-base-content/60">Discrepancies Found</label>
-              <p className={`font-semibold ${count.discrepanciesFound > 0 ? "text-warning" : ""}`}>
+              <p
+                className={`font-semibold ${
+                  count.discrepanciesFound > 0 ? "text-warning" : ""
+                }`}
+              >
                 {count.discrepanciesFound}
               </p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Approval Required</label>
+              <p className="font-semibold">{count.approvalRequired ? "Yes" : "No"}</p>
+            </div>
+            <div>
+              <label className="text-sm text-base-content/60">Approval Notes</label>
+              <p className="font-semibold">{count.approvalNotes || "N/A"}</p>
             </div>
           </div>
 
@@ -223,11 +308,6 @@ export default function CycleCountDetailPage() {
             <button className="btn btn-ghost" onClick={() => router.push("/admin/cycle-counts")}>
               Close
             </button>
-            {count.status === "completed" && count.discrepanciesFound > 0 && (
-              <button className="btn btn-primary">
-                Review Discrepancies
-              </button>
-            )}
           </div>
         </div>
       </DetailModal>
