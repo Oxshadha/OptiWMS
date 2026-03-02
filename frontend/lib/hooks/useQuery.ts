@@ -17,6 +17,7 @@ import { inventoryApi } from "@/lib/api/inventory";
 import { customersApi } from "@/lib/api/customers";
 import { suppliersApi } from "@/lib/api/suppliers";
 import { usersApi } from "@/lib/api/users";
+import { locationsApi } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
 
 // ===== Query Keys (for cache management) =====
@@ -46,6 +47,10 @@ export const queryKeys = {
   users: {
     all: ["users"] as const,
     detail: (id: string) => ["users", id] as const,
+  },
+  locations: {
+    all: ["locations"] as const,
+    detail: (id: string) => ["locations", id] as const,
   },
 };
 
@@ -248,6 +253,15 @@ export function useReferenceMaterials() {
   return useQuery({
     queryKey: ["reference-data", "materials"],
     queryFn: () => materialsApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
+export function useReferenceLocations() {
+  return useQuery({
+    queryKey: ["reference-data", "locations"],
+    queryFn: () => locationsApi.getAll(),
     staleTime: 15 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
   });
