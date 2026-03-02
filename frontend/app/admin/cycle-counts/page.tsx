@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -8,9 +8,12 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { operationsApi } from "@/lib/api/operations";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { usersApi } from "@/lib/api/users";
-import { locationsApi } from "@/lib/api/locations";
+import {
+  usePagedAdminQuery,
+  useReferenceLocations,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { CycleCountDisplay, countTypeConfig, statusConfig } from "./types";
 import {
@@ -34,10 +37,6 @@ export default function CycleCountsPage() {
   const canEdit = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.CYCLE_COUNTS, "delete");
   
-  // API state
-  const [cycleCounts, setCycleCounts] = useState<CycleCountDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAdHocModal, setShowAdHocModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -50,124 +49,50 @@ export default function CycleCountsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
   const [reviewNotes, setReviewNotes] = useState("");
   const [cancelReason, setCancelReason] = useState("");
 
-  const loadData = async () => {
+  const countsQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-cycle-counts",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      searchQuery.trim() || "",
+      isWarehouseManager ? assignedWarehouseId || "assigned" : "all",
+    ],
+    queryFn: () =>
+      operationsApi.getCycleCountsPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        q: searchQuery.trim() || undefined,
+      }),
+  });
+
+  const warehousesQuery = useReferenceWarehouses();
+  const usersQuery = useReferenceUsers();
+  const locationsQuery = useReferenceLocations();
+
+  const reload = async () => {
     try {
-      setLoading(true);
-      setError(null);
-      const [countsPage, warehousesData, usersData, locationsData] = await Promise.all([
-        operationsApi.getCycleCountsPaged({
-          page: currentPage - 1,
-          size: itemsPerPage,
-          sortBy: "createdAt",
-          sortDir: "desc",
-          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-          status: statusFilter === "all" ? undefined : statusFilter,
-          q: searchQuery.trim() || undefined,
-        }),
-        warehousesApi.getAll(),
-        usersApi.getAll(),
-        locationsApi.getAll(),
+      await Promise.all([
+        countsQuery.refetch(),
+        warehousesQuery.refetch(),
+        usersQuery.refetch(),
+        locationsQuery.refetch(),
       ]);
-
-      const warehousesMap = new Map<string, string>();
-      warehousesData.forEach((wh) => warehousesMap.set(wh.id, wh.name));
-      const usersMap = new Map<string, string>();
-      usersData.forEach((u) => {
-        const fullName = `${u.firstName || ""} ${u.lastName || ""}`.trim();
-        usersMap.set(u.id, fullName || u.username || u.employeeId || u.id);
-      });
-      const warehouseLocationsMap = new Map<string, string[]>();
-      locationsData.forEach((loc) => {
-        if (!loc.warehouseId || !loc.locationCode) return;
-        const current = warehouseLocationsMap.get(loc.warehouseId) || [];
-        current.push(loc.locationCode);
-        warehouseLocationsMap.set(loc.warehouseId, current);
-      });
-
-      const displayCounts: CycleCountDisplay[] = countsPage.data.map((cc) => {
-        const warehouseName = warehousesMap.get(cc.warehouseId) || "Unknown";
-        let sectionName = cc.locationCode;
-        if (cc.locationCode === "ALL") {
-          sectionName = "Full Warehouse";
-        } else if (cc.locationCode.startsWith("AREA:")) {
-          sectionName = `Section ${cc.locationCode.replace("AREA:", "")}`;
-        } else {
-          const sectionMatch = cc.locationCode.match(/^([A-Z])-/);
-          sectionName = sectionMatch
-            ? `Section ${sectionMatch[1]} - ${cc.locationCode}`
-            : cc.locationCode;
-        }
-
-        const assignedWorkers =
-          cc.assignedWorkers?.map((id) => usersMap.get(id) || id) || [];
-        const performedBy = cc.countedBy ? (usersMap.get(cc.countedBy) || cc.countedBy) : null;
-        const allLocationCodes = warehouseLocationsMap.get(cc.warehouseId) || [];
-        let totalLocations = 1;
-        if (cc.locationCode === "ALL") {
-          totalLocations = Math.max(allLocationCodes.length, 1);
-        } else if (cc.locationCode.startsWith("AREA:")) {
-          const area = cc.locationCode.replace("AREA:", "").trim().toUpperCase();
-          totalLocations = Math.max(
-            allLocationCodes.filter((code) => code.toUpperCase().startsWith(`${area}-`)).length,
-            1
-          );
-        }
-        const countedLocations = cc.status === "completed"
-          ? totalLocations
-          : (cc.countedAt ? 1 : 0);
-
-        return {
-          id: cc.id,
-          countNumber: cc.countNumber,
-          warehouseId: cc.warehouseId,
-          warehouseName,
-          sectionName,
-          countType: cc.countNumber?.startsWith("ADH-")
-            ? "ad_hoc"
-            : cc.locationCode === "ALL"
-              ? "full"
-              : "scheduled",
-          scheduledDate: cc.scheduledDate || "-",
-          actualDate: cc.countedAt ? cc.countedAt.split("T")[0] : null,
-          status: cc.status || "scheduled",
-          assignedWorkers,
-          assignedWorkerIds: cc.assignedWorkers || [],
-          assignedBy: "System",
-          assignedDate: cc.scheduledDate || "-",
-          totalLocations,
-          countedLocations,
-          discrepanciesFound: cc.variance ? Math.abs(parseFloat(cc.variance)) : 0,
-          performedBy,
-        };
-      });
-
-      setCycleCounts(displayCounts);
-      setTotalItems(countsPage.totalElements);
-      setTotalPages(Math.max(countsPage.totalPages, 1));
     } catch (err) {
-      logger.error("Failed to load cycle counts:", err);
-      setError(err instanceof Error ? err.message : "Failed to load cycle counts");
-      setCycleCounts([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load cycle counts. Please try again.");
-      }
-    } finally {
-      setLoading(false);
+      logger.error("Failed to reload cycle counts:", err);
     }
   };
 
   useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
-
-  useEffect(() => {
     const handleReload = () => {
-      void loadData();
+      void reload();
     };
     window.addEventListener("reloadCycleCounts", handleReload);
     return () => window.removeEventListener("reloadCycleCounts", handleReload);
@@ -180,6 +105,102 @@ export default function CycleCountsPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (countsQuery.error instanceof Error && !countsQuery.error.message.includes("Not authenticated")) {
+      showToast.error("Failed to load cycle counts. Please try again.");
+    }
+  }, [countsQuery.error]);
+
+  const cycleCounts = useMemo<CycleCountDisplay[]>(() => {
+    const warehousesMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((warehouse) => {
+      warehousesMap.set(warehouse.id, warehouse.name);
+    });
+
+    const usersMap = new Map<string, string>();
+    (usersQuery.data || []).forEach((user) => {
+      const fullName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
+      usersMap.set(user.id, fullName || user.username || user.employeeId || user.id);
+    });
+
+    const warehouseLocationsMap = new Map<string, string[]>();
+    (locationsQuery.data || []).forEach((location) => {
+      if (!location.warehouseId || !location.locationCode) return;
+      const current = warehouseLocationsMap.get(location.warehouseId) || [];
+      current.push(location.locationCode);
+      warehouseLocationsMap.set(location.warehouseId, current);
+    });
+
+    return (countsQuery.data?.data || []).map((cc) => {
+      const warehouseName = warehousesMap.get(cc.warehouseId) || "Unknown";
+      let sectionName = cc.locationCode;
+      if (cc.locationCode === "ALL") {
+        sectionName = "Full Warehouse";
+      } else if (cc.locationCode.startsWith("AREA:")) {
+        sectionName = `Section ${cc.locationCode.replace("AREA:", "")}`;
+      } else {
+        const sectionMatch = cc.locationCode.match(/^([A-Z])-/);
+        sectionName = sectionMatch
+          ? `Section ${sectionMatch[1]} - ${cc.locationCode}`
+          : cc.locationCode;
+      }
+
+      const assignedWorkers =
+        cc.assignedWorkers?.map((id) => usersMap.get(id) || id) || [];
+      const performedBy = cc.countedBy ? (usersMap.get(cc.countedBy) || cc.countedBy) : null;
+      const allLocationCodes = warehouseLocationsMap.get(cc.warehouseId) || [];
+      let totalLocations = 1;
+      if (cc.locationCode === "ALL") {
+        totalLocations = Math.max(allLocationCodes.length, 1);
+      } else if (cc.locationCode.startsWith("AREA:")) {
+        const area = cc.locationCode.replace("AREA:", "").trim().toUpperCase();
+        totalLocations = Math.max(
+          allLocationCodes.filter((code) => code.toUpperCase().startsWith(`${area}-`)).length,
+          1
+        );
+      }
+      const countedLocations = cc.status === "completed"
+        ? totalLocations
+        : (cc.countedAt ? 1 : 0);
+
+      return {
+        id: cc.id,
+        countNumber: cc.countNumber,
+        warehouseId: cc.warehouseId,
+        warehouseName,
+        sectionName,
+        countType: cc.countNumber?.startsWith("ADH-")
+          ? "ad_hoc"
+          : cc.locationCode === "ALL"
+            ? "full"
+            : "scheduled",
+        scheduledDate: cc.scheduledDate || "-",
+        actualDate: cc.countedAt ? cc.countedAt.split("T")[0] : null,
+        status: cc.status || "scheduled",
+        assignedWorkers,
+        assignedWorkerIds: cc.assignedWorkers || [],
+        assignedBy: "System",
+        assignedDate: cc.scheduledDate || "-",
+        totalLocations,
+        countedLocations,
+        discrepanciesFound: cc.variance ? Math.abs(parseFloat(cc.variance)) : 0,
+        performedBy,
+      };
+    });
+  }, [countsQuery.data, locationsQuery.data, usersQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (countsQuery.isPending && !countsQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data) ||
+    (locationsQuery.isPending && !locationsQuery.data);
+  const error =
+    countsQuery.error || warehousesQuery.error || usersQuery.error || locationsQuery.error
+      ? "Failed to load cycle counts"
+      : null;
+  const totalItems = countsQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(countsQuery.data?.totalPages ?? 1, 1);
 
   const summary = {
     scheduledThisMonth: cycleCounts.filter((cc) => cc.status === "scheduled").length,
@@ -538,14 +559,14 @@ export default function CycleCountsPage() {
       <ScheduleCycleCountModal
         isOpen={showScheduleModal}
         onClose={() => setShowScheduleModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {/* Create Ad-Hoc Count Modal */}
       <CreateAdHocCountModal
         isOpen={showAdHocModal}
         onClose={() => setShowAdHocModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {/* Cycle Count Detail Modal */}
@@ -569,7 +590,7 @@ export default function CycleCountsPage() {
             setSelectedCount(null);
           }}
           count={selectedCount}
-          onUpdated={loadData}
+          onUpdated={reload}
         />
       )}
 
@@ -586,7 +607,7 @@ export default function CycleCountsPage() {
             setSelectedCount(null);
             setReviewNotes("");
           }}
-          onSuccess={loadData}
+          onSuccess={reload}
         />
       )}
 
@@ -602,7 +623,7 @@ export default function CycleCountsPage() {
             setSelectedCount(null);
             setCancelReason("");
           }}
-          onSuccess={loadData}
+          onSuccess={reload}
         />
       )}
     </div>
