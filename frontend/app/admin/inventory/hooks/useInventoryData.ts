@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { inventoryApi } from "@/lib/api/inventory";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceMaterials,
   useReferenceWarehouses,
@@ -82,6 +83,7 @@ export function useInventoryData({
 
   const materialsQuery = useReferenceMaterials();
   const warehousesQuery = useReferenceWarehouses();
+  const invalidateInventoryList = useInvalidateAdminList(["admin-inventory", "paged"]);
 
   const warehouses = useMemo(() => {
     const warehousesMap = new Map<string, string>();
@@ -179,11 +181,7 @@ export function useInventoryData({
     warehousesQuery.isFetching;
 
   const reload = async () => {
-    await Promise.all([
-      inventoryQuery.refetch(),
-      materialsQuery.refetch(),
-      warehousesQuery.refetch(),
-    ]);
+    await invalidateInventoryList();
   };
 
   const filteredInventory = useMemo(() => {

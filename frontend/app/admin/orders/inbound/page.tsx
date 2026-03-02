@@ -7,6 +7,7 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { orderItemsApi } from "@/lib/api/orderItems";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceSuppliers,
   useReferenceWarehouses,
@@ -113,6 +114,7 @@ export default function InboundOrdersPage() {
 
   const suppliersQuery = useReferenceSuppliers();
   const warehousesQuery = useReferenceWarehouses();
+  const invalidateInboundOrders = useInvalidateAdminList(["admin-orders", "inbound"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -191,11 +193,7 @@ export default function InboundOrdersPage() {
   const totalPages = Math.max(ordersQuery.data?.page.totalPages ?? 1, 1);
   const reload = async () => {
     try {
-      await Promise.all([
-        ordersQuery.refetch(),
-        suppliersQuery.refetch(),
-        warehousesQuery.refetch(),
-      ]);
+      await invalidateInboundOrders();
     } catch (err) {
       logger.error("Failed to reload inbound orders:", err);
     }

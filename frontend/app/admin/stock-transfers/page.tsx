@@ -5,6 +5,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { Pagination } from "@/components/Pagination";
 import { operationsApi } from "@/lib/api/operations";
 import {
+  useInvalidateAdminList,
   usePagedAdminQuery,
   useReferenceMaterials,
   useReferenceUsers,
@@ -76,6 +77,7 @@ export default function StockTransfersPage() {
   const warehousesQuery = useReferenceWarehouses();
   const materialsQuery = useReferenceMaterials();
   const usersQuery = useReferenceUsers();
+  const invalidateTransferList = useInvalidateAdminList(["admin-stock-transfers"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -172,12 +174,7 @@ export default function StockTransfersPage() {
   const totalPages = Math.max(transfersQuery.data?.totalPages ?? 1, 1);
   const reload = async () => {
     try {
-      await Promise.all([
-        transfersQuery.refetch(),
-        warehousesQuery.refetch(),
-        materialsQuery.refetch(),
-        usersQuery.refetch(),
-      ]);
+      await invalidateTransferList();
     } catch (err) {
       logger.error("Failed to reload stock transfers:", err);
     }
