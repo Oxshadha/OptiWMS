@@ -154,7 +154,7 @@ export function InventoryItemDetailModal({
         </div>
 
         <div>
-          <h3 className="text-lg font-semibold text-base-content mb-4">Planning & Reorder Information</h3>
+          <h3 className="text-lg font-semibold text-base-content mb-4">Planning Thresholds</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm text-base-content/60">Reorder Point (ROP)</label>
@@ -267,7 +267,7 @@ export function InventoryItemDetailModal({
               <div>
                 <div className="font-semibold text-base-content">Stock Position Gauge</div>
                 <div className="text-xs text-base-content/60">
-                  Compare usable stock against reorder and target levels
+                  Visualize free stock against the configured operating range
                 </div>
               </div>
               <div className="text-right">
@@ -278,7 +278,27 @@ export function InventoryItemDetailModal({
               </div>
             </div>
 
-            <div className="relative pt-6">
+            <div className="relative">
+              <div className="relative h-5 mb-2">
+                {reorderMarkerPercent != null && (
+                  <div
+                    className="absolute bottom-0 -translate-x-1/2"
+                    style={{ left: `${reorderMarkerPercent}%` }}
+                  >
+                    <div className="w-px h-5 bg-error" />
+                  </div>
+                )}
+
+                {targetMarkerPercent != null && targetMarkerPercent !== reorderMarkerPercent && (
+                  <div
+                    className="absolute bottom-0 -translate-x-1/2"
+                    style={{ left: `${targetMarkerPercent}%` }}
+                  >
+                    <div className="w-px h-5 bg-info" />
+                  </div>
+                )}
+              </div>
+
               <div className="h-4 rounded-full bg-base-300 overflow-hidden">
                 <div
                   className={`h-full ${
@@ -290,31 +310,32 @@ export function InventoryItemDetailModal({
                 />
               </div>
 
-              {reorderMarkerPercent != null && (
-                <div
-                  className="absolute top-0 -translate-x-1/2"
-                  style={{ left: `${reorderMarkerPercent}%` }}
-                >
-                  <div className="w-px h-6 bg-error" />
-                  <div className="text-[11px] text-error font-medium mt-1 whitespace-nowrap">
-                    Reorder {formatDecimal(reorderPoint!)}
+              <div className="flex flex-wrap gap-4 mt-3 text-xs text-base-content/70">
+                {reorderPoint != null && (
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-error" />
+                    <span>Reorder point marker</span>
                   </div>
-                </div>
-              )}
-
-              {targetMarkerPercent != null && targetMarkerPercent !== reorderMarkerPercent && (
-                <div
-                  className="absolute top-0 -translate-x-1/2"
-                  style={{ left: `${targetMarkerPercent}%` }}
-                >
-                  <div className="w-px h-6 bg-info" />
-                  <div className="text-[11px] text-info font-medium mt-1 whitespace-nowrap">
-                    Target {formatDecimal(targetLevel)}
+                )}
+                {targetLevel != null && targetLevel !== reorderPoint && (
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-info" />
+                    <span>Target level marker</span>
                   </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full ${
+                      reorderPoint != null && currentAvailable <= reorderPoint
+                        ? "bg-error"
+                        : "bg-success"
+                    }`}
+                  />
+                  <span>Current free stock fill</span>
                 </div>
-              )}
+              </div>
 
-              <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+              <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                 <div className="rounded-lg bg-base-100 p-3 border border-base-300">
                   <div className="text-xs text-base-content/60">Current Free Stock</div>
                   <div className="font-semibold text-base-content mt-1">
@@ -349,36 +370,6 @@ export function InventoryItemDetailModal({
                       : "No Action"}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Reorder Point</div>
-              <div className="text-base font-semibold text-base-content">
-                {reorderPoint != null ? formatDecimal(reorderPoint) : "Not Set"}
-              </div>
-            </div>
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Buffer Stock</div>
-              <div className="text-base font-semibold text-base-content">
-                {bufferStock != null ? formatDecimal(bufferStock) : "Not Set"}
-              </div>
-            </div>
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Maximum Stock</div>
-              <div className="text-base font-semibold text-base-content">
-                {maxStock != null ? formatDecimal(maxStock) : "Not Set"}
-              </div>
-            </div>
-            <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">MOQ</div>
-              <div className="text-base font-semibold text-base-content">
-                {moq != null ? formatDecimal(moq) : "Not Set"}
-              </div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Suggested minimum replenishment lot
               </div>
             </div>
           </div>
