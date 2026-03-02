@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { inventoryApi } from "@/lib/api/inventory";
-import { materialsApi } from "@/lib/api/materials";
 import { qualityChecksApi, QualityCheck } from "@/lib/api/qualityChecks";
-import { usersApi } from "@/lib/api/users";
+import {
+  useInvalidateAdminListAndDetail,
+  useReferenceMaterials,
+  useReferenceUsers,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 
 const resultConfig = {
@@ -88,71 +92,71 @@ export default function QualityCheckDetailPage() {
   const checkId = params.id as string;
   const canApprove = hasPermission(ADMIN_ROUTES.QUALITY_CHECKS, "approve");
 
-  const [check, setCheck] = useState<QualityCheckDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showQuarantineModal, setShowQuarantineModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [quarantineLocation, setQuarantineLocation] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const checkQuery = useQuery({
+    queryKey: ["admin-quality-checks", "detail", checkId],
+    queryFn: () => qualityChecksApi.getById(checkId),
+    enabled: !!checkId,
+  });
+  const materialsQuery = useReferenceMaterials();
+  const usersQuery = useReferenceUsers();
+  const invalidateQualityCheck = useInvalidateAdminListAndDetail(
+    ["admin-quality-checks"],
+    (id) => ["admin-quality-checks", "detail", id]
+  );
 
-  useEffect(() => {
-    const loadCheck = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const apiCheck = await qualityChecksApi.getById(checkId);
-        const [material, checker, approver] = await Promise.all([
-          apiCheck.materialId
-            ? materialsApi.getById(apiCheck.materialId).catch(() => null)
-            : Promise.resolve(null),
-          apiCheck.checkedBy
-            ? usersApi.getById(apiCheck.checkedBy).catch(() => null)
-            : Promise.resolve(null),
-          apiCheck.approvedBy
-            ? usersApi.getById(apiCheck.approvedBy).catch(() => null)
-            : Promise.resolve(null),
-        ]);
-
-        const checkerName = checker
-          ? `${checker.firstName || ""} ${checker.lastName || ""}`.trim() ||
-            checker.username ||
-            checker.email ||
-            "Unknown"
-          : "Unknown";
-
-        const approverName = approver
-          ? `${approver.firstName || ""} ${approver.lastName || ""}`.trim() ||
-            approver.username ||
-            approver.email ||
-            "Unknown"
-          : undefined;
-
-        setCheck(
-          toDisplayCheck(
-            apiCheck,
-            material || undefined,
-            checkerName,
-            approverName
-          )
-        );
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to load quality check";
-        setError(message);
-        setCheck(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (checkId) {
-      loadCheck();
+  const check = useMemo<QualityCheckDetail | null>(() => {
+    const apiCheck = checkQuery.data as QualityCheck | undefined;
+    if (!apiCheck) {
+      return null;
     }
-  }, [checkId]);
+
+    const material = apiCheck.materialId
+      ? (materialsQuery.data || []).find((item) => item.id === apiCheck.materialId)
+      : null;
+    const checker = apiCheck.checkedBy
+      ? (usersQuery.data || []).find((user) => user.id === apiCheck.checkedBy)
+      : null;
+    const approver = apiCheck.approvedBy
+      ? (usersQuery.data || []).find((user) => user.id === apiCheck.approvedBy)
+      : null;
+
+    const checkerName = checker
+      ? `${checker.firstName || ""} ${checker.lastName || ""}`.trim() ||
+        checker.username ||
+        checker.email ||
+        "Unknown"
+      : "Unknown";
+
+    const approverName = approver
+      ? `${approver.firstName || ""} ${approver.lastName || ""}`.trim() ||
+        approver.username ||
+        approver.email ||
+        "Unknown"
+      : undefined;
+
+    return toDisplayCheck(
+      apiCheck,
+      material || undefined,
+      checkerName,
+      approverName
+    );
+  }, [checkQuery.data, materialsQuery.data, usersQuery.data]);
+
+  const loading =
+    (checkQuery.isPending && !checkQuery.data) ||
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data);
+  const error =
+    checkQuery.error || materialsQuery.error || usersQuery.error
+      ? checkQuery.error instanceof Error
+        ? checkQuery.error.message
+        : "Failed to load quality check"
+      : null;
 
   const result = useMemo(() => {
     if (!check) return null;
@@ -170,6 +174,7 @@ export default function QualityCheckDetailPage() {
       setActionLoading(true);
       await qualityChecksApi.reject(check.id, rejectReason.trim(), admin?.id);
       showToast.success("Quality check rejected");
+      await invalidateQualityCheck(check.id);
       setShowRejectModal(false);
       router.push("/admin/quality-checks");
     } catch (err) {
@@ -187,6 +192,7 @@ export default function QualityCheckDetailPage() {
       setActionLoading(true);
       await qualityChecksApi.approve(check.id, admin?.id);
       showToast.success("Quality check approved");
+      await invalidateQualityCheck(check.id);
       router.push("/admin/quality-checks");
     } catch (err) {
       showToast.error(

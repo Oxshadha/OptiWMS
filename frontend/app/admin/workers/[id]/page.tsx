@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
@@ -11,9 +12,12 @@ import {
   getAllWorkerRoles,
   getRoleDisplayName,
 } from "@/lib/worker-roles";
-import { warehousesApi } from "@/lib/api/warehouses";
 import { usersApi } from "@/lib/api/users";
 import { tasksApi } from "@/lib/api/tasks-api";
+import {
+  useInvalidateAdminListAndDetail,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 
 interface WorkerDetailDisplay {
@@ -51,13 +55,7 @@ export default function WorkerDetailPage() {
   const isEditMode = searchParams.get("edit") === "true";
 
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
-
-  const [worker, setWorker] = useState<WorkerDetailDisplay | null>(null);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -67,89 +65,106 @@ export default function WorkerDetailPage() {
     shiftStart: "08:00",
     shiftEnd: "17:00",
   });
-
-  const loadData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      const [user, warehousesData, tasks] = await Promise.all([
+  const workerQuery = useQuery({
+    queryKey: ["admin-workers", "detail", workerId],
+    queryFn: async () => {
+      const [user, tasks] = await Promise.all([
         usersApi.getById(workerId),
-        warehousesApi.getAll(),
         tasksApi.getAll(undefined, undefined, workerId),
       ]);
 
-      const workerRoles = new Set(
-        getAllWorkerRoles().map((role) => role.toLowerCase())
-      );
+      const workerRoles = new Set(getAllWorkerRoles().map((role) => role.toLowerCase()));
       if (!workerRoles.has((user.role || "").toLowerCase())) {
         throw new Error("User is not a worker");
       }
 
-      const warehouseMap = new Map<string, string>();
-      warehousesData.forEach((w) => warehouseMap.set(w.id, w.name));
+      return { user, tasks };
+    },
+    enabled: !!workerId,
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateWorker = useInvalidateAdminListAndDetail(
+    ["admin-workers"],
+    (id) => ["admin-workers", "detail", id]
+  );
 
-      const inProgressTasks = tasks.filter((t) => t.status === "in_progress").length;
-      const completedTasks = tasks.filter((t) => t.status === "completed").length;
-      const availabilityStatus =
-        user.status?.toLowerCase() !== "active"
-          ? "offline"
-          : inProgressTasks > 0
-            ? "busy"
-            : "available";
-
-      const fullName =
-        `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
-      const warehouseName = user.warehouseId
-        ? warehouseMap.get(user.warehouseId) || "Unknown"
-        : "Unassigned";
-
-      const mappedWorker: WorkerDetailDisplay = {
-        id: user.id,
-        workerId: user.employeeId || user.id.slice(0, 6),
-        name: fullName,
-        email: user.email || "",
-        phone: user.phone || "",
-        role: (user.role.toLowerCase() as WorkerRole) || "picker",
-        warehouseId: user.warehouseId || "",
-        warehouseName,
-        availabilityStatus,
-        shiftStart: "08:00",
-        shiftEnd: "17:00",
-        tasksToday: tasks.length,
-        totalTasksCompleted: completedTasks,
-        avgTaskTime: 15.0,
-        lastActive: user.lastLoginAt
-          ? new Date(user.lastLoginAt).toLocaleString()
-          : "Never",
-        joinDate: "N/A",
-        status: user.status || "inactive",
-      };
-
-      setWorker(mappedWorker);
-      setWarehouses(warehousesData.map((w) => ({ id: w.id, name: w.name })));
-      setFormData({
-        name: mappedWorker.name,
-        email: mappedWorker.email,
-        phone: mappedWorker.phone,
-        role: mappedWorker.role,
-        warehouseId: mappedWorker.warehouseId,
-        shiftStart: mappedWorker.shiftStart,
-        shiftEnd: mappedWorker.shiftEnd,
-      });
-    } catch (err) {
-      setWorker(null);
-      setError(err instanceof Error ? err.message : "Failed to load worker");
-    } finally {
-      setIsLoading(false);
+  const worker = useMemo<WorkerDetailDisplay | null>(() => {
+    if (!workerQuery.data) {
+      return null;
     }
-  };
+
+    const { user, tasks } = workerQuery.data;
+    const warehouseMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((warehouse) => {
+      warehouseMap.set(warehouse.id, warehouse.name);
+    });
+
+    const inProgressTasks = tasks.filter((task) => task.status === "in_progress").length;
+    const completedTasks = tasks.filter((task) => task.status === "completed").length;
+    const availabilityStatus =
+      user.status?.toLowerCase() !== "active"
+        ? "offline"
+        : inProgressTasks > 0
+          ? "busy"
+          : "available";
+
+    const fullName =
+      `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username;
+    const warehouseName = user.warehouseId
+      ? warehouseMap.get(user.warehouseId) || "Unknown"
+      : "Unassigned";
+
+    return {
+      id: user.id,
+      workerId: user.employeeId || user.id.slice(0, 6),
+      name: fullName,
+      email: user.email || "",
+      phone: user.phone || "",
+      role: (user.role.toLowerCase() as WorkerRole) || "picker",
+      warehouseId: user.warehouseId || "",
+      warehouseName,
+      availabilityStatus,
+      shiftStart: "08:00",
+      shiftEnd: "17:00",
+      tasksToday: tasks.length,
+      totalTasksCompleted: completedTasks,
+      avgTaskTime: 15.0,
+      lastActive: user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "Never",
+      joinDate: "N/A",
+      status: user.status || "inactive",
+    };
+  }, [warehousesQuery.data, workerQuery.data]);
+
+  const warehouses = useMemo(
+    () => (warehousesQuery.data || []).map((warehouse) => ({ id: warehouse.id, name: warehouse.name })),
+    [warehousesQuery.data]
+  );
 
   useEffect(() => {
-    if (workerId) {
-      loadData();
+    if (!worker) {
+      return;
     }
-  }, [workerId]);
+
+    setFormData({
+      name: worker.name,
+      email: worker.email,
+      phone: worker.phone,
+      role: worker.role,
+      warehouseId: worker.warehouseId,
+      shiftStart: worker.shiftStart,
+      shiftEnd: worker.shiftEnd,
+    });
+  }, [worker]);
+
+  const isLoading =
+    (workerQuery.isPending && !workerQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const error =
+    workerQuery.error || warehousesQuery.error
+      ? workerQuery.error instanceof Error
+        ? workerQuery.error.message
+        : "Failed to load worker"
+      : null;
 
   const status = useMemo(() => {
     if (!worker) return null;
@@ -174,8 +189,8 @@ export default function WorkerDetailPage() {
       });
 
       showToast.success("Worker updated successfully");
+      await invalidateWorker(worker.id);
       router.push(`/admin/workers/${worker.id}`);
-      await loadData();
     } catch (err) {
       showToast.error(err instanceof Error ? err.message : "Failed to update worker");
     } finally {
