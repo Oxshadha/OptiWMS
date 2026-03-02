@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
@@ -50,15 +51,6 @@ export default function ShipmentsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  // API state
-  const [shipments, setShipments] = useState<ShipmentDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
   const requestedStatus =
     statusFilter !== "all"
       ? displayToApiStatus[statusFilter.toLowerCase()]
@@ -66,24 +58,34 @@ export default function ShipmentsPage() {
         ? displayToApiStatus[activeTab.toLowerCase()]
         : undefined;
 
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setLoading(true);
-      }
-      setError(null);
-
-      const shipmentsPage = await shipmentsApi.getPaged({
+  const shipmentsQuery = useQuery({
+    queryKey: [
+      "admin-shipments",
+      currentPage,
+      itemsPerPage,
+      sortBy || "default",
+      sortDirection,
+      statusFilter,
+      activeTab,
+      searchQuery.trim() || "",
+    ],
+    queryFn: () =>
+      shipmentsApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
         sortBy: toApiSortField(sortBy),
         sortDir: sortDirection,
         status: requestedStatus,
         q: searchQuery.trim() || undefined,
-      });
+      }),
+    placeholderData: (previousData) => previousData,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+  });
 
-      const displayShipments: ShipmentDisplay[] = shipmentsPage.data.map((s) => ({
+  const shipments = useMemo<ShipmentDisplay[]>(
+    () =>
+      (shipmentsQuery.data?.data || []).map((s) => ({
         shipmentId: s.id,
         id: s.shipmentNumber || s.id,
         carrier: s.carrier || "N/A",
@@ -97,28 +99,9 @@ export default function ShipmentsPage() {
         vehicleNumber: s.vehicleNumber || "",
         orders: s.orderId ? [s.orderId] : [],
         shipmentDate: s.shippedAt ? new Date(s.shippedAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
-      }));
-
-      setShipments(displayShipments);
-      setTotalItems(shipmentsPage.totalElements);
-      setTotalPages(Math.max(shipmentsPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load shipments:", err);
-      setError(err instanceof Error ? err.message : "Failed to load shipments");
-      setShipments([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load shipments. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, searchQuery, sortBy, sortDirection, statusFilter, activeTab]);
+      })),
+    [shipmentsQuery.data]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,7 +111,29 @@ export default function ShipmentsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (shipmentsQuery.error instanceof Error && !shipmentsQuery.error.message.includes("Not authenticated")) {
+      showToast.error("Failed to load shipments. Please try again.");
+    }
+  }, [shipmentsQuery.error]);
+
+  const loading = shipmentsQuery.isPending && !shipmentsQuery.data;
+  const isFetching = shipmentsQuery.isFetching;
+  const error = shipmentsQuery.error instanceof Error
+    ? shipmentsQuery.error.message
+    : shipmentsQuery.error
+      ? "Failed to load shipments"
+      : null;
+  const totalItems = shipmentsQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(shipmentsQuery.data?.totalPages ?? 1, 1);
   const totalShipments = totalItems;
+  const reload = async () => {
+    try {
+      await shipmentsQuery.refetch();
+    } catch (err) {
+      logger.error("Failed to reload shipments:", err);
+    }
+  };
 
   if (loading) {
     return (
@@ -164,7 +169,7 @@ export default function ShipmentsPage() {
     try {
       await shipmentsApi.confirmDelivery(shipment.shipmentId);
       showToast.success(`Delivery confirmed for ${shipment.id}`);
-      await loadData();
+      await reload();
     } catch (err) {
       logger.error("Failed to confirm delivery:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to confirm delivery");
