@@ -113,6 +113,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     message: string;
     time: string;
     read: boolean;
+    actionUrl?: string;
   }>>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [calendarTasks, setCalendarTasks] = useState<Array<{
@@ -129,7 +130,10 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
       try {
         const { notificationsApi } = await import("@/lib/api/notifications");
-        const allNotifications = await notificationsApi.getAll(worker.id);
+        const allNotifications = await notificationsApi.getAll(worker.id, undefined, {
+          role: role || undefined,
+          warehouseId: worker.warehouseId,
+        });
         
         // Transform to display format
         const formatted = allNotifications.map(notif => ({
@@ -138,19 +142,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
           message: notif.message,
           time: formatTimeAgo(notif.createdAt),
           read: notif.read,
+          actionUrl: notif.actionUrl,
         }));
 
         setNotifications(formatted);
-        
-        // Get unread count
-        try {
-          const count = await notificationsApi.getUnreadCount(worker.id);
-          setUnreadCount(count);
-        } catch (countError) {
-          // If unread count fails, calculate from notifications
-          const unread = formatted.filter(n => !n.read).length;
-          setUnreadCount(unread);
-        }
+        setUnreadCount(formatted.filter(n => !n.read).length);
       } catch (error: any) {
         // Only log if it's not a 404 or 500 (endpoint might not exist)
         if (error?.message && !error.message.includes('404') && !error.message.includes('500')) {
@@ -167,7 +163,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     // Refresh notifications every 30 seconds
     const interval = setInterval(loadNotifications, 30000);
     return () => clearInterval(interval);
-  }, [worker?.id, isOnline]);
+  }, [worker?.id, worker?.warehouseId, isOnline, role]);
 
   useEffect(() => {
     const loadCalendarTasks = async () => {
@@ -267,6 +263,12 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       } catch (error) {
         logger.error("Failed to mark notification as read:", error);
       }
+    }
+
+    const selected = notifications.find((item) => item.id === notif.id);
+    if (selected?.actionUrl) {
+      setShowNotifications(false);
+      router.push(selected.actionUrl);
     }
   };
 

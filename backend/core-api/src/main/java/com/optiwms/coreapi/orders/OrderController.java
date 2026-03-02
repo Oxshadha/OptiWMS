@@ -417,11 +417,13 @@ public class OrderController {
         try {
             Notification notification = new Notification();
             notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(order.getWarehouseId());
             notification.setTitle(title);
             notification.setMessage(message);
             notification.setNotificationType("order");
             notification.setRead(false);
-            notification.setActionUrl("/admin/orders");
+            notification.setActionUrl(resolveOrderActionUrl(order));
             notification.setMetadata(
                     "{\"orderId\":\"" + order.getId() + "\",\"orderNumber\":\"" + order.getOrderNumber() + "\",\"status\":\"" + order.getStatus() + "\",\"event\":\"" + eventType + "\"}"
             );
@@ -430,5 +432,16 @@ public class OrderController {
         } catch (Exception ignored) {
             // Notifications must not block order workflows.
         }
+    }
+
+    private String resolveOrderActionUrl(Order order) {
+        String orderType = order.getOrderType() != null ? order.getOrderType().toLowerCase() : "";
+        if ("outbound".equals(orderType)) {
+            return "/admin/orders/outbound/" + order.getId();
+        }
+        if ("inbound".equals(orderType)) {
+            return "/admin/orders/inbound";
+        }
+        return "/admin/orders";
     }
 }

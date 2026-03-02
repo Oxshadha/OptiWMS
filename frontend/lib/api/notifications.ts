@@ -3,6 +3,8 @@ import { apiClient } from './client';
 export interface Notification {
   id: string;
   userId?: string;
+  audienceRoles?: string;
+  warehouseId?: string;
   title: string;
   message: string;
   notificationType: string; // order, inventory, cycle_count, task, anomaly, shipment, return, system
@@ -14,6 +16,8 @@ export interface Notification {
 
 export interface CreateNotificationRequest {
   userId?: string; // null for broadcast
+  audienceRoles?: string;
+  warehouseId?: string;
   title: string;
   message: string;
   notificationType: string;
@@ -22,15 +26,28 @@ export interface CreateNotificationRequest {
 }
 
 export const notificationsApi = {
-  getAll: async (userId: string, read?: boolean): Promise<Notification[]> => {
+  getAll: async (
+    userId: string,
+    read?: boolean,
+    options?: { role?: string; warehouseId?: string }
+  ): Promise<Notification[]> => {
     const params = new URLSearchParams();
     params.append('userId', userId);
     if (read !== undefined) params.append('read', read.toString());
+    if (options?.role) params.append('role', options.role);
+    if (options?.warehouseId) params.append('warehouseId', options.warehouseId);
     return apiClient.get<Notification[]>(`/notifications?${params.toString()}`);
   },
 
-  getUnreadCount: async (userId: string): Promise<number> => {
-    const response = await apiClient.get<{ count: number }>(`/notifications/unread-count?userId=${userId}`);
+  getUnreadCount: async (
+    userId: string,
+    options?: { role?: string; warehouseId?: string }
+  ): Promise<number> => {
+    const params = new URLSearchParams();
+    params.append("userId", userId);
+    if (options?.role) params.append("role", options.role);
+    if (options?.warehouseId) params.append("warehouseId", options.warehouseId);
+    const response = await apiClient.get<{ count: number }>(`/notifications/unread-count?${params.toString()}`);
     return response.count;
   },
 
@@ -50,4 +67,3 @@ export const notificationsApi = {
     return apiClient.delete<void>(`/notifications/${id}`);
   },
 };
-

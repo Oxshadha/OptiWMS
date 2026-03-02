@@ -296,6 +296,10 @@ export const operationsApi = {
     return apiClient.get<StockTransfer[]>('/operations/stock-transfers');
   },
 
+  getStockTransferById: async (id: string): Promise<StockTransfer> => {
+    return apiClient.get<StockTransfer>(`/operations/stock-transfers/${id}`);
+  },
+
   getStockTransfersPaged: async ({
     page = 0,
     size = 10,

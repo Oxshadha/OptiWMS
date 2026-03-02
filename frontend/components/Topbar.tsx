@@ -149,8 +149,8 @@ export function Topbar() {
       try {
         setLoadingNotifications(true);
         const [notifs, count] = await Promise.all([
-          notificationsApi.getAll(admin.id),
-          notificationsApi.getUnreadCount(admin.id),
+          notificationsApi.getAll(admin.id, undefined, { role: role || undefined, warehouseId: admin.warehouseId }),
+          notificationsApi.getUnreadCount(admin.id, { role: role || undefined, warehouseId: admin.warehouseId }),
         ]);
         setNotifications(notifs.slice(0, 10)); // Show latest 10
         setUnreadCount(count);

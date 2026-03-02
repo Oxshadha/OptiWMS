@@ -234,6 +234,8 @@ public class TaskService {
     private void createTaskNotifications(TaskEntity entity, boolean includeWorker) {
         notify(
                 null,
+                "admin,warehouse_manager,inbound_coordinator",
+                entity.getWarehouseId(),
                 "Task Created",
                 "Task " + entity.getTaskNumber() + " is available for execution.",
                 "task",
@@ -243,6 +245,8 @@ public class TaskService {
         if (includeWorker && entity.getAssignedTo() != null) {
             notify(
                     entity.getAssignedTo(),
+                    null,
+                    entity.getWarehouseId(),
                     "New Task Assigned",
                     "Task " + entity.getTaskNumber() + " has been assigned to you.",
                     "task",
@@ -256,6 +260,8 @@ public class TaskService {
         if (entity.getAssignedTo() != null) {
             notify(
                     entity.getAssignedTo(),
+                    null,
+                    entity.getWarehouseId(),
                     "Task Assigned",
                     "Task " + entity.getTaskNumber() + " is ready for you to start.",
                     "task",
@@ -265,6 +271,8 @@ public class TaskService {
         }
         notify(
                 null,
+                "admin,warehouse_manager,inbound_coordinator",
+                entity.getWarehouseId(),
                 "Task Assigned",
                 "Task " + entity.getTaskNumber() + " was assigned to a worker.",
                 "task",
@@ -308,6 +316,8 @@ public class TaskService {
 
         notify(
                 null,
+                "admin,warehouse_manager,inbound_coordinator",
+                entity.getWarehouseId(),
                 title,
                 message,
                 "task",
@@ -318,6 +328,8 @@ public class TaskService {
         if (entity.getAssignedTo() != null && !"completed".equals(normalized)) {
             notify(
                     entity.getAssignedTo(),
+                    null,
+                    entity.getWarehouseId(),
                     title,
                     message,
                     "task",
@@ -327,10 +339,21 @@ public class TaskService {
         }
     }
 
-    private void notify(UUID userId, String title, String message, String type, String actionUrl, String metadata) {
+    private void notify(
+            UUID userId,
+            String audienceRoles,
+            UUID warehouseId,
+            String title,
+            String message,
+            String type,
+            String actionUrl,
+            String metadata
+    ) {
         try {
             Notification notification = new Notification();
             notification.setUserId(userId);
+            notification.setAudienceRoles(audienceRoles);
+            notification.setWarehouseId(warehouseId);
             notification.setTitle(title);
             notification.setMessage(message);
             notification.setNotificationType(type);

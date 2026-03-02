@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { logger } from "@/lib/utils/logger";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -130,7 +131,10 @@ export default function DashboardPage() {
       }
 
       try {
-        const nextNotifications = await notificationsApi.getAll(admin.id);
+        const nextNotifications = await notificationsApi.getAll(admin.id, undefined, {
+          role: role || undefined,
+          warehouseId: admin.warehouseId,
+        });
         setNotifications(nextNotifications.slice(0, 5));
       } catch (loadError) {
         logger.error("[Dashboard] Failed to load notifications:", loadError);
@@ -146,7 +150,7 @@ export default function DashboardPage() {
 
     const interval = setInterval(loadNotifications, 30000);
     return () => clearInterval(interval);
-  }, [admin?.id, dashboardSettings.showNotifications]);
+  }, [admin?.id, admin?.warehouseId, dashboardSettings.showNotifications, role]);
 
   useEffect(() => {
     if (settingsLoading || !dashboardSettings.autoRefresh) {
@@ -271,13 +275,14 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {notifications.map((notification) => (
-                <div
+                <Link
                   key={notification.id}
+                  href={notification.actionUrl || "/admin/notifications"}
                   className={`rounded-lg border p-3 ${
                     notification.read
                       ? "border-base-300 bg-base-100"
                       : "border-primary/20 bg-primary/5"
-                  }`}
+                  } block hover:border-primary/30 transition-colors`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -288,7 +293,7 @@ export default function DashboardPage() {
                       {new Date(notification.createdAt).toLocaleString()}
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
