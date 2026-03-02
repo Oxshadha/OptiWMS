@@ -23,9 +23,38 @@ import { logger } from "@/lib/utils/logger";
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <WorkerProvider>
+      <WorkerServiceWorkerRegistrar />
       <WorkerLayoutWrapper>{children}</WorkerLayoutWrapper>
     </WorkerProvider>
   );
+}
+
+function WorkerServiceWorkerRegistrar() {
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const isWorkerRoute = window.location.pathname.startsWith("/worker");
+    if (!isWorkerRoute) {
+      return;
+    }
+
+    const registerWorkerShell = async () => {
+      try {
+        await navigator.serviceWorker.register("/sw.js", {
+          scope: "/",
+          updateViaCache: "none",
+        });
+      } catch (error) {
+        logger.error("Failed to register worker service worker:", error);
+      }
+    };
+
+    void registerWorkerShell();
+  }, []);
+
+  return null;
 }
 
 function WorkerLayoutWrapper({ children }: { children: React.ReactNode }) {
