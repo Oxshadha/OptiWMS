@@ -259,47 +259,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {dashboardSettings.showNotifications && (
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-lg font-bold text-base-content">Operations Feed</h2>
-              <p className="text-sm text-base-content/60">Latest task and order updates across the system</p>
-            </div>
-            <a href="/admin/notifications" className="btn btn-ghost btn-sm">
-              View All
-            </a>
-          </div>
-          {notifications.length === 0 ? (
-            <div className="text-sm text-base-content/60">No recent notifications.</div>
-          ) : (
-            <div className="space-y-3">
-              {notifications.map((notification) => (
-                <Link
-                  key={notification.id}
-                  href={notification.actionUrl || "/admin/notifications"}
-                  className={`rounded-lg border p-3 ${
-                    notification.read
-                      ? "border-base-300 bg-base-100"
-                      : "border-primary/20 bg-primary/5"
-                  } block hover:border-primary/30 transition-colors`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-base-content">{notification.title}</div>
-                      <div className="text-sm text-base-content/70 mt-1">{notification.message}</div>
-                    </div>
-                    <span className="text-xs text-base-content/50 whitespace-nowrap">
-                      {new Date(notification.createdAt).toLocaleString()}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       <div className={gridClass}>
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
@@ -512,6 +471,49 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {dashboardSettings.showNotifications && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-base-content">Operations Feed</h2>
+              <p className="text-sm text-base-content/60">
+                Latest operational updates between inventory insight cards and the AI dashboard
+              </p>
+            </div>
+            <a href="/admin/notifications" className="btn btn-ghost btn-sm">
+              View All
+            </a>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="text-sm text-base-content/60">No recent notifications.</div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((notification) => (
+                <Link
+                  key={notification.id}
+                  href={notification.actionUrl || "/admin/notifications"}
+                  className={`rounded-lg border p-3 ${
+                    notification.read
+                      ? "border-base-300 bg-base-100"
+                      : "border-primary/20 bg-primary/5"
+                  } block hover:border-primary/30 transition-colors`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-base-content">{notification.title}</div>
+                      <div className="text-sm text-base-content/70 mt-1">{notification.message}</div>
+                    </div>
+                    <span className="text-xs text-base-content/50 whitespace-nowrap">
+                      {new Date(notification.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {(isWarehouseManager || isInboundCoordinator || isAdmin) && (
         <div className="space-y-6">

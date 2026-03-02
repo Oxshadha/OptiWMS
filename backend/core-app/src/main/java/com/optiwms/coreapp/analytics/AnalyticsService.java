@@ -487,8 +487,10 @@ public class AnalyticsService {
             metricsMap.putIfAbsent(workerId, new WorkerProductivityMetrics(workerId, 0, 0, 0L, BigDecimal.ZERO));
             WorkerProductivityMetrics metrics = metricsMap.get(workerId);
             metrics.totalTasks++;
-            metrics.completedTasks++;
-            metrics.totalTimeMinutes += event.getDurationMinutes() != null ? event.getDurationMinutes() : 0L;
+            if ("completed".equalsIgnoreCase(event.getStatus())) {
+                metrics.completedTasks++;
+                metrics.totalTimeMinutes += event.getDurationMinutes() != null ? event.getDurationMinutes() : 0L;
+            }
         }
 
         List<WorkerProductivityMetrics> result = new ArrayList<>();
@@ -514,7 +516,7 @@ public class AnalyticsService {
         Map<UUID, String> workerNames = new HashMap<>();
 
         for (OperationEventEntity event : events) {
-            if (event.getWorkerId() == null) {
+            if (event.getWorkerId() == null || !"completed".equalsIgnoreCase(event.getStatus())) {
                 continue;
             }
             UUID workerId = event.getWorkerId();

@@ -37,6 +37,11 @@ export interface AssignTaskRequest {
   warnings?: string[];
 }
 
+export interface ReportTaskErrorRequest {
+  workerId: string;
+  message?: string;
+}
+
 export interface PagedTasksResponse {
   data: Task[];
   page: number;
@@ -118,5 +123,9 @@ export const tasksApi = {
 
   claim: async (id: string, workerId: string): Promise<Task> => {
     return apiClient.post<Task>(`/tasks/${id}/claim`, { workerId });
+  },
+
+  reportError: async (id: string, request: ReportTaskErrorRequest): Promise<Task> => {
+    return apiClient.post<Task>(`/tasks/${id}/errors`, request);
   },
 };
