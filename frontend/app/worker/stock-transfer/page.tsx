@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWorker } from "@/contexts/WorkerContext";
+import { useOffline } from "@/hooks/useOffline";
 import { operationsApi, StockTransferLine } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
 import { showToast } from "@/lib/utils/toast";
@@ -11,6 +12,7 @@ type MaterialMap = Record<string, { code: string; name: string }>;
 
 export default function StockTransferPage() {
   const { worker } = useWorker();
+  const { isOnline } = useOffline();
   const workerId = worker?.id;
   const warehouseId = worker?.warehouseId;
 
@@ -69,6 +71,10 @@ export default function StockTransferPage() {
 
   const handleExecute = async () => {
     if (!workerId || !selectedLine) return;
+    if (!isOnline) {
+      showToast.error("Stock transfer execution requires an online connection");
+      return;
+    }
     if (!sourceScanLocation || !destScanLocation) {
       showToast.error("Scan source and destination locations");
       return;
@@ -101,6 +107,10 @@ export default function StockTransferPage() {
 
   const handleSkip = async () => {
     if (!workerId || !selectedLine) return;
+    if (!isOnline) {
+      showToast.error("Stock transfer updates require an online connection");
+      return;
+    }
     if (!notes.trim()) {
       showToast.error("Add skip reason in notes");
       return;
@@ -140,6 +150,15 @@ export default function StockTransferPage() {
           Select any pending line, scan locations, and confirm moved quantity.
         </p>
       </div>
+
+      {!isOnline && (
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">wifi_off</span>
+          <span>
+            Stock transfer execution is online-only right now. Reconnect before confirming or skipping a line.
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card bg-base-100 border border-base-300">
@@ -235,14 +254,14 @@ export default function StockTransferPage() {
                   <button
                     className={`btn btn-primary flex-1 ${processing ? "loading" : ""}`}
                     onClick={handleExecute}
-                    disabled={processing}
+                    disabled={processing || !isOnline}
                   >
                     Confirm Move
                   </button>
                   <button
                     className={`btn btn-warning btn-outline ${processing ? "loading" : ""}`}
                     onClick={handleSkip}
-                    disabled={processing}
+                    disabled={processing || !isOnline}
                   >
                     Block/Skip
                   </button>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { QRScanner } from "@/components/QRScanner";
 import { Modal } from "@/components/Modal";
 import { useWorker } from "@/contexts/WorkerContext";
+import { useOffline } from "@/hooks/useOffline";
 import { ordersApi, Order } from "@/lib/api/orders";
 import { returnsApi, Return as ReturnRecord } from "@/lib/api/returns";
 import { showToast } from "@/lib/utils/toast";
@@ -13,6 +14,7 @@ type ScannedProduct = { sku: string; qty: number };
 
 export default function ReturnsPage() {
   const { worker } = useWorker();
+  const { isOnline } = useOffline();
   const [returns, setReturns] = useState<ReturnRecord[]>([]);
   const [ordersMap, setOrdersMap] = useState<Record<string, Order>>({});
   const [loading, setLoading] = useState(true);
@@ -100,6 +102,10 @@ export default function ReturnsPage() {
       showToast.error("Scan or enter outbound order number");
       return;
     }
+    if (!isOnline) {
+      showToast.error("Return intake requires an online connection");
+      return;
+    }
 
     try {
       const productsSummary =
@@ -135,6 +141,15 @@ export default function ReturnsPage() {
         </p>
       </div>
 
+      {!isOnline && (
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">wifi_off</span>
+          <span>
+            Returns intake is online-only right now. Reconnect before receiving a return or processing receipt.
+          </span>
+        </div>
+      )}
+
       <div className="bg-base-100 rounded-xl p-4 border border-base-300 space-y-3">
         <div className="text-sm font-medium text-base-content">Quick Intake by Order Number</div>
         <div className="flex gap-2">
@@ -157,7 +172,7 @@ export default function ReturnsPage() {
             onChange={(e) => setReturnReason(e.target.value)}
             placeholder="Return reason"
           />
-          <button className="btn btn-success" onClick={intakeByOrderNumber}>
+          <button className="btn btn-success" onClick={intakeByOrderNumber} disabled={!isOnline}>
             Receive Return
           </button>
         </div>
@@ -247,7 +262,7 @@ export default function ReturnsPage() {
               <button className="btn btn-ghost" onClick={() => setShowProcessModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn-primary" onClick={intakeByOrderNumber}>
+              <button className="btn btn-primary" onClick={intakeByOrderNumber} disabled={!isOnline}>
                 Confirm Receipt
               </button>
             </div>
@@ -273,4 +288,3 @@ export default function ReturnsPage() {
     </div>
   );
 }
-

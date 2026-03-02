@@ -1,22 +1,57 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SummaryCards } from "@/components/SummaryCards";
+import { ordersApi, type Order } from "@/lib/api/orders";
+import { logger } from "@/lib/utils/logger";
 
 export default function OrdersPage() {
   const router = useRouter();
-  const summary = {
-    inboundOrders: 145,
-    outboundOrders: 245,
-    inTransit: 23,
-    pendingPicking: 18,
-  };
+  const [summary, setSummary] = useState({
+    inboundOrders: 0,
+    outboundOrders: 0,
+    inTransit: 0,
+    openFulfillment: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadSummary = async () => {
+      try {
+        setLoading(true);
+        const [inboundOrders, outboundOrders] = await Promise.all([
+          ordersApi.getAllInbound(),
+          ordersApi.getAllOutbound(),
+        ]);
+
+        setSummary({
+          inboundOrders: inboundOrders.length,
+          outboundOrders: outboundOrders.length,
+          inTransit: outboundOrders.filter((order) => isInTransit(order)).length,
+          openFulfillment: outboundOrders.filter((order) => needsFulfillment(order)).length,
+        });
+      } catch (error) {
+        logger.error("Failed to load orders summary:", error);
+        setSummary({
+          inboundOrders: 0,
+          outboundOrders: 0,
+          inTransit: 0,
+          openFulfillment: 0,
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadSummary();
+  }, []);
 
   const summaryCards = [
     {
       label: "Inbound Orders",
-      value: summary.inboundOrders,
+      value: loading ? "..." : summary.inboundOrders,
       icon: "input",
       color: "primary" as const,
       onClick: () => {
@@ -25,7 +60,7 @@ export default function OrdersPage() {
     },
     {
       label: "Outbound Orders",
-      value: summary.outboundOrders,
+      value: loading ? "..." : summary.outboundOrders,
       icon: "shopping_cart",
       color: "info" as const,
       onClick: () => {
@@ -34,13 +69,13 @@ export default function OrdersPage() {
     },
     {
       label: "In Transit",
-      value: summary.inTransit,
+      value: loading ? "..." : summary.inTransit,
       icon: "local_shipping",
       color: "warning" as const,
     },
     {
-      label: "Pending Picking",
-      value: summary.pendingPicking,
+      label: "Open Fulfillment",
+      value: loading ? "..." : summary.openFulfillment,
       icon: "schedule",
       color: "error" as const,
     },
@@ -103,4 +138,18 @@ export default function OrdersPage() {
       </div>
     </div>
   );
+}
+
+function normalizeStatus(order: Order) {
+  return (order.status || "").trim().toLowerCase();
+}
+
+function isInTransit(order: Order) {
+  const status = normalizeStatus(order);
+  return status === "in_transit" || status === "shipped" || status === "out_for_delivery";
+}
+
+function needsFulfillment(order: Order) {
+  const status = normalizeStatus(order);
+  return ["pending", "confirmed", "allocated", "processing", "picking", "packing"].includes(status);
 }
