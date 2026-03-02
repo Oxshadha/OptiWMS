@@ -6,6 +6,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
 import { getScopedSettings, setScopedSettings } from "@/lib/user-preferences";
+import { applyAppTheme, getStoredAppTheme } from "@/lib/theme";
 
 const defaultSettings = {
   darkMode: false,
@@ -17,12 +18,14 @@ const defaultSettings = {
   showNotifications: true,
   dateFormat: "MM/DD/YYYY",
   timeFormat: "12h",
-  language: "en",
 };
 
 export default function DashboardSettingsPage() {
   const { admin } = useAdmin();
-  const [settings, setSettings] = useState(defaultSettings);
+  const [settings, setSettings] = useState(() => ({
+    ...defaultSettings,
+    darkMode: getStoredAppTheme() === "optiwms-dark",
+  }));
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -43,45 +46,45 @@ export default function DashboardSettingsPage() {
     void loadSettings();
   }, [admin?.id]);
 
-  const handleSave = async () => {
+  useEffect(() => {
+    applyAppTheme(settings.darkMode);
+  }, [settings.darkMode]);
+
+  const persistSettings = async (nextSettings: typeof defaultSettings, successMessage?: string) => {
     if (!admin?.id) {
-      showToast.error("Admin session not ready");
+      if (successMessage) {
+        showToast.error("Admin session not ready");
+      }
       return;
     }
+
     setSaving(true);
     try {
       const user = await usersApi.getById(admin.id);
-      const nextSettings = setScopedSettings(
+      const nextPayload = setScopedSettings(
         user.dashboardSettings,
         "adminDashboardSettings",
-        settings
+        nextSettings
       );
-      await usersApi.updatePreferences(admin.id, { dashboardSettings: nextSettings });
-      showToast.success("Dashboard settings saved");
+      await usersApi.updatePreferences(admin.id, { dashboardSettings: nextPayload });
+      if (successMessage) {
+        showToast.success(successMessage);
+      }
     } catch (error) {
-      logger.error("Failed to save dashboard settings:", error);
+      logger.error("Failed to persist dashboard settings:", error);
       showToast.error(error instanceof Error ? error.message : "Failed to save settings");
     } finally {
       setSaving(false);
     }
   };
 
+  const handleSave = async () => {
+    await persistSettings(settings, "Dashboard settings saved");
+  };
+
   const handleReset = async () => {
     setSettings(defaultSettings);
-    if (admin?.id) {
-      try {
-        const user = await usersApi.getById(admin.id);
-        const nextSettings = setScopedSettings(
-          user.dashboardSettings,
-          "adminDashboardSettings",
-          defaultSettings
-        );
-        await usersApi.updatePreferences(admin.id, { dashboardSettings: nextSettings });
-        showToast.success("Settings reset to defaults");
-      } catch (error) {
-        logger.error("Failed to reset dashboard settings:", error);
-      }
-    }
+    await persistSettings(defaultSettings, "Settings reset to defaults");
   };
 
   return (
@@ -103,7 +106,11 @@ export default function DashboardSettingsPage() {
                   type="checkbox"
                   className="checkbox checkbox-primary"
                   checked={settings.darkMode}
-                  onChange={(e) => setSettings({ ...settings, darkMode: e.target.checked })}
+                  onChange={(e) => {
+                    const nextSettings = { ...settings, darkMode: e.target.checked };
+                    setSettings(nextSettings);
+                    void persistSettings(nextSettings);
+                  }}
                 />
                 <span className="label-text">Dark Mode</span>
               </label>
@@ -133,20 +140,6 @@ export default function DashboardSettingsPage() {
               >
                 <option value="12h">12-hour</option>
                 <option value="24h">24-hour</option>
-              </select>
-            </div>
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Language</span>
-              </label>
-              <select
-                className="select select-bordered w-full"
-                value={settings.language}
-                onChange={(e) => setSettings({ ...settings, language: e.target.value })}
-              >
-                <option value="en">English</option>
-                <option value="es">Spanish</option>
-                <option value="fr">French</option>
               </select>
             </div>
           </div>
@@ -239,7 +232,7 @@ export default function DashboardSettingsPage() {
                   checked={settings.showNotifications}
                   onChange={(e) => setSettings({ ...settings, showNotifications: e.target.checked })}
                 />
-                <span className="label-text">Show Notification Badge</span>
+                <span className="label-text">Show Dashboard Notices</span>
               </label>
             </div>
           </div>

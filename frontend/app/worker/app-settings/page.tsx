@@ -5,21 +5,15 @@ import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { authApi } from "@/lib/api/auth";
 import { getScopedSettings, parseSettingsContainer, setScopedSettings } from "@/lib/user-preferences";
+import { applyAppTheme } from "@/lib/theme";
 
 const SETTINGS_KEY = "worker_app_settings";
 
 const defaultSettings = {
-  notifications: true,
-  soundEnabled: true,
-  vibrationEnabled: true,
   autoSync: true,
   syncInterval: "30",
   darkMode: false,
   fontSize: "medium",
-  language: "en",
-  offlineMode: true,
-  qrScannerSound: true,
-  hapticFeedback: true,
 };
 
 export default function WorkerAppSettingsPage() {
@@ -46,9 +40,7 @@ export default function WorkerAppSettingsPage() {
             setSettings(mergedSettings);
             localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSettings));
 
-            if (mergedSettings.darkMode) {
-              document.documentElement.setAttribute("data-theme", "dark");
-            }
+            applyAppTheme(mergedSettings.darkMode);
             document.documentElement.style.fontSize =
               mergedSettings.fontSize === "small"
                 ? "14px"
@@ -67,9 +59,7 @@ export default function WorkerAppSettingsPage() {
           setSettings({ ...defaultSettings, ...parsed });
           
           // Apply settings immediately
-          if (parsed.darkMode) {
-            document.documentElement.setAttribute("data-theme", "dark");
-          }
+          applyAppTheme(!!parsed.darkMode);
           if (parsed.fontSize) {
             document.documentElement.style.fontSize = 
               parsed.fontSize === "small" ? "14px" :
@@ -104,7 +94,7 @@ export default function WorkerAppSettingsPage() {
   const handleReset = async () => {
     setSettings(defaultSettings);
     localStorage.removeItem(SETTINGS_KEY);
-    document.documentElement.setAttribute("data-theme", "light");
+    applyAppTheme(false);
     document.documentElement.style.fontSize = "16px";
     try {
       setSaving(true);
@@ -143,62 +133,6 @@ export default function WorkerAppSettingsPage() {
         <p className="text-sm text-base-content/60">
           Customize your PWA app preferences and behavior.
         </p>
-      </div>
-
-      {/* Notification Settings */}
-      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <h3 className="font-bold text-base-content mb-4">Notifications</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">Enable Notifications</div>
-              <div className="text-sm text-base-content/60">Receive task and system alerts</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.notifications}
-              onChange={(e) => {
-                const newSettings = { ...settings, notifications: e.target.checked };
-                setSettings(newSettings);
-                // Auto-save on change
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">Sound Alerts</div>
-              <div className="text-sm text-base-content/60">Play sound for notifications</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.soundEnabled}
-              onChange={(e) => {
-                const newSettings = { ...settings, soundEnabled: e.target.checked };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">Vibration</div>
-              <div className="text-sm text-base-content/60">Vibrate on notifications</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.vibrationEnabled}
-              onChange={(e) => {
-                const newSettings = { ...settings, vibrationEnabled: e.target.checked };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-        </div>
       </div>
 
       {/* Sync Settings */}
@@ -249,73 +183,6 @@ export default function WorkerAppSettingsPage() {
         </div>
       </div>
 
-      {/* Offline Mode */}
-      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <h3 className="font-bold text-base-content mb-4">Offline Mode</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">Enable Offline Mode</div>
-              <div className="text-sm text-base-content/60">Work without internet connection</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.offlineMode}
-              onChange={(e) => {
-                const newSettings = { ...settings, offlineMode: e.target.checked };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-          <div className="p-3 bg-base-200 rounded-lg">
-            <div className="text-sm text-base-content/60">
-              When offline mode is enabled, all data is stored locally and synced when connection is restored.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Scanner Settings */}
-      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <h3 className="font-bold text-base-content mb-4">Scanner</h3>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">QR Scanner Sound</div>
-              <div className="text-sm text-base-content/60">Play sound when scanning QR codes</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.qrScannerSound}
-              onChange={(e) => {
-                const newSettings = { ...settings, qrScannerSound: e.target.checked };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-base-content">Haptic Feedback</div>
-              <div className="text-sm text-base-content/60">Vibrate on successful scan</div>
-            </div>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary"
-              checked={settings.hapticFeedback}
-              onChange={(e) => {
-                const newSettings = { ...settings, hapticFeedback: e.target.checked };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Appearance */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <h3 className="font-bold text-base-content mb-4">Appearance</h3>
@@ -334,11 +201,7 @@ export default function WorkerAppSettingsPage() {
                 setSettings(newSettings);
                 localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
                 // Apply dark mode immediately
-                if (e.target.checked) {
-                  document.documentElement.setAttribute("data-theme", "dark");
-                } else {
-                  document.documentElement.setAttribute("data-theme", "light");
-                }
+                applyAppTheme(e.target.checked);
               }}
             />
           </div>
@@ -362,24 +225,6 @@ export default function WorkerAppSettingsPage() {
               <option value="small">Small</option>
               <option value="medium">Medium</option>
               <option value="large">Large</option>
-            </select>
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Language</span>
-            </label>
-            <select
-              className="select select-bordered w-full"
-              value={settings.language}
-              onChange={(e) => {
-                const newSettings = { ...settings, language: e.target.value };
-                setSettings(newSettings);
-                localStorage.setItem(SETTINGS_KEY, JSON.stringify(newSettings));
-              }}
-            >
-              <option value="en">English</option>
-              <option value="es">Spanish</option>
-              <option value="fr">French</option>
             </select>
           </div>
         </div>

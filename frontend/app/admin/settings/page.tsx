@@ -7,6 +7,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { accountApi } from "@/lib/api/account";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { applyAppTheme } from "@/lib/theme";
 
 const ADMIN_SETTINGS_KEY = "admin_settings";
 
@@ -49,7 +50,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     localStorage.setItem(ADMIN_SETTINGS_KEY, JSON.stringify(uiSettings));
-    document.documentElement.setAttribute("data-theme", uiSettings.darkMode ? "dark" : "light");
+    applyAppTheme(uiSettings.darkMode);
   }, [uiSettings]);
 
   useEffect(() => {
