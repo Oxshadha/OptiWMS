@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Pagination } from "@/components/Pagination";
 import { packingApi, PackingRecord as ApiPackingRecord } from "@/lib/api/packing";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { usersApi, type User } from "@/lib/api/users";
+import { type User } from "@/lib/api/users";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceCustomers,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapPackingStatus } from "@/lib/utils/status-mappers";
@@ -82,82 +87,31 @@ export default function PackingPage() {
   const [viewMode, setViewMode] = useState<"queue" | "monitor" | "history">("queue");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const [packingRecords, setPackingRecords] = useState<PackingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedRecordForAssign, setSelectedRecordForAssign] = useState<PackingRecord | null>(null);
-  const [availableWorkers, setAvailableWorkers] = useState<User[]>([]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [recordsPage, ordersData, customersData, warehousesData, workers] = await Promise.all([
-        packingApi.getPaged({
+  const packingQuery = usePagedAdminQuery({
+    queryKey: ["admin-packing", currentPage, itemsPerPage, statusFilter, searchQuery],
+    queryFn: async () => {
+      const recordsPage = await packingApi.getPaged({
           page: currentPage - 1,
           size: itemsPerPage,
           sortBy: "createdAt",
           sortDir: "desc",
           status: statusFilter === "all" ? undefined : statusFilter,
           q: searchQuery.trim() || undefined,
-        }),
-        ordersApi.getAllOutbound(),
-        customersApi.getAll(),
-        warehousesApi.getAll(),
-        usersApi.getAll("worker"),
-      ]);
-
-      setAvailableWorkers(workers);
-
-      const customersMap = buildLookupMap(customersData, (customer) => customer.id, (customer) => customer.name);
-      const warehousesMap = buildLookupMap(warehousesData, (warehouse) => warehouse.id, (warehouse) => warehouse.name);
-      const usersMap = buildLookupMap(
-        workers,
-        (worker) => worker.id,
-        (worker) => `${worker.firstName || ""} ${worker.lastName || ""}`.trim() || worker.username
-      );
-
-      const ordersMap = buildLookupMap(
+        });
+      const ordersData = await ordersApi.getAllOutbound();
+      return {
+        recordsPage,
         ordersData,
-        (order) => order.id,
-        (order) => ({
-          customerName: order.customerId ? getLookupValue(customersMap, order.customerId, "Unknown") : "Unknown",
-          warehouseName: getLookupValue(warehousesMap, order.warehouseId, "Unknown"),
-          priority: (order.priority?.toLowerCase() === "express" ? "express" : "normal") as "express" | "normal",
-        })
-      );
+      };
+    },
+  });
+  const customersQuery = useReferenceCustomers();
+  const warehousesQuery = useReferenceWarehouses();
+  const usersQuery = useReferenceUsers();
+  const reload = useInvalidateAdminList(["admin-packing"]);
 
-      const recordsFromPacking = recordsPage.data.map((record) =>
-        mapApiPackingRecord(record, ordersMap, usersMap)
-      );
-
-      setPackingRecords(recordsFromPacking);
-      setTotalItems(recordsPage.totalElements);
-      setTotalPages(Math.max(recordsPage.totalPages, 1));
-    } catch (err) {
-      logger.error("Failed to load packing records:", err);
-      setError(err instanceof Error ? err.message : "Failed to load packing records");
-      setPackingRecords([]);
-      showToast.error("Failed to load packing records. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
-
-  const pendingOrders = packingRecords.filter((record) => record.status === "pending");
-  const inProgressOrders = packingRecords.filter((record) => record.status === "in_progress");
-  const packedOrders = packingRecords.filter((record) => record.status === "packed");
-  const historyOrders = packingRecords.filter((record) => record.status === "packed" || record.status === "shipped");
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearchQuery(searchInput);
@@ -165,6 +119,63 @@ export default function PackingPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const availableWorkers = useMemo(
+    () => ((usersQuery.data || []).filter((user) => user.role?.toLowerCase() === "worker") as User[]),
+    [usersQuery.data]
+  );
+
+  const packingRecords = useMemo<PackingRecord[]>(() => {
+    if (!packingQuery.data) return [];
+
+    const customersMap = buildLookupMap(
+      customersQuery.data || [],
+      (customer) => customer.id,
+      (customer) => customer.name
+    );
+    const warehousesMap = buildLookupMap(
+      warehousesQuery.data || [],
+      (warehouse) => warehouse.id,
+      (warehouse) => warehouse.name
+    );
+    const usersMap = buildLookupMap(
+      availableWorkers,
+      (worker) => worker.id,
+      (worker) => `${worker.firstName || ""} ${worker.lastName || ""}`.trim() || worker.username
+    );
+    const ordersMap = buildLookupMap(
+      packingQuery.data.ordersData,
+      (order) => order.id,
+      (order) => ({
+        customerName: order.customerId ? getLookupValue(customersMap, order.customerId, "Unknown") : "Unknown",
+        warehouseName: getLookupValue(warehousesMap, order.warehouseId, "Unknown"),
+        priority: (order.priority?.toLowerCase() === "express" ? "express" : "normal") as "express" | "normal",
+      })
+    );
+
+    return packingQuery.data.recordsPage.data.map((record) =>
+      mapApiPackingRecord(record, ordersMap, usersMap)
+    );
+  }, [availableWorkers, customersQuery.data, packingQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (packingQuery.isPending && !packingQuery.data) ||
+    (customersQuery.isPending && !customersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data);
+  const error =
+    packingQuery.error || customersQuery.error || warehousesQuery.error || usersQuery.error
+      ? packingQuery.error instanceof Error
+        ? packingQuery.error.message
+        : "Failed to load packing records"
+      : null;
+  const totalItems = packingQuery.data?.recordsPage.totalElements ?? 0;
+  const totalPages = Math.max(packingQuery.data?.recordsPage.totalPages ?? 1, 1);
+
+  const pendingOrders = packingRecords.filter((record) => record.status === "pending");
+  const inProgressOrders = packingRecords.filter((record) => record.status === "in_progress");
+  const packedOrders = packingRecords.filter((record) => record.status === "packed");
+  const historyOrders = packingRecords.filter((record) => record.status === "packed" || record.status === "shipped");
 
   if (loading) {
     return (
@@ -203,7 +214,7 @@ export default function PackingPage() {
       showToast.success("Packer assigned successfully");
       setShowAssignModal(false);
       setSelectedRecordForAssign(null);
-      await loadData();
+      await reload();
     } catch (err) {
       logger.error("Failed to assign packer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to assign packer");

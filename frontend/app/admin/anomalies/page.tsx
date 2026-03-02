@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { useMemo, useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -10,9 +10,13 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { anomaliesApi } from "@/lib/api/anomalies";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { materialsApi } from "@/lib/api/materials";
-import { usersApi } from "@/lib/api/users";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceMaterials,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -116,90 +120,95 @@ export default function AnomaliesPage() {
   const [domainFilter, setDomainFilter] = useState<"all" | Domain>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const anomaliesQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-anomalies",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      severityFilter,
+      domainFilter,
+      searchQuery,
+      isWarehouseManager ? assignedWarehouseId : "all",
+    ],
+    queryFn: () =>
+      anomaliesApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        status: statusFilter === "all" ? undefined : toApiStatus(statusFilter),
+        severity: severityFilter === "all" ? undefined : severityFilter.toUpperCase(),
+        domain: domainFilter === "all" ? undefined : domainFilter,
+        q: searchQuery.trim() || undefined,
+      }),
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const materialsQuery = useReferenceMaterials();
+  const usersQuery = useReferenceUsers();
+  const reload = useInvalidateAdminList(["admin-anomalies"]);
 
-  const [anomalies, setAnomalies] = useState<AnomalyDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const anomalies = useMemo<AnomalyDisplay[]>(() => {
+    if (!anomaliesQuery.data) return [];
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+    const warehousesMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((wh) => warehousesMap.set(wh.id, wh.name));
 
-      const [anomaliesPage, warehousesData, materialsData, usersData] = await Promise.all([
-        anomaliesApi.getPaged({
-          page: currentPage - 1,
-          size: itemsPerPage,
-          sortBy: "createdAt",
-          sortDir: "desc",
-          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-          status: statusFilter === "all" ? undefined : toApiStatus(statusFilter),
-          severity: severityFilter === "all" ? undefined : severityFilter.toUpperCase(),
-          domain: domainFilter === "all" ? undefined : domainFilter,
-          q: searchQuery.trim() || undefined,
-        }),
-        warehousesApi.getAll(),
-        materialsApi.getAll(),
-        usersApi.getAll(),
-      ]);
+    const materialsMap = new Map<string, string>();
+    (materialsQuery.data || []).forEach((m) =>
+      materialsMap.set(m.id, m.materialCode || m.description || m.id)
+    );
 
-      const warehousesMap = new Map<string, string>();
-      warehousesData.forEach((wh) => warehousesMap.set(wh.id, wh.name));
+    const usersMap = new Map<string, string>();
+    (usersQuery.data || []).forEach((u) => {
+      const displayName =
+        `${u.firstName || ""} ${u.lastName || ""}`.trim() ||
+        u.username ||
+        u.email ||
+        "Unknown";
+      usersMap.set(u.id, displayName);
+    });
 
-      const materialsMap = new Map<string, string>();
-      materialsData.forEach((m) => materialsMap.set(m.id, m.materialCode || m.description || m.id));
+    return anomaliesQuery.data.data.map((a) => {
+      const domain = getAnomalyDomain(a.anomalyType);
+      const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
+      const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
+      const detectedBy: AnomalyDisplay["detectedBy"] = domain === "picking" ? "worker" : "system";
 
-      const usersMap = new Map<string, string>();
-      usersData.forEach((u) => {
-        const displayName = `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username || u.email || "Unknown";
-        usersMap.set(u.id, displayName);
-      });
+      return {
+        id: a.id,
+        anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
+        anomalyType: normalizeType(a.anomalyType),
+        anomalyTypeLabel: getTypeLabel(normalizeType(a.anomalyType)),
+        domain,
+        severity: toSeverity(a.severity),
+        description: a.description || "No description",
+        warehouseName,
+        relatedEntityType: a.materialId ? "material" : a.locationId ? "location" : "unknown",
+        relatedEntityId,
+        detectedBy,
+        detectedAt: a.createdAt || a.reviewedAt || "",
+        status: toDisplayStatus(a.status),
+        resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "Manager" : null,
+        resolvedAt: a.reviewedAt || null,
+      };
+    });
+  }, [anomaliesQuery.data, materialsQuery.data, usersQuery.data, warehousesQuery.data]);
 
-      const displayAnomalies: AnomalyDisplay[] = anomaliesPage.data.map((a) => {
-        const domain = getAnomalyDomain(a.anomalyType);
-        const warehouseName = a.warehouseId ? warehousesMap.get(a.warehouseId) || "Unknown" : "Unknown";
-        const relatedEntityId = a.materialId ? materialsMap.get(a.materialId) || a.materialId : (a.locationId || "N/A");
-        const detectedBy: AnomalyDisplay["detectedBy"] = domain === "picking" ? "worker" : "system";
-
-        return {
-          id: a.id,
-          anomalyId: `ANOM-${a.id.substring(0, 8).toUpperCase()}`,
-          anomalyType: normalizeType(a.anomalyType),
-          anomalyTypeLabel: getTypeLabel(normalizeType(a.anomalyType)),
-          domain,
-          severity: toSeverity(a.severity),
-          description: a.description || "No description",
-          warehouseName,
-          relatedEntityType: a.materialId ? "material" : (a.locationId ? "location" : "unknown"),
-          relatedEntityId,
-          detectedBy,
-          detectedAt: a.createdAt || a.reviewedAt || "",
-          status: toDisplayStatus(a.status),
-          resolvedBy: a.reviewedBy ? usersMap.get(a.reviewedBy) || "Manager" : null,
-          resolvedAt: a.reviewedAt || null,
-        };
-      });
-
-      setAnomalies(displayAnomalies);
-      setTotalItems(anomaliesPage.totalElements);
-      setTotalPages(Math.max(anomaliesPage.totalPages, 1));
-    } catch (err) {
-      logger.error("Failed to load anomalies:", err);
-      setError(err instanceof Error ? err.message : "Failed to load anomalies");
-      setAnomalies([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load anomalies. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage, statusFilter, severityFilter, domainFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const loading =
+    (anomaliesQuery.isPending && !anomaliesQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data);
+  const error =
+    anomaliesQuery.error || warehousesQuery.error || materialsQuery.error || usersQuery.error
+      ? anomaliesQuery.error instanceof Error
+        ? anomaliesQuery.error.message
+        : "Failed to load anomalies"
+      : null;
+  const totalItems = anomaliesQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(anomaliesQuery.data?.totalPages ?? 1, 1);
 
   const summary = {
     totalAnomalies: totalItems,
@@ -220,7 +229,7 @@ export default function AnomaliesPage() {
     try {
       await anomaliesApi.resolve(anomaly.id, toApiStatus(nextStatus), admin?.id, notes);
       showToast.success(`Anomaly marked as ${statusConfig[nextStatus].label}`);
-      await loadData();
+      await reload();
     } catch (err) {
       logger.error("Failed to update anomaly status:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to update anomaly status");
@@ -436,7 +445,7 @@ export default function AnomaliesPage() {
               <li><button onClick={() => { setStatusFilter("false_positive"); setCurrentPage(1); }}>False Positive</button></li>
             </ul>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={() => void loadData()}>
+          <button className="btn btn-sm btn-ghost" onClick={() => void reload()}>
             <span className="material-symbols-outlined">refresh</span>
             <span>Refresh</span>
           </button>

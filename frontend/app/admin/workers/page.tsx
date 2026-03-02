@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { DataTable } from "@/components/DataTable";
@@ -11,8 +11,12 @@ import { WorkerRole, getRoleDisplayName } from "@/lib/worker-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { usersApi } from "@/lib/api/users";
-import { warehousesApi } from "@/lib/api/warehouses";
 import { tasksApi } from "@/lib/api/tasks-api";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { WorkerDisplay, statusConfig } from "./types";
 import {
@@ -38,23 +42,16 @@ export default function WorkersPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-
-  const [workers, setWorkers] = useState<WorkerDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setIsLoading(true);
-      }
-      setError(null);
-
+  const workersQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-workers",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      searchQuery,
+      isWarehouseManager ? assignedWarehouseId : "all",
+    ],
+    queryFn: async () => {
       const userStatus =
         statusFilter === "all"
           ? undefined
@@ -62,28 +59,18 @@ export default function WorkersPage() {
             ? "inactive"
             : "active";
 
-      const [usersPage, warehousesData] = await Promise.all([
-        usersApi.getPaged({
-          page: currentPage - 1,
-          size: itemsPerPage,
-          sortBy: "createdAt",
-          sortDir: "desc",
-          role: "worker",
-          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-          status: userStatus,
-          q: searchQuery.trim() || undefined,
-        }),
-        warehousesApi.getAll(),
-      ]);
-
-      const warehousesMap = new Map<string, string>();
-      warehousesData.forEach((w) => {
-        warehousesMap.set(w.id, w.name);
+      const usersPage = await usersApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        role: "worker",
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        status: userStatus,
+        q: searchQuery.trim() || undefined,
       });
 
-      const totalTaskCounts = new Map<string, number>();
-      const completedTaskCounts = new Map<string, number>();
-      await Promise.all(
+      const taskCounts = await Promise.all(
         usersPage.data.map(async (u) => {
           try {
             const [totalTasks, completedTasks] = await Promise.all([
@@ -99,69 +86,25 @@ export default function WorkersPage() {
                 status: "completed",
               }),
             ]);
-            totalTaskCounts.set(u.id, totalTasks.totalElements);
-            completedTaskCounts.set(u.id, completedTasks.totalElements);
+            return {
+              id: u.id,
+              total: totalTasks.totalElements,
+              completed: completedTasks.totalElements,
+            };
           } catch {
-            totalTaskCounts.set(u.id, 0);
-            completedTaskCounts.set(u.id, 0);
+            return { id: u.id, total: 0, completed: 0 };
           }
         })
       );
 
-      const displayWorkers: WorkerDisplay[] = usersPage.data.map((u) => {
-        const warehouseName = u.warehouseId
-          ? warehousesMap.get(u.warehouseId) || "Unknown"
-          : "Unassigned";
-        const tasksToday = totalTaskCounts.get(u.id) || 0;
-        const totalCompleted = completedTaskCounts.get(u.id) || 0;
-        const workerRole: WorkerRole = (u.role?.toLowerCase() || "picker") as WorkerRole;
-
-        let availabilityStatus: WorkerDisplay["availabilityStatus"] = "available";
-        if (u.status !== "active") {
-          availabilityStatus = "offline";
-        } else if (tasksToday > 0) {
-          availabilityStatus = "busy";
-        }
-
-        return {
-          id: u.id,
-          workerId: u.employeeId || u.id.slice(0, 6),
-          name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
-          warehouseName,
-          availabilityStatus,
-          tasksToday,
-          totalTasksCompleted: totalCompleted,
-          lastActive: u.lastLoginAt || "Never",
-          avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
-          role: workerRole,
-        };
-      });
-
-      const filteredForStatus =
-        statusFilter === "all"
-          ? displayWorkers
-          : displayWorkers.filter((worker) => worker.availabilityStatus === statusFilter);
-
-      setWorkers(filteredForStatus);
-      setTotalItems(usersPage.totalElements);
-      setTotalPages(Math.max(usersPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load workers:", err);
-      setError(err instanceof Error ? err.message : "Failed to load workers");
-      setWorkers([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load workers. Please try again.");
-      }
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
+      return {
+        page: usersPage,
+        taskCounts,
+      };
+    },
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const reload = useInvalidateAdminList(["admin-workers"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -170,6 +113,68 @@ export default function WorkersPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const workers = useMemo<WorkerDisplay[]>(() => {
+    if (!workersQuery.data) return [];
+
+    const warehousesMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((w) => {
+      warehousesMap.set(w.id, w.name);
+    });
+
+    const totalTaskCounts = new Map<string, number>();
+    const completedTaskCounts = new Map<string, number>();
+    workersQuery.data.taskCounts.forEach((entry) => {
+      totalTaskCounts.set(entry.id, entry.total);
+      completedTaskCounts.set(entry.id, entry.completed);
+    });
+
+    const displayWorkers: WorkerDisplay[] = workersQuery.data.page.data.map((u) => {
+      const warehouseName = u.warehouseId
+        ? warehousesMap.get(u.warehouseId) || "Unknown"
+        : "Unassigned";
+      const tasksToday = totalTaskCounts.get(u.id) || 0;
+      const totalCompleted = completedTaskCounts.get(u.id) || 0;
+      const workerRole: WorkerRole = (u.role?.toLowerCase() || "picker") as WorkerRole;
+
+      let availabilityStatus: WorkerDisplay["availabilityStatus"] = "available";
+      if (u.status !== "active") {
+        availabilityStatus = "offline";
+      } else if (tasksToday > 0) {
+        availabilityStatus = "busy";
+      }
+
+      return {
+        id: u.id,
+        workerId: u.employeeId || u.id.slice(0, 6),
+        name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.username,
+        warehouseName,
+        availabilityStatus,
+        tasksToday,
+        totalTasksCompleted: totalCompleted,
+        lastActive: u.lastLoginAt || "Never",
+        avatar: u.avatarUrl || "/assets/avatars/placeholder.svg",
+        role: workerRole,
+      };
+    });
+
+    return statusFilter === "all"
+      ? displayWorkers
+      : displayWorkers.filter((worker) => worker.availabilityStatus === statusFilter);
+  }, [statusFilter, warehousesQuery.data, workersQuery.data]);
+
+  const isLoading =
+    (workersQuery.isPending && !workersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const isFetching = workersQuery.isFetching;
+  const error =
+    workersQuery.error || warehousesQuery.error
+      ? workersQuery.error instanceof Error
+        ? workersQuery.error.message
+        : "Failed to load workers"
+      : null;
+  const totalItems = workersQuery.data?.page.totalElements ?? 0;
+  const totalPages = Math.max(workersQuery.data?.page.totalPages ?? 1, 1);
 
   const canCreate = hasPermission(ADMIN_ROUTES.WORKERS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.WORKERS, "edit");
@@ -378,7 +383,7 @@ export default function WorkersPage() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => void loadData()}
+            onClick={() => void reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -461,7 +466,7 @@ export default function WorkersPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -505,7 +510,7 @@ export default function WorkersPage() {
       <CreateWorkerModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {selectedWorker && (
@@ -532,7 +537,7 @@ export default function WorkersPage() {
             setShowEditModal(false);
             setSelectedWorker(null);
           }}
-          onUpdated={loadData}
+          onUpdated={reload}
           worker={selectedWorker}
         />
       )}
@@ -552,7 +557,7 @@ export default function WorkersPage() {
               showToast.success("Worker deleted successfully");
               setShowDeleteModal(false);
               setSelectedWorker(null);
-              await loadData();
+              await reload();
             } catch (err) {
               logger.error("Failed to delete worker:", err);
               showToast.error(
