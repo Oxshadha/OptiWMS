@@ -7,6 +7,12 @@ const APP_SHELL_URLS = [
   "/favicon.ico",
   "/worker/login",
 ];
+const CRITICAL_WORKER_ROUTES = [
+  "/worker/tasks",
+  "/worker/picking",
+  "/worker/putaway",
+  "/worker/cycle-count",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -93,6 +99,41 @@ self.addEventListener("fetch", (event) => {
         });
         return response;
       });
+    })
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "PRECACHE_WORKER_ROUTES") {
+    return;
+  }
+
+  const requestedRoutes = Array.isArray(event.data.routes)
+    ? event.data.routes
+    : [];
+
+  const routesToWarm = requestedRoutes.filter((route) =>
+    CRITICAL_WORKER_ROUTES.includes(route)
+  );
+
+  if (routesToWarm.length === 0) {
+    return;
+  }
+
+  event.waitUntil(
+    caches.open(RUNTIME_CACHE).then(async (cache) => {
+      await Promise.all(
+        routesToWarm.map(async (route) => {
+          try {
+            const response = await fetch(route, { credentials: "same-origin" });
+            if (response && response.ok) {
+              await cache.put(route, response.clone());
+            }
+          } catch (error) {
+            // Ignore warm failures; the route can still be cached on normal navigation.
+          }
+        })
+      );
     })
   );
 });

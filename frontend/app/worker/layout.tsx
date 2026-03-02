@@ -30,6 +30,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 }
 
 function WorkerServiceWorkerRegistrar() {
+  const pathname = usePathname();
+  const { worker, isLoading } = useWorker();
+
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
       return;
@@ -53,6 +56,40 @@ function WorkerServiceWorkerRegistrar() {
 
     void registerWorkerShell();
   }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !("serviceWorker" in navigator) ||
+      isLoading ||
+      !worker ||
+      pathname === "/worker/login" ||
+      !pathname.startsWith("/worker")
+    ) {
+      return;
+    }
+
+    const criticalWorkerRoutes = [
+      "/worker/tasks",
+      "/worker/picking",
+      "/worker/putaway",
+      "/worker/cycle-count",
+    ];
+
+    const warmCriticalRoutes = async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        registration.active?.postMessage({
+          type: "PRECACHE_WORKER_ROUTES",
+          routes: criticalWorkerRoutes,
+        });
+      } catch (error) {
+        logger.error("Failed to warm worker route cache:", error);
+      }
+    };
+
+    void warmCriticalRoutes();
+  }, [isLoading, pathname, worker]);
 
   return null;
 }
