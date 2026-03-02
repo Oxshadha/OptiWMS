@@ -1,18 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
 import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import { InventoryDisplayItem, formatDecimal, inventoryStatusTone } from "../types";
 
 function parseOptionalNumber(value?: string) {
@@ -23,27 +13,11 @@ function parseOptionalNumber(value?: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildInventorySnapshot(item: InventoryDisplayItem) {
-  const points = [
-    { label: "On Hand", quantity: item.qty, color: "#CF0F47" },
-    { label: "Available", quantity: item.availableQty ?? item.qty, color: "#0EA5E9" },
-    { label: "Reserved", quantity: item.reservedQty ?? 0, color: "#F59E0B" },
-  ];
-
-  const optionalMetrics = [
-    { label: "Reorder", quantity: parseOptionalNumber(item.reorderPoint), color: "#F97316" },
-    { label: "Buffer", quantity: parseOptionalNumber(item.bufferStock), color: "#8B5CF6" },
-    { label: "Min", quantity: parseOptionalNumber(item.minStock), color: "#EAB308" },
-    { label: "Max", quantity: parseOptionalNumber(item.maxStock), color: "#22C55E" },
-  ];
-
-  optionalMetrics.forEach((metric) => {
-    if (metric.quantity != null) {
-      points.push(metric as { label: string; quantity: number; color: string });
-    }
-  });
-
-  return points;
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
 }
 
 export function InventoryItemDetailModal({
@@ -57,22 +31,72 @@ export function InventoryItemDetailModal({
   item: InventoryDisplayItem;
   onEdit?: () => void;
 }) {
-  const snapshotData = useMemo(() => buildInventorySnapshot(item), [item]);
-  const quantities = snapshotData.map((d) => d.quantity);
-  const minQty = Math.min(...quantities);
-  const maxQty = Math.max(...quantities);
-  const avgQty = Math.round(
-    quantities.reduce((sum, quantity) => sum + quantity, 0) / quantities.length
-  );
   const currentAvailable = item.availableQty ?? item.qty;
   const reservedQty = item.reservedQty ?? 0;
-  const trend =
-    currentAvailable > item.qty
-      ? "up"
-      : currentAvailable < item.qty
-      ? "down"
-      : "stable";
-  const change = currentAvailable - item.qty;
+  const reorderPoint = parseOptionalNumber(item.reorderPoint);
+  const bufferStock = parseOptionalNumber(item.bufferStock);
+  const minStock = parseOptionalNumber(item.minStock);
+  const maxStock = parseOptionalNumber(item.maxStock);
+  const moq = parseOptionalNumber(item.moq);
+  const reservedShare = item.qty > 0 ? Math.round((reservedQty / item.qty) * 100) : 0;
+
+  const targetLevel =
+    reorderPoint != null && bufferStock != null
+      ? reorderPoint + bufferStock
+      : maxStock != null && minStock != null
+      ? (maxStock + minStock) / 2
+      : maxStock ?? reorderPoint ?? item.qty;
+
+  const basisMax = Math.max(maxStock ?? targetLevel ?? item.qty, item.qty, currentAvailable, 1);
+  const availableFillPercent = clampPercent((currentAvailable / basisMax) * 100);
+  const reorderMarkerPercent =
+    reorderPoint != null ? clampPercent((reorderPoint / basisMax) * 100) : null;
+  const targetMarkerPercent =
+    targetLevel != null ? clampPercent((targetLevel / basisMax) * 100) : null;
+
+  const reorderDelta = reorderPoint != null ? currentAvailable - reorderPoint : null;
+  const maxHeadroom = maxStock != null ? maxStock - item.qty : null;
+
+  const health = (() => {
+    if (reorderPoint != null && currentAvailable <= reorderPoint) {
+      return {
+        label: "Replenishment Needed",
+        tone: "text-error",
+        bg: "bg-error/10",
+        border: "border-error/20",
+        icon: "warning",
+        detail: "Available stock is at or below the reorder point.",
+      };
+    }
+    if (maxStock != null && item.qty >= maxStock) {
+      return {
+        label: "At Capacity",
+        tone: "text-warning",
+        bg: "bg-warning/10",
+        border: "border-warning/20",
+        icon: "inventory",
+        detail: "Current stock is at or above the configured maximum.",
+      };
+    }
+    if (reservedQty > 0 && currentAvailable <= reservedQty) {
+      return {
+        label: "Tight Availability",
+        tone: "text-warning",
+        bg: "bg-warning/10",
+        border: "border-warning/20",
+        icon: "schedule",
+        detail: "Most stock is already committed to existing demand.",
+      };
+    }
+    return {
+      label: "Healthy Position",
+      tone: "text-success",
+      bg: "bg-success/10",
+      border: "border-success/20",
+      icon: "check_circle",
+      detail: "Stock sits within expected operating thresholds.",
+    };
+  })();
 
   return (
     <DetailModal isOpen={isOpen} onClose={onClose} title={`Inventory: ${item.sku}`} size="xl">
@@ -180,99 +204,202 @@ export function InventoryItemDetailModal({
         <div className="border-t pt-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-lg font-semibold text-base-content">Inventory Position Snapshot</h3>
+              <h3 className="text-lg font-semibold text-base-content">Inventory Health</h3>
               <p className="text-sm text-base-content/60 mt-1">
-                Live values from the current inventory record and planning thresholds
+                A clear stock-position view built from live inventory and planning thresholds
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className={`rounded-xl border p-4 mb-4 ${health.bg} ${health.border}`}>
+            <div className="flex items-start gap-3">
+              <span className={`material-symbols-outlined ${health.tone}`}>{health.icon}</span>
+              <div>
+                <div className={`font-semibold ${health.tone}`}>{health.label}</div>
+                <p className="text-sm text-base-content/70 mt-1">{health.detail}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
             <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Current</div>
+              <div className="text-xs text-base-content/60 mb-1">On Hand</div>
               <div className="text-lg font-bold text-base-content">{item.qty}</div>
+              <div className="text-xs text-base-content/60 mt-1">Physical stock</div>
             </div>
             <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Available</div>
+              <div className="text-xs text-base-content/60 mb-1">Available to Use</div>
               <div className="text-lg font-bold text-info">{currentAvailable}</div>
+              <div className="text-xs text-base-content/60 mt-1">Free stock after allocations</div>
             </div>
             <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Reserved</div>
-              <div className="text-lg font-bold text-warning">{reservedQty}</div>
+              <div className="text-xs text-base-content/60 mb-1">Reserved Share</div>
+              <div className="text-lg font-bold text-warning">{reservedShare}%</div>
+              <div className="text-xs text-base-content/60 mt-1">{reservedQty} units committed</div>
             </div>
             <div className="bg-base-200 rounded-lg p-3">
-              <div className="text-xs text-base-content/60 mb-1">Average Metric</div>
-              <div className="text-lg font-bold text-base-content">{avgQty}</div>
+              <div className="text-xs text-base-content/60 mb-1">
+                {reorderDelta == null ? "Reorder Point" : "Reorder Gap"}
+              </div>
+              <div
+                className={`text-lg font-bold ${
+                  reorderDelta == null
+                    ? "text-base-content"
+                    : reorderDelta >= 0
+                    ? "text-success"
+                    : "text-error"
+                }`}
+              >
+                {reorderDelta == null
+                  ? reorderPoint != null
+                    ? formatDecimal(reorderPoint)
+                    : "Not Set"
+                  : `${reorderDelta > 0 ? "+" : ""}${formatDecimal(reorderDelta)}`}
+              </div>
+              <div className="text-xs text-base-content/60 mt-1">
+                {reorderPoint != null ? "Available minus reorder point" : "Set a reorder threshold"}
+              </div>
             </div>
           </div>
 
-          <div className="bg-base-200 rounded-lg p-4">
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={snapshotData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" opacity={0.5} />
-                  <XAxis
-                    dataKey="label"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: "#6B7280" }}
-                  />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#6B7280" }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #E5E7EB",
-                      borderRadius: "8px",
-                      boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
-                    }}
-                    labelFormatter={(label) => `${label}`}
-                    formatter={(value: number) => [`${value} units`, "Quantity"]}
-                  />
-                  <Bar
-                    dataKey="quantity"
-                    radius={[6, 6, 0, 0]}
-                    fill="#CF0F47"
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+          <div className="bg-base-200 rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <div className="font-semibold text-base-content">Stock Position Gauge</div>
+                <div className="text-xs text-base-content/60">
+                  Compare usable stock against reorder and target levels
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs text-base-content/60">Capacity Used</div>
+                <div className="font-semibold text-base-content">
+                  {Math.round((item.qty / basisMax) * 100)}%
+                </div>
+              </div>
+            </div>
+
+            <div className="relative pt-6">
+              <div className="h-4 rounded-full bg-base-300 overflow-hidden">
+                <div
+                  className={`h-full ${
+                    reorderPoint != null && currentAvailable <= reorderPoint
+                      ? "bg-error"
+                      : "bg-success"
+                  }`}
+                  style={{ width: `${availableFillPercent}%` }}
+                />
+              </div>
+
+              {reorderMarkerPercent != null && (
+                <div
+                  className="absolute top-0 -translate-x-1/2"
+                  style={{ left: `${reorderMarkerPercent}%` }}
+                >
+                  <div className="w-px h-6 bg-error" />
+                  <div className="text-[11px] text-error font-medium mt-1 whitespace-nowrap">
+                    Reorder {formatDecimal(reorderPoint!)}
+                  </div>
+                </div>
+              )}
+
+              {targetMarkerPercent != null && targetMarkerPercent !== reorderMarkerPercent && (
+                <div
+                  className="absolute top-0 -translate-x-1/2"
+                  style={{ left: `${targetMarkerPercent}%` }}
+                >
+                  <div className="w-px h-6 bg-info" />
+                  <div className="text-[11px] text-info font-medium mt-1 whitespace-nowrap">
+                    Target {formatDecimal(targetLevel)}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                <div className="rounded-lg bg-base-100 p-3 border border-base-300">
+                  <div className="text-xs text-base-content/60">Current Free Stock</div>
+                  <div className="font-semibold text-base-content mt-1">
+                    {formatDecimal(currentAvailable)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-base-100 p-3 border border-base-300">
+                  <div className="text-xs text-base-content/60">Target Working Level</div>
+                  <div className="font-semibold text-base-content mt-1">
+                    {targetLevel != null ? formatDecimal(targetLevel) : "Not Set"}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-base-100 p-3 border border-base-300">
+                  <div className="text-xs text-base-content/60">Headroom to Max</div>
+                  <div
+                    className={`font-semibold mt-1 ${
+                      maxHeadroom != null && maxHeadroom < 0 ? "text-warning" : "text-base-content"
+                    }`}
+                  >
+                    {maxHeadroom != null ? formatDecimal(maxHeadroom) : "Not Set"}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-base-100 p-3 border border-base-300">
+                  <div className="text-xs text-base-content/60">Suggested Next Action</div>
+                  <div className="font-semibold text-base-content mt-1">
+                    {reorderPoint != null && currentAvailable <= reorderPoint
+                      ? "Replenish"
+                      : maxStock != null && item.qty >= maxStock
+                      ? "Pause Inbound"
+                      : reservedQty > 0
+                      ? "Monitor Allocations"
+                      : "No Action"}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-base-content/60">Trend:</span>
-            {trend === "up" && (
-              <>
-                <span className="material-symbols-outlined text-success text-sm">trending_up</span>
-                <span className="text-success font-medium">Increasing</span>
-              </>
-            )}
-            {trend === "down" && (
-              <>
-                <span className="material-symbols-outlined text-error text-sm">trending_down</span>
-                <span className="text-error font-medium">Decreasing</span>
-              </>
-            )}
-            {trend === "stable" && (
-              <>
-                <span className="material-symbols-outlined text-base-content/60 text-sm">remove</span>
-                <span className="text-base-content/60 font-medium">Stable</span>
-              </>
-            )}
-            <span className="text-base-content/60 ml-4">
-              Change: {change > 0 ? "+" : ""}
-              {change} units
-            </span>
-            <span className="text-base-content/60 ml-4">
-              Range: {minQty} to {maxQty} units
-            </span>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Reorder Point</div>
+              <div className="text-base font-semibold text-base-content">
+                {reorderPoint != null ? formatDecimal(reorderPoint) : "Not Set"}
+              </div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Buffer Stock</div>
+              <div className="text-base font-semibold text-base-content">
+                {bufferStock != null ? formatDecimal(bufferStock) : "Not Set"}
+              </div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">Maximum Stock</div>
+              <div className="text-base font-semibold text-base-content">
+                {maxStock != null ? formatDecimal(maxStock) : "Not Set"}
+              </div>
+            </div>
+            <div className="bg-base-200 rounded-lg p-3">
+              <div className="text-xs text-base-content/60 mb-1">MOQ</div>
+              <div className="text-base font-semibold text-base-content">
+                {moq != null ? formatDecimal(moq) : "Not Set"}
+              </div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Suggested minimum replenishment lot
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-base-content/60">
             {item.lastMovementDate && (
-              <span className="text-base-content/60 ml-4">
+              <span>
                 Last movement: {item.lastMovementDate}
                 {typeof item.daysSinceLastMovement === "number"
                   ? ` (${item.daysSinceLastMovement} day${item.daysSinceLastMovement === 1 ? "" : "s"} ago)`
                   : ""}
               </span>
             )}
+            {minStock != null && (
+              <span>
+                Minimum stock: {formatDecimal(minStock)}
+              </span>
+            )}
+            <span>
+              Lead time: {item.leadTimeDays ? `${item.leadTimeDays} days` : "Not Set"}
+            </span>
           </div>
         </div>
 
