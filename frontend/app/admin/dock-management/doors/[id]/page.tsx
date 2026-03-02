@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { dockManagementApi, type DockDoor } from "@/lib/api/operations";
 
 export default function DockDoorDetailPage() {
   const params = useParams();
-  const [door, setDoor] = useState<DockDoor | null>(null);
-  const [loading, setLoading] = useState(true);
+  const doorId = params.id as string;
+  const doorQuery = useQuery({
+    queryKey: ["admin-dock-management", "doors", "detail", doorId],
+    queryFn: () => dockManagementApi.getDockDoorById(doorId),
+    enabled: !!doorId,
+  });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setDoor(await dockManagementApi.getDockDoorById(params.id as string));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [params.id]);
+  const door = doorQuery.data as DockDoor | undefined;
+  const loading = doorQuery.isPending && !doorQuery.data;
 
   if (loading) return <div className="flex items-center justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>;
   if (!door) return <div className="alert alert-error">Dock door not found.</div>;

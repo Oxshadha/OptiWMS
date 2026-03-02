@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { operationsApi, type StockTransfer } from "@/lib/api/operations";
 
 export default function StockTransferDetailPage() {
   const params = useParams();
-  const [transfer, setTransfer] = useState<StockTransfer | null>(null);
-  const [loading, setLoading] = useState(true);
+  const transferId = params.id as string;
+  const transferQuery = useQuery({
+    queryKey: ["admin-stock-transfers", "detail", transferId],
+    queryFn: () => operationsApi.getStockTransferById(transferId),
+    enabled: !!transferId,
+  });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setTransfer(await operationsApi.getStockTransferById(params.id as string));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [params.id]);
+  const transfer = transferQuery.data as StockTransfer | undefined;
+  const loading = transferQuery.isPending && !transferQuery.data;
 
   if (loading) {
     return <div className="flex items-center justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>;

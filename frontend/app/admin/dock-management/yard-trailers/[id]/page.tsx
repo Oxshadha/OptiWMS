@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { dockManagementApi, type YardTrailer } from "@/lib/api/operations";
 
 export default function YardTrailerDetailPage() {
   const params = useParams();
-  const [trailer, setTrailer] = useState<YardTrailer | null>(null);
-  const [loading, setLoading] = useState(true);
+  const trailerId = params.id as string;
+  const trailerQuery = useQuery({
+    queryKey: ["admin-dock-management", "yard-trailers", "detail", trailerId],
+    queryFn: () => dockManagementApi.getYardTrailerById(trailerId),
+    enabled: !!trailerId,
+  });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setTrailer(await dockManagementApi.getYardTrailerById(params.id as string));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [params.id]);
+  const trailer = trailerQuery.data as YardTrailer | undefined;
+  const loading = trailerQuery.isPending && !trailerQuery.data;
 
   if (loading) return <div className="flex items-center justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>;
   if (!trailer) return <div className="alert alert-error">Yard trailer not found.</div>;

@@ -1,25 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { inventoryApi, type InventoryItem } from "@/lib/api/inventory";
 
 export default function InventoryDetailPage() {
   const params = useParams();
-  const [item, setItem] = useState<InventoryItem | null>(null);
-  const [loading, setLoading] = useState(true);
+  const inventoryId = params.id as string;
+  const itemQuery = useQuery({
+    queryKey: ["admin-inventory", "detail", inventoryId],
+    queryFn: () => inventoryApi.getById(inventoryId),
+    enabled: !!inventoryId,
+  });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setItem(await inventoryApi.getById(params.id as string));
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [params.id]);
+  const item = itemQuery.data as InventoryItem | undefined;
+  const loading = itemQuery.isPending && !itemQuery.data;
 
   if (loading) {
     return <div className="flex items-center justify-center py-12"><span className="loading loading-spinner loading-lg"></span></div>;

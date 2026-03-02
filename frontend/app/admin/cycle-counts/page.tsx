@@ -10,6 +10,7 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { operationsApi } from "@/lib/api/operations";
 import {
   useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
   usePagedAdminQuery,
   useReferenceLocations,
   useReferenceUsers,
@@ -78,12 +79,24 @@ export default function CycleCountsPage() {
   const usersQuery = useReferenceUsers();
   const locationsQuery = useReferenceLocations();
   const invalidateCycleCounts = useInvalidateAdminList(["admin-cycle-counts"]);
+  const invalidateCycleCountsAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-cycle-counts"],
+    (id) => ["admin-cycle-counts", "detail", id]
+  );
 
   const reload = async () => {
     try {
       await invalidateCycleCounts();
     } catch (err) {
       logger.error("Failed to reload cycle counts:", err);
+    }
+  };
+
+  const reloadSelectedCount = async () => {
+    try {
+      await invalidateCycleCountsAndDetail(selectedCount?.id);
+    } catch (err) {
+      logger.error("Failed to reload selected cycle count:", err);
     }
   };
 
@@ -580,14 +593,14 @@ export default function CycleCountsPage() {
 
       {/* Edit Schedule Modal */}
       {selectedCount && (
-        <EditScheduleModal
+      <EditScheduleModal
           isOpen={showEditModal}
           onClose={() => {
             setShowEditModal(false);
             setSelectedCount(null);
           }}
           count={selectedCount}
-          onUpdated={reload}
+          onUpdated={reloadSelectedCount}
         />
       )}
 
@@ -604,7 +617,7 @@ export default function CycleCountsPage() {
             setSelectedCount(null);
             setReviewNotes("");
           }}
-          onSuccess={reload}
+          onSuccess={reloadSelectedCount}
         />
       )}
 
@@ -620,7 +633,7 @@ export default function CycleCountsPage() {
             setSelectedCount(null);
             setCancelReason("");
           }}
-          onSuccess={reload}
+          onSuccess={reloadSelectedCount}
         />
       )}
     </div>
