@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { authApi } from "@/lib/api/auth";
+import { getScopedSettings, parseSettingsContainer, setScopedSettings } from "@/lib/user-preferences";
 
 const SETTINGS_KEY = "worker_app_settings";
 
@@ -23,34 +25,42 @@ const defaultSettings = {
 export default function WorkerAppSettingsPage() {
   const [settings, setSettings] = useState(defaultSettings);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [preferencesBlob, setPreferencesBlob] = useState<Record<string, any>>({});
 
   // Load settings from localStorage and backend
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // First, try to load from backend
         try {
-          const { authApi } = await import("@/lib/api/auth");
-          const { useOffline } = await import("@/hooks/useOffline");
-          const { isOnline } = useOffline();
-          
-          if (isOnline) {
-            const userInfo = await authApi.getCurrentUser();
-            // Try to get user preferences from backend
-            try {
-              const { usersApi } = await import("@/lib/api/users");
-              const user = await usersApi.getById(userInfo.userId);
-              // If user has appSettings in preferences, use it
-              // For now, we'll use localStorage as primary source
-            } catch (err) {
-              // Workers may not have permission - use localStorage
+          const currentUser = await authApi.getCurrentUser();
+          const parsedBlob = parseSettingsContainer(currentUser.dashboardSettings);
+          const backendSettings = getScopedSettings<typeof defaultSettings>(
+            parsedBlob,
+            "workerAppSettings"
+          );
+
+          if (Object.keys(backendSettings).length > 0) {
+            const mergedSettings = { ...defaultSettings, ...backendSettings };
+            setPreferencesBlob(parsedBlob);
+            setSettings(mergedSettings);
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(mergedSettings));
+
+            if (mergedSettings.darkMode) {
+              document.documentElement.setAttribute("data-theme", "dark");
             }
+            document.documentElement.style.fontSize =
+              mergedSettings.fontSize === "small"
+                ? "14px"
+                : mergedSettings.fontSize === "large"
+                ? "18px"
+                : "16px";
+            return;
           }
-        } catch (err) {
-          // Backend load failed - use localStorage
+        } catch (backendError) {
+          logger.error("Failed to load worker app settings from backend:", backendError);
         }
-        
-        // Load from localStorage (primary source for now)
+
         const saved = localStorage.getItem(SETTINGS_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
@@ -78,22 +88,44 @@ export default function WorkerAppSettingsPage() {
 
   const handleSave = async () => {
     try {
-      // Settings are already saved to localStorage on change
-      // Just show success message and try backend sync
+      setSaving(true);
+      const payload = setScopedSettings(preferencesBlob, "workerAppSettings", settings);
+      await authApi.updatePreferences({ dashboardSettings: payload });
+      setPreferencesBlob(payload);
       showToast.success("Settings saved successfully");
-      
-      // Try to sync to backend (if online) - optional
-      // For now, settings are stored in localStorage which is sufficient
     } catch (error) {
       logger.error("Failed to save settings:", error);
       showToast.error("Failed to save settings");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleReset = () => {
+  const handleReset = async () => {
     setSettings(defaultSettings);
     localStorage.removeItem(SETTINGS_KEY);
-    showToast.success("Settings reset to defaults");
+    document.documentElement.setAttribute("data-theme", "light");
+    document.documentElement.style.fontSize = "16px";
+    try {
+      setSaving(true);
+      const payload = setScopedSettings(preferencesBlob, "workerAppSettings", defaultSettings);
+      await authApi.updatePreferences({ dashboardSettings: payload });
+      setPreferencesBlob(payload);
+      showToast.success("Settings reset to defaults");
+    } catch (error: any) {
+      logger.error("Failed to reset backend settings:", error);
+      showToast.error(error.message || "Failed to reset backend settings");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSyncNow = () => {
+    if (!navigator.onLine) {
+      showToast.warning("Device is offline. Changes will stay local until connectivity returns.");
+      return;
+    }
+    void handleSave();
   };
 
   if (loading) {
@@ -210,7 +242,7 @@ export default function WorkerAppSettingsPage() {
               </select>
             </div>
           )}
-          <button className="btn btn-outline btn-sm w-full">
+          <button className="btn btn-outline btn-sm w-full" onClick={handleSyncNow}>
             <span className="material-symbols-outlined">sync</span>
             Sync Now
           </button>
@@ -354,14 +386,13 @@ export default function WorkerAppSettingsPage() {
       </div>
 
       <div className="flex justify-end gap-3">
-        <button className="btn btn-ghost" onClick={handleReset}>
+        <button className="btn btn-ghost" onClick={() => void handleReset()} disabled={saving}>
           Reset to Defaults
         </button>
-        <button className="btn btn-primary" onClick={handleSave}>
-          Save Settings
+        <button className="btn btn-primary" onClick={() => void handleSave()} disabled={saving}>
+          {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
     </div>
   );
 }
-

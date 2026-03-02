@@ -5,6 +5,7 @@ import { logger } from "@/lib/utils/logger";
 import { useAdmin } from "@/contexts/AdminContext";
 import { usersApi } from "@/lib/api/users";
 import { showToast } from "@/lib/utils/toast";
+import { getScopedSettings, setScopedSettings } from "@/lib/user-preferences";
 
 const defaultSettings = {
   darkMode: false,
@@ -30,9 +31,10 @@ export default function DashboardSettingsPage() {
       try {
         const user = await usersApi.getById(admin.id);
         if (!user.dashboardSettings) return;
-        const parsed = typeof user.dashboardSettings === "string"
-          ? JSON.parse(user.dashboardSettings)
-          : user.dashboardSettings;
+        const parsed = getScopedSettings<typeof defaultSettings>(
+          user.dashboardSettings,
+          "adminDashboardSettings"
+        );
         setSettings((prev) => ({ ...prev, ...parsed }));
       } catch (error) {
         logger.error("Failed to load dashboard settings:", error);
@@ -48,7 +50,13 @@ export default function DashboardSettingsPage() {
     }
     setSaving(true);
     try {
-      await usersApi.updatePreferences(admin.id, { dashboardSettings: settings });
+      const user = await usersApi.getById(admin.id);
+      const nextSettings = setScopedSettings(
+        user.dashboardSettings,
+        "adminDashboardSettings",
+        settings
+      );
+      await usersApi.updatePreferences(admin.id, { dashboardSettings: nextSettings });
       showToast.success("Dashboard settings saved");
     } catch (error) {
       logger.error("Failed to save dashboard settings:", error);
@@ -62,7 +70,13 @@ export default function DashboardSettingsPage() {
     setSettings(defaultSettings);
     if (admin?.id) {
       try {
-        await usersApi.updatePreferences(admin.id, { dashboardSettings: defaultSettings });
+        const user = await usersApi.getById(admin.id);
+        const nextSettings = setScopedSettings(
+          user.dashboardSettings,
+          "adminDashboardSettings",
+          defaultSettings
+        );
+        await usersApi.updatePreferences(admin.id, { dashboardSettings: nextSettings });
         showToast.success("Settings reset to defaults");
       } catch (error) {
         logger.error("Failed to reset dashboard settings:", error);

@@ -37,6 +37,10 @@ export interface UserInfo {
   name: string;
   role: string;
   warehouseId?: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  dashboardSettings?: string;
 }
 
 export const authApi = {
