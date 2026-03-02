@@ -2,13 +2,15 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
-import { suppliersApi } from "@/lib/api/suppliers";
-import { warehousesApi } from "@/lib/api/warehouses";
 import { orderItemsApi } from "@/lib/api/orderItems";
+import {
+  usePagedAdminQuery,
+  useReferenceSuppliers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
@@ -52,7 +54,7 @@ export default function InboundOrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const ordersQuery = useQuery({
+  const ordersQuery = usePagedAdminQuery({
     queryKey: [
       "admin-orders",
       "inbound",
@@ -107,24 +109,10 @@ export default function InboundOrdersPage() {
         ordersWithItems,
       };
     },
-    placeholderData: (previousData) => previousData,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
   });
 
-  const suppliersQuery = useQuery({
-    queryKey: ["reference-data", "suppliers"],
-    queryFn: () => suppliersApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  const warehousesQuery = useQuery({
-    queryKey: ["reference-data", "warehouses"],
-    queryFn: () => warehousesApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
+  const suppliersQuery = useReferenceSuppliers();
+  const warehousesQuery = useReferenceWarehouses();
 
   useEffect(() => {
     const timer = setTimeout(() => {
