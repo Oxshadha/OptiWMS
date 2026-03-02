@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useOffline } from "@/hooks/useOffline";
 import { operationsApi } from "@/lib/api/operations";
 import { tasksApi } from "@/lib/api/tasks-api";
 import { ordersApi } from "@/lib/api/orders";
 import { orderItemsApi, PutawayItem } from "@/lib/api/orderItems";
+import { addToSyncQueue } from "@/lib/indexeddb";
 import { useWorker } from "@/contexts/WorkerContext";
 import { validateLocationCode } from "@/lib/utils/validation";
 import { validateLocationExists } from "@/lib/utils/location-helpers";
@@ -59,6 +61,7 @@ const extractErrorMessage = (error: unknown): string => {
 
 export default function PutawayPage() {
   const { worker, isLoading: workerContextLoading } = useWorker();
+  const { isOnline } = useOffline();
   
   // Order selection state
   const [orders, setOrders] = useState<Array<{ id: string; orderNumber: string; status: string }>>([]);
@@ -80,6 +83,8 @@ export default function PutawayPage() {
   const [skippedReasonsByItem, setSkippedReasonsByItem] = useState<Map<string, string>>(new Map());
   const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
   const [startedPutawayTaskItemIds, setStartedPutawayTaskItemIds] = useState<Set<string>>(new Set());
+  const [putawayTaskIdsByItem, setPutawayTaskIdsByItem] = useState<Map<string, string>>(new Map());
+  const [fallbackOrderTaskId, setFallbackOrderTaskId] = useState<string | null>(null);
   
   const getFirstPendingItemIndex = (
     items: PutawayItem[],
@@ -133,6 +138,8 @@ export default function PutawayPage() {
       try {
         setIsLoading(true);
         setStartedPutawayTaskItemIds(new Set());
+        setPutawayTaskIdsByItem(new Map());
+        setFallbackOrderTaskId(null);
         const items = await orderItemsApi.getPutawayItems(selectedOrder.id);
         setPutawayItems(items);
         logger.debug("[Putaway] Putaway items for order:", selectedOrder.orderNumber, items.length);
@@ -153,6 +160,20 @@ export default function PutawayPage() {
             (task) =>
               task.referenceType === "order_item" &&
               items.some((item) => item.itemId === task.referenceId)
+          );
+          const hydratedTaskIds = new Map<string, string>();
+          relevantTasks
+            .filter((task) => task.referenceType === "order_item" && task.referenceId)
+            .forEach((task) => {
+              hydratedTaskIds.set(task.referenceId!, task.id);
+            });
+          setPutawayTaskIdsByItem(hydratedTaskIds);
+          setFallbackOrderTaskId(
+            tasks.find(
+              (task) =>
+                task.referenceType === "order" &&
+                task.referenceId === selectedOrder.id
+            )?.id || null
           );
 
           for (const item of items) {
@@ -232,6 +253,7 @@ export default function PutawayPage() {
 
   useEffect(() => {
     const startCurrentPutawayTask = async () => {
+      if (!isOnline) return;
       const currentItem = putawayItems[currentItemIndex];
       if (!currentItem) return;
       if (!selectedOrder) return;
@@ -262,6 +284,7 @@ export default function PutawayPage() {
     worker?.warehouseId,
     worker?.id,
     startedPutawayTaskItemIds,
+    isOnline,
   ]);
 
   const handleLocationSelect = async (locationCode: string) => {
@@ -365,24 +388,27 @@ export default function PutawayPage() {
     }
 
     try {
-      // Find putaway task for this item and order
-      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-      const itemTask = tasks.find((t: any) => 
-        t.referenceType === "order_item" &&
-        t.referenceId === currentItem.itemId &&
-        (t.status === "pending" || t.status === "in_progress")
-      );
+      let taskToCompleteId: string | null = null;
+      if (isOnline) {
+        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+        const itemTask = tasks.find((t: any) => 
+          t.referenceType === "order_item" &&
+          t.referenceId === currentItem.itemId &&
+          (t.status === "pending" || t.status === "in_progress")
+        );
 
-      // Backward compatibility for legacy tasks created at order level.
-      const fallbackTask = tasks.find((t: any) =>
-        t.referenceType === "order" &&
-        t.referenceId === selectedOrder.id &&
-        (t.status === "pending" || t.status === "in_progress")
-      );
+        // Backward compatibility for legacy tasks created at order level.
+        const fallbackTask = tasks.find((t: any) =>
+          t.referenceType === "order" &&
+          t.referenceId === selectedOrder.id &&
+          (t.status === "pending" || t.status === "in_progress")
+        );
+        taskToCompleteId = itemTask?.id ?? fallbackTask?.id ?? null;
+      } else {
+        taskToCompleteId = putawayTaskIdsByItem.get(currentItem.itemId) || fallbackOrderTaskId;
+      }
 
-      const taskToComplete = itemTask ?? fallbackTask;
-
-      if (!taskToComplete) {
+      if (!taskToCompleteId) {
         showToast.error("Putaway task not found for this item. Tasks are created automatically after receiving.");
         return;
       }
@@ -394,13 +420,27 @@ export default function PutawayPage() {
         return;
       }
 
-      await operationsApi.completePutaway(taskToComplete.id, {
+      const putawayPayload = {
         locationCode: scannedLocation.trim().toUpperCase(),
         lpn: "", // LPN is ignored in backend but kept for backward compatibility
         quantity: allocationQuantity,
         materialId: currentItem.materialId, // Pass material ID explicitly
         workerId: worker?.id, // Required for labor productivity attribution
-      });
+      };
+
+      if (isOnline) {
+        await operationsApi.completePutaway(taskToCompleteId, putawayPayload);
+      } else {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "putaway_complete",
+            taskId: taskToCompleteId,
+            payload: putawayPayload,
+          },
+        });
+      }
       
       const nextAllocated = alreadyAllocated + allocationQuantity;
       const isComplete = nextAllocated >= currentItem.receivedQuantity;
@@ -422,8 +462,12 @@ export default function PutawayPage() {
       
       showToast.success(
         isComplete
-          ? `Item fully put away to location(s).`
-          : `Partial putaway saved (${nextAllocated}/${currentItem.receivedQuantity}).`
+          ? isOnline
+            ? "Item fully put away to location(s)."
+            : "Putaway queued and item marked complete locally."
+          : isOnline
+          ? `Partial putaway saved (${nextAllocated}/${currentItem.receivedQuantity}).`
+          : `Partial putaway queued (${nextAllocated}/${currentItem.receivedQuantity}).`
       );
       
       // Reset form
@@ -473,28 +517,52 @@ export default function PutawayPage() {
     }
 
     try {
-      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-      const itemTask = tasks.find(
-        (t: any) =>
-          t.referenceType === "order_item" &&
-          t.referenceId === currentItem.itemId &&
-          (t.status === "pending" || t.status === "in_progress")
-      );
+      let itemTaskId: string | null = null;
+      if (isOnline) {
+        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+        const itemTask = tasks.find(
+          (t: any) =>
+            t.referenceType === "order_item" &&
+            t.referenceId === currentItem.itemId &&
+            (t.status === "pending" || t.status === "in_progress")
+        );
+        itemTaskId = itemTask?.id ?? null;
+      } else {
+        itemTaskId = putawayTaskIdsByItem.get(currentItem.itemId) || null;
+      }
 
-      if (!itemTask) {
+      if (!itemTaskId) {
         showToast.error("Item-level putaway task not found. Cannot skip this item safely.");
         return;
       }
 
-      await operationsApi.skipPutaway(itemTask.id, {
+      const skipPayload = {
         reason: reason.trim(),
         workerId: worker?.id,
-      });
+      };
+
+      if (isOnline) {
+        await operationsApi.skipPutaway(itemTaskId, skipPayload);
+      } else {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "putaway_skip",
+            taskId: itemTaskId,
+            payload: skipPayload,
+          },
+        });
+      }
 
       const updatedSkipped = new Map(skippedReasonsByItem);
       updatedSkipped.set(currentItem.itemId, reason.trim());
       setSkippedReasonsByItem(updatedSkipped);
-      showToast.success("Item skipped with reason. Continue with next pending item.");
+      showToast.success(
+        isOnline
+          ? "Item skipped with reason. Continue with next pending item."
+          : "Skip queued. Continue with next pending item."
+      );
 
       const nextIndex = getFirstPendingItemIndex(putawayItems, putawayProgress, updatedSkipped);
       if (nextIndex !== currentItemIndex) {

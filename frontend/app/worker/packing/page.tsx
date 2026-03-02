@@ -626,7 +626,10 @@ export default function PackingPage() {
       await addToSyncQueue({
         type: "operation",
         action: "create",
-        data: createPackingPayload,
+        data: {
+          type: "packing_create",
+          payload: createPackingPayload,
+        },
       });
     }
 
