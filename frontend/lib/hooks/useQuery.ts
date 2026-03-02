@@ -4,7 +4,13 @@ import { logger } from "@/lib/utils/logger";
  * Provides type-safe, cached data fetching with automatic refetch
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryKey,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { inventoryApi } from "@/lib/api/inventory";
@@ -135,6 +141,15 @@ export function useWarehouses() {
   });
 }
 
+export function useReferenceWarehouses() {
+  return useQuery({
+    queryKey: ["reference-data", "warehouses"],
+    queryFn: () => warehousesApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 export function useWarehouse(id: string) {
   return useQuery({
     queryKey: queryKeys.warehouses.detail(id),
@@ -169,6 +184,15 @@ export function useCustomers() {
   });
 }
 
+export function useReferenceCustomers() {
+  return useQuery({
+    queryKey: ["reference-data", "customers"],
+    queryFn: () => customersApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 export function useCreateCustomer() {
   const queryClient = useQueryClient();
   
@@ -193,12 +217,62 @@ export function useSuppliers() {
   });
 }
 
+export function useReferenceSuppliers() {
+  return useQuery({
+    queryKey: ["reference-data", "suppliers"],
+    queryFn: () => suppliersApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 // ===== Users Hooks =====
 
 export function useUsers() {
   return useQuery({
     queryKey: queryKeys.users.all,
     queryFn: () => usersApi.getAll(),
+  });
+}
+
+export function useReferenceUsers() {
+  return useQuery({
+    queryKey: ["reference-data", "users"],
+    queryFn: () => usersApi.getAll(),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+  });
+}
+
+export function useReferenceMaterials() {
+  return useQuery({
+    queryKey: ["reference-data", "materials"],
+    queryFn: () => materialsApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
+export function usePagedAdminQuery<TData>({
+  queryKey,
+  queryFn,
+  staleTime = 30 * 1000,
+  gcTime = 5 * 60 * 1000,
+  ...options
+}: Omit<
+  UseQueryOptions<TData, Error, TData, QueryKey>,
+  "queryKey" | "queryFn"
+> & {
+  queryKey: QueryKey;
+  queryFn: () => Promise<TData>;
+}) {
+  return useQuery<TData, Error, TData, QueryKey>({
+    queryKey,
+    queryFn,
+    placeholderData: (previousData) => previousData,
+    staleTime,
+    gcTime,
+    ...options,
   });
 }
 

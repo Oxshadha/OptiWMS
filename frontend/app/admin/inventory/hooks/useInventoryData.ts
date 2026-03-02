@@ -1,8 +1,10 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { inventoryApi } from "@/lib/api/inventory";
-import { materialsApi } from "@/lib/api/materials";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  usePagedAdminQuery,
+  useReferenceMaterials,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { InventoryDisplayItem } from "../types";
 
 type SortBy = "name" | "sku" | "qty" | "location" | null;
@@ -56,7 +58,7 @@ export function useInventoryData({
     [activeWarehouse, assignedWarehouseId, isWarehouseManager]
   );
 
-  const inventoryQuery = useQuery({
+  const inventoryQuery = usePagedAdminQuery({
     queryKey: [
       "admin-inventory",
       "paged",
@@ -76,24 +78,10 @@ export function useInventoryData({
         materialType: materialTypeFilter,
         q: searchQuery.trim() || undefined,
       }),
-    placeholderData: (previousData) => previousData,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
   });
 
-  const materialsQuery = useQuery({
-    queryKey: ["reference-data", "materials"],
-    queryFn: () => materialsApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  const warehousesQuery = useQuery({
-    queryKey: ["reference-data", "warehouses"],
-    queryFn: () => warehousesApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
+  const materialsQuery = useReferenceMaterials();
+  const warehousesQuery = useReferenceWarehouses();
 
   const warehouses = useMemo(() => {
     const warehousesMap = new Map<string, string>();

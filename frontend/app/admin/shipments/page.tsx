@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
+import { usePagedAdminQuery } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CreateShipmentModal, ShipmentDetailModal } from "./components/ShipmentModals";
@@ -58,7 +58,7 @@ export default function ShipmentsPage() {
         ? displayToApiStatus[activeTab.toLowerCase()]
         : undefined;
 
-  const shipmentsQuery = useQuery({
+  const shipmentsQuery = usePagedAdminQuery({
     queryKey: [
       "admin-shipments",
       currentPage,
@@ -78,9 +78,6 @@ export default function ShipmentsPage() {
         status: requestedStatus,
         q: searchQuery.trim() || undefined,
       }),
-    placeholderData: (previousData) => previousData,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
   });
 
   const shipments = useMemo<ShipmentDisplay[]>(

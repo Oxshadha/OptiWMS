@@ -3,7 +3,6 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -11,8 +10,11 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  usePagedAdminQuery,
+  useReferenceCustomers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapOutboundOrderStatus } from "@/lib/utils/status-mappers";
@@ -73,7 +75,7 @@ export default function OutboundOrdersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const ordersQuery = useQuery({
+  const ordersQuery = usePagedAdminQuery({
     queryKey: [
       "admin-orders",
       "outbound",
@@ -130,24 +132,10 @@ export default function OutboundOrdersPage() {
         ordersWithItems,
       };
     },
-    placeholderData: (previousData) => previousData,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
   });
 
-  const customersQuery = useQuery({
-    queryKey: ["reference-data", "customers"],
-    queryFn: () => customersApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  const warehousesQuery = useQuery({
-    queryKey: ["reference-data", "warehouses"],
-    queryFn: () => warehousesApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
+  const customersQuery = useReferenceCustomers();
+  const warehousesQuery = useReferenceWarehouses();
 
   useEffect(() => {
     const timer = setTimeout(() => {

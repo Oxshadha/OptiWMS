@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -10,8 +9,11 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
-import { usersApi } from "@/lib/api/users";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  usePagedAdminQuery,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { logger } from "@/lib/utils/logger";
 import { CreateTaskModal, TaskDetailModal } from "./components/TaskModals";
 import {
@@ -67,7 +69,7 @@ export default function TasksPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
-  const tasksQuery = useQuery({
+  const tasksQuery = usePagedAdminQuery({
     queryKey: [
       "admin-tasks",
       currentPage,
@@ -88,24 +90,10 @@ export default function TasksPage() {
         warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
         q: searchQuery.trim() || undefined,
       }),
-    placeholderData: (previousData) => previousData,
-    staleTime: 30 * 1000,
-    gcTime: 5 * 60 * 1000,
   });
 
-  const usersQuery = useQuery({
-    queryKey: ["reference-data", "users"],
-    queryFn: () => usersApi.getAll(),
-    staleTime: 10 * 60 * 1000,
-    gcTime: 20 * 60 * 1000,
-  });
-
-  const warehousesQuery = useQuery({
-    queryKey: ["reference-data", "warehouses"],
-    queryFn: () => warehousesApi.getAll(),
-    staleTime: 15 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
+  const usersQuery = useReferenceUsers();
+  const warehousesQuery = useReferenceWarehouses();
 
   useEffect(() => {
     const timer = setTimeout(() => {
