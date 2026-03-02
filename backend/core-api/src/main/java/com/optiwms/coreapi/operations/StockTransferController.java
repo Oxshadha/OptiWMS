@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.operations;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.operations.StockTransferService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.operations.StockTransfer;
 import com.optiwms.domain.operations.StockTransferLine;
 import org.springframework.data.domain.Page;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -19,9 +22,11 @@ import java.util.stream.Collectors;
 public class StockTransferController {
 
     private final StockTransferService service;
+    private final NotificationService notificationService;
 
-    public StockTransferController(StockTransferService service) {
+    public StockTransferController(StockTransferService service, NotificationService notificationService) {
         this.service = service;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
@@ -97,6 +102,7 @@ public class StockTransferController {
     public ResponseEntity<StockTransferDto> create(@RequestBody CreateStockTransferRequest request) {
         StockTransfer transfer = toDomainCreateRequest(request);
         StockTransfer created = service.create(transfer);
+        notifyTransferEvent("Stock Transfer Created", "Stock transfer " + created.getTransferNumber() + " was created.", created, "created");
         return ResponseEntity.ok(toDto(created));
     }
 
@@ -104,18 +110,21 @@ public class StockTransferController {
     public ResponseEntity<StockTransferDto> createMulti(@RequestBody CreateStockTransferRequest request) {
         StockTransfer transfer = toDomainCreateRequest(request);
         StockTransfer created = service.create(transfer);
+        notifyTransferEvent("Stock Transfer Created", "Stock transfer " + created.getTransferNumber() + " was created.", created, "created");
         return ResponseEntity.ok(toDto(created));
     }
 
     @PostMapping("/{id}/release")
     public ResponseEntity<StockTransferDto> release(@PathVariable UUID id, @RequestBody ReleaseTransferRequest request) {
         StockTransfer transfer = service.release(id, UUID.fromString(request.managerId()));
+        notifyTransferEvent("Stock Transfer Released", "Stock transfer " + transfer.getTransferNumber() + " was released for execution.", transfer, "released");
         return ResponseEntity.ok(toDto(transfer));
     }
 
     @PostMapping("/lines/{lineId}/assign")
     public ResponseEntity<StockTransferLineDto> assignLine(@PathVariable UUID lineId, @RequestBody AssignLineRequest request) {
         StockTransferLine line = service.assignLine(lineId, UUID.fromString(request.workerId()), request.assignedBy());
+        notifyLineAssignment(line);
         return ResponseEntity.ok(toLineDto(line));
     }
 
@@ -129,6 +138,8 @@ public class StockTransferController {
                 request.quantity(),
                 request.notes()
         );
+        notifyLineWorkerEvent(line, "Stock Transfer Line Completed", "Stock transfer line " + line.getLineNumber() + " was executed.", "line_completed");
+        notifyTransferLineAdminEvent(line, "Stock Transfer Line Completed", "Stock transfer line " + line.getLineNumber() + " was executed.", "line_completed");
         return ResponseEntity.ok(toLineDto(line));
     }
 
@@ -141,12 +152,14 @@ public class StockTransferController {
     @PostMapping("/{id}/dispatch")
     public ResponseEntity<StockTransferDto> dispatch(@PathVariable UUID id, @RequestParam UUID userId) {
         StockTransfer transfer = service.dispatch(id, userId);
+        notifyTransferEvent("Stock Transfer Dispatched", "Stock transfer " + transfer.getTransferNumber() + " was dispatched.", transfer, "dispatched");
         return ResponseEntity.ok(toDto(transfer));
     }
 
     @PostMapping("/{id}/receive")
     public ResponseEntity<StockTransferDto> receive(@PathVariable UUID id, @RequestParam UUID userId) {
         StockTransfer transfer = service.receive(id, userId);
+        notifyTransferEvent("Stock Transfer Received", "Stock transfer " + transfer.getTransferNumber() + " was received.", transfer, "received");
         return ResponseEntity.ok(toDto(transfer));
     }
 
@@ -154,6 +167,7 @@ public class StockTransferController {
     public ResponseEntity<StockTransferDto> cancel(@PathVariable UUID id, @RequestBody(required = false) CancelStockTransferRequest request) {
         String reason = request != null ? request.reason() : null;
         StockTransfer transfer = service.cancel(id, reason);
+        notifyTransferEvent("Stock Transfer Cancelled", "Stock transfer " + transfer.getTransferNumber() + " was cancelled.", transfer, "cancelled");
         return ResponseEntity.ok(toDto(transfer));
     }
 
@@ -336,5 +350,85 @@ public class StockTransferController {
             case "id", "transferNumber", "transferType", "sourceWarehouseId", "sourceLocationCode", "destWarehouseId", "destLocationCode", "status", "createdAt", "updatedAt" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void notifyTransferEvent(String title, String message, StockTransfer transfer, String eventType) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(transfer.getSourceWarehouseId() != null ? transfer.getSourceWarehouseId() : transfer.getDestWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("stock_transfer");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/stock-transfers/" + transfer.getId());
+            notification.setMetadata(
+                    "{\"transferId\":\"" + transfer.getId() + "\",\"transferNumber\":\"" + transfer.getTransferNumber() + "\",\"status\":\"" + transfer.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block stock transfer actions.
+        }
+    }
+
+    private void notifyLineAssignment(StockTransferLine line) {
+        notifyLineWorkerEvent(
+                line,
+                "Stock Transfer Line Assigned",
+                "Stock transfer line " + line.getLineNumber() + " was assigned to you.",
+                "line_assigned"
+        );
+        notifyTransferLineAdminEvent(
+                line,
+                "Stock Transfer Line Assigned",
+                "Stock transfer line " + line.getLineNumber() + " was assigned to a worker.",
+                "line_assigned"
+        );
+    }
+
+    private void notifyLineWorkerEvent(StockTransferLine line, String title, String message, String eventType) {
+        if (line.getAssignedWorkerId() == null) {
+            return;
+        }
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(line.getAssignedWorkerId());
+            notification.setWarehouseId(line.getSourceWarehouseId() != null ? line.getSourceWarehouseId() : line.getDestWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("stock_transfer");
+            notification.setRead(false);
+            notification.setActionUrl("/worker/stock-transfer");
+            notification.setMetadata(
+                    "{\"transferId\":\"" + line.getTransferId() + "\",\"lineId\":\"" + line.getId() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block stock transfer actions.
+        }
+    }
+
+    private void notifyTransferLineAdminEvent(StockTransferLine line, String title, String message, String eventType) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(line.getSourceWarehouseId() != null ? line.getSourceWarehouseId() : line.getDestWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("stock_transfer");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/stock-transfers/" + line.getTransferId());
+            notification.setMetadata(
+                    "{\"transferId\":\"" + line.getTransferId() + "\",\"lineId\":\"" + line.getId() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block stock transfer actions.
+        }
     }
 }

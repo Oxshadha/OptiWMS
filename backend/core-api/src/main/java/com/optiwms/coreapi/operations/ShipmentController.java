@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.operations;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.operations.ShipmentService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.users.UserRepository;
 import org.springframework.data.domain.Page;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -24,10 +27,12 @@ public class ShipmentController {
 
     private final ShipmentService service;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public ShipmentController(ShipmentService service, UserRepository userRepository) {
+    public ShipmentController(ShipmentService service, UserRepository userRepository, NotificationService notificationService) {
         this.service = service;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
@@ -107,6 +112,7 @@ public class ShipmentController {
         shipment.setEta(parseOptionalDate(request.eta()));
 
         Shipment created = service.create(shipment);
+        notifyShipmentEvent("Shipment Created", "Shipment " + created.getShipmentNumber() + " was created.", created, "created");
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
@@ -138,6 +144,12 @@ public class ShipmentController {
                 ? UUID.fromString(request.workerId())
                 : resolveActorUserId(authentication);
         Shipment updated = service.updateStatus(id, request.status(), actorUserId, managerApproval);
+        notifyShipmentEvent(
+                "Shipment Status Updated",
+                "Shipment " + updated.getShipmentNumber() + " moved to " + updated.getStatus() + ".",
+                updated,
+                "status_updated"
+        );
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -151,6 +163,12 @@ public class ShipmentController {
         }
         UUID actorUserId = resolveActorUserId(authentication);
         Shipment updated = service.updateStatus(id, "delivered", actorUserId, true);
+        notifyShipmentEvent(
+                "Shipment Delivered",
+                "Shipment " + updated.getShipmentNumber() + " was confirmed delivered.",
+                updated,
+                "delivered"
+        );
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -288,5 +306,25 @@ public class ShipmentController {
             case "createdAt", "shipmentNumber", "status", "carrier", "destination", "eta", "shippedAt", "deliveredAt" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void notifyShipmentEvent(String title, String message, Shipment shipment, String eventType) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("shipment");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/shipments/" + shipment.getId());
+            notification.setMetadata(
+                    "{\"shipmentId\":\"" + shipment.getId() + "\",\"shipmentNumber\":\"" + shipment.getShipmentNumber() + "\",\"status\":\"" + shipment.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block shipment workflows.
+        }
     }
 }

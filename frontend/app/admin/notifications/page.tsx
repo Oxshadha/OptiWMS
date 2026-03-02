@@ -18,6 +18,8 @@ type NotificationType =
   | "task"
   | "anomaly"
   | "shipment"
+  | "stock_transfer"
+  | "dock"
   | "return"
   | "system";
 
@@ -50,6 +52,8 @@ const typeConfig: Record<NotificationType, { label: string; icon: string; tone: 
   task: { label: "Task", icon: "task", tone: "success" },
   anomaly: { label: "Anomaly", icon: "warning", tone: "danger" },
   shipment: { label: "Shipment", icon: "local_shipping", tone: "info" },
+  stock_transfer: { label: "Stock Transfer", icon: "swap_horiz", tone: "info" },
+  dock: { label: "Dock", icon: "garage", tone: "info" },
   return: { label: "Return", icon: "keyboard_return", tone: "warning" },
   system: { label: "System", icon: "settings", tone: "neutral" },
 };
@@ -74,13 +78,16 @@ export default function NotificationsPage() {
       }
       try {
         setLoading(true);
-        const data = await notificationsApi.getAll(admin.id);
+        const data = await notificationsApi.getAll(admin.id, undefined, {
+          role: admin.role || undefined,
+          warehouseId: admin.warehouseId,
+        });
         // Map API notifications to display format
         const mappedNotifications: Notification[] = data.map((n: ApiNotification) => ({
           id: n.id,
           title: n.title,
           message: n.message,
-          type: n.notificationType as NotificationType,
+          type: (n.notificationType in typeConfig ? n.notificationType : "system") as NotificationType,
           read: n.read,
           createdAt: n.createdAt,
           actionUrl: n.actionUrl,
@@ -95,7 +102,7 @@ export default function NotificationsPage() {
       }
     };
     loadNotifications();
-  }, [admin?.id]);
+  }, [admin?.id, admin?.role, admin?.warehouseId]);
 
   const handleMarkAsRead = async (id: string) => {
     try {
@@ -152,6 +159,13 @@ export default function NotificationsPage() {
       (readFilter === "unread" && !notif.read);
     return matchesSearch && matchesType && matchesRead;
   });
+
+  const moduleGroups = Object.entries(
+    filteredNotifications.reduce<Record<string, number>>((acc, notif) => {
+      acc[notif.type] = (acc[notif.type] || 0) + 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b[1] - a[1]);
 
   const summaryCards = [
     {
@@ -390,7 +404,7 @@ export default function NotificationsPage() {
         <div className="dropdown">
           <label tabIndex={0} className="btn btn-sm btn-outline">
             <span className="material-symbols-outlined">filter_list</span>
-            Type: {typeFilter === "all" ? "All" : typeConfig[typeFilter].label}
+            Module: {typeFilter === "all" ? "All" : typeConfig[typeFilter].label}
           </label>
           <ul
             tabIndex={0}
@@ -436,6 +450,41 @@ export default function NotificationsPage() {
               <button onClick={() => setReadFilter("read")}>Read</button>
             </li>
           </ul>
+        </div>
+      </div>
+
+      <div className="card bg-base-100 border border-base-300">
+        <div className="card-body">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="card-title text-lg">Modules</h2>
+              <p className="text-sm text-base-content/60">
+                Grouped operational notification volume by module
+              </p>
+            </div>
+          </div>
+          {moduleGroups.length === 0 ? (
+            <div className="text-sm text-base-content/60">No module activity for the current filters.</div>
+          ) : (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {moduleGroups.map(([moduleKey, count]) => (
+                <button
+                  key={moduleKey}
+                  className={`btn btn-sm ${
+                    typeFilter === moduleKey ? "btn-primary" : "btn-outline"
+                  }`}
+                  onClick={() => setTypeFilter(moduleKey as NotificationType)}
+                >
+                  {typeConfig[moduleKey as NotificationType]?.label || moduleKey} ({count})
+                </button>
+              ))}
+              {typeFilter !== "all" && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setTypeFilter("all")}>
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

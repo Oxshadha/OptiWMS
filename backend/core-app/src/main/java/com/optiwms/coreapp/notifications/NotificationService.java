@@ -6,7 +6,10 @@ import com.optiwms.infra.notifications.NotificationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -19,7 +22,7 @@ public class NotificationService {
         this.repository = repository;
     }
 
-    public List<Notification> findByUserId(UUID userId) {
+    public List<Notification> findByUserId(UUID userId, String role, UUID warehouseId) {
         // Get user-specific notifications and broadcast notifications (userId is NULL)
         List<NotificationEntity> userNotifications = repository.findByUserIdOrderByCreatedAtDesc(userId);
         List<NotificationEntity> broadcastNotifications = repository.findByUserIdIsNullOrderByCreatedAtDesc();
@@ -27,7 +30,11 @@ public class NotificationService {
         // Combine and sort by created_at desc
         List<NotificationEntity> allNotifications = userNotifications.stream()
                 .collect(Collectors.toList());
-        allNotifications.addAll(broadcastNotifications);
+        allNotifications.addAll(
+                broadcastNotifications.stream()
+                        .filter(notification -> matchesAudience(notification, role, warehouseId))
+                        .toList()
+        );
         
         return allNotifications.stream()
                 .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
@@ -35,13 +42,14 @@ public class NotificationService {
                 .collect(Collectors.toList());
     }
 
-    public List<Notification> findByUserIdAndRead(UUID userId, Boolean read) {
+    public List<Notification> findByUserIdAndRead(UUID userId, Boolean read, String role, UUID warehouseId) {
         List<NotificationEntity> userNotifications = repository.findByUserIdAndReadOrderByCreatedAtDesc(userId, read);
         List<NotificationEntity> broadcastNotifications = repository.findByUserIdIsNullOrderByCreatedAtDesc();
         
         // Filter broadcast notifications by read status
         List<NotificationEntity> filteredBroadcast = broadcastNotifications.stream()
                 .filter(n -> n.getRead().equals(read))
+                .filter(n -> matchesAudience(n, role, warehouseId))
                 .collect(Collectors.toList());
         
         List<NotificationEntity> allNotifications = userNotifications.stream()
@@ -54,9 +62,12 @@ public class NotificationService {
                 .collect(Collectors.toList());
     }
 
-    public Long countUnreadByUserId(UUID userId) {
+    public Long countUnreadByUserId(UUID userId, String role, UUID warehouseId) {
         Long userUnread = repository.countByUserIdAndRead(userId, false);
-        Long broadcastUnread = repository.countByUserIdAndRead(null, false);
+        Long broadcastUnread = repository.findByUserIdIsNullOrderByCreatedAtDesc().stream()
+                .filter(n -> Boolean.FALSE.equals(n.getRead()))
+                .filter(n -> matchesAudience(n, role, warehouseId))
+                .count();
         return (userUnread != null ? userUnread : 0L) + (broadcastUnread != null ? broadcastUnread : 0L);
     }
 
@@ -93,6 +104,8 @@ public class NotificationService {
         Notification domain = new Notification();
         domain.setId(entity.getId());
         domain.setUserId(entity.getUserId());
+        domain.setAudienceRoles(entity.getAudienceRoles());
+        domain.setWarehouseId(entity.getWarehouseId());
         domain.setTitle(entity.getTitle());
         domain.setMessage(entity.getMessage());
         domain.setNotificationType(entity.getNotificationType());
@@ -107,6 +120,8 @@ public class NotificationService {
         NotificationEntity entity = new NotificationEntity();
         entity.setId(domain.getId());
         entity.setUserId(domain.getUserId());
+        entity.setAudienceRoles(domain.getAudienceRoles());
+        entity.setWarehouseId(domain.getWarehouseId());
         entity.setTitle(domain.getTitle());
         entity.setMessage(domain.getMessage());
         entity.setNotificationType(domain.getNotificationType());
@@ -116,5 +131,38 @@ public class NotificationService {
         entity.setCreatedAt(domain.getCreatedAt());
         return entity;
     }
-}
 
+    private boolean matchesAudience(NotificationEntity entity, String role, UUID warehouseId) {
+        return matchesRole(entity.getAudienceRoles(), role) && matchesWarehouse(entity.getWarehouseId(), warehouseId);
+    }
+
+    private boolean matchesRole(String audienceRoles, String role) {
+        if (audienceRoles == null || audienceRoles.isBlank()) {
+            return true;
+        }
+        if (role == null || role.isBlank()) {
+            return false;
+        }
+
+        Set<String> allowedRoles = Arrays.stream(audienceRoles.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+
+        String normalizedRole = role.trim().toLowerCase(Locale.ROOT);
+        if (allowedRoles.contains(normalizedRole)) {
+            return true;
+        }
+
+        // Support broad worker targeting while keeping exact admin-role targeting.
+        return allowedRoles.contains("worker")
+                && !"admin".equals(normalizedRole)
+                && !"warehouse_manager".equals(normalizedRole)
+                && !"inbound_coordinator".equals(normalizedRole);
+    }
+
+    private boolean matchesWarehouse(UUID targetWarehouseId, UUID warehouseId) {
+        return targetWarehouseId == null || (warehouseId != null && targetWarehouseId.equals(warehouseId));
+    }
+}
