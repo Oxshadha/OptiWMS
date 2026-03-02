@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -12,11 +12,13 @@ import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { materialsApi, type Material } from "@/lib/api/materials";
 import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
-import { warehousesApi } from "@/lib/api/warehouses";
 import {
   useCreateMaterial,
   useUpdateMaterial,
   useDeleteMaterial,
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceWarehouses,
 } from "@/lib/hooks/useQuery";
 import {
   AssignBinLocationModal,
@@ -87,13 +89,6 @@ export default function MaterialsPage() {
   const [materialsWithLocations, setMaterialsWithLocations] = useState<
     Map<string, MaterialLocationSummary>
   >(new Map());
-  const [materials, setMaterials] = useState<Material[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
   const canEdit = hasPermission(ADMIN_ROUTES.MATERIALS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.MATERIALS, "delete");
@@ -101,15 +96,18 @@ export default function MaterialsPage() {
   const createMutation = useCreateMaterial();
   const updateMutation = useUpdateMaterial();
   const deleteMutation = useDeleteMaterial();
-
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setIsLoading(true);
-      }
-      setError(null);
-
+  const materialsQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-materials",
+      currentPage,
+      itemsPerPage,
+      typeFilter,
+      searchQuery,
+      sortBy,
+      sortDirection,
+      supplierFilterId,
+    ],
+    queryFn: () => {
       const backendSortBy =
         sortBy === "name"
           ? "description"
@@ -119,7 +117,7 @@ export default function MaterialsPage() {
               ? "materialType"
               : "createdAt";
 
-      const materialsPage = await materialsApi.getPaged({
+      return materialsApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
         sortBy: backendSortBy,
@@ -128,27 +126,19 @@ export default function MaterialsPage() {
         supplierId: supplierFilterId || undefined,
         q: searchQuery.trim() || undefined,
       });
-
-      setMaterials(materialsPage.data);
-      setTotalItems(materialsPage.totalElements);
-      setTotalPages(Math.max(materialsPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load products:", err);
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setMaterials([]);
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-    }
-  };
+    },
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const reload = useInvalidateAdminList(["admin-materials"]);
 
   const loadMaterialLocations = async () => {
-    if (!materials || materials.length === 0) return;
+    const materials = materialsQuery.data?.data || [];
+    const warehouses = warehousesQuery.data || [];
+    if (materials.length === 0 || warehouses.length === 0) {
+      setMaterialsWithLocations(new Map());
+      return;
+    }
     try {
-      const warehouses = await warehousesApi.getAll();
-      if (warehouses.length === 0) return;
-
       const byMaterial = new Map<
         string,
         Array<{ locationCode: string; priority: number }>
@@ -190,18 +180,6 @@ export default function MaterialsPage() {
   };
 
   useEffect(() => {
-    void loadData();
-  }, [
-    currentPage,
-    itemsPerPage,
-    typeFilter,
-    searchQuery,
-    sortBy,
-    sortDirection,
-    supplierFilterId,
-  ]);
-
-  useEffect(() => {
     const timer = setTimeout(() => {
       setSearchQuery(searchInput);
       setCurrentPage(1);
@@ -211,7 +189,20 @@ export default function MaterialsPage() {
 
   useEffect(() => {
     void loadMaterialLocations();
-  }, [materials]);
+  }, [materialsQuery.data, warehousesQuery.data]);
+
+  const materials = useMemo(() => materialsQuery.data?.data || [], [materialsQuery.data]);
+  const isLoading =
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const isFetching = materialsQuery.isFetching;
+  const error = materialsQuery.error
+    ? materialsQuery.error instanceof Error
+      ? materialsQuery.error.message
+      : "Unknown error"
+    : null;
+  const totalItems = materialsQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(materialsQuery.data?.totalPages ?? 1, 1);
 
   const summaryStats = {
     total: totalItems,
@@ -225,7 +216,7 @@ export default function MaterialsPage() {
     try {
       await createMutation.mutateAsync(materialData);
       setShowCreateModal(false);
-      await loadData();
+      await reload();
     } catch (error) {
       logger.error("[Materials] Failed to create material:", error);
     }
@@ -236,7 +227,7 @@ export default function MaterialsPage() {
       await updateMutation.mutateAsync({ id, data: materialData });
       setShowEditModal(false);
       setEditingMaterial(null);
-      await loadData();
+      await reload();
     } catch (error) {
       logger.error("[Materials] Failed to update material:", error);
     }
@@ -247,7 +238,7 @@ export default function MaterialsPage() {
       await deleteMutation.mutateAsync(id);
       setShowDeleteModal(false);
       setSelectedMaterial(null);
-      await loadData();
+      await reload();
     } catch (error) {
       logger.error("[Materials] Failed to delete material:", error);
     }
@@ -258,7 +249,7 @@ export default function MaterialsPage() {
       <div className="p-6">
         <div className="alert alert-error">
           <span>Failed to load products: {error}</span>
-          <button className="btn btn-sm btn-outline" onClick={() => void loadData()}>
+          <button className="btn btn-sm btn-outline" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -651,7 +642,7 @@ export default function MaterialsPage() {
           onClose={() => setShowImportModal(false)}
           onSuccess={() => {
             setShowImportModal(false);
-            void loadData();
+            void reload();
           }}
         />
       )}
