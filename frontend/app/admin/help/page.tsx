@@ -43,14 +43,17 @@ export default function HelpPage() {
       <div className="card bg-base-100 border border-base-300 p-6">
         <h2 className="text-lg font-semibold mb-3">Contact Support</h2>
         <p className="text-sm text-base-content/70 mb-4">
-          Need additional help? Our support team is here to assist you.
+          Need additional help? Support contact channels are not configured in this environment yet.
         </p>
         <div className="flex gap-3">
-          <button className="btn btn-primary">Email Support</button>
-          <button className="btn btn-outline">Live Chat</button>
+          <button className="btn btn-primary btn-disabled" disabled>
+            Email Support Unavailable
+          </button>
+          <button className="btn btn-outline btn-disabled" disabled>
+            Live Chat Unavailable
+          </button>
         </div>
       </div>
     </div>
   );
 }
-

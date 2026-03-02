@@ -144,41 +144,78 @@ public class ReportsService {
     public ExportedReportFile exportReport(String reportType, String format, UUID createdBy) {
         String normalizedType = normalizeType(reportType);
         String normalizedFormat = normalizeFormat(format);
-        ReportData reportData = buildReportData(normalizedType);
-
-        byte[] fileBytes;
-        String contentType;
-        if ("csv".equals(normalizedFormat)) {
-            fileBytes = generateCsv(reportData).getBytes(StandardCharsets.UTF_8);
-            contentType = "text/csv";
-        } else {
-            fileBytes = generatePdf(reportData);
-            contentType = "application/pdf";
-        }
-
-        String ts = LocalDateTime.now().format(FILE_TS_FORMAT);
-        String fileName = normalizedType + "-report-" + ts + "." + normalizedFormat;
+        GeneratedFilePayload generated = buildExportPayload(normalizedType, normalizedFormat);
 
         ReportEntity reportEntity = new ReportEntity();
         reportEntity.setReportName(toTitle(normalizedType) + " Report");
         reportEntity.setReportType(normalizedType);
         reportEntity.setDescription("Auto-generated " + normalizedFormat.toUpperCase(Locale.ROOT) + " export");
-        reportEntity.setReportConfig("{\"format\":\"" + normalizedFormat + "\",\"rowCount\":" + reportData.rows().size() + "}");
+        reportEntity.setReportConfig("{\"format\":\"" + normalizedFormat + "\",\"rowCount\":" + generated.rowCount() + "}");
         reportEntity.setGeneratedAt(LocalDateTime.now());
-        reportEntity.setFileSizeBytes((long) fileBytes.length);
-        reportEntity.setFilePath(fileName);
+        reportEntity.setFileSizeBytes((long) generated.content().length);
+        reportEntity.setFilePath(generated.fileName());
         reportEntity.setCreatedBy(createdBy);
 
         ReportEntity saved = reportRepository.save(reportEntity);
 
         return new ExportedReportFile(
                 saved.getId(),
-                fileName,
-                contentType,
-                fileBytes,
-                (long) fileBytes.length,
+                generated.fileName(),
+                generated.contentType(),
+                generated.content(),
+                (long) generated.content().length,
                 normalizedType,
                 normalizedFormat
+        );
+    }
+
+    public ExportedReportFile generateReportRecord(String reportName, String reportType, String description, String reportConfig, UUID createdBy) {
+        String normalizedType = normalizeType(reportType);
+        GeneratedFilePayload generated = buildExportPayload(normalizedType, "pdf");
+
+        ReportEntity entity = new ReportEntity();
+        entity.setReportName(reportName == null || reportName.isBlank() ? generated.defaultTitle() : reportName.trim());
+        entity.setReportType(normalizedType);
+        entity.setDescription(description == null || description.isBlank()
+                ? "Generated " + generated.defaultTitle()
+                : description.trim());
+        entity.setReportConfig(reportConfig == null || reportConfig.isBlank()
+                ? "{\"format\":\"pdf\",\"rowCount\":" + generated.rowCount() + "}"
+                : reportConfig);
+        entity.setGeneratedAt(LocalDateTime.now());
+        entity.setFileSizeBytes((long) generated.content().length);
+        entity.setFilePath(generated.fileName());
+        entity.setCreatedBy(createdBy);
+
+        ReportEntity saved = reportRepository.save(entity);
+        return new ExportedReportFile(
+                saved.getId(),
+                generated.fileName(),
+                generated.contentType(),
+                generated.content(),
+                (long) generated.content().length,
+                normalizedType,
+                "pdf"
+        );
+    }
+
+    public ExportedReportFile downloadExistingReport(UUID id) {
+        Report report = getReportById(id);
+        String normalizedType = normalizeType(report.getReportType());
+        String format = inferFormat(report.getFilePath(), report.getReportConfig());
+        GeneratedFilePayload generated = buildExportPayload(normalizedType, format);
+        String fileName = report.getFilePath() != null && !report.getFilePath().isBlank()
+                ? report.getFilePath()
+                : generated.fileName();
+
+        return new ExportedReportFile(
+                id,
+                fileName,
+                generated.contentType(),
+                generated.content(),
+                (long) generated.content().length,
+                normalizedType,
+                format
         );
     }
 
@@ -312,6 +349,30 @@ public class ReportsService {
             case "analytics" -> buildAnalyticsReport();
             default -> throw new RuntimeException("Unsupported report type: " + reportType);
         };
+    }
+
+    private GeneratedFilePayload buildExportPayload(String normalizedType, String normalizedFormat) {
+        ReportData reportData = buildReportData(normalizedType);
+
+        byte[] fileBytes;
+        String contentType;
+        if ("csv".equals(normalizedFormat)) {
+            fileBytes = generateCsv(reportData).getBytes(StandardCharsets.UTF_8);
+            contentType = "text/csv";
+        } else {
+            fileBytes = generatePdf(reportData);
+            contentType = "application/pdf";
+        }
+
+        String ts = LocalDateTime.now().format(FILE_TS_FORMAT);
+        String fileName = normalizedType + "-report-" + ts + "." + normalizedFormat;
+        return new GeneratedFilePayload(
+                fileName,
+                contentType,
+                fileBytes,
+                reportData.title(),
+                reportData.rows().size()
+        );
     }
 
     private ReportData buildInventoryReport() {
@@ -608,6 +669,25 @@ public class ReportsService {
         return Character.toUpperCase(value.charAt(0)) + value.substring(1).toLowerCase(Locale.ROOT);
     }
 
+    private String inferFormat(String filePath, String reportConfig) {
+        if (filePath != null) {
+            String normalizedPath = filePath.toLowerCase(Locale.ROOT);
+            if (normalizedPath.endsWith(".csv")) {
+                return "csv";
+            }
+            if (normalizedPath.endsWith(".pdf")) {
+                return "pdf";
+            }
+        }
+        if (reportConfig != null) {
+            String normalizedConfig = reportConfig.toLowerCase(Locale.ROOT);
+            if (normalizedConfig.contains("\"format\":\"csv\"")) {
+                return "csv";
+            }
+        }
+        return "pdf";
+    }
+
     // Conversion methods
     private Report toDomain(ReportEntity entity) {
         Report report = new Report();
@@ -652,6 +732,14 @@ public class ReportsService {
             List<String> columns,
             List<List<String>> rows,
             Map<String, Long> metrics
+    ) {}
+
+    private record GeneratedFilePayload(
+            String fileName,
+            String contentType,
+            byte[] content,
+            String defaultTitle,
+            int rowCount
     ) {}
 
     private static class PdfWriterState {

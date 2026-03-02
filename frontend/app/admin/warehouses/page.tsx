@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { RackElevationView } from "@/components/RackElevationView";
 import { RackEditModal } from "@/components/RackEditModal";
-import { getWarehouseLayout } from "@/lib/utils/warehouse-layout-generator";
 import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/lib/utils/location-to-layout";
 import { RackUnit, LocationBin, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
@@ -49,6 +48,7 @@ export default function WarehousesPage() {
   const [showBulkRackModal, setShowBulkRackModal] = useState(false);
   const [showSlottingPlannerModal, setShowSlottingPlannerModal] = useState(false);
   const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple">("detailed");
+  const [layoutHasRealData, setLayoutHasRealData] = useState(false);
 
   // Load warehouses on mount
   useEffect(() => {
@@ -75,14 +75,14 @@ export default function WarehousesPage() {
         }
       } catch (error) {
         logger.error("Failed to load warehouses:", error);
-        setError("Failed to load warehouses. Using fallback layout.");
-        // Fallback to mock layout
+        setError("Failed to load warehouses. Layout data is unavailable until the warehouse list loads.");
+        setLayoutHasRealData(false);
         if (isWarehouseManager && assignedWarehouseId) {
           setSelectedWarehouseId(assignedWarehouseId);
-          setLayout(getWarehouseLayout(assignedWarehouseId));
+          setLayout(createEmptyLayout(assignedWarehouseId, assignedWarehouseName || "Assigned Warehouse"));
         } else {
-          setSelectedWarehouseId("warehouse-1");
-          setLayout(getWarehouseLayout("warehouse-1"));
+          setSelectedWarehouseId(null);
+          setLayout(createEmptyLayout("unavailable", "Unavailable"));
         }
       } finally {
         setIsLoading(false);
@@ -113,6 +113,7 @@ export default function WarehousesPage() {
           warehouse?.name || `Warehouse ${warehouseId}`
         );
         setLayout(layout);
+        setLayoutHasRealData(true);
       } catch (hierarchyError) {
         // Fallback: get storage-only locations and convert
         // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
@@ -126,16 +127,27 @@ export default function WarehousesPage() {
             warehouse?.name || `Warehouse ${warehouseId}`
           );
           setLayout(layout);
+          setLayoutHasRealData(true);
         } else {
-          // No locations found, use mock layout
-          logger.debug("No storage locations found, using mock layout");
-          setLayout(getWarehouseLayout(warehouseId));
+          const warehouse = warehouses.find((w) => w.id === warehouseId);
+          logger.debug("No storage locations found, showing empty layout state");
+          setLayout(createEmptyLayout(
+            warehouseId,
+            warehouse?.name || `Warehouse ${warehouseId}`
+          ));
+          setLayoutHasRealData(false);
+          setError("No storage locations are configured for this warehouse yet.");
         }
       }
     } catch (error) {
       logger.error("Failed to load warehouse layout:", error);
-      setError("Failed to load warehouse layout. Using fallback.");
-      setLayout(getWarehouseLayout(warehouseId));
+      const warehouse = warehouses.find((w) => w.id === warehouseId);
+      setError("Failed to load warehouse layout. Showing an empty state instead of generated mock racks.");
+      setLayout(createEmptyLayout(
+        warehouseId,
+        warehouse?.name || `Warehouse ${warehouseId}`
+      ));
+      setLayoutHasRealData(false);
     } finally {
       setIsLoadingLayout(false);
     }
@@ -285,34 +297,53 @@ export default function WarehousesPage() {
       <WarehouseStatsCards stats={stats} />
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
-      {layoutViewMode === "detailed" && <WarehouseLegend />}
+      {layoutHasRealData ? (
+        <>
+          {layoutViewMode === "detailed" && <WarehouseLegend />}
 
-      <div className="tabs tabs-boxed w-fit">
-        <button
-          className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
-          onClick={() => setLayoutViewMode("detailed")}
-        >
-          Detailed Layout
-        </button>
-        <button
-          className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
-          onClick={() => setLayoutViewMode("simple")}
-        >
-          Simple Slotting
-        </button>
-      </div>
+          <div className="tabs tabs-boxed w-fit">
+            <button
+              className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
+              onClick={() => setLayoutViewMode("detailed")}
+            >
+              Detailed Layout
+            </button>
+            <button
+              className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
+              onClick={() => setLayoutViewMode("simple")}
+            >
+              Simple Slotting
+            </button>
+          </div>
 
-      {layoutViewMode === "detailed" ? (
-        <WarehouseLayoutCard
-          layout={layout}
-          showVelocity={showVelocity}
-          canEditRacks={canEditRacks}
-          selectedRackId={selectedRack?.id || null}
-          onToggleVelocity={setShowVelocity}
-          onRackClick={handleRackClick}
-        />
+          {layoutViewMode === "detailed" ? (
+            <WarehouseLayoutCard
+              layout={layout}
+              showVelocity={showVelocity}
+              canEditRacks={canEditRacks}
+              selectedRackId={selectedRack?.id || null}
+              onToggleVelocity={setShowVelocity}
+              onRackClick={handleRackClick}
+            />
+          ) : (
+            <SimpleSlottingView layout={layout} />
+          )}
+        </>
       ) : (
-        <SimpleSlottingView layout={layout} />
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-8 text-center">
+          <span className="material-symbols-outlined text-6xl text-base-content/20 mb-4">
+            inventory_2
+          </span>
+          <h3 className="text-xl font-semibold text-base-content mb-2">
+            No Renderable Warehouse Layout
+          </h3>
+          <p className="text-base-content/60 mb-3">
+            This warehouse does not have real storage locations loaded yet, so the 2D map is intentionally hidden.
+          </p>
+          <p className="text-sm text-base-content/50">
+            Create or import storage locations, then refresh to render the live layout.
+          </p>
+        </div>
       )}
 
       {/* Side Elevation View Modal */}
@@ -393,4 +424,16 @@ export default function WarehousesPage() {
       />
     </div>
   );
+}
+
+function createEmptyLayout(warehouseId: string, warehouseName: string): WarehouseLayout {
+  return {
+    id: `empty-${warehouseId}`,
+    name: warehouseName,
+    warehouseId,
+    width: 1200,
+    height: 600,
+    racks: [],
+    aisles: [],
+  };
 }
