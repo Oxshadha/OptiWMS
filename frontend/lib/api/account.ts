@@ -44,9 +44,9 @@ export const accountApi = {
       id: response.userId,
       username: response.username,
       email: response.email || '',
-      firstName: nameParts[0] || '',
-      lastName: nameParts.slice(1).join(' ') || '',
-      phone: '', // Not included in /me response, will be loaded from profile update
+      firstName: response.firstName || nameParts[0] || '',
+      lastName: response.lastName || nameParts.slice(1).join(' ') || '',
+      phone: response.phone || '',
       role: response.role,
     };
   },

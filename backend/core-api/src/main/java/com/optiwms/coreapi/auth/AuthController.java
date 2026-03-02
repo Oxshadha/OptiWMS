@@ -170,7 +170,11 @@ public class AuthController {
                 user.getEmail(),
                 (user.getFirstName() != null ? user.getFirstName() : "") + " " + (user.getLastName() != null ? user.getLastName() : "").trim(),
                 role,
-                user.getWarehouseId() != null ? user.getWarehouseId().toString() : null
+                user.getWarehouseId() != null ? user.getWarehouseId().toString() : null,
+                user.getFirstName(),
+                user.getLastName(),
+                user.getPhone(),
+                user.getDashboardSettings()
         ));
     }
 
@@ -384,7 +388,11 @@ public class AuthController {
             String email,
             String name,
             String role,
-            String warehouseId
+            String warehouseId,
+            String firstName,
+            String lastName,
+            String phone,
+            String dashboardSettings
     ) {}
 
     public record UpdateProfileRequest(

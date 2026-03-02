@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { accountApi, UserProfile } from "@/lib/api/account";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";

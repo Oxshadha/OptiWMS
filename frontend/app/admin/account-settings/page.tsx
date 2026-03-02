@@ -4,11 +4,9 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import { accountApi, UserProfile } from "@/lib/api/account";
 import { showToast } from "@/lib/utils/toast";
-import { useAdmin } from "@/contexts/AdminContext";
 import { logger } from "@/lib/utils/logger";
 
 export default function AccountSettingsPage() {
-  const { admin } = useAdmin();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
@@ -139,7 +137,11 @@ export default function AccountSettingsPage() {
               <p className="text-sm text-base-content/60 mt-1 capitalize">
                 {profile.role.replace('_', ' ')}
               </p>
-              <button className="btn btn-sm btn-ghost mt-4">
+              <button
+                className="btn btn-sm btn-ghost mt-4"
+                type="button"
+                onClick={() => showToast.warning("Photo upload is not implemented yet")}
+              >
                 <span className="material-symbols-outlined">camera_alt</span>
                 Change Photo
               </button>
@@ -289,4 +291,3 @@ export default function AccountSettingsPage() {
     </div>
   );
 }
-

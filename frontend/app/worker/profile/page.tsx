@@ -29,7 +29,7 @@ export default function WorkerProfilePage() {
 
       try {
         setLoading(true);
-        const workerId = worker.workerId || worker.id;
+        const workerId = worker.id;
         const productivityData = await analyticsApi.getWorkerProductivity(workerId);
 
         if (productivityData.length > 0) {
@@ -212,8 +212,6 @@ export default function WorkerProfilePage() {
           className="btn btn-error w-full"
           onClick={async () => {
             try {
-              // Clear worker context
-              const { useWorker } = await import("@/contexts/WorkerContext");
               // Note: We can't use hooks here, so we'll use authApi.logout which handles IndexedDB
               const { authApi } = await import("@/lib/api/auth");
               // Clear tokens and IndexedDB
@@ -234,4 +232,3 @@ export default function WorkerProfilePage() {
     </div>
   );
 }
-
