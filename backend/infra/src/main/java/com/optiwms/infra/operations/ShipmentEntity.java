@@ -26,6 +26,9 @@ public class ShipmentEntity {
     @Column(name = "order_id", columnDefinition = "UUID")
     private UUID orderId;
 
+    @Column(name = "delivery_partner_id", columnDefinition = "UUID")
+    private UUID deliveryPartnerId;
+
     @Column(name = "carrier")
     private String carrier;
 
@@ -75,6 +78,8 @@ public class ShipmentEntity {
     public void setShipmentNumber(String shipmentNumber) { this.shipmentNumber = shipmentNumber; }
     public UUID getOrderId() { return orderId; }
     public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public UUID getDeliveryPartnerId() { return deliveryPartnerId; }
+    public void setDeliveryPartnerId(UUID deliveryPartnerId) { this.deliveryPartnerId = deliveryPartnerId; }
     public String getCarrier() { return carrier; }
     public void setCarrier(String carrier) { this.carrier = carrier; }
     public String getTrackingNumber() { return trackingNumber; }

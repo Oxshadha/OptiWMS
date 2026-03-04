@@ -33,6 +33,7 @@ export default function ShipmentDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <DetailCard label="Status" value={shipment.status} />
         <DetailCard label="Order" value={shipment.orderId || "Not linked"} />
+        <DetailCard label="Delivery Partner" value={shipment.deliveryPartnerId || "Not linked"} />
         <DetailCard label="Carrier" value={shipment.carrier || "Not set"} />
         <DetailCard label="Tracking Number" value={shipment.trackingNumber || "Not set"} />
         <DetailCard label="Destination" value={shipment.destination || "Not set"} />

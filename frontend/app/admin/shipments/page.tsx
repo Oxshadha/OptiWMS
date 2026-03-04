@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { useSearchParams } from "next/navigation";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
@@ -43,6 +44,7 @@ function toApiSortField(sortBy: "id" | "carrier" | "destination" | "eta" | "stat
 }
 
 export default function ShipmentsPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("All");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -54,6 +56,7 @@ export default function ShipmentsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+  const selectedDeliveryPartnerId = searchParams.get("partner") || undefined;
 
   const requestedStatus =
     statusFilter !== "all"
@@ -71,6 +74,7 @@ export default function ShipmentsPage() {
       sortDirection,
       statusFilter,
       activeTab,
+      selectedDeliveryPartnerId || "",
       searchQuery.trim() || "",
     ],
     queryFn: () =>
@@ -79,6 +83,7 @@ export default function ShipmentsPage() {
         size: itemsPerPage,
         sortBy: toApiSortField(sortBy),
         sortDir: sortDirection,
+        deliveryPartnerId: selectedDeliveryPartnerId,
         status: requestedStatus,
         q: searchQuery.trim() || undefined,
       }),
@@ -321,6 +326,13 @@ export default function ShipmentsPage() {
           </button>
         </div>
       </div>
+
+      {selectedDeliveryPartnerId ? (
+        <div className="alert bg-base-200 border border-base-300 text-base-content">
+          <span className="material-symbols-outlined">filter_alt</span>
+          <span>Showing shipments linked to the selected delivery partner.</span>
+        </div>
+      ) : null}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

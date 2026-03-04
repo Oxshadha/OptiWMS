@@ -38,11 +38,14 @@ public class ShipmentController {
     @GetMapping
     public ResponseEntity<List<ShipmentDto>> listAll(
             @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String deliveryPartnerId,
             @RequestParam(required = false) String status
     ) {
         List<Shipment> shipments;
         if (orderId != null) {
             shipments = service.findByOrderId(UUID.fromString(orderId));
+        } else if (deliveryPartnerId != null) {
+            shipments = service.findByDeliveryPartnerId(UUID.fromString(deliveryPartnerId));
         } else if (status != null) {
             shipments = service.findByStatus(status);
         } else {
@@ -62,6 +65,7 @@ public class ShipmentController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String deliveryPartnerId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String q
     ) {
@@ -72,6 +76,7 @@ public class ShipmentController {
 
         Page<Shipment> shipmentPage = service.findPaged(
                 orderId != null && !orderId.isBlank() ? UUID.fromString(orderId) : null,
+                deliveryPartnerId != null && !deliveryPartnerId.isBlank() ? UUID.fromString(deliveryPartnerId) : null,
                 status,
                 q,
                 PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
@@ -101,6 +106,11 @@ public class ShipmentController {
         Shipment shipment = new Shipment();
         shipment.setShipmentNumber(request.shipmentNumber());
         shipment.setOrderId(request.orderId() != null ? UUID.fromString(request.orderId()) : null);
+        shipment.setDeliveryPartnerId(
+                request.deliveryPartnerId() != null && !request.deliveryPartnerId().isBlank()
+                        ? UUID.fromString(request.deliveryPartnerId())
+                        : null
+        );
         shipment.setCarrier(request.carrier());
         shipment.setTrackingNumber(request.trackingNumber());
         shipment.setDestination(request.destination());
@@ -119,6 +129,13 @@ public class ShipmentController {
     @PutMapping("/{id}")
     public ResponseEntity<ShipmentDto> update(@PathVariable UUID id, @RequestBody UpdateShipmentRequest request) {
         Shipment shipment = service.findById(id);
+        if (request.deliveryPartnerId() != null) {
+            shipment.setDeliveryPartnerId(
+                    request.deliveryPartnerId().isBlank()
+                            ? null
+                            : UUID.fromString(request.deliveryPartnerId())
+            );
+        }
         if (request.carrier() != null) shipment.setCarrier(request.carrier());
         if (request.trackingNumber() != null) shipment.setTrackingNumber(request.trackingNumber());
         if (request.destination() != null) shipment.setDestination(request.destination());
@@ -183,6 +200,7 @@ public class ShipmentController {
                 shipment.getId() != null ? shipment.getId().toString() : null,
                 shipment.getShipmentNumber() != null ? shipment.getShipmentNumber() : "",
                 shipment.getOrderId() != null ? shipment.getOrderId().toString() : null,
+                shipment.getDeliveryPartnerId() != null ? shipment.getDeliveryPartnerId().toString() : null,
                 shipment.getCarrier(),
                 shipment.getTrackingNumber(),
                 shipment.getDestination(),
@@ -202,6 +220,7 @@ public class ShipmentController {
     public record CreateShipmentRequest(
             String shipmentNumber,
             String orderId,
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
@@ -214,6 +233,7 @@ public class ShipmentController {
     ) {}
 
     public record UpdateShipmentRequest(
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
@@ -231,6 +251,7 @@ public class ShipmentController {
             String id,
             String shipmentNumber,
             String orderId,
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
