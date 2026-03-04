@@ -128,6 +128,28 @@ async function syncItem(item: SyncItem): Promise<boolean> {
             body: item.data?.payload ?? {},
           };
         }
+        case "stock_transfer_execute": {
+          const lineId = item.data?.lineId;
+          if (!lineId) {
+            throw new Error("Missing lineId for stock transfer execution sync");
+          }
+          return {
+            endpoint: `/operations/stock-transfers/lines/${lineId}/execute`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "stock_transfer_skip": {
+          const lineId = item.data?.lineId;
+          if (!lineId) {
+            throw new Error("Missing lineId for stock transfer skip sync");
+          }
+          return {
+            endpoint: `/operations/stock-transfers/lines/${lineId}/skip`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
         default: {
           // Backward compatibility for older queued packing payloads.
           if (item.data?.orderNumber && item.data?.status === "packed") {

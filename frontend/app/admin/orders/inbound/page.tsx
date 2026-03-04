@@ -16,6 +16,7 @@ import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "./types";
 import {
   CreateInboundOrderModal,
@@ -477,9 +478,26 @@ export default function InboundOrdersPage() {
                             </li>
                           ) : null}
                           <li>
-                            <button onClick={() => window.print()}>
+                            <button
+                              onClick={() =>
+                                downloadHtmlDocument(
+                                  `inbound-order-${order.orderNumber}.html`,
+                                  `Inbound Order ${order.orderNumber}`,
+                                  `
+                                    <h1>Inbound Order ${escapeHtml(order.orderNumber)}</h1>
+                                    <p class="muted">Generated from OptiWMS</p>
+                                    <div class="grid section">
+                                      <div class="card"><strong>Status:</strong><br />${escapeHtml(order.status)}</div>
+                                      <div class="card"><strong>Supplier:</strong><br />${escapeHtml(order.supplierName || "N/A")}</div>
+                                      <div class="card"><strong>Warehouse:</strong><br />${escapeHtml(order.warehouseName || "N/A")}</div>
+                                      <div class="card"><strong>Expected Delivery:</strong><br />${escapeHtml(order.expectedDelivery || "N/A")}</div>
+                                    </div>
+                                  `
+                                )
+                              }
+                            >
                               <span className="material-symbols-outlined text-sm">print</span>
-                              Print/Export
+                              Download Order Sheet
                             </button>
                           </li>
                           {order.status === "ordered" || order.status === "in_transit" ? (

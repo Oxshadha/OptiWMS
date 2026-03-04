@@ -20,6 +20,7 @@ import {
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import type { ReturnDisplay } from "./types";
 import { resolutionConfig, statusConfig } from "./types";
 import {
@@ -501,13 +502,29 @@ export default function ReturnsPage() {
         <li>
           <button
             onClick={() => {
-              // TODO: Implement print functionality
-              window.print();
+              downloadHtmlDocument(
+                `return-label-${returnItem.returnNumber}.html`,
+                `Return Label ${returnItem.returnNumber}`,
+                `
+                  <h1>Return Label</h1>
+                  <p class="muted">Generated from OptiWMS</p>
+                  <div class="grid section">
+                    <div class="card"><strong>Return Number:</strong><br />${escapeHtml(returnItem.returnNumber)}</div>
+                    <div class="card"><strong>Status:</strong><br />${escapeHtml(returnItem.status)}</div>
+                    <div class="card"><strong>Flow:</strong><br />${escapeHtml(returnItem.returnFlow || "N/A")}</div>
+                    <div class="card"><strong>Reference:</strong><br />${escapeHtml(returnItem.originalOrder || "N/A")}</div>
+                  </div>
+                  <div class="section">
+                    <h2>Reason</h2>
+                    <p>${escapeHtml(returnItem.reason || "Not provided")}</p>
+                  </div>
+                `
+              );
               logger.debug("Printing return label:", returnItem.returnNumber);
             }}
           >
             <span className="material-symbols-outlined text-sm">print</span>
-            Print Return Label
+            Download Return Label
           </button>
         </li>
       </ul>
