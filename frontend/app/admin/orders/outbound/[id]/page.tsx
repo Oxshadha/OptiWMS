@@ -10,6 +10,7 @@ import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi, Material } from "@/lib/api/materials";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 
 const statusConfig = {
   pending: { label: "Pending" },
@@ -161,9 +162,31 @@ export default function OutboundOrderDetailPage() {
             <h1 className="text-3xl font-bold">Outbound Order: {order.orderNumber}</h1>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-ghost" onClick={() => window.print()}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                downloadHtmlDocument(
+                  `outbound-order-${order.orderNumber || order.id}.html`,
+                  `Outbound Order ${order.orderNumber || order.id}`,
+                  `
+                    <h1>Outbound Order ${escapeHtml(order.orderNumber || order.id)}</h1>
+                    <p class="muted">Generated from OptiWMS</p>
+                    <div class="grid section">
+                      <div class="card"><strong>Status:</strong><br />${escapeHtml(order.status || "pending")}</div>
+                      <div class="card"><strong>Priority:</strong><br />${escapeHtml(order.priority || "normal")}</div>
+                      <div class="card"><strong>Customer:</strong><br />${escapeHtml(customer?.name || "N/A")}</div>
+                      <div class="card"><strong>Warehouse:</strong><br />${escapeHtml(warehouse?.name || "N/A")}</div>
+                      <div class="card"><strong>Total Items:</strong><br />${totalItems.toString()}</div>
+                      <div class="card"><strong>Total Quantity:</strong><br />${totalQuantity.toString()}</div>
+                      <div class="card"><strong>Picked Items:</strong><br />${pickedItems.toString()}</div>
+                      <div class="card"><strong>Picked Quantity:</strong><br />${pickedQuantity.toString()}</div>
+                    </div>
+                  `
+                );
+              }}
+            >
               <span className="material-symbols-outlined">print</span>
-              Print
+              Download Order Sheet
             </button>
           </div>
         </div>

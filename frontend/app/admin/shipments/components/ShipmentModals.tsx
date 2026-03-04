@@ -11,6 +11,7 @@ import { showToast } from "@/lib/utils/toast";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { deliveryPartnersApi } from "@/lib/api/deliveryPartners";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { ShipmentDisplay, shipmentStatusTone } from "../types";
 
 export function CreateShipmentModal({ onClose }: { onClose: () => void }) {
@@ -406,39 +407,41 @@ export function ShipmentDetailModal({
             className="btn btn-primary"
             onClick={() => {
               logger.info("Printing shipment manifest", shipment.id);
-              const printWindow = window.open("", "_blank");
-              if (printWindow) {
-                printWindow.document.write(`
-                  <html>
-                    <head><title>Shipment Manifest - ${shipment.id}</title></head>
-                    <body>
-                      <h1>Shipment Manifest</h1>
-                      <p><strong>Shipment ID:</strong> ${shipment.id}</p>
-                      <p><strong>Carrier:</strong> ${shipment.carrier}</p>
-                      <p><strong>Tracking:</strong> ${shipment.tracking}</p>
-                      <p><strong>Destination:</strong> ${shipment.destination}</p>
-                      <p><strong>Weight:</strong> ${shipment.weight}</p>
-                      <p><strong>ETA:</strong> ${shipment.eta}</p>
-                      <h2>Orders:</h2>
-                      <ul>
-                        ${shipment.orders.map((order) => `<li>${order}</li>`).join("")}
-                      </ul>
-                      ${
-                        shipment.driverName
-                          ? `
-                        <h2>Delivery Details:</h2>
-                        <p><strong>Driver:</strong> ${shipment.driverName}</p>
-                        <p><strong>Phone:</strong> ${shipment.driverPhone}</p>
-                        <p><strong>Vehicle:</strong> ${shipment.vehicleNumber}</p>
-                      `
-                          : ""
-                      }
-                    </body>
-                  </html>
-                `);
-                printWindow.document.close();
-                printWindow.print();
-              }
+              downloadHtmlDocument(
+                `shipment-manifest-${shipment.id}.html`,
+                `Shipment Manifest ${shipment.id}`,
+                `
+                  <h1>Shipment Manifest</h1>
+                  <p class="muted">Generated from OptiWMS</p>
+                  <div class="grid section">
+                    <div class="card"><strong>Shipment ID:</strong><br />${escapeHtml(shipment.id)}</div>
+                    <div class="card"><strong>Carrier:</strong><br />${escapeHtml(shipment.carrier)}</div>
+                    <div class="card"><strong>Tracking:</strong><br />${escapeHtml(shipment.tracking || "N/A")}</div>
+                    <div class="card"><strong>Destination:</strong><br />${escapeHtml(shipment.destination || "N/A")}</div>
+                    <div class="card"><strong>Weight:</strong><br />${escapeHtml(shipment.weight || "N/A")}</div>
+                    <div class="card"><strong>ETA:</strong><br />${escapeHtml(shipment.eta || "N/A")}</div>
+                  </div>
+                  <div class="section">
+                    <h2>Orders</h2>
+                    <ul>
+                      ${shipment.orders.map((order) => `<li>${escapeHtml(order)}</li>`).join("")}
+                    </ul>
+                  </div>
+                  ${
+                    shipment.driverName
+                      ? `
+                    <div class="section">
+                      <h2>Delivery Details</h2>
+                      <p><strong>Driver:</strong> ${escapeHtml(shipment.driverName)}</p>
+                      <p><strong>Phone:</strong> ${escapeHtml(shipment.driverPhone || "N/A")}</p>
+                      <p><strong>Vehicle:</strong> ${escapeHtml(shipment.vehicleNumber || "N/A")}</p>
+                    </div>
+                  `
+                      : ""
+                  }
+                `
+              );
+              showToast.success("Shipment manifest downloaded");
             }}
           >
             <span className="material-symbols-outlined">print</span>

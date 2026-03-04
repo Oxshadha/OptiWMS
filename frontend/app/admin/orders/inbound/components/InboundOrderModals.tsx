@@ -12,6 +12,7 @@ import { operationsApi } from "@/lib/api/operations";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "../types";
 
 function getInboundStatusTone(status: string): StatusTone {
@@ -83,9 +84,29 @@ export function InboundOrderDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          <button className="btn btn-primary" onClick={() => window.print()}>
+          <button
+            className="btn btn-primary"
+            onClick={() =>
+              downloadHtmlDocument(
+                `inbound-order-${order.orderNumber}.html`,
+                `Inbound Order ${order.orderNumber}`,
+                `
+                  <h1>Inbound Order ${escapeHtml(order.orderNumber)}</h1>
+                  <p class="muted">Generated from OptiWMS</p>
+                  <div class="grid section">
+                    <div class="card"><strong>Status:</strong><br />${escapeHtml(order.status)}</div>
+                    <div class="card"><strong>Supplier:</strong><br />${escapeHtml(order.supplierName)}</div>
+                    <div class="card"><strong>Warehouse:</strong><br />${escapeHtml(order.warehouseName)}</div>
+                    <div class="card"><strong>Order Date:</strong><br />${escapeHtml(order.orderDate)}</div>
+                    <div class="card"><strong>Expected Delivery:</strong><br />${escapeHtml(order.expectedDelivery)}</div>
+                    <div class="card"><strong>Items:</strong><br />${escapeHtml(String(order.totalItems))}</div>
+                  </div>
+                `
+              )
+            }
+          >
             <span className="material-symbols-outlined">print</span>
-            Print Order
+            Download Order Sheet
           </button>
         </div>
       </div>

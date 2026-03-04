@@ -288,6 +288,38 @@ public class ReportsService {
         scheduledReportRepository.deleteById(id);
     }
 
+    @Transactional
+    public int runDueScheduledReports() {
+        LocalDateTime now = LocalDateTime.now();
+        List<ScheduledReportEntity> dueReports =
+                scheduledReportRepository.findByIsActiveTrueAndNextGenerationAtLessThanEqual(now);
+
+        int processed = 0;
+        for (ScheduledReportEntity entity : dueReports) {
+            try {
+                generateReportRecord(
+                        toTitle(normalizeType(entity.getReportType())) + " Scheduled Report",
+                        entity.getReportType(),
+                        "Auto-generated from scheduled report configuration",
+                        "{\"trigger\":\"scheduled\",\"scheduleId\":\"" + entity.getId() + "\"}",
+                        entity.getCreatedBy()
+                );
+                entity.setLastGeneratedAt(now);
+                entity.setNextGenerationAt(calculateNextGenerationTime(
+                        entity.getFrequency(),
+                        entity.getScheduledTime()
+                ));
+                scheduledReportRepository.save(entity);
+                processed++;
+            } catch (RuntimeException ex) {
+                entity.setNextGenerationAt(now.plusMinutes(15));
+                scheduledReportRepository.save(entity);
+            }
+        }
+
+        return processed;
+    }
+
     private LocalDateTime calculateNextGenerationTime(String frequency, LocalTime scheduledTime) {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime next = now.with(scheduledTime);

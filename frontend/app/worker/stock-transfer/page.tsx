@@ -5,6 +5,7 @@ import { useWorker } from "@/contexts/WorkerContext";
 import { useOffline } from "@/hooks/useOffline";
 import { operationsApi, StockTransferLine } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
+import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -71,10 +72,6 @@ export default function StockTransferPage() {
 
   const handleExecute = async () => {
     if (!workerId || !selectedLine) return;
-    if (!isOnline) {
-      showToast.error("Stock transfer execution requires an online connection");
-      return;
-    }
     if (!sourceScanLocation || !destScanLocation) {
       showToast.error("Scan source and destination locations");
       return;
@@ -86,6 +83,45 @@ export default function StockTransferPage() {
 
     try {
       setProcessing(true);
+      if (!isOnline) {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "stock_transfer_execute",
+            lineId: selectedLine.id,
+            payload: {
+              workerId,
+              sourceScanLocation,
+              destScanLocation,
+              quantity,
+              notes,
+            },
+          },
+        });
+        setLines((currentLines) =>
+          currentLines.map((line) =>
+            line.id === selectedLine.id
+              ? {
+                  ...line,
+                  movedQuantity: Math.min(
+                    (line.movedQuantity || 0) + quantity,
+                    line.requestedQuantity || quantity
+                  ),
+                  status:
+                    (line.movedQuantity || 0) + quantity >= (line.requestedQuantity || 0)
+                      ? "completed"
+                      : "in_progress",
+                  notes: notes || line.notes,
+                }
+              : line
+          )
+        );
+        showToast.success("Stock transfer move queued for sync");
+        setNotes("");
+        setSelectedLineId("");
+        return;
+      }
       await operationsApi.executeStockTransferLine(selectedLine.id, {
         workerId,
         sourceScanLocation,
@@ -107,16 +143,41 @@ export default function StockTransferPage() {
 
   const handleSkip = async () => {
     if (!workerId || !selectedLine) return;
-    if (!isOnline) {
-      showToast.error("Stock transfer updates require an online connection");
-      return;
-    }
     if (!notes.trim()) {
       showToast.error("Add skip reason in notes");
       return;
     }
     try {
       setProcessing(true);
+      if (!isOnline) {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "stock_transfer_skip",
+            lineId: selectedLine.id,
+            payload: {
+              workerId,
+              reason: notes.trim(),
+            },
+          },
+        });
+        setLines((currentLines) =>
+          currentLines.map((line) =>
+            line.id === selectedLine.id
+              ? {
+                  ...line,
+                  status: "blocked",
+                  notes: notes.trim(),
+                }
+              : line
+          )
+        );
+        showToast.success("Stock transfer block queued for sync");
+        setNotes("");
+        setSelectedLineId("");
+        return;
+      }
       await operationsApi.skipStockTransferLine(selectedLine.id, workerId, notes.trim());
       showToast.success("Line marked as blocked");
       setNotes("");
@@ -155,7 +216,7 @@ export default function StockTransferPage() {
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">wifi_off</span>
           <span>
-            Stock transfer execution is online-only right now. Reconnect before confirming or skipping a line.
+            You are offline. Moves and blocked lines will be queued locally and synced automatically when the connection returns.
           </span>
         </div>
       )}
@@ -254,14 +315,14 @@ export default function StockTransferPage() {
                   <button
                     className={`btn btn-primary flex-1 ${processing ? "loading" : ""}`}
                     onClick={handleExecute}
-                    disabled={processing || !isOnline}
+                    disabled={processing}
                   >
                     Confirm Move
                   </button>
                   <button
                     className={`btn btn-warning btn-outline ${processing ? "loading" : ""}`}
                     onClick={handleSkip}
-                    disabled={processing || !isOnline}
+                    disabled={processing}
                   >
                     Block/Skip
                   </button>
