@@ -13,6 +13,7 @@ import { orderItemsApi } from "@/lib/api/orderItems";
 import { materialsApi } from "@/lib/api/materials";
 import { tasksApi } from "@/lib/api/tasks-api";
 import { showToast } from "@/lib/utils/toast";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { formatMaterialDisplay } from "@/lib/utils/material-display";
 import { logger } from "@/lib/utils/logger";
 import { OrderSelectionStep } from "./components/OrderSelectionStep";
@@ -657,11 +658,76 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = () => {
-    showToast.success("Shipping label print queued");
+    if (!selectedOrder) {
+      showToast.error("Select an order before printing a label");
+      return;
+    }
+
+    downloadHtmlDocument(
+      `${selectedOrder.orderNumber}-worker-shipping-label.html`,
+      `Shipping Label - ${selectedOrder.orderNumber}`,
+      `
+        <h1>Shipping Label</h1>
+        <p class="muted">Worker packing station output</p>
+        <div class="section grid">
+          <div class="card"><strong>Order</strong><br />${escapeHtml(selectedOrder.orderNumber)}</div>
+          <div class="card"><strong>Customer</strong><br />${escapeHtml(selectedOrder.customer)}</div>
+          <div class="card"><strong>Priority</strong><br />${escapeHtml(selectedOrder.priority.toUpperCase())}</div>
+          <div class="card"><strong>Packaging</strong><br />${escapeHtml(
+            packingData.packagingType || "Not selected"
+          )}</div>
+          <div class="card"><strong>Tracking</strong><br />${escapeHtml(
+            packingData.trackingNumber || "Pending"
+          )}</div>
+          <div class="card"><strong>Weight</strong><br />${packingData.actualWeight || 0} kg</div>
+        </div>
+      `
+    );
+    showToast.success("Shipping label downloaded");
   };
 
   const handlePrintSlip = () => {
-    showToast.success("Packing slip print queued");
+    if (!selectedOrder) {
+      showToast.error("Select an order before printing a packing slip");
+      return;
+    }
+
+    const itemsHtml = selectedOrder.items
+      .map(
+        (item) =>
+          `<li>${escapeHtml(item.sku)} - ${escapeHtml(item.name)} x ${item.quantity}${
+            item.verified ? " (verified)" : ""
+          }</li>`
+      )
+      .join("");
+
+    downloadHtmlDocument(
+      `${selectedOrder.orderNumber}-worker-packing-slip.html`,
+      `Packing Slip - ${selectedOrder.orderNumber}`,
+      `
+        <h1>Packing Slip</h1>
+        <p class="muted">Worker confirmation sheet</p>
+        <div class="section grid">
+          <div class="card"><strong>Order</strong><br />${escapeHtml(selectedOrder.orderNumber)}</div>
+          <div class="card"><strong>Customer</strong><br />${escapeHtml(selectedOrder.customer)}</div>
+          <div class="card"><strong>Packaging</strong><br />${escapeHtml(
+            packingData.packagingType || "Not selected"
+          )}</div>
+          <div class="card"><strong>Dunnage</strong><br />${escapeHtml(
+            (packingData.dunnageMaterials || []).join(", ") || "None"
+          )}</div>
+          <div class="card"><strong>Fragile</strong><br />${packingData.hasFragileItems ? "Yes" : "No"}</div>
+          <div class="card"><strong>Notes</strong><br />${escapeHtml(
+            packingData.packingNotes || "None"
+          )}</div>
+        </div>
+        <div class="section">
+          <h2>Items</h2>
+          <ul>${itemsHtml}</ul>
+        </div>
+      `
+    );
+    showToast.success("Packing slip downloaded");
   };
 
   const readyToPackOrders = orders.filter(

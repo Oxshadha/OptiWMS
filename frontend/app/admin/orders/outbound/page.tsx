@@ -20,6 +20,7 @@ import {
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapOutboundOrderStatus } from "@/lib/utils/status-mappers";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import clsx from "clsx";
 import { OutboundOrderDisplay } from "./types";
 import { CreateOutboundOrderModal } from "./components/CreateOutboundOrderModal";
@@ -61,6 +62,25 @@ function toApiOutboundStatus(status: string): string | undefined {
   if (status === "picking") return "processing";
   if (status === "ready_to_ship") return "ready";
   return status;
+}
+
+function downloadOutboundOrderSheet(order: OutboundOrderDisplay) {
+  downloadHtmlDocument(
+    `${order.orderNumber}-outbound-order-sheet.html`,
+    `Outbound Order - ${order.orderNumber}`,
+    `
+      <h1>Outbound Order Sheet</h1>
+      <p class="muted">Operational dispatch reference</p>
+      <div class="section grid">
+        <div class="card"><strong>Order</strong><br />${escapeHtml(order.orderNumber)}</div>
+        <div class="card"><strong>Customer</strong><br />${escapeHtml(order.customerName)}</div>
+        <div class="card"><strong>Warehouse</strong><br />${escapeHtml(order.warehouseName)}</div>
+        <div class="card"><strong>Status</strong><br />${escapeHtml(order.status.replaceAll("_", " ").toUpperCase())}</div>
+        <div class="card"><strong>Priority</strong><br />${escapeHtml(order.priority.toUpperCase())}</div>
+        <div class="card"><strong>Items</strong><br />${order.pickedItems}/${order.totalItems} picked</div>
+      </div>
+    `
+  );
 }
 
 export default function OutboundOrdersPage() {
@@ -412,7 +432,12 @@ export default function OutboundOrdersPage() {
           </li>
         )}
         <li>
-          <button onClick={() => showToast.warning(`Printing order ${order.orderNumber}...`)}>
+          <button
+            onClick={() => {
+              downloadOutboundOrderSheet(order);
+              showToast.success(`Order sheet downloaded for ${order.orderNumber}`);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">print</span>
             Print/Export
           </button>

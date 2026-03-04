@@ -13,6 +13,7 @@ import {
   useReferenceWarehouses,
 } from "@/lib/hooks/useQuery";
 import { User } from "@/lib/api/users";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { StockTransferHeader } from "./components/StockTransferHeader";
@@ -212,7 +213,32 @@ export default function StockTransfersPage() {
   };
 
   const handlePrintTransferSlip = (transfer: StockTransfer) => {
-    showToast.warning(`Printing transfer slip: ${transfer.transferNumber}`);
+    downloadHtmlDocument(
+      `${transfer.transferNumber}-transfer-slip.html`,
+      `Transfer Slip - ${transfer.transferNumber}`,
+      `
+        <h1>Stock Transfer Slip</h1>
+        <p class="muted">Execution reference for inventory movement</p>
+        <div class="section grid">
+          <div class="card"><strong>Transfer #</strong><br />${escapeHtml(transfer.transferNumber)}</div>
+          <div class="card"><strong>Status</strong><br />${escapeHtml(transfer.status.replace("_", " ").toUpperCase())}</div>
+          <div class="card"><strong>Type</strong><br />${escapeHtml(
+            transfer.transferType === "intra_warehouse" ? "Intra-Warehouse" : "Inter-Warehouse"
+          )}</div>
+          <div class="card"><strong>Quantity</strong><br />${transfer.quantity}</div>
+          <div class="card"><strong>Item</strong><br />${escapeHtml(transfer.itemName)}</div>
+          <div class="card"><strong>SKU</strong><br />${escapeHtml(transfer.itemSku)}</div>
+          <div class="card"><strong>From</strong><br />${escapeHtml(transfer.sourceLocationCode)}</div>
+          <div class="card"><strong>To</strong><br />${escapeHtml(transfer.destLocationCode)}</div>
+        </div>
+        ${
+          transfer.notes
+            ? `<div class="section"><h2>Notes</h2><p>${escapeHtml(transfer.notes)}</p></div>`
+            : ""
+        }
+      `
+    );
+    showToast.success(`Transfer slip downloaded: ${transfer.transferNumber}`);
   };
 
   const addLine = () => {
