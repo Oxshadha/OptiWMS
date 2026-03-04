@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.users;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.coreapp.users.UserService;
 import com.optiwms.domain.users.User;
 import org.springframework.data.domain.Page;
@@ -20,10 +21,12 @@ import java.util.stream.Collectors;
 public class UserController {
 
     private final UserService service;
+    private final TaskService taskService;
     private final ObjectMapper objectMapper;
 
-    public UserController(UserService service, ObjectMapper objectMapper) {
+    public UserController(UserService service, TaskService taskService, ObjectMapper objectMapper) {
         this.service = service;
+        this.taskService = taskService;
         this.objectMapper = objectMapper;
     }
 
@@ -102,6 +105,28 @@ public class UserController {
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    @GetMapping("/worker-task-summary")
+    public ResponseEntity<List<WorkerTaskSummaryDto>> getWorkerTaskSummary(
+            @RequestParam(required = false) String ids
+    ) {
+        List<UUID> workerIds = ids == null || ids.isBlank()
+                ? List.of()
+                : java.util.Arrays.stream(ids.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .map(UUID::fromString)
+                .toList();
+
+        List<WorkerTaskSummaryDto> data = taskService.getWorkerTaskSummaries(workerIds).stream()
+                .map(summary -> new WorkerTaskSummaryDto(
+                        summary.workerId().toString(),
+                        summary.total(),
+                        summary.completed()
+                ))
+                .toList();
+        return ResponseEntity.ok(data);
     }
 
     @PostMapping
@@ -331,6 +356,12 @@ public class UserController {
             int size,
             long totalElements,
             int totalPages
+    ) {}
+
+    public record WorkerTaskSummaryDto(
+            String workerId,
+            long total,
+            long completed
     ) {}
 
     private String sanitizeSortBy(String sortBy) {

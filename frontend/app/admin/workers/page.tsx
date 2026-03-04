@@ -11,7 +11,6 @@ import { WorkerRole, getRoleDisplayName } from "@/lib/worker-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { usersApi } from "@/lib/api/users";
-import { tasksApi } from "@/lib/api/tasks-api";
 import {
   useInvalidateAdminList,
   usePagedAdminQuery,
@@ -70,32 +69,7 @@ export default function WorkersPage() {
         q: searchQuery.trim() || undefined,
       });
 
-      const taskCounts = await Promise.all(
-        usersPage.data.map(async (u) => {
-          try {
-            const [totalTasks, completedTasks] = await Promise.all([
-              tasksApi.getPaged({
-                page: 0,
-                size: 1,
-                assignedTo: u.id,
-              }),
-              tasksApi.getPaged({
-                page: 0,
-                size: 1,
-                assignedTo: u.id,
-                status: "completed",
-              }),
-            ]);
-            return {
-              id: u.id,
-              total: totalTasks.totalElements,
-              completed: completedTasks.totalElements,
-            };
-          } catch {
-            return { id: u.id, total: 0, completed: 0 };
-          }
-        })
-      );
+      const taskCounts = await usersApi.getWorkerTaskSummary(usersPage.data.map((u) => u.id));
 
       return {
         page: usersPage,
@@ -125,8 +99,8 @@ export default function WorkersPage() {
     const totalTaskCounts = new Map<string, number>();
     const completedTaskCounts = new Map<string, number>();
     workersQuery.data.taskCounts.forEach((entry) => {
-      totalTaskCounts.set(entry.id, entry.total);
-      completedTaskCounts.set(entry.id, entry.completed);
+      totalTaskCounts.set(entry.workerId, entry.total);
+      completedTaskCounts.set(entry.workerId, entry.completed);
     });
 
     const displayWorkers: WorkerDisplay[] = workersQuery.data.page.data.map((u) => {

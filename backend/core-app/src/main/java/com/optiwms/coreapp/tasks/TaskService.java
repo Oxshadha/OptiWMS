@@ -15,7 +15,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -89,6 +91,35 @@ public class TaskService {
 
     public List<Task> findByAssignedTo(UUID assignedTo) {
         return repository.findByAssignedTo(assignedTo).stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public List<WorkerTaskSummary> getWorkerTaskSummaries(List<UUID> workerIds) {
+        if (workerIds == null || workerIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, WorkerTaskSummaryAccumulator> summaries = new LinkedHashMap<>();
+        for (UUID workerId : workerIds) {
+            if (workerId != null) {
+                summaries.put(workerId, new WorkerTaskSummaryAccumulator());
+            }
+        }
+
+        repository.findByAssignedToIn(new ArrayList<>(summaries.keySet())).forEach(task -> {
+            WorkerTaskSummaryAccumulator summary = summaries.get(task.getAssignedTo());
+            if (summary == null) {
+                return;
+            }
+
+            summary.total++;
+            if ("completed".equalsIgnoreCase(task.getStatus())) {
+                summary.completed++;
+            }
+        });
+
+        return summaries.entrySet().stream()
+                .map(entry -> new WorkerTaskSummary(entry.getKey(), entry.getValue().total, entry.getValue().completed))
+                .toList();
     }
 
     public List<Task> findByWarehouseId(UUID warehouseId) {
@@ -365,5 +396,12 @@ public class TaskService {
         } catch (Exception ignored) {
             // Notifications must not block core task state transitions.
         }
+    }
+
+    public record WorkerTaskSummary(UUID workerId, long total, long completed) {}
+
+    private static class WorkerTaskSummaryAccumulator {
+        private long total;
+        private long completed;
     }
 }
