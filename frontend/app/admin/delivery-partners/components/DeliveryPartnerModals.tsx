@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
@@ -10,6 +11,7 @@ import {
   deliveryPartnersApi,
   DeliveryPartner as ApiDeliveryPartner,
 } from "@/lib/api/deliveryPartners";
+import { shipmentsApi } from "@/lib/api/shipments";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatCurrency } from "../utils";
@@ -126,8 +128,31 @@ export function DeliveryPartnerMetricsModal({
   onClose: () => void;
   partner: DeliveryPartnerDisplay;
 }) {
-  const totalShipments = partner.totalShipments;
-  const onTimeRate = partner.onTimeDeliveryRate;
+  const shipmentsQuery = useQuery({
+    queryKey: ["admin-delivery-partners", "metrics", partner.id],
+    queryFn: () => shipmentsApi.getAll(undefined, undefined, partner.id),
+    enabled: isOpen,
+  });
+
+  const shipments = shipmentsQuery.data || [];
+  const totalShipments = shipments.length;
+  const deliveredShipments = shipments.filter((shipment) => shipment.status === "delivered");
+  const inTransitShipments = shipments.filter((shipment) =>
+    shipment.status === "in_transit" || shipment.status === "shipped"
+  );
+  const etaTrackedShipments = deliveredShipments.filter((shipment) => shipment.eta);
+  const onTimeDeliveries = etaTrackedShipments.filter((shipment) => {
+    if (!shipment.deliveredAt || !shipment.eta) {
+      return false;
+    }
+    return new Date(shipment.deliveredAt) <= new Date(shipment.eta);
+  });
+  const onTimeRate =
+    etaTrackedShipments.length > 0
+      ? (onTimeDeliveries.length / etaTrackedShipments.length) * 100
+      : totalShipments > 0
+        ? partner.onTimeDeliveryRate
+        : 0;
   const delayedRate = Math.max(0, 100 - onTimeRate);
   const estimatedSpend = totalShipments * partner.costPerDelivery;
   const reliability =
@@ -147,12 +172,12 @@ export function DeliveryPartnerMetricsModal({
             <p className="text-3xl font-bold text-base-content">{totalShipments}</p>
           </div>
           <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-            <p className="text-sm text-base-content/60">On-Time Rate</p>
-            <p className="text-3xl font-bold text-success">{onTimeRate.toFixed(1)}%</p>
+            <p className="text-sm text-base-content/60">Delivered</p>
+            <p className="text-3xl font-bold text-base-content">{deliveredShipments.length}</p>
           </div>
           <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-            <p className="text-sm text-base-content/60">Late / Exception Rate</p>
-            <p className="text-3xl font-bold text-warning">{delayedRate.toFixed(1)}%</p>
+            <p className="text-sm text-base-content/60">On-Time Rate</p>
+            <p className="text-3xl font-bold text-success">{onTimeRate.toFixed(1)}%</p>
           </div>
           <div className="rounded-xl border border-base-300 bg-base-200 p-4">
             <p className="text-sm text-base-content/60">Estimated Spend</p>
@@ -167,7 +192,7 @@ export function DeliveryPartnerMetricsModal({
             <div>
               <h3 className="text-lg font-semibold text-base-content">Service Reliability</h3>
               <p className="text-sm text-base-content/60">
-                Based on the persisted partner scorecard values currently stored in the master record.
+                Derived from real shipments linked to this delivery partner.
               </p>
             </div>
             <StatusChip
@@ -218,19 +243,38 @@ export function DeliveryPartnerMetricsModal({
             <p className="text-xl font-bold text-base-content">{partner.serviceAreas.length} service areas</p>
           </div>
           <div className="rounded-xl border border-base-300 bg-base-200 p-4">
-            <p className="text-sm text-base-content/60">Quality Rating</p>
-            <p className="text-xl font-bold text-base-content">{partner.rating.toFixed(1)} / 5.0</p>
+            <p className="text-sm text-base-content/60">Active Shipments</p>
+            <p className="text-xl font-bold text-base-content">{inTransitShipments.length}</p>
           </div>
         </div>
 
         <div className="rounded-xl border border-base-300 bg-base-200 p-4">
           <p className="text-sm text-base-content/60 mb-1">Interpretation</p>
           <p className="text-sm text-base-content/80">
-            Use this view to review the supplier-maintained carrier scorecard before assigning more outbound work.
-            Shipment counts and on-time rate are editable master-data fields today; they can be automated later once
-            shipments are explicitly linked to a delivery partner record.
+            Use this view to review actual shipment throughput and delivery reliability before assigning more outbound work.
+            On-time rate is calculated from delivered shipments that have an ETA recorded.
           </p>
         </div>
+
+        {shipmentsQuery.isPending ? (
+          <div className="flex items-center justify-center py-4">
+            <span className="loading loading-spinner loading-md"></span>
+          </div>
+        ) : null}
+
+        {shipmentsQuery.isError ? (
+          <div className="alert alert-warning">
+            <span className="material-symbols-outlined">warning</span>
+            <span>Unable to load linked shipment history. Showing current totals only.</span>
+          </div>
+        ) : null}
+
+        {!shipmentsQuery.isPending && !shipmentsQuery.isError && totalShipments === 0 ? (
+          <div className="rounded-xl border border-dashed border-base-300 bg-base-200 p-4 text-sm text-base-content/70">
+            No shipments are linked to this delivery partner yet. New shipments created from the shipments page will now
+            be linked automatically.
+          </div>
+        ) : null}
 
         <div className="flex justify-end">
           <button className="btn btn-primary" onClick={onClose}>
@@ -265,8 +309,6 @@ export function EditDeliveryPartnerModal({
     costPerDelivery: partner.costPerDelivery.toString(),
     currencyCode: partner.currencyCode || "USD",
     rating: partner.rating.toString(),
-    totalShipments: partner.totalShipments.toString(),
-    onTimeDeliveryRate: partner.onTimeDeliveryRate.toString(),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -284,10 +326,6 @@ export function EditDeliveryPartnerModal({
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery ? formData.costPerDelivery : undefined,
         rating: formData.rating ? formData.rating : undefined,
-        totalShipments: formData.totalShipments ? Number(formData.totalShipments) : undefined,
-        onTimeDeliveryRate: formData.onTimeDeliveryRate
-          ? formData.onTimeDeliveryRate
-          : undefined,
       };
 
       await deliveryPartnersApi.update(partner.id, updateData);
@@ -328,37 +366,6 @@ export function EditDeliveryPartnerModal({
               value={formData.companyName}
               onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
               required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Tracked Shipments</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              className="input input-bordered w-full"
-              value={formData.totalShipments}
-              onChange={(e) => setFormData({ ...formData, totalShipments: e.target.value })}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">On-Time Rate (%)</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              className="input input-bordered w-full"
-              value={formData.onTimeDeliveryRate}
-              onChange={(e) =>
-                setFormData({ ...formData, onTimeDeliveryRate: e.target.value })
-              }
             />
           </div>
         </div>
@@ -556,8 +563,6 @@ export function CreateDeliveryPartnerModal({
     costPerDelivery: "",
     currencyCode: "USD",
     rating: "",
-    totalShipments: "0",
-    onTimeDeliveryRate: "",
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -576,8 +581,6 @@ export function CreateDeliveryPartnerModal({
         serviceAreas: JSON.stringify(formData.serviceAreas),
         costPerDelivery: formData.costPerDelivery || undefined,
         rating: formData.rating || undefined,
-        totalShipments: Number(formData.totalShipments || "0"),
-        onTimeDeliveryRate: formData.onTimeDeliveryRate || undefined,
         status: "active",
       };
 
@@ -598,8 +601,6 @@ export function CreateDeliveryPartnerModal({
         costPerDelivery: "",
         currencyCode: "USD",
         rating: "",
-        totalShipments: "0",
-        onTimeDeliveryRate: "",
       });
     } catch (err) {
       logger.error("Failed to create delivery partner:", err);
@@ -635,37 +636,6 @@ export function CreateDeliveryPartnerModal({
               value={formData.companyName}
               onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
               required
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">Tracked Shipments</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              className="input input-bordered w-full"
-              value={formData.totalShipments}
-              onChange={(e) => setFormData({ ...formData, totalShipments: e.target.value })}
-            />
-          </div>
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text font-medium">On-Time Rate (%)</span>
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              className="input input-bordered w-full"
-              value={formData.onTimeDeliveryRate}
-              onChange={(e) =>
-                setFormData({ ...formData, onTimeDeliveryRate: e.target.value })
-              }
             />
           </div>
         </div>

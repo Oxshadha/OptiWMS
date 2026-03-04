@@ -57,6 +57,7 @@ public class ShipmentService {
 
     public Page<Shipment> findPaged(
             UUID orderId,
+            UUID deliveryPartnerId,
             String status,
             String q,
             Pageable pageable
@@ -65,6 +66,9 @@ public class ShipmentService {
             List<Predicate> predicates = new ArrayList<>();
             if (orderId != null) {
                 predicates.add(cb.equal(root.get("orderId"), orderId));
+            }
+            if (deliveryPartnerId != null) {
+                predicates.add(cb.equal(root.get("deliveryPartnerId"), deliveryPartnerId));
             }
             if (status != null && !status.isBlank()) {
                 predicates.add(cb.equal(root.get("status"), status));
@@ -93,6 +97,12 @@ public class ShipmentService {
                 .collect(Collectors.toList());
     }
 
+    public List<Shipment> findByDeliveryPartnerId(UUID deliveryPartnerId) {
+        return repository.findByDeliveryPartnerId(deliveryPartnerId).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public List<Shipment> findByStatus(String status) {
         return repository.findByStatus(status).stream()
                 .map(this::toDomain)
@@ -114,6 +124,7 @@ public class ShipmentService {
         ShipmentEntity entity = new ShipmentEntity();
         entity.setShipmentNumber(shipment.getShipmentNumber());
         entity.setOrderId(shipment.getOrderId());
+        entity.setDeliveryPartnerId(shipment.getDeliveryPartnerId());
         entity.setCarrier(shipment.getCarrier());
         entity.setTrackingNumber(shipment.getTrackingNumber());
         entity.setDestination(shipment.getDestination());
@@ -186,6 +197,7 @@ public class ShipmentService {
                 .orElseThrow(() -> new RuntimeException("Shipment not found: " + shipment.getId()));
 
         entity.setCarrier(shipment.getCarrier());
+        entity.setDeliveryPartnerId(shipment.getDeliveryPartnerId());
         entity.setTrackingNumber(shipment.getTrackingNumber());
         entity.setDestination(shipment.getDestination());
         entity.setWeightKg(shipment.getWeightKg());
@@ -216,6 +228,7 @@ public class ShipmentService {
             s.setId(entity.getId());
             s.setShipmentNumber(entity.getShipmentNumber() != null ? entity.getShipmentNumber() : "");
             s.setOrderId(entity.getOrderId());
+            s.setDeliveryPartnerId(entity.getDeliveryPartnerId());
             s.setCarrier(entity.getCarrier());
             s.setTrackingNumber(entity.getTrackingNumber());
             s.setDestination(entity.getDestination());

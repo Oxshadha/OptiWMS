@@ -116,6 +116,7 @@ export function CreateShipmentModal({ onClose }: { onClose: () => void }) {
         shipmentsApi.create({
           shipmentNumber: `SHP-${Date.now()}-${index + 1}`,
           orderId,
+          deliveryPartnerId: formData.deliveryPartner,
           carrier: partner?.companyName || partner?.partnerCode || formData.deliveryPartner,
           driverName: formData.driverName,
           driverPhone: formData.driverPhone,
