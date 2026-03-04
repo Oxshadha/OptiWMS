@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { useWorker } from "@/contexts/WorkerContext";
 import { useOffline } from "@/hooks/useOffline";
+import { getTask, saveTask } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -48,6 +49,36 @@ function formatTaskTitle(taskType: string) {
     .join(" ");
 }
 
+function toIndexedDbTaskType(taskType: string): "picking" | "putaway" | "receiving" | "cycle_count" | "shipment" | "return" {
+  const normalized = taskType.toLowerCase();
+  if (normalized === "putaway") return "putaway";
+  if (normalized === "receiving") return "receiving";
+  if (normalized === "cycle_count") return "cycle_count";
+  if (normalized === "shipment") return "shipment";
+  if (normalized === "returns" || normalized === "return") return "return";
+  return "picking";
+}
+
+async function cacheTask(task: Task, workerId?: string) {
+  await saveTask({
+    id: task.id,
+    type: toIndexedDbTaskType(task.taskType),
+    status:
+      task.status === "in_progress" || task.status === "completed" || task.status === "cancelled"
+        ? task.status
+        : "pending",
+    data: task,
+    createdAt: task.dueDate ? new Date(task.dueDate).getTime() : Date.now(),
+    updatedAt: Date.now(),
+    synced: true,
+    workerId,
+    assignedTo: task.assignedTo,
+    warehouseId: task.warehouseId,
+    startedAt: task.startedAt ? new Date(task.startedAt).getTime() : undefined,
+    completedAt: task.completedAt ? new Date(task.completedAt).getTime() : undefined,
+  });
+}
+
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -69,19 +100,38 @@ export default function TaskDetailPage() {
 
       try {
         setLoading(true);
-        const nextTask = await tasksApi.getById(taskId);
-        setTask(nextTask);
+        if (isOnline) {
+          const nextTask = await tasksApi.getById(taskId);
+          setTask(nextTask);
+          await cacheTask(nextTask, worker?.id);
+        } else {
+          const cachedTask = await getTask(taskId);
+          const cachedData = cachedTask?.data;
+          if (cachedData && typeof cachedData === "object") {
+            setTask(cachedData as Task);
+          } else {
+            setTask(null);
+          }
+        }
       } catch (error) {
         logger.error("Error loading task:", error);
-        showToast.error("Failed to load task");
-        setTask(null);
+        if (isOnline) {
+          showToast.error("Failed to load task");
+        }
+        try {
+          const cachedTask = await getTask(taskId);
+          const cachedData = cachedTask?.data;
+          setTask(cachedData && typeof cachedData === "object" ? (cachedData as Task) : null);
+        } catch {
+          setTask(null);
+        }
       } finally {
         setLoading(false);
       }
     };
 
     void loadTask();
-  }, [taskId]);
+  }, [taskId, isOnline, worker?.id]);
 
   const updateTaskStatus = async (nextStatus: "in_progress" | "completed") => {
     if (!task || !worker?.id || !isOnline) {
@@ -92,6 +142,7 @@ export default function TaskDetailPage() {
     try {
       setUpdating(true);
       const updated = await tasksApi.updateStatus(task.id, nextStatus, worker.id);
+      await cacheTask(updated, worker.id);
       setTask(updated);
       showToast.success(nextStatus === "completed" ? "Task completed" : "Task started");
       if (nextStatus === "completed") {
