@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { analyticsApi, WorkerProductivityMetrics, LeaderboardEntry } from "@/lib/api/analytics";
@@ -9,57 +10,35 @@ import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
-import { showToast } from "@/lib/utils/toast";
-import { logger } from "@/lib/utils/logger";
 
 export default function LaborProductivityPage() {
   const { hasPermission } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
-  const [productivityMetrics, setProductivityMetrics] = useState<WorkerProductivityMetrics[]>([]);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("monthly");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const productivityQuery = useQuery({
+    queryKey: ["admin-labor-productivity", selectedPeriod],
+    queryFn: async () => {
       const [productivityData, leaderboardData] = await Promise.all([
         analyticsApi.getWorkerProductivity(undefined, undefined, undefined, selectedPeriod),
         analyticsApi.getWorkerLeaderboard(selectedPeriod),
       ]);
-      setProductivityMetrics(productivityData);
-      setLeaderboard(leaderboardData);
-    } catch (err) {
-      logger.error("Failed to load labor productivity data:", err);
-      const message =
-        err instanceof Error ? err.message : "Failed to load labor productivity data";
-      setError(message);
-      setProductivityMetrics([]);
-      setLeaderboard([]);
-      showToast.error(message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    loadData();
-  }, [selectedPeriod]);
+      return {
+        productivityMetrics: productivityData,
+        leaderboard: leaderboardData,
+      };
+    },
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 10 * 1000,
+    refetchOnWindowFocus: true,
+  });
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedPeriod]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadData();
-    }, 10000);
-    return () => clearInterval(interval);
   }, [selectedPeriod]);
 
   if (!canView) {
@@ -72,7 +51,7 @@ export default function LaborProductivityPage() {
     );
   }
 
-  if (loading) {
+  if (productivityQuery.isPending && !productivityQuery.data) {
     return (
       <div className="flex items-center justify-center h-64">
         <span className="loading loading-spinner loading-lg"></span>
@@ -80,19 +59,29 @@ export default function LaborProductivityPage() {
     );
   }
 
+  const productivityMetrics: WorkerProductivityMetrics[] =
+    productivityQuery.data?.productivityMetrics || [];
+  const leaderboard: LeaderboardEntry[] = productivityQuery.data?.leaderboard || [];
+  const error =
+    productivityQuery.error instanceof Error
+      ? productivityQuery.error.message
+      : productivityQuery.error
+        ? "Failed to load labor productivity data"
+        : null;
+
   if (error && productivityMetrics.length === 0 && leaderboard.length === 0) {
     return (
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading labor productivity data: {error}</span>
-        <button className="btn btn-sm" onClick={loadData}>
+        <button className="btn btn-sm" onClick={() => void productivityQuery.refetch()}>
           Retry
         </button>
       </div>
     );
   }
 
-  const summary = {
+  const summary = useMemo(() => ({
     averagePPH: productivityMetrics.length > 0
       ? productivityMetrics.reduce((sum, m) => sum + (m.picksPerHour ?? 0), 0) / productivityMetrics.length
       : 0,
@@ -104,7 +93,7 @@ export default function LaborProductivityPage() {
       : 0,
     totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
     topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
-  };
+  }), [leaderboard, productivityMetrics]);
   const pagedMetrics = productivityMetrics.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -126,6 +115,7 @@ export default function LaborProductivityPage() {
             className="select select-bordered select-sm"
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value as "weekly" | "monthly")}
+            disabled={productivityQuery.isFetching && !productivityQuery.data}
           >
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>

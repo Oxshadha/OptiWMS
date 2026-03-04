@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
@@ -12,9 +11,13 @@ import {
 } from "@/lib/admin-roles";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { usersApi, User } from "@/lib/api/users";
+import { usersApi } from "@/lib/api/users";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
-import { warehousesApi } from "@/lib/api/warehouses";
 import { logger } from "@/lib/utils/logger";
 import {
   AdminDetailModal,
@@ -31,73 +34,23 @@ export default function AdminsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [admins, setAdmins] = useState<AdminDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedAdmin, setSelectedAdmin] = useState<AdminDisplay | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState(() => {
     const roleParam = searchParams.get("role");
     return roleParam || "all";
   });
-
-  // Load admins function - extracted so it can be called after creating a new admin
-  const loadAdmins = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      // Fetch all users with admin roles
+  const adminsQuery = usePagedAdminQuery({
+    queryKey: ["admin-admins"],
+    queryFn: async () => {
       const adminRoles = ["admin", "warehouse_manager", "inbound_coordinator"];
-      const [roleUsers, warehouses] = await Promise.all([
-        Promise.all(adminRoles.map((adminRole) => usersApi.getAll(adminRole))),
-        warehousesApi.getAll(),
-      ]);
-      const dedupedUsers: User[] = Array.from(
-        new Map(roleUsers.flat().map((u) => [u.id, u])).values()
-      );
-      const warehouseMap = new Map<string, string>();
-      warehouses.forEach((wh) => warehouseMap.set(wh.id, wh.name));
-
-      const adminsWithWarehouses: AdminDisplay[] = dedupedUsers.map((user) => {
-        const warehouseName = user.warehouseId
-          ? warehouseMap.get(user.warehouseId) || "Unknown Warehouse"
-          : "All Warehouses";
-        const lastLogin = user.lastLoginAt
-          ? new Date(user.lastLoginAt).toLocaleString()
-          : "Never";
-
-        return {
-          id: user.id,
-          name:
-            `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
-            user.username ||
-            "Unknown",
-          email: user.email || "",
-          role: (user.role as AdminRole) || "warehouse_manager",
-          warehouseId: user.warehouseId,
-          warehouseName,
-          lastLogin,
-          avatar: user.avatarUrl,
-          createdAt: "-",
-          status: user.status || "active",
-        };
-      });
-      
-      setAdmins(adminsWithWarehouses);
-    } catch (error) {
-      logger.error("Error loading admins:", error);
-      setError(error instanceof Error ? error.message : "Failed to load managers");
-      setAdmins([]);
-      showToast.error("Failed to load managers");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Load admins from API on mount
-  useEffect(() => {
-    loadAdmins();
-  }, [loadAdmins]);
+      const roleUsers = await Promise.all(adminRoles.map((adminRole) => usersApi.getAll(adminRole)));
+      return Array.from(new Map(roleUsers.flat().map((u) => [u.id, u])).values());
+    },
+    staleTime: 60 * 1000,
+  });
+  const warehousesQuery = useReferenceWarehouses();
+  const reload = useInvalidateAdminList(["admin-admins"]);
 
   useEffect(() => {
     const roleParam = searchParams.get("role");
@@ -109,6 +62,46 @@ export default function AdminsPage() {
   const canCreate = hasPermission(ADMIN_ROUTES.ADMINS, "create");
   const canEdit = hasPermission(ADMIN_ROUTES.ADMINS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.ADMINS, "delete");
+
+  const admins = useMemo<AdminDisplay[]>(() => {
+    const warehouseMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((wh) => warehouseMap.set(wh.id, wh.name));
+
+    return (adminsQuery.data || []).map((user) => {
+      const warehouseName = user.warehouseId
+        ? warehouseMap.get(user.warehouseId) || "Unknown Warehouse"
+        : "All Warehouses";
+      const lastLogin = user.lastLoginAt
+        ? new Date(user.lastLoginAt).toLocaleString()
+        : "Never";
+
+      return {
+        id: user.id,
+        name:
+          `${user.firstName || ""} ${user.lastName || ""}`.trim() ||
+          user.username ||
+          "Unknown",
+        email: user.email || "",
+        role: (user.role as AdminRole) || "warehouse_manager",
+        warehouseId: user.warehouseId,
+        warehouseName,
+        lastLogin,
+        avatar: user.avatarUrl,
+        createdAt: "-",
+        status: user.status || "active",
+      };
+    });
+  }, [adminsQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (adminsQuery.isPending && !adminsQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const error =
+    adminsQuery.error || warehousesQuery.error
+      ? adminsQuery.error instanceof Error
+        ? adminsQuery.error.message
+        : "Failed to load managers"
+      : null;
 
   const summary = {
     totalAdmins: admins.length,
@@ -249,7 +242,7 @@ export default function AdminsPage() {
         showToast.success("Admin deleted successfully");
         setShowDeleteModal(false);
         setSelectedAdmin(null);
-        await loadAdmins();
+        await reload();
       } catch (err) {
         logger.error("Failed to delete admin:", err);
         showToast.error(err instanceof Error ? err.message : "Failed to delete admin");
@@ -392,7 +385,7 @@ export default function AdminsPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={loadAdmins}>
+          <button className="btn btn-sm" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -414,7 +407,7 @@ export default function AdminsPage() {
       <CreateAdminModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadAdmins}
+        onSuccess={reload}
       />
 
       {/* Admin Detail Modal */}
@@ -443,7 +436,7 @@ export default function AdminsPage() {
           }}
           admin={selectedAdmin}
           onSuccess={async () => {
-            await loadAdmins();
+            await reload();
             showToast.success("Manager updated successfully");
           }}
         />

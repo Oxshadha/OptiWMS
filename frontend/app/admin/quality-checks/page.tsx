@@ -1,13 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { DataTable } from "@/components/DataTable";
+import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { qualityChecksApi } from "@/lib/api/qualityChecks";
-import { materialsApi } from "@/lib/api/materials";
-import { usersApi } from "@/lib/api/users";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceMaterials,
+  useReferenceUsers,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { QualityCheckDetailModal, RejectQualityCheckModal } from "./components/QualityCheckModals";
@@ -30,91 +35,71 @@ export default function QualityChecksPage() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [selectedCheck, setSelectedCheck] = useState<QualityCheckDisplay | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const qualityChecksQuery = usePagedAdminQuery({
+    queryKey: ["admin-quality-checks"],
+    queryFn: () => qualityChecksApi.getAll(),
+    staleTime: 60 * 1000,
+  });
+  const materialsQuery = useReferenceMaterials();
+  const usersQuery = useReferenceUsers();
+  const reload = useInvalidateAdminList(["admin-quality-checks"]);
 
-  const [qualityChecks, setQualityChecks] = useState<QualityCheckDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [checksData, materialsData, usersData] = await Promise.all([
-        qualityChecksApi.getAll(),
-        materialsApi.getAll(),
-        usersApi.getAll(),
-      ]);
-
-      const materialsMap = new Map<string, { name: string; sku: string }>();
-      materialsData.forEach((material) => {
-        materialsMap.set(material.id, {
-          name: material.description || "Unknown",
-          sku: material.materialCode || material.id,
-        });
+  const qualityChecks = useMemo<QualityCheckDisplay[]>(() => {
+    const materialsMap = new Map<string, { name: string; sku: string }>();
+    (materialsQuery.data || []).forEach((material) => {
+      materialsMap.set(material.id, {
+        name: material.description || "Unknown",
+        sku: material.materialCode || material.id,
       });
+    });
 
-      const usersMap = new Map<string, string>();
-      usersData.forEach((user) => {
-        const displayName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || user.email || "Unknown";
-        usersMap.set(user.id, displayName);
-      });
+    const usersMap = new Map<string, string>();
+    (usersQuery.data || []).forEach((user) => {
+      const displayName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || user.email || "Unknown";
+      usersMap.set(user.id, displayName);
+    });
 
-      const displayChecks: QualityCheckDisplay[] = checksData.map((qualityCheck) => {
-        const material = qualityCheck.materialId ? materialsMap.get(qualityCheck.materialId) : null;
-        const checkedBy = qualityCheck.checkedBy ? usersMap.get(qualityCheck.checkedBy) || "Unknown" : "Unknown";
-        const approvedBy = qualityCheck.approvedBy ? usersMap.get(qualityCheck.approvedBy) || "Unknown" : null;
+    return (qualityChecksQuery.data || []).map((qualityCheck) => {
+      const material = qualityCheck.materialId ? materialsMap.get(qualityCheck.materialId) : null;
+      const checkedBy = qualityCheck.checkedBy ? usersMap.get(qualityCheck.checkedBy) || "Unknown" : "Unknown";
+      const approvedBy = qualityCheck.approvedBy ? usersMap.get(qualityCheck.approvedBy) || "Unknown" : null;
 
-        const qtyReceived = parseInt(qualityCheck.qtyReceived) || 0;
-        const qtyPassed = parseInt(qualityCheck.qtyPassed) || 0;
-        const qtyRejected = parseInt(qualityCheck.qtyRejected) || 0;
-        const approvalStatus = (qualityCheck.approvalStatus || "").toUpperCase();
+      const qtyReceived = parseInt(qualityCheck.qtyReceived) || 0;
+      const qtyPassed = parseInt(qualityCheck.qtyPassed) || 0;
+      const qtyRejected = parseInt(qualityCheck.qtyRejected) || 0;
+      const approvalStatus = (qualityCheck.approvalStatus || "").toUpperCase();
 
-        let result: QualityCheckDisplay["result"] = "partial";
-        if (approvalStatus === "APPROVED") {
-          result = "passed";
-        } else if (approvalStatus === "REJECTED") {
-          result = "failed";
-        } else if (qtyRejected === 0 && qtyPassed > 0) {
-          result = "passed";
-        } else if (qtyPassed === 0 && qtyRejected > 0) {
-          result = "failed";
-        }
-
-        return {
-          id: qualityCheck.id,
-          checkId: `QC-${qualityCheck.id.substring(0, 8).toUpperCase()}`,
-          inboundOrderNumber: qualityCheck.grnId ? `GRN-${qualityCheck.grnId.substring(0, 8).toUpperCase()}` : "N/A",
-          productName: material?.name || "Unknown",
-          sku: material?.sku || "N/A",
-          quantityChecked: qtyReceived,
-          quantityPassed: qtyPassed,
-          quantityFailed: qtyRejected,
-          result,
-          checkedByName: checkedBy,
-          checkDate: qualityCheck.checkDate ? new Date(qualityCheck.checkDate).toLocaleString() : new Date().toLocaleString(),
-          approvedByName: approvedBy,
-          approvalDate: qualityCheck.approvedAt ? new Date(qualityCheck.approvedAt).toLocaleString() : null,
-          warehouseName: "Unknown",
-        };
-      });
-
-      setQualityChecks(displayChecks);
-    } catch (err) {
-      logger.error("Failed to load quality checks:", err);
-      setError(err instanceof Error ? err.message : "Failed to load quality checks");
-      setQualityChecks([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load quality checks. Please try again.");
+      let result: QualityCheckDisplay["result"] = "partial";
+      if (approvalStatus === "APPROVED") {
+        result = "passed";
+      } else if (approvalStatus === "REJECTED") {
+        result = "failed";
+      } else if (qtyRejected === 0 && qtyPassed > 0) {
+        result = "passed";
+      } else if (qtyPassed === 0 && qtyRejected > 0) {
+        result = "failed";
       }
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+      return {
+        id: qualityCheck.id,
+        checkId: `QC-${qualityCheck.id.substring(0, 8).toUpperCase()}`,
+        inboundOrderNumber: qualityCheck.grnId ? `GRN-${qualityCheck.grnId.substring(0, 8).toUpperCase()}` : "N/A",
+        productName: material?.name || "Unknown",
+        sku: material?.sku || "N/A",
+        quantityChecked: qtyReceived,
+        quantityPassed: qtyPassed,
+        quantityFailed: qtyRejected,
+        result,
+        checkedByName: checkedBy,
+        checkDate: qualityCheck.checkDate ? new Date(qualityCheck.checkDate).toLocaleString() : new Date().toLocaleString(),
+        approvedByName: approvedBy,
+        approvalDate: qualityCheck.approvedAt ? new Date(qualityCheck.approvedAt).toLocaleString() : null,
+        warehouseName: "Unknown",
+      };
+    });
+  }, [materialsQuery.data, qualityChecksQuery.data, usersQuery.data]);
 
   const qualityChecksForWarehouse =
     isWarehouseManager && assignedWarehouseName
@@ -159,6 +144,11 @@ export default function QualityChecksPage() {
 
     return matchesSearch && matchesStatus;
   });
+  const pagedChecks = filteredChecks.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+  const totalPages = Math.max(Math.ceil(filteredChecks.length / itemsPerPage), 1);
 
   const summaryCards = useMemo(() => buildSummaryCards(summary), [summary]);
   const columns = useMemo(
@@ -175,7 +165,7 @@ export default function QualityChecksPage() {
       buildRenderActions({
         canApprove,
         adminId: admin?.id,
-        onRefresh: loadData,
+        onRefresh: reload,
         onOpenDetails: (check) => {
           setSelectedCheck(check);
           setShowDetailModal(true);
@@ -187,6 +177,17 @@ export default function QualityChecksPage() {
       }),
     [canApprove, admin?.id]
   );
+
+  const loading =
+    (qualityChecksQuery.isPending && !qualityChecksQuery.data) ||
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data);
+  const error =
+    qualityChecksQuery.error || materialsQuery.error || usersQuery.error
+      ? qualityChecksQuery.error instanceof Error
+        ? qualityChecksQuery.error.message
+        : "Failed to load quality checks"
+      : null;
 
   if (loading) {
     return (
@@ -242,7 +243,7 @@ export default function QualityChecksPage() {
       <SummaryCards cards={summaryCards} />
 
       <DataTable
-        data={filteredChecks}
+        data={pagedChecks}
         columns={columns}
         keyExtractor={(check) => check.id}
         onRowClick={(check) => {
@@ -251,6 +252,18 @@ export default function QualityChecksPage() {
         }}
         actions={renderActions}
         emptyMessage="No quality checks found"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        itemsPerPage={itemsPerPage}
+        totalItems={filteredChecks.length}
+        showItemsPerPage
+        onItemsPerPageChange={(next) => {
+          setItemsPerPage(next);
+          setCurrentPage(1);
+        }}
       />
 
       {selectedCheck && (
@@ -262,7 +275,7 @@ export default function QualityChecksPage() {
           }}
           check={selectedCheck}
           adminId={admin?.id}
-          onRefresh={loadData}
+          onRefresh={reload}
           canApprove={canApprove}
           onReject={() => {
             setShowDetailModal(false);
@@ -283,7 +296,7 @@ export default function QualityChecksPage() {
           setRejectReason("");
         }}
         onRejected={async () => {
-          await loadData();
+          await reload();
           setShowRejectModal(false);
           setSelectedCheck(null);
           setRejectReason("");
