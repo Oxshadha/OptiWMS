@@ -26,6 +26,12 @@ export interface PagedUsersResponse {
   totalPages: number;
 }
 
+export interface WorkerTaskSummary {
+  workerId: string;
+  total: number;
+  completed: number;
+}
+
 export const usersApi = {
   getAll: async (role?: string, warehouseId?: string, status?: string): Promise<User[]> => {
     const params = new URLSearchParams();
@@ -73,6 +79,16 @@ export const usersApi = {
 
   getByUsername: async (username: string): Promise<User> => {
     return apiClient.get<User>(`/users/username/${username}`);
+  },
+
+  getWorkerTaskSummary: async (ids: string[]): Promise<WorkerTaskSummary[]> => {
+    if (!ids.length) {
+      return [];
+    }
+
+    const params = new URLSearchParams();
+    params.append("ids", ids.join(","));
+    return apiClient.get<WorkerTaskSummary[]>(`/users/worker-task-summary?${params.toString()}`);
   },
 
   create: async (user: Omit<User, 'id'> & { password: string }): Promise<User> => {

@@ -14,6 +14,7 @@ public interface TaskRepository extends JpaRepository<TaskEntity, UUID>, JpaSpec
     List<TaskEntity> findByTaskType(String taskType);
     List<TaskEntity> findByStatus(String status);
     List<TaskEntity> findByAssignedTo(UUID assignedTo);
+    List<TaskEntity> findByAssignedToIn(List<UUID> assignedTo);
     List<TaskEntity> findByWarehouseId(UUID warehouseId);
     List<TaskEntity> findByTaskTypeAndStatus(String taskType, String status);
     List<TaskEntity> findByWarehouseIdAndTaskTypeAndStatus(UUID warehouseId, String taskType, String status);
