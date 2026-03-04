@@ -15,6 +15,7 @@ import {
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapPackingStatus } from "@/lib/utils/status-mappers";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { logger } from "@/lib/utils/logger";
 import { PackingHeader } from "./components/PackingHeader";
 import { PackingStats } from "./components/PackingStats";
@@ -222,11 +223,43 @@ export default function PackingPage() {
   };
 
   const handlePrintLabel = (record: PackingRecord) => {
-    showToast.warning(`Printing label for ${record.orderNumber}...`);
+    downloadHtmlDocument(
+      `${record.orderNumber}-shipping-label.html`,
+      `Shipping Label - ${record.orderNumber}`,
+      `
+        <h1>Shipping Label</h1>
+        <p class="muted">Packing reference for outbound shipment handoff</p>
+        <div class="section grid">
+          <div class="card"><strong>Order</strong><br />${escapeHtml(record.orderNumber)}</div>
+          <div class="card"><strong>Customer</strong><br />${escapeHtml(record.customer)}</div>
+          <div class="card"><strong>Priority</strong><br />${escapeHtml(record.priority.toUpperCase())}</div>
+          <div class="card"><strong>Warehouse</strong><br />${escapeHtml(record.warehouseName || "N/A")}</div>
+          <div class="card"><strong>Tracking</strong><br />${escapeHtml(record.trackingNumber || "Pending")}</div>
+          <div class="card"><strong>Chargeable Weight</strong><br />${record.chargeableWeight || 0} kg</div>
+        </div>
+      `
+    );
+    showToast.success(`Shipping label downloaded for ${record.orderNumber}`);
   };
 
   const handlePrintSlip = (record: PackingRecord) => {
-    showToast.warning(`Printing slip for ${record.orderNumber}...`);
+    downloadHtmlDocument(
+      `${record.orderNumber}-packing-slip.html`,
+      `Packing Slip - ${record.orderNumber}`,
+      `
+        <h1>Packing Slip</h1>
+        <p class="muted">Operational packing summary</p>
+        <div class="section grid">
+          <div class="card"><strong>Order</strong><br />${escapeHtml(record.orderNumber)}</div>
+          <div class="card"><strong>Status</strong><br />${escapeHtml(record.status.replace("_", " ").toUpperCase())}</div>
+          <div class="card"><strong>Packaging</strong><br />${escapeHtml(record.packagingType || "Not selected")}</div>
+          <div class="card"><strong>Packer</strong><br />${escapeHtml(record.packerName || "Unassigned")}</div>
+          <div class="card"><strong>Actual Weight</strong><br />${record.actualWeight || 0} kg</div>
+          <div class="card"><strong>Dimensional Weight</strong><br />${record.dimensionalWeight || 0} kg</div>
+        </div>
+      `
+    );
+    showToast.success(`Packing slip downloaded for ${record.orderNumber}`);
   };
 
   return (
