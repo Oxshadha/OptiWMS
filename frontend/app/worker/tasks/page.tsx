@@ -6,6 +6,7 @@ import { useState, useEffect, type MouseEvent } from "react";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { useWorker } from "@/contexts/WorkerContext";
 import { useOffline } from "@/hooks/useOffline";
+import { getAllTasks, saveTask } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { QRScanner } from "@/components/QRScanner";
 import { logger } from "@/lib/utils/logger";
@@ -27,6 +28,45 @@ const taskTypeConfig: Record<string, { icon: string; type: string }> = {
   shipment: { icon: "local_shipping", type: "primary" },
 };
 
+function toIndexedDbTaskType(taskType: string): "picking" | "putaway" | "receiving" | "cycle_count" | "shipment" | "return" {
+  const normalized = taskType.toLowerCase();
+  if (normalized === "putaway") return "putaway";
+  if (normalized === "receiving") return "receiving";
+  if (normalized === "cycle_count") return "cycle_count";
+  if (normalized === "shipment") return "shipment";
+  if (normalized === "returns" || normalized === "return") return "return";
+  return "picking";
+}
+
+function cacheTask(task: Task, workerId?: string) {
+  return saveTask({
+    id: task.id,
+    type: toIndexedDbTaskType(task.taskType),
+    status:
+      task.status === "in_progress" || task.status === "completed" || task.status === "cancelled"
+        ? task.status
+        : "pending",
+    data: task,
+    createdAt: task.dueDate ? new Date(task.dueDate).getTime() : Date.now(),
+    updatedAt: Date.now(),
+    synced: true,
+    workerId,
+    assignedTo: task.assignedTo,
+    warehouseId: task.warehouseId,
+    startedAt: task.startedAt ? new Date(task.startedAt).getTime() : undefined,
+    completedAt: task.completedAt ? new Date(task.completedAt).getTime() : undefined,
+  });
+}
+
+function fromCachedTask(cachedTask: Awaited<ReturnType<typeof getAllTasks>>[number]): Task | null {
+  const raw = cachedTask.data;
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  return raw as Task;
+}
+
 export default function WorkerTasksPage() {
   const router = useRouter();
   const { worker } = useWorker();
@@ -38,8 +78,28 @@ export default function WorkerTasksPage() {
   const [nowTs, setNowTs] = useState<number>(Date.now());
 
   const loadTasks = async (showErrorToast: boolean = true) => {
-    if (!worker?.id || !isOnline) {
+    if (!worker?.id) {
+      setTasks([]);
       setLoading(false);
+      return;
+    }
+
+    if (!isOnline) {
+      try {
+        const cachedTasks = await getAllTasks();
+        const activeTasks = cachedTasks
+          .filter((task) => (task.assignedTo || task.workerId) === worker.id)
+          .map(fromCachedTask)
+          .filter((task): task is Task => !!task)
+          .filter(
+            (task) => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
+          );
+        setTasks(activeTasks);
+      } catch (error) {
+        logger.error("Failed to load cached tasks:", error);
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -49,6 +109,7 @@ export default function WorkerTasksPage() {
         task => task.status === "pending" || task.status === "assigned" || task.status === "in_progress"
       );
       setTasks(activeTasks);
+      await Promise.all(activeTasks.map((task) => cacheTask(task, worker.id)));
     } catch (error) {
       logger.error("Failed to load tasks:", error);
       if (showErrorToast) {
@@ -62,6 +123,18 @@ export default function WorkerTasksPage() {
   // Fetch tasks for the logged-in worker
   useEffect(() => {
     void loadTasks();
+  }, [worker?.id, isOnline]);
+
+  useEffect(() => {
+    if (!worker?.id || !isOnline) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      void loadTasks(false);
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [worker?.id, isOnline]);
 
   useEffect(() => {
@@ -120,8 +193,7 @@ export default function WorkerTasksPage() {
     );
     
     if (scannedTask) {
-      // Navigate to task detail page
-      window.location.href = `/worker/tasks/${scannedTask.id}`;
+      router.push(`/worker/tasks/${scannedTask.id}`);
     } else {
       showToast.error("Task not found. Please check the scanned code.");
     }
@@ -155,6 +227,7 @@ export default function WorkerTasksPage() {
 
     try {
       const updatedTask = await tasksApi.updateStatus(task.id, "in_progress", worker.id);
+      await cacheTask(updatedTask, worker.id);
       setTasks((prev) =>
         prev.map((item) => (item.id === task.id ? updatedTask : item))
       );
