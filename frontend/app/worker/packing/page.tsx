@@ -338,6 +338,11 @@ export default function PackingPage() {
       return;
     }
 
+    if (!isOnline) {
+      showToast.error("Offline: only already loaded orders can be packed right now.");
+      return;
+    }
+
     try {
       const apiOrder = await ordersApi.getByOrderNumber(reference);
       if ((apiOrder.orderType || "").toLowerCase() !== "outbound") {
@@ -740,7 +745,7 @@ export default function PackingPage() {
       {!isOnline && (
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">wifi_off</span>
-          <span>Offline mode: packing will sync when network reconnects.</span>
+          <span>Offline mode: continue with already loaded orders; new order lookups will resume when network reconnects.</span>
         </div>
       )}
       {packingInitWarning && (

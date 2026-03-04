@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useOffline } from "@/hooks/useOffline";
 import { useWorker } from "@/contexts/WorkerContext";
 import { Modal } from "@/components/Modal";
@@ -50,6 +50,83 @@ export default function ShipmentsPage() {
 
   const effectiveWarehouseId = worker?.warehouseId || resolvedWarehouseId;
 
+  const loadShipments = useCallback(async () => {
+    if (!isOnline) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      // Fetch orders that are ready_to_ship for worker's warehouse
+      const readyToShipOrders = await ordersApi.getAll("outbound", "ready_to_ship");
+      
+      // Filter by worker's warehouse when available; otherwise allow list so work can proceed.
+      const warehouseOrders = effectiveWarehouseId
+        ? readyToShipOrders.filter((order) => order.warehouseId === effectiveWarehouseId)
+        : readyToShipOrders;
+
+      // Fetch shipments for these orders
+      const shipmentsData = await Promise.all(
+        warehouseOrders.map(async (order) => {
+          try {
+            const orderShipments = await shipmentsApi.getByOrderId(order.id);
+            if (!orderShipments || orderShipments.length === 0) {
+              return [{
+                id: `virtual-${order.id}`,
+                shipmentNumber: `SH-${order.orderNumber}`,
+                orderId: order.id,
+                orderNumber: order.orderNumber,
+                carrier: "N/A",
+                status: "Ready to Ship",
+                destination: "N/A",
+                trackingNumber: derivePackReference(order.orderNumber),
+                weightKg: "",
+                orders: [order.orderNumber],
+                isVirtual: true,
+              }];
+            }
+            return orderShipments.map(shipment => ({
+              id: shipment.id,
+              shipmentNumber: shipment.shipmentNumber,
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              carrier: shipment.carrier || "N/A",
+              status: shipment.status === "label_created" ? "Ready to Ship" : shipment.status,
+              destination: shipment.destination || "N/A",
+              trackingNumber: shipment.trackingNumber,
+              weightKg: shipment.weightKg,
+              orders: [order.orderNumber],
+            }));
+          } catch (error) {
+            // If no shipment exists, create a virtual one for display
+            return [{
+              id: `virtual-${order.id}`,
+              shipmentNumber: `SH-${order.orderNumber}`,
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              carrier: "N/A",
+              status: "Ready to Ship",
+              destination: "N/A",
+              trackingNumber: "",
+              weightKg: "",
+              orders: [order.orderNumber],
+              isVirtual: true, // Flag to indicate this needs shipment creation
+            }];
+          }
+        })
+      );
+
+      setShipments(shipmentsData.flat());
+    } catch (error) {
+      logger.error("Failed to load shipments:", error);
+      showToast.error("Failed to load shipments");
+      setShipments([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [derivePackReference, effectiveWarehouseId, isOnline]);
+
   useEffect(() => {
     const resolveWarehouse = async () => {
       if (worker?.warehouseId) {
@@ -82,87 +159,22 @@ export default function ShipmentsPage() {
 
   // Load shipments - filtered by worker's warehouse and ready_to_ship status
   useEffect(() => {
-    const loadShipments = async () => {
-      if (!isOnline) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        // Fetch orders that are ready_to_ship for worker's warehouse
-        const readyToShipOrders = await ordersApi.getAll("outbound", "ready_to_ship");
-        
-        // Filter by worker's warehouse when available; otherwise allow list so work can proceed.
-        const warehouseOrders = effectiveWarehouseId
-          ? readyToShipOrders.filter((order) => order.warehouseId === effectiveWarehouseId)
-          : readyToShipOrders;
-
-        // Fetch shipments for these orders
-        const shipmentsData = await Promise.all(
-          warehouseOrders.map(async (order) => {
-            try {
-              const orderShipments = await shipmentsApi.getByOrderId(order.id);
-              if (!orderShipments || orderShipments.length === 0) {
-                return [{
-                  id: `virtual-${order.id}`,
-                  shipmentNumber: `SH-${order.orderNumber}`,
-                  orderId: order.id,
-                  orderNumber: order.orderNumber,
-                  carrier: "N/A",
-                  status: "Ready to Ship",
-                  destination: "N/A",
-                  trackingNumber: derivePackReference(order.orderNumber),
-                  weightKg: "",
-                  orders: [order.orderNumber],
-                  isVirtual: true,
-                }];
-              }
-              return orderShipments.map(shipment => ({
-                id: shipment.id,
-                shipmentNumber: shipment.shipmentNumber,
-                orderId: order.id,
-                orderNumber: order.orderNumber,
-                carrier: shipment.carrier || "N/A",
-                status: shipment.status === "label_created" ? "Ready to Ship" : shipment.status,
-                destination: shipment.destination || "N/A",
-                trackingNumber: shipment.trackingNumber,
-                weightKg: shipment.weightKg,
-                orders: [order.orderNumber],
-              }));
-            } catch (error) {
-              // If no shipment exists, create a virtual one for display
-              return [{
-                id: `virtual-${order.id}`,
-                shipmentNumber: `SH-${order.orderNumber}`,
-                orderId: order.id,
-                orderNumber: order.orderNumber,
-                carrier: "N/A",
-                status: "Ready to Ship",
-                destination: "N/A",
-                trackingNumber: "",
-                weightKg: "",
-                orders: [order.orderNumber],
-                isVirtual: true, // Flag to indicate this needs shipment creation
-              }];
-            }
-          })
-        );
-
-        setShipments(shipmentsData.flat());
-      } catch (error) {
-        logger.error("Failed to load shipments:", error);
-        showToast.error("Failed to load shipments");
-        setShipments([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (isOnline && !resolvingWarehouse) {
-      loadShipments();
+      void loadShipments();
     }
-  }, [isOnline, effectiveWarehouseId, resolvingWarehouse]);
+  }, [isOnline, resolvingWarehouse, loadShipments]);
+
+  useEffect(() => {
+    if (!isOnline || resolvingWarehouse) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void loadShipments();
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isOnline, resolvingWarehouse, loadShipments]);
 
   const handleLoadOrderByReference = async () => {
     const reference = orderReference.trim().toUpperCase();
@@ -346,9 +358,9 @@ export default function ShipmentsPage() {
       });
       setScannedOrder("");
       
-      // Reload shipments
-      if (isOnline && worker?.warehouseId) {
-        window.location.reload();
+      // Refresh the list in place when the backend is reachable.
+      if (isOnline) {
+        await loadShipments();
       }
     } catch (error) {
       logger.error("Error processing shipment:", error);
@@ -363,6 +375,11 @@ export default function ShipmentsPage() {
         <p className="text-sm text-base-content/60">
           View and manage shipment tasks. Enter delivery details when processing shipments.
         </p>
+        {!isOnline && shipments.length > 0 && (
+          <p className="text-xs text-warning mt-2">
+            Offline: showing last loaded shipment list. New lookups resume when the network returns.
+          </p>
+        )}
         {!effectiveWarehouseId && (
           <p className="text-xs text-warning mt-2">
             Warehouse assignment missing. Showing ready-to-ship orders without warehouse filter.
@@ -439,7 +456,8 @@ export default function ShipmentsPage() {
             </div>
             <button
               className="btn btn-outline btn-sm mt-3"
-              onClick={() => window.location.reload()}
+              onClick={() => void loadShipments()}
+              disabled={!isOnline}
             >
               Refresh
             </button>
