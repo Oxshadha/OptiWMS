@@ -12,6 +12,7 @@ import { ordersApi } from "@/lib/api/orders";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
 import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
+import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatMaterialDisplay } from "@/lib/utils/material-display";
@@ -361,6 +362,7 @@ export default function PickingPage() {
 
   useEffect(() => {
     const startCurrentTask = async () => {
+      if (!isOnline) return;
       if (!currentPick?.taskId || !worker?.id) return;
       if (currentPick.taskStatus === "completed") return;
       if (startedTaskIds.has(currentPick.taskId)) return;
@@ -380,7 +382,7 @@ export default function PickingPage() {
       }
     };
     void startCurrentTask();
-  }, [currentPick?.taskId, currentPick?.taskStatus, worker?.id, startedTaskIds]);
+  }, [currentPick?.taskId, currentPick?.taskStatus, isOnline, worker?.id, startedTaskIds]);
 
   const handleOrderScan = (result: string) => {
     const normalized = result.trim().toUpperCase();
@@ -452,22 +454,43 @@ export default function PickingPage() {
     }
 
     try {
-      await operationsApi.completePicking(
-        currentPick.taskId,
-        {
-          items: [
-            {
-              materialId: currentPick.materialId,
-              quantity: pickedQty.toString(),
-              locationCode: currentPick.location,
+      if (isOnline) {
+        await operationsApi.completePicking(
+          currentPick.taskId,
+          {
+            items: [
+              {
+                materialId: currentPick.materialId,
+                quantity: pickedQty.toString(),
+                locationCode: currentPick.location,
+              },
+            ],
+          },
+          worker?.id
+        );
+      } else {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "picking_complete",
+            taskId: currentPick.taskId,
+            payload: {
+              items: [
+                {
+                  materialId: currentPick.materialId,
+                  quantity: pickedQty.toString(),
+                  locationCode: currentPick.location,
+                },
+              ],
+              workerId: worker?.id,
             },
-          ],
-        },
-        worker?.id
-      );
+          },
+        });
+      }
 
       markCurrentAs("completed");
-      showToast.success("Pick confirmed");
+      showToast.success(isOnline ? "Pick confirmed" : "Pick queued for sync");
     } catch (error) {
       logger.error("Error confirming pick:", error);
       showToast.error("Failed to confirm pick");
@@ -489,22 +512,41 @@ export default function PickingPage() {
       return;
     }
     try {
-      await operationsApi.reportPickingIssue(
-        currentPick.taskId,
-        {
-          materialId: currentPick.materialId,
-          locationCode: currentPick.location || "",
-          requestedQuantity: currentPick.qty.toString(),
-          availableQuantity: availableQty.toString(),
-          reason: issueReason.trim(),
-        },
-        worker?.id
-      );
+      if (isOnline) {
+        await operationsApi.reportPickingIssue(
+          currentPick.taskId,
+          {
+            materialId: currentPick.materialId,
+            locationCode: currentPick.location || "",
+            requestedQuantity: currentPick.qty.toString(),
+            availableQuantity: availableQty.toString(),
+            reason: issueReason.trim(),
+          },
+          worker?.id
+        );
+      } else {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "picking_issue",
+            taskId: currentPick.taskId,
+            payload: {
+              materialId: currentPick.materialId,
+              locationCode: currentPick.location || "",
+              requestedQuantity: currentPick.qty.toString(),
+              availableQuantity: availableQty.toString(),
+              reason: issueReason.trim(),
+              workerId: worker?.id,
+            },
+          },
+        });
+      }
       markCurrentAs("upcoming", issueReason.trim());
       setShowIssueForm(false);
       setIssueReason("");
       setAvailableQty(0);
-      showToast.success("Issue raised and moved to next pick");
+      showToast.success(isOnline ? "Issue raised and moved to next pick" : "Issue queued and moved to next pick");
     } catch (error) {
       logger.error("Error raising picking issue:", error);
       showToast.error("Failed to raise picking issue");

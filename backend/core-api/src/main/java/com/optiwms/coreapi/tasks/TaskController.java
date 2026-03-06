@@ -1,5 +1,6 @@
 package com.optiwms.coreapi.tasks;
 
+import com.optiwms.coreapp.operations.OperationEventService;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.tasks.Task;
@@ -21,10 +22,16 @@ public class TaskController {
 
     private final TaskService taskService;
     private final OutboundOrderWorkflowService workflowService;
+    private final OperationEventService operationEventService;
 
-    public TaskController(TaskService taskService, OutboundOrderWorkflowService workflowService) {
+    public TaskController(
+            TaskService taskService,
+            OutboundOrderWorkflowService workflowService,
+            OperationEventService operationEventService
+    ) {
         this.taskService = taskService;
         this.workflowService = workflowService;
+        this.operationEventService = operationEventService;
     }
 
     @GetMapping
@@ -155,6 +162,7 @@ public class TaskController {
         } else {
             updated = taskService.updateStatus(id, request.status());
         }
+        recordGenericTaskCompletion(updated, request.workerId(), request.status());
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -174,6 +182,16 @@ public class TaskController {
     ) {
         Task updated = workflowService.claimTask(id, UUID.fromString(request.workerId()));
         return ResponseEntity.ok(toDto(updated));
+    }
+
+    @PostMapping("/{id}/errors")
+    public ResponseEntity<TaskDto> reportTaskError(
+            @PathVariable UUID id,
+            @RequestBody ReportTaskErrorRequest request
+    ) {
+        Task task = taskService.findById(id);
+        recordGenericTaskError(task, request.workerId(), request.message());
+        return ResponseEntity.ok(toDto(task));
     }
 
     private TaskDto toDto(Task task) {
@@ -219,6 +237,8 @@ public class TaskController {
 
     public record ClaimTaskRequest(String workerId) {}
 
+    public record ReportTaskErrorRequest(String workerId, String message) {}
+
     public record TaskDto(
             String id,
             String taskNumber,
@@ -252,5 +272,67 @@ public class TaskController {
             case "taskNumber", "taskType", "priority", "status", "dueDate", "startedAt", "completedAt", "createdAt" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void recordGenericTaskCompletion(Task task, String workerId, String status) {
+        if (!"completed".equalsIgnoreCase(status) || workerId == null || workerId.isBlank()) {
+            return;
+        }
+
+        try {
+            operationEventService.recordCompleted(new OperationEventService.OperationEventData(
+                    task.getTaskType() != null ? task.getTaskType().toUpperCase() : "TASK",
+                    UUID.fromString(workerId),
+                    task.getId(),
+                    "order".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    task.getWarehouseId(),
+                    null,
+                    null,
+                    task.getStartedAt(),
+                    task.getCompletedAt(),
+                    task.getReferenceId() != null
+                            ? "{\"referenceType\":\"" + task.getReferenceType() + "\",\"referenceId\":\"" + task.getReferenceId() + "\"}"
+                            : null
+            ));
+        } catch (Exception ignored) {
+            // Analytics failures must not block task updates.
+        }
+    }
+
+    private void recordGenericTaskError(Task task, String workerId, String message) {
+        if (workerId == null || workerId.isBlank()) {
+            return;
+        }
+
+        try {
+            String metadata = task.getReferenceId() != null
+                    ? "{\"referenceType\":\"" + task.getReferenceType() + "\",\"referenceId\":\"" + task.getReferenceId()
+                    + "\",\"message\":\"" + sanitizeMetadataValue(message) + "\"}"
+                    : "{\"message\":\"" + sanitizeMetadataValue(message) + "\"}";
+
+            operationEventService.recordError(new OperationEventService.OperationEventData(
+                    task.getTaskType() != null ? task.getTaskType().toUpperCase() : "TASK",
+                    UUID.fromString(workerId),
+                    task.getId(),
+                    "order".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    "order_item".equals(task.getReferenceType()) ? task.getReferenceId() : null,
+                    task.getWarehouseId(),
+                    null,
+                    null,
+                    task.getStartedAt(),
+                    LocalDateTime.now(),
+                    metadata
+            ));
+        } catch (Exception ignored) {
+            // Analytics failures must not block task updates.
+        }
+    }
+
+    private String sanitizeMetadataValue(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

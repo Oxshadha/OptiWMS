@@ -1,5 +1,6 @@
 package com.optiwms.coreapi.auth;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.optiwms.coreapp.users.UserService;
 import com.optiwms.domain.users.User;
 import com.optiwms.infra.users.UserEntity;
@@ -21,16 +22,19 @@ public class AuthController {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserService userService;
+    private final ObjectMapper objectMapper;
 
     public AuthController(
             JwtTokenProvider tokenProvider,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            UserService userService) {
+            UserService userService,
+            ObjectMapper objectMapper) {
         this.tokenProvider = tokenProvider;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.userService = userService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/login")
@@ -166,7 +170,12 @@ public class AuthController {
                 user.getEmail(),
                 (user.getFirstName() != null ? user.getFirstName() : "") + " " + (user.getLastName() != null ? user.getLastName() : "").trim(),
                 role,
-                user.getWarehouseId() != null ? user.getWarehouseId().toString() : null
+                user.getWarehouseId() != null ? user.getWarehouseId().toString() : null,
+                user.getFirstName(),
+                user.getLastName(),
+                user.getPhone(),
+                user.getAvatarUrl(),
+                user.getDashboardSettings()
         ));
     }
 
@@ -199,12 +208,17 @@ public class AuthController {
                     ? (Boolean) value 
                     : Boolean.parseBoolean(value.toString());
                 user.setBlindReceivingMode(blindMode);
-                userRepository.save(user);
             }
+            if (preferences.containsKey("dashboardSettings")) {
+                Object settings = preferences.get("dashboardSettings");
+                user.setDashboardSettings(objectMapper.writeValueAsString(settings));
+            }
+            userRepository.save(user);
             
             return ResponseEntity.ok(Map.of(
                 "success", true,
-                "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false
+                "blindReceivingMode", user.getBlindReceivingMode() != null ? user.getBlindReceivingMode() : false,
+                "dashboardSettings", user.getDashboardSettings() != null ? user.getDashboardSettings() : "{}"
             ));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
@@ -258,6 +272,10 @@ public class AuthController {
             }
             if (request.phone() != null) {
                 user.setPhone(request.phone().trim());
+            }
+            if (request.avatarUrl() != null) {
+                String trimmedAvatar = request.avatarUrl().trim();
+                user.setAvatarUrl(trimmedAvatar.isEmpty() ? null : trimmedAvatar);
             }
             
             userRepository.save(user);
@@ -375,14 +393,20 @@ public class AuthController {
             String email,
             String name,
             String role,
-            String warehouseId
+            String warehouseId,
+            String firstName,
+            String lastName,
+            String phone,
+            String avatarUrl,
+            String dashboardSettings
     ) {}
 
     public record UpdateProfileRequest(
             String firstName,
             String lastName,
             String email,
-            String phone
+            String phone,
+            String avatarUrl
     ) {}
 
     public record ChangePasswordRequest(

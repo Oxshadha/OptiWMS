@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi } from "@/lib/api/orders";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
+import { useInvalidateAdminList, usePagedAdminQuery } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CustomerDisplay, customerStatusTone } from "./types";
@@ -33,25 +34,19 @@ export default function CustomersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerDisplay | null>(null);
-  
-  // API state
-  const [customers, setCustomers] = useState<CustomerDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
-  // Load data from API
-  const loadData = async () => {
-      try {
-        setIsFetching(true);
-        if (!hasLoadedOnce) {
-          setIsLoading(true);
-        }
-        setError(null);
-        const customersPage = await customersApi.getPaged({
+  const customersQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-customers",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      sortBy,
+      sortDirection,
+      searchQuery,
+    ],
+    queryFn: async () => {
+      const customersPage = await customersApi.getPaged({
           page: currentPage - 1,
           size: itemsPerPage,
           sortBy: sortBy === "name" ? "name" : "createdAt",
@@ -93,33 +88,21 @@ export default function CustomersPage() {
           };
         });
         
-        const sortedCustomers =
-          sortBy === "orders"
-            ? [...displayCustomers].sort((a, b) =>
-                sortDirection === "asc" ? a.orders - b.orders : b.orders - a.orders
-              )
-            : displayCustomers;
+      const sortedCustomers =
+        sortBy === "orders"
+          ? [...displayCustomers].sort((a, b) =>
+              sortDirection === "asc" ? a.orders - b.orders : b.orders - a.orders
+            )
+          : displayCustomers;
 
-        setCustomers(sortedCustomers);
-        setTotalItems(customersPage.totalElements);
-        setTotalPages(Math.max(customersPage.totalPages, 1));
-        setHasLoadedOnce(true);
-      } catch (err) {
-        logger.error("Failed to load customers:", err);
-        setError(err instanceof Error ? err.message : "Failed to load customers");
-        setCustomers([]);
-        if (err instanceof Error && !err.message.includes("Not authenticated")) {
-          showToast.error("Failed to load customers. Please try again.");
-        }
-      } finally {
-        setIsLoading(false);
-        setIsFetching(false);
-      }
-    };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, sortBy, sortDirection, searchQuery]);
+      return {
+        data: sortedCustomers,
+        totalElements: customersPage.totalElements,
+        totalPages: customersPage.totalPages,
+      };
+    },
+  });
+  const reload = useInvalidateAdminList(["admin-customers"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -129,6 +112,19 @@ export default function CustomersPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const customers = useMemo(
+    () => customersQuery.data?.data || [],
+    [customersQuery.data]
+  );
+  const isLoading = customersQuery.isPending && !customersQuery.data;
+  const isFetching = customersQuery.isFetching;
+  const error = customersQuery.error
+    ? customersQuery.error instanceof Error
+      ? customersQuery.error.message
+      : "Failed to load customers"
+    : null;
+  const totalItems = customersQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(customersQuery.data?.totalPages ?? 1, 1);
   const totalCustomers = totalItems;
   const activeCustomers = customers.filter((c) => c.status === "Active").length;
   const totalOrders = customers.reduce((sum, c) => sum + c.orders, 0);
@@ -149,7 +145,7 @@ export default function CustomersPage() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => void loadData()}
+            onClick={() => void reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -327,7 +323,7 @@ export default function CustomersPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -465,7 +461,7 @@ export default function CustomersPage() {
             setShowEditModal(false);
             setSelectedCustomer(null);
           }}
-          onUpdated={loadData}
+          onUpdated={reload}
           customer={selectedCustomer}
         />
       )}
@@ -474,7 +470,7 @@ export default function CustomersPage() {
       <AddCustomerModal
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {/* Delete Customer Modal */}
@@ -492,7 +488,7 @@ export default function CustomersPage() {
               showToast.success("Customer deleted successfully");
               setShowDeleteModal(false);
               setSelectedCustomer(null);
-              await loadData();
+              await reload();
             } catch (err) {
               logger.error("Failed to delete customer:", err);
               showToast.error(err instanceof Error ? err.message : "Failed to delete customer");

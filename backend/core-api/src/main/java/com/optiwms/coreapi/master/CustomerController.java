@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.CustomerService;
+import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import com.optiwms.domain.master.Customer;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -8,6 +9,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.util.List;
 import java.util.UUID;
@@ -24,11 +26,11 @@ public class CustomerController {
     }
 
     @GetMapping
-    public ResponseEntity<List<CustomerDto>> list() {
+    public ResponseEntity<List<CustomerDto>> list(WebRequest webRequest) {
         var data = service.listAll().stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(data);
+        return ReferenceDataCacheSupport.ok(webRequest, data, "customers", data);
     }
 
     @GetMapping("/paged")

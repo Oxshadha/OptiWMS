@@ -1,9 +1,11 @@
 package com.optiwms.coreapi.orders;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.orders.OrderStatusService;
 import com.optiwms.coreapp.orders.OutboundOrderWorkflowService;
 import com.optiwms.coreapp.orders.InboundOrderWorkflowService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.orders.Order;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.format.DateTimeParseException;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -27,15 +30,18 @@ public class OrderController {
     private final OrderStatusService orderStatusService;
     private final OutboundOrderWorkflowService outboundWorkflowService;
     private final InboundOrderWorkflowService inboundWorkflowService;
+    private final NotificationService notificationService;
 
     public OrderController(OrderService orderService,
                           OrderStatusService orderStatusService,
                           OutboundOrderWorkflowService outboundWorkflowService,
-                          InboundOrderWorkflowService inboundWorkflowService) {
+                          InboundOrderWorkflowService inboundWorkflowService,
+                          NotificationService notificationService) {
         this.orderService = orderService;
         this.orderStatusService = orderStatusService;
         this.outboundWorkflowService = outboundWorkflowService;
         this.inboundWorkflowService = inboundWorkflowService;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
@@ -197,6 +203,13 @@ public class OrderController {
             }
         }
 
+        notifyOrderEvent(
+                "Order Created",
+                "Order " + created.getOrderNumber() + " was created.",
+                created,
+                "created"
+        );
+
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
@@ -206,6 +219,12 @@ public class OrderController {
             @RequestBody UpdateStatusRequest request
     ) {
         Order updated = orderService.updateStatus(id, request.status());
+        notifyOrderEvent(
+                "Order Status Updated",
+                "Order " + updated.getOrderNumber() + " moved to " + updated.getStatus() + ".",
+                updated,
+                "status_updated"
+        );
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -392,5 +411,37 @@ public class OrderController {
             case "createdAt", "updatedAt", "orderDate", "expectedDate", "orderNumber", "status", "priority" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void notifyOrderEvent(String title, String message, Order order, String eventType) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(order.getWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("order");
+            notification.setRead(false);
+            notification.setActionUrl(resolveOrderActionUrl(order));
+            notification.setMetadata(
+                    "{\"orderId\":\"" + order.getId() + "\",\"orderNumber\":\"" + order.getOrderNumber() + "\",\"status\":\"" + order.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block order workflows.
+        }
+    }
+
+    private String resolveOrderActionUrl(Order order) {
+        String orderType = order.getOrderType() != null ? order.getOrderType().toLowerCase() : "";
+        if ("outbound".equals(orderType)) {
+            return "/admin/orders/outbound/" + order.getId();
+        }
+        if ("inbound".equals(orderType)) {
+            return "/admin/orders/inbound";
+        }
+        return "/admin/orders";
     }
 }

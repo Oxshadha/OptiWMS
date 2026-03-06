@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useWorker } from "@/contexts/WorkerContext";
+import { useOffline } from "@/hooks/useOffline";
 import { operationsApi, StockTransferLine } from "@/lib/api/operations";
 import { materialsApi } from "@/lib/api/materials";
+import { addToSyncQueue } from "@/lib/indexeddb";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -11,6 +13,7 @@ type MaterialMap = Record<string, { code: string; name: string }>;
 
 export default function StockTransferPage() {
   const { worker } = useWorker();
+  const { isOnline } = useOffline();
   const workerId = worker?.id;
   const warehouseId = worker?.warehouseId;
 
@@ -80,6 +83,45 @@ export default function StockTransferPage() {
 
     try {
       setProcessing(true);
+      if (!isOnline) {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "stock_transfer_execute",
+            lineId: selectedLine.id,
+            payload: {
+              workerId,
+              sourceScanLocation,
+              destScanLocation,
+              quantity,
+              notes,
+            },
+          },
+        });
+        setLines((currentLines) =>
+          currentLines.map((line) =>
+            line.id === selectedLine.id
+              ? {
+                  ...line,
+                  movedQuantity: Math.min(
+                    (line.movedQuantity || 0) + quantity,
+                    line.requestedQuantity || quantity
+                  ),
+                  status:
+                    (line.movedQuantity || 0) + quantity >= (line.requestedQuantity || 0)
+                      ? "completed"
+                      : "in_progress",
+                  notes: notes || line.notes,
+                }
+              : line
+          )
+        );
+        showToast.success("Stock transfer move queued for sync");
+        setNotes("");
+        setSelectedLineId("");
+        return;
+      }
       await operationsApi.executeStockTransferLine(selectedLine.id, {
         workerId,
         sourceScanLocation,
@@ -107,6 +149,35 @@ export default function StockTransferPage() {
     }
     try {
       setProcessing(true);
+      if (!isOnline) {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "stock_transfer_skip",
+            lineId: selectedLine.id,
+            payload: {
+              workerId,
+              reason: notes.trim(),
+            },
+          },
+        });
+        setLines((currentLines) =>
+          currentLines.map((line) =>
+            line.id === selectedLine.id
+              ? {
+                  ...line,
+                  status: "blocked",
+                  notes: notes.trim(),
+                }
+              : line
+          )
+        );
+        showToast.success("Stock transfer block queued for sync");
+        setNotes("");
+        setSelectedLineId("");
+        return;
+      }
       await operationsApi.skipStockTransferLine(selectedLine.id, workerId, notes.trim());
       showToast.success("Line marked as blocked");
       setNotes("");
@@ -140,6 +211,15 @@ export default function StockTransferPage() {
           Select any pending line, scan locations, and confirm moved quantity.
         </p>
       </div>
+
+      {!isOnline && (
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">wifi_off</span>
+          <span>
+            You are offline. Moves and blocked lines will be queued locally and synced automatically when the connection returns.
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card bg-base-100 border border-base-300">

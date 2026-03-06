@@ -1,14 +1,17 @@
 package com.optiwms.coreapi.dock;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.dock.DockManagementService;
 import com.optiwms.domain.dock.DockAppointment;
 import com.optiwms.domain.dock.DockDoor;
 import com.optiwms.domain.dock.YardTrailer;
+import com.optiwms.domain.notifications.Notification;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -18,9 +21,11 @@ import java.util.stream.Collectors;
 public class DockManagementController {
 
     private final DockManagementService service;
+    private final NotificationService notificationService;
 
-    public DockManagementController(DockManagementService service) {
+    public DockManagementController(DockManagementService service, NotificationService notificationService) {
         this.service = service;
+        this.notificationService = notificationService;
     }
 
     // Dock Doors Endpoints
@@ -50,6 +55,7 @@ public class DockManagementController {
         try {
             DockDoor door = toDomain(dto);
             DockDoor created = service.createDoor(door);
+            notifyDockEvent("Dock Door Created", "Dock door " + created.getDoorNumber() + " was created.", "/admin/dock-management/doors/" + created.getId(), "dock", created.getWarehouseId(), "{\"doorId\":\"" + created.getId() + "\",\"doorNumber\":\"" + created.getDoorNumber() + "\",\"status\":\"" + created.getStatus() + "\",\"event\":\"created\"}");
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -61,6 +67,7 @@ public class DockManagementController {
         try {
             DockDoor door = toDomain(dto);
             DockDoor updated = service.updateDoor(id, door);
+            notifyDockEvent("Dock Door Updated", "Dock door " + updated.getDoorNumber() + " was updated.", "/admin/dock-management/doors/" + updated.getId(), "dock", updated.getWarehouseId(), "{\"doorId\":\"" + updated.getId() + "\",\"doorNumber\":\"" + updated.getDoorNumber() + "\",\"status\":\"" + updated.getStatus() + "\",\"event\":\"updated\"}");
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -95,6 +102,7 @@ public class DockManagementController {
         try {
             DockAppointment appointment = toDomain(dto);
             DockAppointment created = service.createAppointment(appointment);
+            notifyDockEvent("Dock Appointment Created", "Dock appointment " + created.getAppointmentNumber() + " was created.", "/admin/dock-management/appointments/" + created.getId(), "dock", created.getWarehouseId(), "{\"appointmentId\":\"" + created.getId() + "\",\"appointmentNumber\":\"" + created.getAppointmentNumber() + "\",\"status\":\"" + created.getStatus() + "\",\"event\":\"created\"}");
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -105,6 +113,7 @@ public class DockManagementController {
     public ResponseEntity<DockAppointmentDto> checkIn(@PathVariable UUID id) {
         try {
             DockAppointment appointment = service.checkIn(id);
+            notifyDockEvent("Dock Appointment Checked In", "Dock appointment " + appointment.getAppointmentNumber() + " was checked in.", "/admin/dock-management/appointments/" + appointment.getId(), "dock", appointment.getWarehouseId(), "{\"appointmentId\":\"" + appointment.getId() + "\",\"appointmentNumber\":\"" + appointment.getAppointmentNumber() + "\",\"status\":\"" + appointment.getStatus() + "\",\"event\":\"checked_in\"}");
             return ResponseEntity.ok(toDto(appointment));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -115,6 +124,7 @@ public class DockManagementController {
     public ResponseEntity<DockAppointmentDto> checkOut(@PathVariable UUID id) {
         try {
             DockAppointment appointment = service.checkOut(id);
+            notifyDockEvent("Dock Appointment Checked Out", "Dock appointment " + appointment.getAppointmentNumber() + " was checked out.", "/admin/dock-management/appointments/" + appointment.getId(), "dock", appointment.getWarehouseId(), "{\"appointmentId\":\"" + appointment.getId() + "\",\"appointmentNumber\":\"" + appointment.getAppointmentNumber() + "\",\"status\":\"" + appointment.getStatus() + "\",\"event\":\"checked_out\"}");
             return ResponseEntity.ok(toDto(appointment));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
@@ -148,6 +158,7 @@ public class DockManagementController {
         try {
             YardTrailer trailer = toDomain(dto);
             YardTrailer created = service.createYardTrailer(trailer);
+            notifyDockEvent("Yard Trailer Created", "Yard trailer " + created.getTrailerNumber() + " was added.", "/admin/dock-management/yard-trailers/" + created.getId(), "dock", created.getWarehouseId(), "{\"trailerId\":\"" + created.getId() + "\",\"trailerNumber\":\"" + created.getTrailerNumber() + "\",\"status\":\"" + created.getStatus() + "\",\"event\":\"created\"}");
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -290,5 +301,23 @@ public class DockManagementController {
             String status,
             UUID assignedDockDoorId
     ) {}
-}
 
+    private void notifyDockEvent(String title, String message, String actionUrl, String type, UUID warehouseId, String metadata) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(warehouseId);
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType(type);
+            notification.setRead(false);
+            notification.setActionUrl(actionUrl);
+            notification.setMetadata(metadata);
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block dock workflows.
+        }
+    }
+}

@@ -88,8 +88,29 @@ export const reportsApi = {
   },
 
   // Download report
-  downloadReport: async (id: string): Promise<string> => {
-    return apiClient.get<string>(`/reports/${id}/download`);
+  downloadReport: async (id: string): Promise<{ blob: Blob; fileName: string }> => {
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api'}/reports/${id}/download`, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Download failed (${response.status}): ${message || response.statusText}`);
+    }
+
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+    const fileName = match?.[1] || `report-${id}.pdf`;
+
+    return {
+      blob: await response.blob(),
+      fileName,
+    };
   },
 
   // Get all scheduled reports

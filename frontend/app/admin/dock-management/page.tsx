@@ -9,8 +9,11 @@ import {
   DockAppointment,
   YardTrailer,
 } from "@/lib/api/operations";
+import { ordersApi } from "@/lib/api/orders";
+import { suppliersApi } from "@/lib/api/suppliers";
 import { SummaryCards } from "@/components/SummaryCards";
 import { logger } from "@/lib/utils/logger";
+import { showToast } from "@/lib/utils/toast";
 import { DockAppointmentModal } from "./components/DockAppointmentModal";
 import { DockDoorStatusCard } from "./components/DockDoorStatusCard";
 import { YardTrailerQueueCard } from "./components/YardTrailerQueueCard";
@@ -227,12 +230,47 @@ export default function DockManagementPage() {
 
   // Handle inbound order selection
   const handleInboundOrderSelect = (orderId: string) => {
-    // TODO: Fetch order details from API
-    // For now, just set the order ID
+    if (!orderId) {
+      setAppointmentForm((prev) => ({
+        ...prev,
+        inboundOrderId: "",
+        inboundOrderNumber: "",
+        supplierName: "",
+      }));
+      return;
+    }
+
+    const fallback = inboundOrderOptions.find((o) => o.id === orderId);
     setAppointmentForm((prev) => ({
       ...prev,
       inboundOrderId: orderId,
+      inboundOrderNumber: fallback?.orderNumber || prev.inboundOrderNumber,
+      supplierName: fallback?.supplierName || prev.supplierName,
     }));
+
+    void (async () => {
+      try {
+        const order = await ordersApi.getById(orderId);
+        let supplierName = fallback?.supplierName || "";
+        if (order.supplierId) {
+          try {
+            const supplier = await suppliersApi.getById(order.supplierId);
+            supplierName = supplier.name || supplierName;
+          } catch {
+            // Keep fallback supplier name.
+          }
+        }
+        setAppointmentForm((prev) => ({
+          ...prev,
+          inboundOrderId: orderId,
+          inboundOrderNumber: order.orderNumber || prev.inboundOrderNumber,
+          supplierName: supplierName || prev.supplierName,
+        }));
+      } catch (error) {
+        logger.error("Failed to load inbound order details:", error);
+        showToast.error("Failed to load selected order details");
+      }
+    })();
   };
 
   // Validate form
@@ -312,6 +350,15 @@ export default function DockManagementPage() {
       }
 
       // Create appointment request
+      let supplierId: string | undefined = undefined;
+      if (appointmentForm.inboundOrderId) {
+        try {
+          const linkedOrder = await ordersApi.getById(appointmentForm.inboundOrderId);
+          supplierId = linkedOrder.supplierId || undefined;
+        } catch {
+          // Keep supplierId undefined if order lookup fails.
+        }
+      }
       const appointmentRequest = {
         dockDoorId: appointmentForm.dockDoorId || undefined,
         warehouseId: selectedDoor.warehouseId,
@@ -320,7 +367,7 @@ export default function DockManagementPage() {
         scheduledEnd: new Date(appointmentForm.scheduledEnd).toISOString(),
         inboundOrderId: appointmentForm.inboundOrderId || undefined,
         outboundOrderId: undefined,
-        supplierId: undefined, // TODO: Get from order if available
+        supplierId,
         carrierName: appointmentForm.carrierName,
         trailerNumber: appointmentForm.trailerNumber,
         notes: appointmentForm.notes || undefined,

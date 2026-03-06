@@ -51,16 +51,14 @@ public class ReportsController {
     @PostMapping("/generate")
     public ResponseEntity<ReportDto> generateReport(@RequestBody GenerateReportRequest request) {
         try {
-            Report report = new Report();
-            report.setReportName(request.reportName());
-            report.setReportType(request.reportType());
-            report.setDescription(request.description());
-            report.setReportConfig(request.reportConfig());
-            report.setCreatedBy(request.createdBy());
-            // In a real implementation, this would trigger actual report generation
-            // For now, we just create the report record
-
-            Report created = service.createReport(report);
+            ReportsService.ExportedReportFile generated = service.generateReportRecord(
+                    request.reportName(),
+                    request.reportType(),
+                    request.description(),
+                    request.reportConfig(),
+                    request.createdBy()
+            );
+            Report created = service.getReportById(generated.reportId());
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -91,15 +89,17 @@ public class ReportsController {
     }
 
     @GetMapping("/{id}/download")
-    public ResponseEntity<String> downloadReport(@PathVariable UUID id) {
+    public ResponseEntity<byte[]> downloadReport(@PathVariable UUID id) {
         try {
-            Report report = service.getReportById(id);
-            if (report.getFilePath() == null || report.getFilePath().isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            // In a real implementation, this would return the actual file
-            // For now, we return the file path
-            return ResponseEntity.ok("File path: " + report.getFilePath());
+            ReportsService.ExportedReportFile exported = service.downloadExistingReport(id);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType(exported.contentType()));
+            headers.setContentLength(exported.fileSizeBytes());
+            headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + exported.fileName() + "\"");
+            headers.set("X-Report-Id", exported.reportId().toString());
+            headers.set("X-Report-Type", exported.reportType());
+            headers.set("X-Report-Format", exported.format());
+            return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }

@@ -1,8 +1,10 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.WarehouseService;
+import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.util.List;
 
@@ -17,7 +19,7 @@ public class WarehouseController {
     }
 
     @GetMapping
-    public ResponseEntity<List<WarehouseDto>> list() {
+    public ResponseEntity<List<WarehouseDto>> list(WebRequest webRequest) {
         var data = service.listAll().stream()
                 .map(w -> new WarehouseDto(
                         w.getId(),
@@ -32,7 +34,7 @@ public class WarehouseController {
                         w.getStatus()
                 ))
                 .toList();
-        return ResponseEntity.ok(data);
+        return ReferenceDataCacheSupport.ok(webRequest, data, "warehouses", data);
     }
 
     @GetMapping("/{id}")
@@ -167,5 +169,4 @@ public class WarehouseController {
             String status
     ) {}
 }
-
 

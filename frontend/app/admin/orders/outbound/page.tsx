@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
@@ -10,11 +10,17 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { ordersApi } from "@/lib/api/orders";
-import { customersApi } from "@/lib/api/customers";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
+  usePagedAdminQuery,
+  useReferenceCustomers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapOutboundOrderStatus } from "@/lib/utils/status-mappers";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import clsx from "clsx";
 import { OutboundOrderDisplay } from "./types";
 import { CreateOutboundOrderModal } from "./components/CreateOutboundOrderModal";
@@ -58,6 +64,25 @@ function toApiOutboundStatus(status: string): string | undefined {
   return status;
 }
 
+function downloadOutboundOrderSheet(order: OutboundOrderDisplay) {
+  downloadHtmlDocument(
+    `${order.orderNumber}-outbound-order-sheet.html`,
+    `Outbound Order - ${order.orderNumber}`,
+    `
+      <h1>Outbound Order Sheet</h1>
+      <p class="muted">Operational dispatch reference</p>
+      <div class="section grid">
+        <div class="card"><strong>Order</strong><br />${escapeHtml(order.orderNumber)}</div>
+        <div class="card"><strong>Customer</strong><br />${escapeHtml(order.customerName)}</div>
+        <div class="card"><strong>Warehouse</strong><br />${escapeHtml(order.warehouseName)}</div>
+        <div class="card"><strong>Status</strong><br />${escapeHtml(order.status.replaceAll("_", " ").toUpperCase())}</div>
+        <div class="card"><strong>Priority</strong><br />${escapeHtml(order.priority.toUpperCase())}</div>
+        <div class="card"><strong>Items</strong><br />${order.pickedItems}/${order.totalItems} picked</div>
+      </div>
+    `
+  );
+}
+
 export default function OutboundOrdersPage() {
   const router = useRouter();
   const { hasPermission } = useAdmin();
@@ -71,66 +96,49 @@ export default function OutboundOrdersPage() {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  
-  // API state
-  const [orders, setOrders] = useState<OutboundOrderDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
-  // Load data from API
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setIsLoading(true);
-      }
-      setError(null);
+  const ordersQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-orders",
+      "outbound",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      priorityFilter,
+      searchQuery.trim() || "",
+    ],
+    queryFn: async () => {
+      const ordersPage = await ordersApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        orderType: "outbound",
+        status: toApiOutboundStatus(statusFilter),
+        priority: priorityFilter === "all" ? undefined : priorityFilter,
+        q: searchQuery.trim() || undefined,
+      });
 
-        // Load orders, customers, and warehouses in parallel
-        const [ordersPage, customersData, warehousesData] = await Promise.all([
-          ordersApi.getPaged({
-            page: currentPage - 1,
-            size: itemsPerPage,
-            sortBy: "createdAt",
-            sortDir: "desc",
-            orderType: "outbound",
-            status: toApiOutboundStatus(statusFilter),
-            priority: priorityFilter === "all" ? undefined : priorityFilter,
-            q: searchQuery.trim() || undefined,
-          }),
-          customersApi.getAll(),
-          warehousesApi.getAll(),
-        ]);
-
-        // Create lookup maps
-        const customersMap = buildLookupMap(customersData, (c) => c.id, (c) => c.name);
-        const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
-
-      // Fetch order items for all orders in parallel
+      const { orderItemsApi } = await import("@/lib/api/orderItems");
       const ordersWithItems = await Promise.all(
         ordersPage.data.map(async (order) => {
           try {
-            const { orderItemsApi } = await import("@/lib/api/orderItems");
             const orderItems = await orderItemsApi.getByOrderId(order.id);
-            const totalItems = orderItems.length;
-            // Calculate picked items (items with pickedQuantity > 0)
-            const pickedItems = orderItems.filter(
-              item => item.pickedQuantity > 0
-            ).length;
-            
+            const totalItemsForOrder = orderItems.length;
+            const pickedItems = orderItems.filter((item) => item.pickedQuantity > 0).length;
+
             return {
               order,
-              totalItems,
+              totalItems: totalItemsForOrder,
               pickedItems,
             };
           } catch (err) {
-            const isDev = process.env.NODE_ENV === 'development';
+            const isDev = process.env.NODE_ENV === "development";
             if (isDev) {
-              logger.warn(`Failed to load items for order:`, err instanceof Error ? err.message : 'Unknown error');
+              logger.warn(
+                "Failed to load items for order:",
+                err instanceof Error ? err.message : "Unknown error"
+              );
             }
             return {
               order,
@@ -141,14 +149,51 @@ export default function OutboundOrdersPage() {
         })
       );
 
-      // Transform orders to display format
-      const displayOrders: OutboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, pickedItems }) => {
+      return {
+        page: ordersPage,
+        ordersWithItems,
+      };
+    },
+  });
+
+  const customersQuery = useReferenceCustomers();
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateOutboundOrders = useInvalidateAdminList(["admin-orders", "outbound"]);
+  const invalidateOutboundOrdersAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-orders", "outbound"],
+    (id) => ["admin-orders", "outbound", "detail", id]
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const orders = useMemo<OutboundOrderDisplay[]>(() => {
+    const customersMap = buildLookupMap(
+      customersQuery.data || [],
+      (customer) => customer.id,
+      (customer) => customer.name
+    );
+    const warehousesMap = buildLookupMap(
+      warehousesQuery.data || [],
+      (warehouse) => warehouse.id,
+      (warehouse) => warehouse.name
+    );
+
+    return (ordersQuery.data?.ordersWithItems || []).map(
+      ({ order, totalItems: totalItemsForOrder, pickedItems }) => {
         const customerName = order.customerId
           ? getLookupValue(customersMap, order.customerId, "Unknown Customer")
           : "N/A";
-        const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
-        
-        const status = mapOutboundOrderStatus(order.status);
+        const warehouseName = getLookupValue(
+          warehousesMap,
+          order.warehouseId,
+          "Unknown Warehouse"
+        );
 
         return {
           id: order.id,
@@ -158,39 +203,39 @@ export default function OutboundOrdersPage() {
           orderDate: order.orderDate || new Date().toISOString().split("T")[0],
           requiredDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
           priority: order.priority || "normal",
-          status,
-          totalItems,
+          status: mapOutboundOrderStatus(order.status),
+          totalItems: totalItemsForOrder,
           pickedItems,
         };
-      });
-
-      setOrders(displayOrders);
-      setTotalItems(ordersPage.totalElements);
-      setTotalPages(Math.max(ordersPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      const isDev = process.env.NODE_ENV === 'development';
-      if (isDev) {
-        logger.error("Failed to load outbound orders:", err instanceof Error ? err.message : 'Unknown error');
       }
-      setError("Failed to load outbound orders. Please try again.");
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
+    );
+  }, [customersQuery.data, ordersQuery.data, warehousesQuery.data]);
+
+  const isLoading =
+    (ordersQuery.isPending && !ordersQuery.data) ||
+    (customersQuery.isPending && !customersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const isFetching =
+    ordersQuery.isFetching || customersQuery.isFetching || warehousesQuery.isFetching;
+  const error =
+    ordersQuery.error || customersQuery.error || warehousesQuery.error
+      ? "Failed to load outbound orders. Please try again."
+      : null;
+  const totalItems = ordersQuery.data?.page.totalElements ?? 0;
+  const totalPages = Math.max(ordersQuery.data?.page.totalPages ?? 1, 1);
+  const reload = async () => {
+    try {
+      await invalidateOutboundOrders();
+    } catch (err) {
+      const isDev = process.env.NODE_ENV === "development";
+      if (isDev) {
+        logger.error(
+          "Failed to reload outbound orders:",
+          err instanceof Error ? err.message : "Unknown error"
+        );
+      }
     }
   };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, priorityFilter, searchQuery]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchQuery(searchInput);
-      setCurrentPage(1);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
 
   // Calculate summary from orders
   const summary = {
@@ -242,7 +287,7 @@ export default function OutboundOrdersPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => loadData()}>
+          <button className="btn btn-sm" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -387,7 +432,12 @@ export default function OutboundOrdersPage() {
           </li>
         )}
         <li>
-          <button onClick={() => showToast.warning(`Printing order ${order.orderNumber}...`)}>
+          <button
+            onClick={() => {
+              downloadOutboundOrderSheet(order);
+              showToast.success(`Order sheet downloaded for ${order.orderNumber}`);
+            }}
+          >
             <span className="material-symbols-outlined text-sm">print</span>
             Print/Export
           </button>
@@ -403,7 +453,7 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.cancel(order.id);
                       showToast.success("Order cancelled successfully");
-                      await loadData();
+                      await invalidateOutboundOrdersAndDetail(order.id);
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
@@ -427,7 +477,7 @@ export default function OutboundOrdersPage() {
                     try {
                       await ordersApi.delete(order.id);
                       showToast.success("Order deleted successfully");
-                      await loadData();
+                      await invalidateOutboundOrdersAndDetail(order.id);
                     } catch (err) {
                       const isDev = process.env.NODE_ENV === 'development';
                       if (isDev) {
@@ -465,7 +515,7 @@ export default function OutboundOrdersPage() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => loadData()}
+            onClick={() => void reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -598,7 +648,7 @@ export default function OutboundOrdersPage() {
       <CreateOutboundOrderModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSaved={loadData}
+        onSaved={reload}
       />
       
       {/* Edit Outbound Order Modal */}
@@ -609,7 +659,7 @@ export default function OutboundOrdersPage() {
             setShowEditModal(false);
             setEditingOrder(null);
           }}
-          onSaved={loadData}
+          onSaved={reload}
           editingOrder={editingOrder}
         />
       )}

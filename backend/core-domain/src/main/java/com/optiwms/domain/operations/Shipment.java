@@ -10,6 +10,7 @@ import java.util.UUID;
 public class Shipment extends BaseEntity {
     private String shipmentNumber;
     private UUID orderId;
+    private UUID deliveryPartnerId;
     private String carrier;
     private String trackingNumber;
     private String destination;
@@ -29,6 +30,8 @@ public class Shipment extends BaseEntity {
     public void setShipmentNumber(String shipmentNumber) { this.shipmentNumber = shipmentNumber; }
     public UUID getOrderId() { return orderId; }
     public void setOrderId(UUID orderId) { this.orderId = orderId; }
+    public UUID getDeliveryPartnerId() { return deliveryPartnerId; }
+    public void setDeliveryPartnerId(UUID deliveryPartnerId) { this.deliveryPartnerId = deliveryPartnerId; }
     public String getCarrier() { return carrier; }
     public void setCarrier(String carrier) { this.carrier = carrier; }
     public String getTrackingNumber() { return trackingNumber; }

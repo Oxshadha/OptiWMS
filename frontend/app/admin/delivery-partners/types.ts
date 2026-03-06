@@ -11,4 +11,6 @@ export interface DeliveryPartnerDisplay {
   costPerDelivery: number;
   currencyCode?: string;
   status: string;
+  totalShipments: number;
+  onTimeDeliveryRate: number;
 }

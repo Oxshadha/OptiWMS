@@ -6,6 +6,7 @@ export interface UpdateProfileRequest {
   lastName?: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string;
 }
 
 export interface ChangePasswordRequest {
@@ -21,6 +22,7 @@ export interface UserProfile {
   lastName: string;
   phone: string;
   role: string;
+  avatarUrl?: string;
 }
 
 /**
@@ -44,10 +46,11 @@ export const accountApi = {
       id: response.userId,
       username: response.username,
       email: response.email || '',
-      firstName: nameParts[0] || '',
-      lastName: nameParts.slice(1).join(' ') || '',
-      phone: '', // Not included in /me response, will be loaded from profile update
+      firstName: response.firstName || nameParts[0] || '',
+      lastName: response.lastName || nameParts.slice(1).join(' ') || '',
+      phone: response.phone || '',
       role: response.role,
+      avatarUrl: response.avatarUrl || '',
     };
   },
 

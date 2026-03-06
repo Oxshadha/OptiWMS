@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.operations;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.operations.CycleCountService;
+import com.optiwms.domain.notifications.Notification;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -8,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -17,9 +20,11 @@ import java.util.stream.Collectors;
 public class CycleCountController {
 
     private final CycleCountService service;
+    private final NotificationService notificationService;
 
-    public CycleCountController(CycleCountService service) {
+    public CycleCountController(CycleCountService service, NotificationService notificationService) {
         this.service = service;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
@@ -92,6 +97,12 @@ public class CycleCountController {
             cycleCount.setNotes(request.notes());
 
             CycleCountService.CycleCount created = service.create(cycleCount);
+            notifyCycleCountEvent(
+                    "Cycle Count Scheduled",
+                    "Cycle count " + created.getCountNumber() + " was scheduled.",
+                    created,
+                    "scheduled"
+            );
             return ResponseEntity.ok(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -113,6 +124,12 @@ public class CycleCountController {
                     request.status(),
                     request.notes()
             );
+            notifyCycleCountEvent(
+                    "Cycle Count Updated",
+                    "Cycle count " + updated.getCountNumber() + " was updated.",
+                    updated,
+                    "updated"
+            );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -131,6 +148,12 @@ public class CycleCountController {
                     null,
                     "cancelled",
                     request.reason()
+            );
+            notifyCycleCountEvent(
+                    "Cycle Count Cancelled",
+                    "Cycle count " + updated.getCountNumber() + " was cancelled.",
+                    updated,
+                    "cancelled"
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
@@ -168,6 +191,16 @@ public class CycleCountController {
                     new BigDecimal(request.countedQuantity()),
                     UUID.fromString(request.countedBy())
             );
+            try {
+                CycleCountService.CycleCount count = service.findById(id);
+                notifyCycleCountEvent(
+                        "Cycle Count Recorded",
+                        "A count was recorded for " + count.getCountNumber() + ".",
+                        count,
+                        "recorded"
+                );
+            } catch (RuntimeException ignored) {
+            }
             return ResponseEntity.ok(new CycleCountResultDto(
                     result.success(),
                     result.message(),
@@ -192,6 +225,12 @@ public class CycleCountController {
                     UUID.fromString(request.approvedBy()),
                     request.notes()
             );
+            notifyCycleCountEvent(
+                    "Cycle Count Adjustment Approved",
+                    "Adjustment for cycle count " + updated.getCountNumber() + " was approved.",
+                    updated,
+                    "adjustment_approved"
+            );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -208,6 +247,12 @@ public class CycleCountController {
                     id,
                     UUID.fromString(request.approvedBy()),
                     request.notes()
+            );
+            notifyCycleCountEvent(
+                    "Cycle Count Adjustment Rejected",
+                    "Adjustment for cycle count " + updated.getCountNumber() + " was rejected.",
+                    updated,
+                    "adjustment_rejected"
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
@@ -301,5 +346,31 @@ public class CycleCountController {
             case "id", "countNumber", "warehouseId", "locationCode", "scheduledDate", "status", "countedAt", "createdAt", "updatedAt" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void notifyCycleCountEvent(
+            String title,
+            String message,
+            CycleCountService.CycleCount count,
+            String eventType
+    ) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(count.getWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("cycle_count");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/cycle-counts/" + count.getId());
+            notification.setMetadata(
+                    "{\"cycleCountId\":\"" + count.getId() + "\",\"countNumber\":\"" + count.getCountNumber() + "\",\"status\":\"" + count.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block cycle count workflows.
+        }
     }
 }

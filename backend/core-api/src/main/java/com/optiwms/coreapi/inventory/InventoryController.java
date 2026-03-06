@@ -1,5 +1,7 @@
 package com.optiwms.coreapi.inventory;
 
+import com.optiwms.coreapp.notifications.NotificationService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.coreapp.inventory.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -7,6 +9,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -16,9 +19,11 @@ import java.util.UUID;
 public class InventoryController {
 
     private final InventoryService inventoryService;
+    private final NotificationService notificationService;
 
-    public InventoryController(InventoryService inventoryService) {
+    public InventoryController(InventoryService inventoryService, NotificationService notificationService) {
         this.inventoryService = inventoryService;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
@@ -133,6 +138,12 @@ public class InventoryController {
                 item.setAvailableQuantity(newQuantity - (item.getReservedQuantity() != null ? item.getReservedQuantity() : 0));
             }
             var updated = inventoryService.update(id, item);
+            notifyInventoryEvent(
+                    "Inventory Quantity Updated",
+                    "Inventory quantity was adjusted at " + updated.getLocationCode() + ".",
+                    updated,
+                    "quantity_updated"
+            );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -162,6 +173,12 @@ public class InventoryController {
             for (var item : items) {
                 item.setStatus("quarantine");
                 inventoryService.update(item.getId(), item);
+                notifyInventoryEvent(
+                        "Inventory Quarantined",
+                        "Inventory at " + item.getLocationCode() + " was moved to quarantine.",
+                        item,
+                        "quarantined"
+                );
             }
             
             return ResponseEntity.ok(Map.of(
@@ -185,7 +202,13 @@ public class InventoryController {
                     .body(Map.of("success", false, "message", "Item is not in quarantine"));
             }
             item.setStatus("active");
-            inventoryService.update(id, item);
+            var updated = inventoryService.update(id, item);
+            notifyInventoryEvent(
+                    "Inventory Released",
+                    "Inventory at " + updated.getLocationCode() + " was released from quarantine.",
+                    updated,
+                    "released"
+            );
             return ResponseEntity.ok(Map.of(
                 "success", true,
                 "message", "Item released from quarantine"
@@ -221,6 +244,12 @@ public class InventoryController {
             item.setExpiryDate(request.expiryDate());
 
             var created = inventoryService.createOrUpdate(item);
+            notifyInventoryEvent(
+                    "Inventory Created",
+                    "Inventory was created at " + created.getLocationCode() + ".",
+                    created,
+                    "created"
+            );
             return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -255,6 +284,12 @@ public class InventoryController {
             item.setExpiryDate(request.expiryDate());
 
             var updated = inventoryService.update(id, item);
+            notifyInventoryEvent(
+                    "Inventory Updated",
+                    "Inventory at " + updated.getLocationCode() + " was updated.",
+                    updated,
+                    "updated"
+            );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
@@ -306,6 +341,32 @@ public class InventoryController {
                 null, // qualityCheckId
                 "Quarantined" // reason
         );
+    }
+
+    private void notifyInventoryEvent(
+            String title,
+            String message,
+            com.optiwms.domain.inventory.InventoryItem item,
+            String eventType
+    ) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(item.getWarehouseId());
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("inventory");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/inventory/" + item.getId());
+            notification.setMetadata(
+                    "{\"inventoryId\":\"" + item.getId() + "\",\"materialId\":\"" + item.getMaterialId() + "\",\"warehouseId\":\"" + item.getWarehouseId() + "\",\"locationCode\":\"" + item.getLocationCode() + "\",\"status\":\"" + item.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block inventory operations.
+        }
     }
 
     public record InventoryItemDto(

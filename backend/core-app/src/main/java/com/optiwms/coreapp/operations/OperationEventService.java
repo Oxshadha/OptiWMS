@@ -47,6 +47,34 @@ public class OperationEventService {
         repository.save(entity);
     }
 
+    @Transactional
+    public void recordError(OperationEventData data) {
+        if (data.workerId() == null) {
+            return;
+        }
+        LocalDateTime occurredAt = data.completedAt() != null ? data.completedAt() : LocalDateTime.now();
+        Integer duration = null;
+        if (data.startedAt() != null) {
+            duration = (int) Math.max(0, ChronoUnit.MINUTES.between(data.startedAt(), occurredAt));
+        }
+
+        OperationEventEntity entity = new OperationEventEntity();
+        entity.setOperationType(data.operationType());
+        entity.setWorkerId(data.workerId());
+        entity.setTaskId(data.taskId());
+        entity.setOrderId(data.orderId());
+        entity.setOrderItemId(data.orderItemId());
+        entity.setWarehouseId(data.warehouseId());
+        entity.setMaterialId(data.materialId());
+        entity.setQuantity(data.quantity());
+        entity.setStartedAt(data.startedAt());
+        entity.setCompletedAt(occurredAt);
+        entity.setDurationMinutes(duration);
+        entity.setStatus("error");
+        entity.setMetadata(data.metadata());
+        repository.save(entity);
+    }
+
     public List<OperationEventEntity> listCompletedSince(LocalDateTime startDate) {
         return repository.findByCompletedAtAfter(startDate);
     }

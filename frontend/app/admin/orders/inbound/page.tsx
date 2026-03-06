@@ -1,17 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
-import { suppliersApi } from "@/lib/api/suppliers";
-import { warehousesApi } from "@/lib/api/warehouses";
 import { orderItemsApi } from "@/lib/api/orderItems";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceSuppliers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { mapInboundOrderStatus } from "@/lib/utils/status-mappers";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "./types";
 import {
   CreateInboundOrderModal,
@@ -50,62 +55,44 @@ export default function InboundOrdersPage() {
   const [supplierFilterName, setSupplierFilterName] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  
-  // API state
-  const [orders, setOrders] = useState<InboundOrderDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
-  // Load data from API
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setIsLoading(true);
-      }
-      setError(null);
+  const ordersQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-orders",
+      "inbound",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      supplierFilterId || "all",
+      searchQuery.trim() || "",
+    ],
+    queryFn: async () => {
+      const ordersPage = await ordersApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        orderType: "inbound",
+        status: toApiInboundStatus(statusFilter),
+        supplierId: supplierFilterId || undefined,
+        q: searchQuery.trim() || undefined,
+      });
 
-        // Load orders, suppliers, and warehouses in parallel
-        const [ordersPage, suppliersData, warehousesData] = await Promise.all([
-          ordersApi.getPaged({
-            page: currentPage - 1,
-            size: itemsPerPage,
-            sortBy: "createdAt",
-            sortDir: "desc",
-            orderType: "inbound",
-            status: toApiInboundStatus(statusFilter),
-            supplierId: supplierFilterId || undefined,
-            q: searchQuery.trim() || undefined,
-          }),
-          suppliersApi.getAll(),
-          warehousesApi.getAll(),
-        ]);
-
-        // Create lookup maps
-        const suppliersMap = buildLookupMap(suppliersData, (s) => s.id, (s) => s.name);
-        const warehousesMap = buildLookupMap(warehousesData, (w) => w.id, (w) => w.name);
-        setSupplierFilterName(
-          supplierFilterId ? getLookupValue(suppliersMap, supplierFilterId, "Selected Supplier") : null
-        );
-
-      // Fetch order items for all orders in parallel
       const ordersWithItems = await Promise.all(
         ordersPage.data.map(async (order) => {
           try {
             const orderItems = await orderItemsApi.getByOrderId(order.id);
-            const totalItems = orderItems.length;
-            // Calculate received items (items with pickedQuantity > 0 or status indicating received)
+            const totalItemsForOrder = orderItems.length;
             const receivedItems = orderItems.filter(
-              item => item.pickedQuantity > 0 || item.status === "received" || item.status === "picked"
+              (item) =>
+                item.pickedQuantity > 0 ||
+                item.status === "received" ||
+                item.status === "picked"
             ).length;
-            
+
             return {
               order,
-              totalItems,
+              totalItems: totalItemsForOrder,
               receivedItems,
             };
           } catch (err) {
@@ -119,14 +106,47 @@ export default function InboundOrdersPage() {
         })
       );
 
-      // Transform orders to display format
-      const displayOrders: InboundOrderDisplay[] = ordersWithItems.map(({ order, totalItems, receivedItems }) => {
+      return {
+        page: ordersPage,
+        ordersWithItems,
+      };
+    },
+  });
+
+  const suppliersQuery = useReferenceSuppliers();
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateInboundOrders = useInvalidateAdminList(["admin-orders", "inbound"]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const orders = useMemo<InboundOrderDisplay[]>(() => {
+    const suppliersMap = buildLookupMap(
+      suppliersQuery.data || [],
+      (supplier) => supplier.id,
+      (supplier) => supplier.name
+    );
+    const warehousesMap = buildLookupMap(
+      warehousesQuery.data || [],
+      (warehouse) => warehouse.id,
+      (warehouse) => warehouse.name
+    );
+
+    return (ordersQuery.data?.ordersWithItems || []).map(
+      ({ order, totalItems: totalItemsForOrder, receivedItems }) => {
         const supplierName = order.supplierId
           ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
           : "N/A";
-        const warehouseName = getLookupValue(warehousesMap, order.warehouseId, "Unknown Warehouse");
-        
-        const status = mapInboundOrderStatus(order.status);
+        const warehouseName = getLookupValue(
+          warehousesMap,
+          order.warehouseId,
+          "Unknown Warehouse"
+        );
 
         return {
           id: order.id,
@@ -136,36 +156,49 @@ export default function InboundOrdersPage() {
           warehouseName,
           orderDate: order.orderDate || new Date().toISOString().split("T")[0],
           expectedDelivery: order.expectedDate || new Date().toISOString().split("T")[0],
-          status,
-          totalItems,
+          status: mapInboundOrderStatus(order.status),
+          totalItems: totalItemsForOrder,
           receivedItems,
         };
-      });
+      }
+    );
+  }, [ordersQuery.data, suppliersQuery.data, warehousesQuery.data]);
 
-      setOrders(displayOrders);
-      setTotalItems(ordersPage.totalElements);
-      setTotalPages(Math.max(ordersPage.totalPages, 1));
-      setHasLoadedOnce(true);
+  useEffect(() => {
+    if (!supplierFilterId) {
+      setSupplierFilterName(null);
+      return;
+    }
+
+    const suppliersMap = buildLookupMap(
+      suppliersQuery.data || [],
+      (supplier) => supplier.id,
+      (supplier) => supplier.name
+    );
+    setSupplierFilterName(
+      getLookupValue(suppliersMap, supplierFilterId, "Selected Supplier")
+    );
+  }, [supplierFilterId, suppliersQuery.data]);
+
+  const isLoading =
+    (ordersQuery.isPending && !ordersQuery.data) ||
+    (suppliersQuery.isPending && !suppliersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const isFetching =
+    ordersQuery.isFetching || suppliersQuery.isFetching || warehousesQuery.isFetching;
+  const error =
+    ordersQuery.error || suppliersQuery.error || warehousesQuery.error
+      ? "Failed to load inbound orders. Please try again."
+      : null;
+  const totalItems = ordersQuery.data?.page.totalElements ?? 0;
+  const totalPages = Math.max(ordersQuery.data?.page.totalPages ?? 1, 1);
+  const reload = async () => {
+    try {
+      await invalidateInboundOrders();
     } catch (err) {
-      logger.error("Failed to load inbound orders:", err);
-      setError("Failed to load inbound orders. Please try again.");
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
+      logger.error("Failed to reload inbound orders:", err);
     }
   };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery, supplierFilterId]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchQuery(searchInput);
-      setCurrentPage(1);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchInput]);
 
   // Calculate summary from orders
   const summary = {
@@ -190,7 +223,7 @@ export default function InboundOrdersPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => loadData()}>
+          <button className="btn btn-sm" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -227,7 +260,7 @@ export default function InboundOrdersPage() {
           )}
           <button
             className="btn btn-sm btn-ghost"
-            onClick={() => void loadData()}
+            onClick={() => void reload()}
             title="Refresh data"
           >
             <span className="material-symbols-outlined">refresh</span>
@@ -445,9 +478,26 @@ export default function InboundOrdersPage() {
                             </li>
                           ) : null}
                           <li>
-                            <button onClick={() => window.print()}>
+                            <button
+                              onClick={() =>
+                                downloadHtmlDocument(
+                                  `inbound-order-${order.orderNumber}.html`,
+                                  `Inbound Order ${order.orderNumber}`,
+                                  `
+                                    <h1>Inbound Order ${escapeHtml(order.orderNumber)}</h1>
+                                    <p class="muted">Generated from OptiWMS</p>
+                                    <div class="grid section">
+                                      <div class="card"><strong>Status:</strong><br />${escapeHtml(order.status)}</div>
+                                      <div class="card"><strong>Supplier:</strong><br />${escapeHtml(order.supplierName || "N/A")}</div>
+                                      <div class="card"><strong>Warehouse:</strong><br />${escapeHtml(order.warehouseName || "N/A")}</div>
+                                      <div class="card"><strong>Expected Delivery:</strong><br />${escapeHtml(order.expectedDelivery || "N/A")}</div>
+                                    </div>
+                                  `
+                                )
+                              }
+                            >
                               <span className="material-symbols-outlined text-sm">print</span>
-                              Print/Export
+                              Download Order Sheet
                             </button>
                           </li>
                           {order.status === "ordered" || order.status === "in_transit" ? (
@@ -460,7 +510,7 @@ export default function InboundOrdersPage() {
                                     try {
                                       await ordersApi.cancel(order.id);
                                       showToast.success("Order cancelled successfully");
-                                      await loadData();
+                                      await reload();
                                     } catch (err) {
                                       logger.error("Failed to cancel order:", err);
                                       showToast.error("Failed to cancel order. Please try again.");
@@ -500,7 +550,7 @@ export default function InboundOrdersPage() {
       {showCreateModal && (
         <CreateInboundOrderModal
           onClose={() => setShowCreateModal(false)}
-          onSaved={loadData}
+          onSaved={reload}
         />
       )}
 
@@ -524,7 +574,7 @@ export default function InboundOrdersPage() {
             setShowEditModal(false);
             setSelectedOrder(null);
           }}
-          onSaved={loadData}
+          onSaved={reload}
           order={selectedOrder}
         />
       )}

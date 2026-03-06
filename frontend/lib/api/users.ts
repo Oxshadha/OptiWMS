@@ -15,6 +15,7 @@ export interface User {
   deviceId?: string;
   blindReceivingMode?: boolean;
   lastLoginAt?: string;
+  dashboardSettings?: string | Record<string, any>;
 }
 
 export interface PagedUsersResponse {
@@ -23,6 +24,12 @@ export interface PagedUsersResponse {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+export interface WorkerTaskSummary {
+  workerId: string;
+  total: number;
+  completed: number;
 }
 
 export const usersApi = {
@@ -74,6 +81,16 @@ export const usersApi = {
     return apiClient.get<User>(`/users/username/${username}`);
   },
 
+  getWorkerTaskSummary: async (ids: string[]): Promise<WorkerTaskSummary[]> => {
+    if (!ids.length) {
+      return [];
+    }
+
+    const params = new URLSearchParams();
+    params.append("ids", ids.join(","));
+    return apiClient.get<WorkerTaskSummary[]>(`/users/worker-task-summary?${params.toString()}`);
+  },
+
   create: async (user: Omit<User, 'id'> & { password: string }): Promise<User> => {
     return apiClient.post<User>('/users', user);
   },
@@ -90,7 +107,7 @@ export const usersApi = {
     return apiClient.delete<void>(`/users/${id}`);
   },
 
-  updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean }): Promise<User> => {
+  updatePreferences: async (id: string, preferences: { blindReceivingMode?: boolean; dashboardSettings?: Record<string, any> }): Promise<User> => {
     return apiClient.put<User>(`/users/${id}/preferences`, preferences);
   },
 

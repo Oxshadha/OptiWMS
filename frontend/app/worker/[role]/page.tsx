@@ -151,13 +151,7 @@ export default function RoleBasedWorkerHome() {
   }
 
   return (
-    <div
-      className="w-full px-2 py-3 md:px-4 md:py-4 lg:px-6 lg:py-6"
-      style={{
-        background: "oklch(98% 0 0)",
-        boxSizing: "border-box",
-      }}
-    >
+    <div className="w-full px-2 py-3 md:px-4 md:py-4 lg:px-6 lg:py-6 box-border bg-base-200">
       {showUnauthorizedMessage && (
         <div className="alert alert-error mb-4 max-w-4xl mx-auto">
           <span className="material-symbols-outlined">error</span>
@@ -190,41 +184,18 @@ export default function RoleBasedWorkerHome() {
               <Link
                 key={widget.id}
                 href={widget.href}
-                className="active:scale-95 transition-transform hover:scale-105"
+                className="active:scale-95 transition-all hover:scale-105 rounded-xl p-3 bg-base-100 border border-base-300 text-base-content cursor-pointer relative flex flex-col aspect-square no-underline box-border shadow-sm hover:shadow-lg"
                 style={{
-                  borderRadius: "0.75rem",
-                  padding: "0.75rem",
-                  background: "rgb(238, 238, 238)",
-                  color: "oklch(21% 0.006 285.885)",
-                  cursor: "pointer",
-                  transition: "transform 0.15s, box-shadow 0.15s",
-                  position: "relative",
-                  display: "flex",
-                  flexDirection: "column",
-                  aspectRatio: "1",
-                  textDecoration: "none",
-                  boxSizing: "border-box",
                   WebkitTapHighlightColor: "transparent",
-                  boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.boxShadow =
-                    "0 4px 12px rgba(0, 0, 0, 0.15)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.boxShadow =
-                    "0 1px 3px rgba(0, 0, 0, 0.1)";
                 }}
               >
                 <div
-                  className="text-[0.5rem] md:text-xs"
+                  className="text-[0.5rem] md:text-xs text-base-content/60"
                   style={{
                     textTransform: "uppercase",
                     letterSpacing: "0.5px",
-                    opacity: 0.6,
                     marginBottom: "0.5rem",
                     fontWeight: 600,
-                    color: "oklch(21% 0.006 285.885)",
                     lineHeight: "1.2",
                   }}
                 >
@@ -248,21 +219,18 @@ export default function RoleBasedWorkerHome() {
                 </div>
                 <div style={{ marginTop: "auto" }}>
                   <div
-                    className="text-xs md:text-sm"
+                    className="text-xs md:text-sm text-base-content"
                     style={{
                       fontWeight: 700,
-                      color: "oklch(21% 0.006 285.885)",
                       lineHeight: "1.2",
                     }}
                   >
                     {widget.title}
                   </div>
                   <div
-                    className="text-[0.5rem] md:text-xs"
+                    className="text-[0.5rem] md:text-xs text-base-content/50"
                     style={{
-                      opacity: 0.5,
                       marginTop: "0.125rem",
-                      color: "oklch(21% 0.006 285.885)",
                       lineHeight: "1.2",
                     }}
                   >

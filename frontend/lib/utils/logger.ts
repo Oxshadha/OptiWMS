@@ -68,30 +68,46 @@ function sanitizeMessage(message: any): any {
  * Send error to monitoring service (implement based on your service)
  */
 function sendToMonitoring(level: string, message: string, ...args: any[]) {
-  // TODO: Implement error reporting service integration
-  // Examples:
-  // - Sentry: Sentry.captureException(new Error(message));
-  // - Datadog: DD_LOGS.logger.error(message, ...args);
-  // - Custom API: fetch('/api/logs', { method: 'POST', body: JSON.stringify({ level, message, args }) });
-  
-  // For now, just store critical errors in localStorage for later analysis
-  if (IS_PRODUCTION && (level === 'error' || level === 'warn')) {
-    try {
-      const logs = JSON.parse(localStorage.getItem('error_logs') || '[]');
-      logs.push({
-        level,
-        message: sanitizeMessage(message),
-        timestamp: new Date().toISOString(),
-        url: window.location.href,
-      });
-      // Keep only last 50 errors
-      if (logs.length > 50) {
-        logs.shift();
-      }
-      localStorage.setItem('error_logs', JSON.stringify(logs));
-    } catch (e) {
-      // Silently fail if localStorage is full or unavailable
-    }
+  const shouldReport = IS_PRODUCTION && (level === 'error' || level === 'warn');
+  if (!shouldReport || typeof window === "undefined") return;
+
+  const payload = {
+    level,
+    message: String(sanitizeMessage(message)),
+    page: window.location.pathname,
+    context: sanitizeMessage(args),
+  };
+
+  try {
+    const accessToken = localStorage.getItem("accessToken");
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"}/observability/frontend-events`, {
+      method: "POST",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      // Best effort only.
+    });
+  } catch {
+    // Best effort only.
+  }
+
+  // Keep local fallback logs for quick diagnostics.
+  try {
+    const logs = JSON.parse(localStorage.getItem('error_logs') || '[]');
+    logs.push({
+      level,
+      message: payload.message,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+    });
+    if (logs.length > 50) logs.shift();
+    localStorage.setItem('error_logs', JSON.stringify(logs));
+  } catch {
+    // Ignore localStorage failures.
   }
 }
 
