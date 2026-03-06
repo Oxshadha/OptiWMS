@@ -5,6 +5,12 @@ WORKDIR /app
 
 # Copy Gradle files first for better caching
 COPY build.gradle.kts settings.gradle.kts gradle.properties ./
+# include the Gradle wrapper script (optional) and the gradle directory.
+# note: the wrapper JAR itself is not checked in at the moment, so the
+# build command below uses the preinstalled gradle binary from the base image.
+# you can later add `gradle-wrapper.jar` to the repo and keep the `COPY gradle`
+# step if you prefer to use `./gradlew`.
+COPY gradlew ./
 COPY gradle ./gradle
 
 # Copy all source code
@@ -14,8 +20,10 @@ COPY core-domain ./core-domain
 COPY infra ./infra
 COPY integration ./integration
 
-# Build the application
-RUN ./gradlew build -x test --no-daemon
+# Build the application using the image's Gradle installation
+# (the wrapper JAR isn't present in this repo, so we rely on the
+# preinstalled gradle binary instead)
+RUN gradle build -x test --no-daemon
 
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine
