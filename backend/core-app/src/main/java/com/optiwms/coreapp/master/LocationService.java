@@ -88,14 +88,20 @@ public class LocationService {
 
     @Transactional
     public Location create(Location location) {
+        String area = normalizeArea(location.getArea());
+        String rowNumber = normalizeRowNumber(location.getRowNumber());
+        String bayNumber = normalizeBayNumber(location.getBayNumber());
+        Integer levelNumber = normalizeLevelNumber(location.getLevelNumber());
+        String binPosition = normalizeBinPosition(location.getBinPosition());
+
         LocationEntity entity = new LocationEntity();
         entity.setWarehouseId(location.getWarehouseId());
-        entity.setLocationCode(location.getLocationCode());
-        entity.setArea(location.getArea());
-        entity.setRowNumber(location.getRowNumber());
-        entity.setBayNumber(location.getBayNumber());
-        entity.setLevelNumber(location.getLevelNumber());
-        entity.setBinPosition(location.getBinPosition());
+        entity.setArea(area);
+        entity.setRowNumber(rowNumber);
+        entity.setBayNumber(bayNumber);
+        entity.setLevelNumber(levelNumber);
+        entity.setBinPosition(binPosition);
+        entity.setLocationCode(buildCanonicalLocationCode(area, rowNumber, bayNumber, levelNumber, binPosition));
         entity.setLocationType(location.getLocationType() != null ? location.getLocationType() : "storage");
         entity.setZoneType(location.getZoneType() != null ? location.getZoneType() : "STORAGE");
         entity.setCapacity(location.getCapacity());
@@ -132,12 +138,18 @@ public class LocationService {
                     + "' because this rack currently has stock. Move stock out first.");
         }
 
-        entity.setLocationCode(location.getLocationCode());
-        entity.setArea(location.getArea());
-        entity.setRowNumber(location.getRowNumber());
-        entity.setBayNumber(location.getBayNumber());
-        entity.setLevelNumber(location.getLevelNumber());
-        entity.setBinPosition(location.getBinPosition());
+        String area = normalizeArea(location.getArea() != null ? location.getArea() : entity.getArea());
+        String rowNumber = normalizeRowNumber(location.getRowNumber() != null ? location.getRowNumber() : entity.getRowNumber());
+        String bayNumber = normalizeBayNumber(location.getBayNumber() != null ? location.getBayNumber() : entity.getBayNumber());
+        Integer levelNumber = normalizeLevelNumber(location.getLevelNumber() != null ? location.getLevelNumber() : entity.getLevelNumber());
+        String binPosition = normalizeBinPosition(location.getBinPosition() != null ? location.getBinPosition() : entity.getBinPosition());
+
+        entity.setArea(area);
+        entity.setRowNumber(rowNumber);
+        entity.setBayNumber(bayNumber);
+        entity.setLevelNumber(levelNumber);
+        entity.setBinPosition(binPosition);
+        entity.setLocationCode(buildCanonicalLocationCode(area, rowNumber, bayNumber, levelNumber, binPosition));
         entity.setLocationType(location.getLocationType());
         if (location.getZoneType() != null) entity.setZoneType(location.getZoneType());
         entity.setCapacity(location.getCapacity());
@@ -173,13 +185,13 @@ public class LocationService {
     @Transactional
     public RackDeleteResult deleteRack(UUID warehouseId, String area, String rowNumber, String bayNumber) {
         String normalizedArea = normalizeArea(area);
-        String normalizedRow = String.format("%02d", safeParseInt(rowNumber));
-        String normalizedBay = String.format("%02d", safeParseInt(bayNumber));
+        String normalizedRow = normalizeRowNumber(rowNumber);
+        String normalizedBay = normalizeBayNumber(bayNumber);
 
         List<LocationEntity> rackLocations = repository.findByWarehouseId(warehouseId).stream()
                 .filter(loc -> normalizedArea.equalsIgnoreCase(loc.getArea()))
-                .filter(loc -> normalizedRow.equals(String.format("%02d", safeParseInt(loc.getRowNumber()))))
-                .filter(loc -> normalizedBay.equals(String.format("%02d", safeParseInt(loc.getBayNumber()))))
+                .filter(loc -> normalizedRow.equals(normalizeRowNumber(loc.getRowNumber())))
+                .filter(loc -> normalizedBay.equals(normalizeBayNumber(loc.getBayNumber())))
                 .collect(Collectors.toList());
 
         if (rackLocations.isEmpty()) {
@@ -230,8 +242,8 @@ public class LocationService {
         if (bins < 1 || bins > 5) {
             throw new RuntimeException("binsPerLevel must be between 1 and 5");
         }
-        if (firstBay < 1 || firstBay > 99) {
-            throw new RuntimeException("startBay must be between 1 and 99");
+        if (firstBay < 1 || firstBay > 999) {
+            throw new RuntimeException("startBay must be between 1 and 999");
         }
 
         List<LocationEntity> existingLocations = repository.findByWarehouseId(warehouseId).stream()
@@ -256,8 +268,8 @@ public class LocationService {
         if (firstRow + rows - 1 > 99) {
             throw new RuntimeException("Requested rows exceed row limit (99)");
         }
-        if (firstBay + bays - 1 > 99) {
-            throw new RuntimeException("Requested bays exceed bay limit (99)");
+        if (firstBay + bays - 1 > 999) {
+            throw new RuntimeException("Requested bays exceed bay limit (999)");
         }
 
         Set<String> existingRacks = existingLocations.stream()
@@ -276,7 +288,7 @@ public class LocationService {
             String rowCode = String.format("%02d", row);
             for (int bayOffset = 0; bayOffset < bays; bayOffset++) {
                 int bay = firstBay + bayOffset;
-                String bayCode = String.format("%02d", bay);
+                String bayCode = String.format("%03d", bay);
                 String rackKey = rackKey(normalizedArea, rowCode, bayCode);
 
                 if (existingRacks.contains(rackKey)) {
@@ -287,8 +299,7 @@ public class LocationService {
                 for (int level = 1; level <= levels; level++) {
                     for (int binIndex = 0; binIndex < bins; binIndex++) {
                         String binPosition = String.valueOf((char) ('A' + binIndex));
-                        String locationCode = String.format("%s-%s-%s-%d-%s",
-                                normalizedArea, rowCode, bayCode, level, binPosition);
+                        String locationCode = buildCanonicalLocationCode(normalizedArea, rowCode, bayCode, level, binPosition);
                         if (existingLocationCodes.contains(locationCode)) {
                             continue;
                         }
@@ -415,10 +426,49 @@ public class LocationService {
 
     private int safeParseInt(String value) {
         try {
-            return Integer.parseInt(value);
+            return Integer.parseInt(value == null ? "" : value.trim());
         } catch (Exception e) {
             return -1;
         }
+    }
+
+    private String normalizeRowNumber(String rowNumber) {
+        int parsed = safeParseInt(rowNumber);
+        if (parsed < 1 || parsed > 99) {
+            throw new RuntimeException("rowNumber must be between 1 and 99");
+        }
+        return String.format("%02d", parsed);
+    }
+
+    private String normalizeBayNumber(String bayNumber) {
+        int parsed = safeParseInt(bayNumber);
+        if (parsed < 1 || parsed > 999) {
+            throw new RuntimeException("bayNumber must be between 1 and 999");
+        }
+        return String.format("%03d", parsed);
+    }
+
+    private Integer normalizeLevelNumber(Integer levelNumber) {
+        int parsed = levelNumber == null ? 1 : levelNumber;
+        if (parsed < 1 || parsed > 10) {
+            throw new RuntimeException("levelNumber must be between 1 and 10");
+        }
+        return parsed;
+    }
+
+    private String normalizeBinPosition(String binPosition) {
+        if (binPosition == null || binPosition.isBlank()) {
+            throw new RuntimeException("binPosition is required");
+        }
+        String normalized = binPosition.trim().toUpperCase(Locale.ROOT);
+        if (!normalized.matches("^[A-Z]$")) {
+            throw new RuntimeException("binPosition must be a single letter (A-Z)");
+        }
+        return normalized;
+    }
+
+    private String buildCanonicalLocationCode(String area, String rowNumber, String bayNumber, Integer levelNumber, String binPosition) {
+        return String.format("%s-%s-%s-%d-%s", area, rowNumber, bayNumber, levelNumber, binPosition);
     }
 
     private String rackKey(String area, String rowNumber, String bayNumber) {
