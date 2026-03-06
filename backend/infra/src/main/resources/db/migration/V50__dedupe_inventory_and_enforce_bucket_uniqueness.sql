@@ -1,3 +1,6 @@
+-- Add lpn_code column if it doesn't exist (License Plate Number)
+ALTER TABLE inventory ADD COLUMN IF NOT EXISTS lpn_code VARCHAR(255);
+
 -- Remove duplicate inventory rows within the same logical inventory bucket.
 -- Keep the most recently updated row for each bucket.
 WITH ranked_inventory AS (
