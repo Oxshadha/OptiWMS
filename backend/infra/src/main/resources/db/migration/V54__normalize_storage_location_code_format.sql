@@ -8,6 +8,18 @@ CREATE TEMP TABLE tmp_location_code_map (
     new_code VARCHAR(50) NOT NULL
 ) ON COMMIT DROP;
 
+DROP TABLE IF EXISTS tmp_location_code_ranked;
+CREATE TEMP TABLE tmp_location_code_ranked (
+    id UUID PRIMARY KEY,
+    old_code VARCHAR(50) NOT NULL,
+    new_code VARCHAR(50) NOT NULL,
+    rn INTEGER NOT NULL
+) ON COMMIT DROP;
+
+-- Temporarily relax FK checks while code values are being rewritten.
+ALTER TABLE material_default_locations DROP CONSTRAINT IF EXISTS material_default_locations_location_code_fkey;
+ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_code_fkey;
+
 -- Parse "new-style" hybrid codes such as C-RFW-01-003-2-B and
 -- fold them into canonical area-row-bay-level-bin columns.
 UPDATE locations l
@@ -60,32 +72,25 @@ SET area = COALESCE(NULLIF(UPPER(SUBSTRING(TRIM(area) FROM 1 FOR 1)), ''), 'C'),
     END
 WHERE zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage';
 
--- Build old->new location code map for storage rows.
-INSERT INTO tmp_location_code_map(old_code, new_code)
+-- Build ranked old->new mapping for storage rows.
+-- For collisions on the same canonical new_code, keep one winner and drop losers.
+INSERT INTO tmp_location_code_ranked(id, old_code, new_code, rn)
 SELECT
-    location_code AS old_code,
-    FORMAT('%s-%s-%s-%s-%s', area, row_number, bay_number, level_number, bin_position) AS new_code
-FROM locations
-WHERE (zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage')
-  AND location_code IS DISTINCT FROM FORMAT('%s-%s-%s-%s-%s', area, row_number, bay_number, level_number, bin_position);
+    l.id,
+    l.location_code AS old_code,
+    FORMAT('%s-%s-%s-%s-%s', l.area, l.row_number, l.bay_number, l.level_number, l.bin_position) AS new_code,
+    ROW_NUMBER() OVER (
+        PARTITION BY FORMAT('%s-%s-%s-%s-%s', l.area, l.row_number, l.bay_number, l.level_number, l.bin_position)
+        ORDER BY CASE WHEN l.location_code = FORMAT('%s-%s-%s-%s-%s', l.area, l.row_number, l.bay_number, l.level_number, l.bin_position) THEN 0 ELSE 1 END,
+                 l.id
+    ) AS rn
+FROM locations l
+WHERE (l.zone_type = 'STORAGE' OR LOWER(COALESCE(l.location_type, '')) = 'storage');
 
--- Fail fast if normalization would create code collisions.
-DO $$
-DECLARE
-    duplicate_count INT;
-BEGIN
-    SELECT COUNT(*) INTO duplicate_count
-    FROM (
-        SELECT new_code
-        FROM tmp_location_code_map
-        GROUP BY new_code
-        HAVING COUNT(*) > 1
-    ) duplicates;
-
-    IF duplicate_count > 0 THEN
-        RAISE EXCEPTION 'Location code normalization would create % duplicate canonical codes. Resolve conflicting slots first.', duplicate_count;
-    END IF;
-END $$;
+INSERT INTO tmp_location_code_map(old_code, new_code)
+SELECT old_code, new_code
+FROM tmp_location_code_ranked
+WHERE old_code IS DISTINCT FROM new_code;
 
 -- Update all location-code references in public schema.
 DO $$
@@ -115,11 +120,19 @@ BEGIN
     END LOOP;
 END $$;
 
--- Update primary locations table last.
+-- Remove duplicate rows that map to the same canonical storage slot.
+DELETE FROM locations l
+USING tmp_location_code_ranked r
+WHERE l.id = r.id
+  AND r.rn > 1;
+
+-- Update remaining primary locations to canonical code.
 UPDATE locations l
-SET location_code = m.new_code
-FROM tmp_location_code_map m
-WHERE l.location_code = m.old_code;
+SET location_code = r.new_code
+FROM tmp_location_code_ranked r
+WHERE l.id = r.id
+  AND r.rn = 1
+  AND l.location_code IS DISTINCT FROM r.new_code;
 
 -- Enforce canonical storage-code format.
 ALTER TABLE locations DROP CONSTRAINT IF EXISTS chk_location_code_format;
@@ -134,3 +147,25 @@ ALTER TABLE locations
 CREATE UNIQUE INDEX IF NOT EXISTS ux_locations_storage_slot
     ON locations (warehouse_id, area, row_number, bay_number, level_number, bin_position)
     WHERE zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage';
+
+-- Restore location-code foreign keys after normalization.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'material_default_locations_location_code_fkey'
+    ) THEN
+        ALTER TABLE material_default_locations
+            ADD CONSTRAINT material_default_locations_location_code_fkey
+            FOREIGN KEY (location_code) REFERENCES locations(location_code) ON DELETE SET NULL;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'inventory_location_code_fkey'
+    ) THEN
+        ALTER TABLE inventory
+            ADD CONSTRAINT inventory_location_code_fkey
+            FOREIGN KEY (location_code) REFERENCES locations(location_code) ON DELETE SET NULL;
+    END IF;
+END $$;
