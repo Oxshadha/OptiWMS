@@ -5,7 +5,9 @@
 # Build artifacts
 build/
 .gradle/
+# ignore all JARs except the Gradle wrapper (needed for Docker builds)
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.class
 
 # IDE
