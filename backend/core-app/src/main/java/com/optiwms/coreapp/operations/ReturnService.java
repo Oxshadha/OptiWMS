@@ -583,6 +583,8 @@ public class ReturnService {
         try {
             Notification notification = new Notification();
             notification.setUserId(null); // broadcast
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setWarehouseId(entity.getWarehouseId());
             notification.setTitle(title);
             notification.setMessage(message);
             notification.setNotificationType("return");

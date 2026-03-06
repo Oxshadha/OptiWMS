@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi, Order } from "@/lib/api/orders";
@@ -9,8 +9,8 @@ import { orderItemsApi, OrderItem } from "@/lib/api/orderItems";
 import { customersApi, Customer } from "@/lib/api/customers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { materialsApi, Material } from "@/lib/api/materials";
-import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 
 const statusConfig = {
   pending: { label: "Pending" },
@@ -45,82 +45,74 @@ function getOutboundPriorityTone(priority: string): StatusTone {
 
 export default function OutboundOrderDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const orderId = params.id as string;
+  const orderDetailQuery = useQuery({
+    queryKey: ["admin-orders", "outbound", "detail", orderId],
+    queryFn: async () => {
+      const [orderData, itemsData] = await Promise.allSettled([
+        ordersApi.getById(orderId),
+        orderItemsApi.getByOrderId(orderId),
+      ]);
 
-  const [order, setOrder] = useState<Order | null>(null);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [warehouse, setWarehouse] = useState<Warehouse | null>(null);
-  const [materials, setMaterials] = useState<Map<string, Material>>(new Map());
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadOrderDetails = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Load order, items, customer, warehouse, and materials in parallel
-        const [orderData, itemsData] = await Promise.allSettled([
-          ordersApi.getById(orderId),
-          orderItemsApi.getByOrderId(orderId),
-        ]);
-
-        if (orderData.status === "rejected") {
-          throw new Error("Failed to load order");
-        }
-        const orderResult = orderData.value;
-        setOrder(orderResult);
-
-        if (itemsData.status === "fulfilled") {
-          setOrderItems(itemsData.value);
-
-          // Load materials for all items
-          const materialIds = itemsData.value.map((item) => item.materialId);
-          const materialsData = await Promise.allSettled(
-            materialIds.map((id) => materialsApi.getById(id))
-          );
-          const materialsMap = new Map<string, Material>();
-          materialsData.forEach((result, index) => {
-            if (result.status === "fulfilled") {
-              materialsMap.set(materialIds[index], result.value);
-            }
-          });
-          setMaterials(materialsMap);
-        }
-
-        // Load customer if exists
-        if (orderResult.customerId) {
-          try {
-            const customerData = await customersApi.getById(orderResult.customerId);
-            setCustomer(customerData);
-          } catch (err) {
-            logger.warn("Failed to load customer:", err);
-          }
-        }
-
-        // Load warehouse
-        try {
-          const warehouseData = await warehousesApi.getById(orderResult.warehouseId);
-          setWarehouse(warehouseData);
-        } catch (err) {
-          logger.warn("Failed to load warehouse:", err);
-        }
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Failed to load order details";
-        setError(errorMessage);
-        showToast.error(errorMessage);
-      } finally {
-        setIsLoading(false);
+      if (orderData.status === "rejected") {
+        throw new Error("Failed to load order");
       }
-    };
+      const orderResult = orderData.value;
 
-    if (orderId) {
-      loadOrderDetails();
-    }
-  }, [orderId]);
+      let orderItemsResult: OrderItem[] = [];
+      const materialsMap = new Map<string, Material>();
+
+      if (itemsData.status === "fulfilled") {
+        orderItemsResult = itemsData.value;
+        const materialIds = itemsData.value.map((item) => item.materialId);
+        const materialsData = await Promise.allSettled(
+          materialIds.map((id) => materialsApi.getById(id))
+        );
+        materialsData.forEach((result, index) => {
+          if (result.status === "fulfilled") {
+            materialsMap.set(materialIds[index], result.value);
+          }
+        });
+      }
+
+      let customerResult: Customer | null = null;
+      if (orderResult.customerId) {
+        try {
+          customerResult = await customersApi.getById(orderResult.customerId);
+        } catch (err) {
+          logger.warn("Failed to load customer:", err);
+        }
+      }
+
+      let warehouseResult: Warehouse | null = null;
+      try {
+        warehouseResult = await warehousesApi.getById(orderResult.warehouseId);
+      } catch (err) {
+        logger.warn("Failed to load warehouse:", err);
+      }
+
+      return {
+        order: orderResult,
+        orderItems: orderItemsResult,
+        customer: customerResult,
+        warehouse: warehouseResult,
+        materials: materialsMap,
+      };
+    },
+    enabled: !!orderId,
+  });
+
+  const order = orderDetailQuery.data?.order as Order | undefined;
+  const orderItems = orderDetailQuery.data?.orderItems || [];
+  const customer = orderDetailQuery.data?.customer || null;
+  const warehouse = orderDetailQuery.data?.warehouse || null;
+  const materials = orderDetailQuery.data?.materials || new Map<string, Material>();
+  const isLoading = orderDetailQuery.isPending && !orderDetailQuery.data;
+  const error = orderDetailQuery.error instanceof Error
+    ? orderDetailQuery.error.message
+    : orderDetailQuery.error
+      ? "Failed to load order details"
+      : null;
 
   if (isLoading) {
     return (
@@ -170,9 +162,31 @@ export default function OutboundOrderDetailPage() {
             <h1 className="text-3xl font-bold">Outbound Order: {order.orderNumber}</h1>
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-ghost" onClick={() => window.print()}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                downloadHtmlDocument(
+                  `outbound-order-${order.orderNumber || order.id}.html`,
+                  `Outbound Order ${order.orderNumber || order.id}`,
+                  `
+                    <h1>Outbound Order ${escapeHtml(order.orderNumber || order.id)}</h1>
+                    <p class="muted">Generated from OptiWMS</p>
+                    <div class="grid section">
+                      <div class="card"><strong>Status:</strong><br />${escapeHtml(order.status || "pending")}</div>
+                      <div class="card"><strong>Priority:</strong><br />${escapeHtml(order.priority || "normal")}</div>
+                      <div class="card"><strong>Customer:</strong><br />${escapeHtml(customer?.name || "N/A")}</div>
+                      <div class="card"><strong>Warehouse:</strong><br />${escapeHtml(warehouse?.name || "N/A")}</div>
+                      <div class="card"><strong>Total Items:</strong><br />${totalItems.toString()}</div>
+                      <div class="card"><strong>Total Quantity:</strong><br />${totalQuantity.toString()}</div>
+                      <div class="card"><strong>Picked Items:</strong><br />${pickedItems.toString()}</div>
+                      <div class="card"><strong>Picked Quantity:</strong><br />${pickedQuantity.toString()}</div>
+                    </div>
+                  `
+                );
+              }}
+            >
               <span className="material-symbols-outlined">print</span>
-              Print
+              Download Order Sheet
             </button>
           </div>
         </div>

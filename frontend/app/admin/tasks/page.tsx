@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -9,8 +9,12 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
-import { usersApi } from "@/lib/api/users";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { logger } from "@/lib/utils/logger";
 import { CreateTaskModal, TaskDetailModal } from "./components/TaskModals";
 import {
@@ -65,126 +69,33 @@ export default function TasksPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  
-  // API state
-  const [tasks, setTasks] = useState<TaskDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
-  // Load data from API
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setIsLoading(true);
-      }
-      setError(null);
+  const tasksQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-tasks",
+      currentPage,
+      itemsPerPage,
+      typeFilter,
+      statusFilter,
+      searchQuery.trim() || "",
+      isWarehouseManager ? assignedWarehouseId || "assigned" : "all",
+    ],
+    queryFn: () =>
+      tasksApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        taskType: typeFilter === "all" ? undefined : typeFilter,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        q: searchQuery.trim() || undefined,
+      }),
+  });
 
-        // Load tasks, users, and warehouses in parallel
-        const [tasksPage, usersData, warehousesData] = await Promise.all([
-          tasksApi.getPaged({
-            page: currentPage - 1,
-            size: itemsPerPage,
-            sortBy: "createdAt",
-            sortDir: "desc",
-            taskType: typeFilter === "all" ? undefined : typeFilter,
-            status: statusFilter === "all" ? undefined : statusFilter,
-            warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-            q: searchQuery.trim() || undefined,
-          }),
-          usersApi.getAll(),
-          warehousesApi.getAll(),
-        ]);
-
-        // Create lookup maps
-        const usersMap = new Map();
-        usersData.forEach((u) => {
-          usersMap.set(u.id, `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username);
-        });
-
-        const warehousesMap = new Map();
-        warehousesData.forEach((w) => {
-          warehousesMap.set(w.id, w.name);
-        });
-
-      // Transform tasks to display format
-      const displayTasks: TaskDisplay[] = tasksPage.data.map((task) => {
-        const workerName = task.assignedTo ? usersMap.get(task.assignedTo) || "Unassigned" : "Unassigned";
-        const warehouseName = task.warehouseId ? warehousesMap.get(task.warehouseId) || "Unknown" : "Unknown";
-        
-        // Map backend status to frontend status
-        let status = task.status;
-        if (status === "in_progress") status = "in_progress";
-        if (status === "completed") status = "completed";
-        if (status === "cancelled") status = "cancelled";
-
-        const duration = getDurationMinutes(task.startedAt, task.completedAt);
-
-        const notePairs = new Map<string, string>();
-        (task.notes || "")
-          .split(";")
-          .map((part) => part.trim())
-          .filter(Boolean)
-          .forEach((part) => {
-            const [k, ...rest] = part.split("=");
-            if (!k || rest.length === 0) return;
-            notePairs.set(k.trim().toLowerCase(), rest.join("=").trim());
-          });
-        const cycleCountRef =
-          notePairs.get("count") ||
-          (task.referenceType === "cycle_count" ? task.referenceId : null);
-        const scope = notePairs.get("scope") || task.locationCode || null;
-        const noteRole = notePairs.get("role") || null;
-        const details =
-          task.taskType === "cycle_count"
-            ? [cycleCountRef ? `Count ${cycleCountRef}` : null, scope ? `Scope ${scope}` : null, noteRole ? `Role ${noteRole}` : null]
-                .filter(Boolean)
-                .join(" | ")
-            : [task.referenceType ? `Ref ${task.referenceType}` : null, task.referenceId ? task.referenceId.slice(0, 8) : null]
-                .filter(Boolean)
-                .join(": ");
-
-        return {
-          id: task.id,
-          taskNumber: task.taskNumber,
-          taskType: task.taskType,
-          workerName,
-          warehouseId: task.warehouseId,
-          warehouseName,
-          priority: task.priority || "normal",
-          status,
-          assignedDate: task.dueDate || new Date().toISOString(),
-          startedAt: task.startedAt || null,
-          completedAt: task.completedAt || null,
-          duration,
-          locationCode: task.locationCode || null,
-          referenceType: task.referenceType || null,
-          referenceId: task.referenceId || null,
-          notes: task.notes || null,
-          details,
-        };
-      });
-
-      setTasks(displayTasks);
-      setTotalItems(tasksPage.totalElements);
-      setTotalPages(Math.max(tasksPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load tasks:", err);
-      setError("Failed to load tasks. Please try again.");
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, typeFilter, statusFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
+  const usersQuery = useReferenceUsers();
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateTaskList = useInvalidateAdminList(["admin-tasks"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -193,6 +104,100 @@ export default function TasksPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const tasks = useMemo<TaskDisplay[]>(() => {
+    const usersMap = new Map<string, string>();
+    (usersQuery.data || []).forEach((user) => {
+      usersMap.set(
+        user.id,
+        `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username
+      );
+    });
+
+    const warehousesMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((warehouse) => {
+      warehousesMap.set(warehouse.id, warehouse.name);
+    });
+
+    return (tasksQuery.data?.data || []).map((task) => {
+      const workerName = task.assignedTo
+        ? usersMap.get(task.assignedTo) || "Unassigned"
+        : "Unassigned";
+      const warehouseName = task.warehouseId
+        ? warehousesMap.get(task.warehouseId) || "Unknown"
+        : "Unknown";
+
+      const duration = getDurationMinutes(task.startedAt, task.completedAt);
+
+      const notePairs = new Map<string, string>();
+      (task.notes || "")
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .forEach((part) => {
+          const [k, ...rest] = part.split("=");
+          if (!k || rest.length === 0) return;
+          notePairs.set(k.trim().toLowerCase(), rest.join("=").trim());
+        });
+      const cycleCountRef =
+        notePairs.get("count") ||
+        (task.referenceType === "cycle_count" ? task.referenceId : null);
+      const scope = notePairs.get("scope") || task.locationCode || null;
+      const noteRole = notePairs.get("role") || null;
+      const details =
+        task.taskType === "cycle_count"
+          ? [
+              cycleCountRef ? `Count ${cycleCountRef}` : null,
+              scope ? `Scope ${scope}` : null,
+              noteRole ? `Role ${noteRole}` : null,
+            ]
+              .filter(Boolean)
+              .join(" | ")
+          : [task.referenceType ? `Ref ${task.referenceType}` : null, task.referenceId ? task.referenceId.slice(0, 8) : null]
+              .filter(Boolean)
+              .join(": ");
+
+      return {
+        id: task.id,
+        taskNumber: task.taskNumber,
+        taskType: task.taskType,
+        workerName,
+        warehouseId: task.warehouseId,
+        warehouseName,
+        priority: task.priority || "normal",
+        status: task.status,
+        assignedDate: task.dueDate || new Date().toISOString(),
+        startedAt: task.startedAt || null,
+        completedAt: task.completedAt || null,
+        duration,
+        locationCode: task.locationCode || null,
+        referenceType: task.referenceType || null,
+        referenceId: task.referenceId || null,
+        notes: task.notes || null,
+        details,
+      };
+    });
+  }, [tasksQuery.data, usersQuery.data, warehousesQuery.data]);
+
+  const isLoading =
+    (tasksQuery.isPending && !tasksQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const isFetching =
+    tasksQuery.isFetching || usersQuery.isFetching || warehousesQuery.isFetching;
+  const error =
+    tasksQuery.error || usersQuery.error || warehousesQuery.error
+      ? "Failed to load tasks. Please try again."
+      : null;
+  const totalItems = tasksQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(tasksQuery.data?.totalPages ?? 1, 1);
+  const reload = async () => {
+    try {
+      await invalidateTaskList();
+    } catch (err) {
+      logger.error("Failed to reload tasks:", err);
+    }
+  };
 
   const availableTaskTypes = Object.entries(taskTypeConfig);
 
@@ -247,7 +252,7 @@ export default function TasksPage() {
       <div className="space-y-6">
         <div className="alert alert-error">
           <span>{error}</span>
-          <button className="btn btn-sm" onClick={() => loadData()}>
+          <button className="btn btn-sm" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -576,7 +581,7 @@ export default function TasksPage() {
       <CreateTaskModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onCreated={loadData}
+        onCreated={reload}
       />
 
       {/* Task Detail Modal */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -9,13 +9,18 @@ import Link from "next/link";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { returnsApi } from "@/lib/api/returns";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { customersApi } from "@/lib/api/customers";
-import { suppliersApi } from "@/lib/api/suppliers";
 import { ordersApi } from "@/lib/api/orders";
+import {
+  useInvalidateAdminList,
+  usePagedAdminQuery,
+  useReferenceCustomers,
+  useReferenceSuppliers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { buildLookupMap, getLookupValue } from "@/lib/utils/lookup-maps";
 import { logger } from "@/lib/utils/logger";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import type { ReturnDisplay } from "./types";
 import { resolutionConfig, statusConfig } from "./types";
 import {
@@ -50,45 +55,36 @@ export default function ReturnsPage() {
 
   const canApprove = hasPermission(ADMIN_ROUTES.RETURNS, "approve");
 
-  // API state
-  const [returns, setReturns] = useState<ReturnDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  // Load data from API
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setLoading(true);
-      }
-      setError(null);
-      
-      const [returnsPage, warehousesData] = await Promise.all([
-        returnsApi.getPaged({
-          page: currentPage - 1,
-          size: itemsPerPage,
-          sortBy: "createdAt",
-          sortDir: "desc",
-          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-          status: statusFilter === "all" ? undefined : statusFilter,
-          returnFlow: flowFilter === "all" ? undefined : flowFilter,
-          q: searchQuery.trim() || undefined,
-        }),
-        warehousesApi.getAll(),
-      ]);
+  const returnsQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-returns",
+      currentPage,
+      itemsPerPage,
+      searchQuery.trim() || "",
+      statusFilter,
+      flowFilter,
+      isWarehouseManager ? assignedWarehouseId || "assigned" : "all",
+    ],
+    queryFn: async () => {
+      const returnsPage = await returnsApi.getPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        returnFlow: flowFilter === "all" ? undefined : flowFilter,
+        q: searchQuery.trim() || undefined,
+      });
 
       const orderIds = Array.from(
         new Set(
           returnsPage.data
-            .map((r) => r.originalOrderId)
+            .map((ret) => ret.originalOrderId)
             .filter((value): value is string => !!value)
         )
       );
+
       const orderEntries = await Promise.all(
         orderIds.map(async (id) => {
           try {
@@ -99,118 +95,24 @@ export default function ReturnsPage() {
           }
         })
       );
+
       const ordersMap = new Map<string, Awaited<ReturnType<typeof ordersApi.getById>>>();
       for (const entry of orderEntries) {
         if (!entry) continue;
         ordersMap.set(entry[0], entry[1]);
       }
 
-      const customerIds = new Set<string>();
-      const supplierIds = new Set<string>();
-      for (const ret of returnsPage.data) {
-        if (ret.customerId) customerIds.add(ret.customerId);
-        const linkedOrder = ret.originalOrderId ? ordersMap.get(ret.originalOrderId) : undefined;
-        if (linkedOrder?.customerId) customerIds.add(linkedOrder.customerId);
-        if (linkedOrder?.supplierId) supplierIds.add(linkedOrder.supplierId);
-      }
+      return {
+        page: returnsPage,
+        ordersMap,
+      };
+    },
+  });
 
-      const [customerEntries, supplierEntries] = await Promise.all([
-        Promise.all(
-          Array.from(customerIds).map(async (id) => {
-            try {
-              const customer = await customersApi.getById(id);
-              return [id, customer.name] as const;
-            } catch {
-              return [id, "Unknown Customer"] as const;
-            }
-          })
-        ),
-        Promise.all(
-          Array.from(supplierIds).map(async (id) => {
-            try {
-              const supplier = await suppliersApi.getById(id);
-              return [id, supplier.name] as const;
-            } catch {
-              return [id, "Unknown Supplier"] as const;
-            }
-          })
-        ),
-      ]);
-
-      // Build maps
-      const warehousesMap = buildLookupMap(warehousesData, (wh) => wh.id, (wh) => wh.name);
-      const customersMap = new Map(customerEntries);
-      const suppliersMap = new Map(supplierEntries);
-
-      // Transform API data to display format
-      const displayReturns: ReturnDisplay[] = returnsPage.data.map((r) => {
-        const warehouseName = r.warehouseId
-          ? getLookupValue(warehousesMap, r.warehouseId, "Unknown")
-          : "Unknown";
-        const orderInfo = r.originalOrderId ? ordersMap.get(r.originalOrderId) : null;
-        const orderNumber = orderInfo?.orderNumber || r.originalOrderId || "N/A";
-        const orderType = orderInfo?.orderType || null;
-        const returnFlow = (r.returnFlow === "inbound" || r.returnFlow === "outbound")
-          ? r.returnFlow
-          : (orderType === "inbound" || orderType === "outbound" ? orderType : "unknown");
-        const customerId = r.customerId || orderInfo?.customerId || null;
-        const supplierId = orderInfo?.supplierId || null;
-        const counterpartyType =
-          returnFlow === "inbound"
-            ? "supplier"
-            : returnFlow === "outbound"
-              ? "customer"
-              : "unknown";
-        const counterpartyName =
-          counterpartyType === "supplier"
-            ? (supplierId ? suppliersMap.get(supplierId) || "Unknown Supplier" : "Unknown Supplier")
-            : counterpartyType === "customer"
-              ? (customerId ? customersMap.get(customerId) || "Unknown Customer" : "Unknown Customer")
-              : "Unknown";
-        const customerName = customerId ? customersMap.get(customerId) || counterpartyName : counterpartyName;
-
-        return {
-          id: r.id,
-          returnNumber: r.returnNumber,
-          originalOrderId: r.originalOrderId || null,
-          originalOrder: orderNumber,
-          originalOrderType: orderType,
-          returnFlow,
-          customerName,
-          counterpartyName,
-          counterpartyType,
-          warehouseId: r.warehouseId || null,
-          warehouse: warehouseName,
-          returnDate: r.returnDate || new Date().toISOString().split("T")[0],
-          reason: r.reason || "N/A",
-          totalItems: 0, // TODO: Get from return items when available
-          status: r.status || "pending",
-          resolution: r.resolution || null,
-          receivedBy: r.receivedBy || null,
-          inspectedBy: r.inspectedBy || null,
-        };
-      });
-
-      setReturns(displayReturns);
-      setTotalItems(returnsPage.totalElements);
-      setTotalPages(Math.max(returnsPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load returns:", err);
-      setError(err instanceof Error ? err.message : "Failed to load returns");
-      setReturns([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load returns. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, searchQuery, statusFilter, flowFilter, isWarehouseManager, assignedWarehouseId]);
+  const warehousesQuery = useReferenceWarehouses();
+  const customersQuery = useReferenceCustomers();
+  const suppliersQuery = useReferenceSuppliers();
+  const invalidateReturnsList = useInvalidateAdminList(["admin-returns"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -219,6 +121,109 @@ export default function ReturnsPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (returnsQuery.error instanceof Error && !returnsQuery.error.message.includes("Not authenticated")) {
+      showToast.error("Failed to load returns. Please try again.");
+    }
+  }, [returnsQuery.error]);
+
+  const returns = useMemo<ReturnDisplay[]>(() => {
+    const warehousesMap = buildLookupMap(
+      warehousesQuery.data || [],
+      (warehouse) => warehouse.id,
+      (warehouse) => warehouse.name
+    );
+    const customersMap = new Map(
+      (customersQuery.data || []).map((customer) => [customer.id, customer.name] as const)
+    );
+    const suppliersMap = new Map(
+      (suppliersQuery.data || []).map((supplier) => [supplier.id, supplier.name] as const)
+    );
+
+    return (returnsQuery.data?.page.data || []).map((ret) => {
+      const warehouseName = ret.warehouseId
+        ? getLookupValue(warehousesMap, ret.warehouseId, "Unknown")
+        : "Unknown";
+      const orderInfo = ret.originalOrderId
+        ? returnsQuery.data?.ordersMap.get(ret.originalOrderId) || null
+        : null;
+      const orderNumber = orderInfo?.orderNumber || ret.originalOrderId || "N/A";
+      const orderType = orderInfo?.orderType || null;
+      const returnFlow =
+        ret.returnFlow === "inbound" || ret.returnFlow === "outbound"
+          ? ret.returnFlow
+          : orderType === "inbound" || orderType === "outbound"
+            ? orderType
+            : "unknown";
+      const customerId = ret.customerId || orderInfo?.customerId || null;
+      const supplierId = orderInfo?.supplierId || null;
+      const counterpartyType =
+        returnFlow === "inbound"
+          ? "supplier"
+          : returnFlow === "outbound"
+            ? "customer"
+            : "unknown";
+      const counterpartyName =
+        counterpartyType === "supplier"
+          ? supplierId
+            ? suppliersMap.get(supplierId) || "Unknown Supplier"
+            : "Unknown Supplier"
+          : counterpartyType === "customer"
+            ? customerId
+              ? customersMap.get(customerId) || "Unknown Customer"
+              : "Unknown Customer"
+            : "Unknown";
+      const customerName = customerId
+        ? customersMap.get(customerId) || counterpartyName
+        : counterpartyName;
+
+      return {
+        id: ret.id,
+        returnNumber: ret.returnNumber,
+        originalOrderId: ret.originalOrderId || null,
+        originalOrder: orderNumber,
+        originalOrderType: orderType,
+        returnFlow,
+        customerName,
+        counterpartyName,
+        counterpartyType,
+        warehouseId: ret.warehouseId || null,
+        warehouse: warehouseName,
+        returnDate: ret.returnDate || new Date().toISOString().split("T")[0],
+        reason: ret.reason || "N/A",
+        totalItems: 0,
+        status: ret.status || "pending",
+        resolution: ret.resolution || null,
+        receivedBy: ret.receivedBy || null,
+        inspectedBy: ret.inspectedBy || null,
+      };
+    });
+  }, [customersQuery.data, returnsQuery.data, suppliersQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (returnsQuery.isPending && !returnsQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (customersQuery.isPending && !customersQuery.data) ||
+    (suppliersQuery.isPending && !suppliersQuery.data);
+  const isFetching =
+    returnsQuery.isFetching ||
+    warehousesQuery.isFetching ||
+    customersQuery.isFetching ||
+    suppliersQuery.isFetching;
+  const error =
+    returnsQuery.error || warehousesQuery.error || customersQuery.error || suppliersQuery.error
+      ? "Failed to load returns"
+      : null;
+  const totalItems = returnsQuery.data?.page.totalElements ?? 0;
+  const totalPages = Math.max(returnsQuery.data?.page.totalPages ?? 1, 1);
+  const reload = async () => {
+    try {
+      await invalidateReturnsList();
+    } catch (err) {
+      logger.error("Failed to reload returns:", err);
+    }
+  };
 
   const handleRowClick = (returnItem: ReturnDisplay) => {
     setSelectedReturn(returnItem);
@@ -435,7 +440,7 @@ export default function ReturnsPage() {
                   try {
                     await returnsApi.approve(returnItem.id, admin?.id);
                     showToast.success(`Return ${returnItem.returnNumber} approved successfully`);
-                    await loadData();
+                    await reload();
                   } catch (err) {
                     logger.error("Failed to approve return:", err);
                     showToast.error(err instanceof Error ? err.message : "Failed to approve return");
@@ -470,7 +475,7 @@ export default function ReturnsPage() {
                     reviewedBy: admin?.id,
                   });
                   showToast.success(`Return ${returnItem.returnNumber} rejected`);
-                  await loadData();
+                  await reload();
                 } catch (err) {
                   logger.error("Failed to reject return:", err);
                   showToast.error(err instanceof Error ? err.message : "Failed to reject return");
@@ -497,13 +502,29 @@ export default function ReturnsPage() {
         <li>
           <button
             onClick={() => {
-              // TODO: Implement print functionality
-              window.print();
+              downloadHtmlDocument(
+                `return-label-${returnItem.returnNumber}.html`,
+                `Return Label ${returnItem.returnNumber}`,
+                `
+                  <h1>Return Label</h1>
+                  <p class="muted">Generated from OptiWMS</p>
+                  <div class="grid section">
+                    <div class="card"><strong>Return Number:</strong><br />${escapeHtml(returnItem.returnNumber)}</div>
+                    <div class="card"><strong>Status:</strong><br />${escapeHtml(returnItem.status)}</div>
+                    <div class="card"><strong>Flow:</strong><br />${escapeHtml(returnItem.returnFlow || "N/A")}</div>
+                    <div class="card"><strong>Reference:</strong><br />${escapeHtml(returnItem.originalOrder || "N/A")}</div>
+                  </div>
+                  <div class="section">
+                    <h2>Reason</h2>
+                    <p>${escapeHtml(returnItem.reason || "Not provided")}</p>
+                  </div>
+                `
+              );
               logger.debug("Printing return label:", returnItem.returnNumber);
             }}
           >
             <span className="material-symbols-outlined text-sm">print</span>
-            Print Return Label
+            Download Return Label
           </button>
         </li>
       </ul>
@@ -664,7 +685,7 @@ export default function ReturnsPage() {
 
       {/* Create Return Modal */}
       {showCreateModal && (
-        <CreateReturnModal onClose={() => setShowCreateModal(false)} onSuccess={loadData} />
+        <CreateReturnModal onClose={() => setShowCreateModal(false)} onSuccess={reload} />
       )}
 
       {/* Return Detail Modal */}
@@ -687,7 +708,7 @@ export default function ReturnsPage() {
             setShowInspectModal(false);
             setSelectedReturn(null);
           }}
-          onSuccess={loadData}
+          onSuccess={reload}
           returnItem={selectedReturn}
         />
       )}
@@ -700,7 +721,7 @@ export default function ReturnsPage() {
             setShowAssignWorkerModal(false);
             setSelectedReturn(null);
           }}
-          onSuccess={loadData}
+          onSuccess={reload}
           returnItem={selectedReturn}
         />
       )}

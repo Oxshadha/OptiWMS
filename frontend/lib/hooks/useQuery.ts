@@ -4,13 +4,20 @@ import { logger } from "@/lib/utils/logger";
  * Provides type-safe, cached data fetching with automatic refetch
  */
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryKey,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import { materialsApi } from "@/lib/api/materials";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { inventoryApi } from "@/lib/api/inventory";
 import { customersApi } from "@/lib/api/customers";
 import { suppliersApi } from "@/lib/api/suppliers";
 import { usersApi } from "@/lib/api/users";
+import { locationsApi } from "@/lib/api/locations";
 import { showToast } from "@/lib/utils/toast";
 
 // ===== Query Keys (for cache management) =====
@@ -40,6 +47,10 @@ export const queryKeys = {
   users: {
     all: ["users"] as const,
     detail: (id: string) => ["users", id] as const,
+  },
+  locations: {
+    all: ["locations"] as const,
+    detail: (id: string) => ["locations", id] as const,
   },
 };
 
@@ -135,6 +146,15 @@ export function useWarehouses() {
   });
 }
 
+export function useReferenceWarehouses() {
+  return useQuery({
+    queryKey: ["reference-data", "warehouses"],
+    queryFn: () => warehousesApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 export function useWarehouse(id: string) {
   return useQuery({
     queryKey: queryKeys.warehouses.detail(id),
@@ -169,6 +189,15 @@ export function useCustomers() {
   });
 }
 
+export function useReferenceCustomers() {
+  return useQuery({
+    queryKey: ["reference-data", "customers"],
+    queryFn: () => customersApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 export function useCreateCustomer() {
   const queryClient = useQueryClient();
   
@@ -193,12 +222,71 @@ export function useSuppliers() {
   });
 }
 
+export function useReferenceSuppliers() {
+  return useQuery({
+    queryKey: ["reference-data", "suppliers"],
+    queryFn: () => suppliersApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
 // ===== Users Hooks =====
 
 export function useUsers() {
   return useQuery({
     queryKey: queryKeys.users.all,
     queryFn: () => usersApi.getAll(),
+  });
+}
+
+export function useReferenceUsers() {
+  return useQuery({
+    queryKey: ["reference-data", "users"],
+    queryFn: () => usersApi.getAll(),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+  });
+}
+
+export function useReferenceMaterials() {
+  return useQuery({
+    queryKey: ["reference-data", "materials"],
+    queryFn: () => materialsApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
+export function useReferenceLocations() {
+  return useQuery({
+    queryKey: ["reference-data", "locations"],
+    queryFn: () => locationsApi.getAll(),
+    staleTime: 15 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+}
+
+export function usePagedAdminQuery<TData>({
+  queryKey,
+  queryFn,
+  staleTime = 30 * 1000,
+  gcTime = 5 * 60 * 1000,
+  ...options
+}: Omit<
+  UseQueryOptions<TData, Error, TData, QueryKey>,
+  "queryKey" | "queryFn"
+> & {
+  queryKey: QueryKey;
+  queryFn: () => Promise<TData>;
+}) {
+  return useQuery<TData, Error, TData, QueryKey>({
+    queryKey,
+    queryFn,
+    placeholderData: (previousData) => previousData,
+    staleTime,
+    gcTime,
+    ...options,
   });
 }
 
@@ -219,7 +307,27 @@ export function useInvalidateQuery() {
   const queryClient = useQueryClient();
   
   return (queryKey: readonly unknown[]) => {
-    queryClient.invalidateQueries({ queryKey });
+    return queryClient.invalidateQueries({ queryKey });
+  };
+}
+
+export function useInvalidateAdminList(queryKeyPrefix: readonly unknown[]) {
+  const invalidateQuery = useInvalidateQuery();
+
+  return () => invalidateQuery(queryKeyPrefix);
+}
+
+export function useInvalidateAdminListAndDetail(
+  listKeyPrefix: readonly unknown[],
+  detailKeyFactory: (id: string) => readonly unknown[]
+) {
+  const invalidateQuery = useInvalidateQuery();
+
+  return async (id?: string | null) => {
+    await invalidateQuery(listKeyPrefix);
+    if (id) {
+      await invalidateQuery(detailKeyFactory(id));
+    }
   };
 }
 

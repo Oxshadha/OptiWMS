@@ -1,10 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { useSearchParams } from "next/navigation";
 import { Pagination } from "@/components/Pagination";
 import { StatusChip } from "@/components/StatusChip";
 import { shipmentsApi } from "@/lib/api/shipments";
+import {
+  useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
+  usePagedAdminQuery,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { CreateShipmentModal, ShipmentDetailModal } from "./components/ShipmentModals";
@@ -38,6 +44,7 @@ function toApiSortField(sortBy: "id" | "carrier" | "destination" | "eta" | "stat
 }
 
 export default function ShipmentsPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("All");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -49,15 +56,7 @@ export default function ShipmentsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-
-  // API state
-  const [shipments, setShipments] = useState<ShipmentDisplay[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
+  const selectedDeliveryPartnerId = searchParams.get("partner") || undefined;
 
   const requestedStatus =
     statusFilter !== "all"
@@ -66,24 +65,33 @@ export default function ShipmentsPage() {
         ? displayToApiStatus[activeTab.toLowerCase()]
         : undefined;
 
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) {
-        setLoading(true);
-      }
-      setError(null);
-
-      const shipmentsPage = await shipmentsApi.getPaged({
+  const shipmentsQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-shipments",
+      currentPage,
+      itemsPerPage,
+      sortBy || "default",
+      sortDirection,
+      statusFilter,
+      activeTab,
+      selectedDeliveryPartnerId || "",
+      searchQuery.trim() || "",
+    ],
+    queryFn: () =>
+      shipmentsApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
         sortBy: toApiSortField(sortBy),
         sortDir: sortDirection,
+        deliveryPartnerId: selectedDeliveryPartnerId,
         status: requestedStatus,
         q: searchQuery.trim() || undefined,
-      });
+      }),
+  });
 
-      const displayShipments: ShipmentDisplay[] = shipmentsPage.data.map((s) => ({
+  const shipments = useMemo<ShipmentDisplay[]>(
+    () =>
+      (shipmentsQuery.data?.data || []).map((s) => ({
         shipmentId: s.id,
         id: s.shipmentNumber || s.id,
         carrier: s.carrier || "N/A",
@@ -97,28 +105,9 @@ export default function ShipmentsPage() {
         vehicleNumber: s.vehicleNumber || "",
         orders: s.orderId ? [s.orderId] : [],
         shipmentDate: s.shippedAt ? new Date(s.shippedAt).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
-      }));
-
-      setShipments(displayShipments);
-      setTotalItems(shipmentsPage.totalElements);
-      setTotalPages(Math.max(shipmentsPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load shipments:", err);
-      setError(err instanceof Error ? err.message : "Failed to load shipments");
-      setShipments([]);
-      if (err instanceof Error && !err.message.includes("Not authenticated")) {
-        showToast.error("Failed to load shipments. Please try again.");
-      }
-    } finally {
-      setLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, searchQuery, sortBy, sortDirection, statusFilter, activeTab]);
+      })),
+    [shipmentsQuery.data]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -128,7 +117,34 @@ export default function ShipmentsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (shipmentsQuery.error instanceof Error && !shipmentsQuery.error.message.includes("Not authenticated")) {
+      showToast.error("Failed to load shipments. Please try again.");
+    }
+  }, [shipmentsQuery.error]);
+
+  const loading = shipmentsQuery.isPending && !shipmentsQuery.data;
+  const isFetching = shipmentsQuery.isFetching;
+  const error = shipmentsQuery.error instanceof Error
+    ? shipmentsQuery.error.message
+    : shipmentsQuery.error
+      ? "Failed to load shipments"
+      : null;
+  const totalItems = shipmentsQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(shipmentsQuery.data?.totalPages ?? 1, 1);
+  const invalidateShipmentList = useInvalidateAdminList(["admin-shipments"]);
+  const invalidateShipmentListAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-shipments"],
+    (id) => ["admin-shipments", "detail", id]
+  );
   const totalShipments = totalItems;
+  const reload = async () => {
+    try {
+      await invalidateShipmentList();
+    } catch (err) {
+      logger.error("Failed to reload shipments:", err);
+    }
+  };
 
   if (loading) {
     return (
@@ -164,7 +180,7 @@ export default function ShipmentsPage() {
     try {
       await shipmentsApi.confirmDelivery(shipment.shipmentId);
       showToast.success(`Delivery confirmed for ${shipment.id}`);
-      await loadData();
+      await invalidateShipmentListAndDetail(shipment.shipmentId);
     } catch (err) {
       logger.error("Failed to confirm delivery:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to confirm delivery");
@@ -310,6 +326,13 @@ export default function ShipmentsPage() {
           </button>
         </div>
       </div>
+
+      {selectedDeliveryPartnerId ? (
+        <div className="alert bg-base-200 border border-base-300 text-base-content">
+          <span className="material-symbols-outlined">filter_alt</span>
+          <span>Showing shipments linked to the selected delivery partner.</span>
+        </div>
+      ) : null}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

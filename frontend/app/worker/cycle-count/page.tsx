@@ -7,6 +7,7 @@ import { operationsApi, CycleCount } from "@/lib/api/operations";
 import { materialsApi, Material } from "@/lib/api/materials";
 import { locationsApi, Location } from "@/lib/api/locations";
 import { inventoryApi, InventoryItem } from "@/lib/api/inventory";
+import { addToSyncQueue } from "@/lib/indexeddb";
 import { formatMaterialDisplay, isUUID } from "@/lib/utils/material-display";
 import { logger } from "@/lib/utils/logger";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -238,6 +239,11 @@ export default function CycleCountPage() {
         if (fromCache) {
           materialId = fromCache.id;
         } else {
+          if (!isOnline) {
+            showToast.error("SKU must be loaded previously before recording this count offline.");
+            setSaveStatus("idle");
+            return;
+          }
           const material = await materialsApi.getByCode(normalizedSku);
           materialId = material.id;
           setMaterialsByCode((prev) => new Map(prev).set(normalizedSku, material));
@@ -245,15 +251,48 @@ export default function CycleCountPage() {
         }
       }
 
-      await operationsApi.recordCycleCount(activeTask.id, {
+      const recordPayload = {
         materialId,
         countedQuantity: String(countedQty),
         countedBy: user.userId,
-      });
+      };
+
+      if (isOnline) {
+        await operationsApi.recordCycleCount(activeTask.id, recordPayload);
+      } else {
+        await addToSyncQueue({
+          type: "operation",
+          action: "create",
+          data: {
+            type: "cycle_count_record",
+            cycleCountId: activeTask.id,
+            payload: recordPayload,
+          },
+        });
+      }
 
       setSaveStatus("saved");
-      showToast.success(`Count recorded for ${activeTask.countNumber}`);
-      await loadCycleCountTasks();
+      showToast.success(
+        isOnline
+          ? `Count recorded for ${activeTask.countNumber}`
+          : `Count queued for sync for ${activeTask.countNumber}`
+      );
+      if (isOnline) {
+        await loadCycleCountTasks();
+      } else {
+        setCycleCountTasks((prev) =>
+          prev.map((task) =>
+            task.id === activeTask.id
+              ? {
+                  ...task,
+                  counted: countedQty,
+                  status: "completed",
+                  countedLocations: task.totalLocations,
+                }
+              : task
+          )
+        );
+      }
 
       setTimeout(() => {
         setScannedLocation("");

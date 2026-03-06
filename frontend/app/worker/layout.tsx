@@ -23,9 +23,75 @@ import { logger } from "@/lib/utils/logger";
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
     <WorkerProvider>
+      <WorkerServiceWorkerRegistrar />
       <WorkerLayoutWrapper>{children}</WorkerLayoutWrapper>
     </WorkerProvider>
   );
+}
+
+function WorkerServiceWorkerRegistrar() {
+  const pathname = usePathname();
+  const { worker, isLoading } = useWorker();
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+      return;
+    }
+
+    const isWorkerRoute = window.location.pathname.startsWith("/worker");
+    if (!isWorkerRoute) {
+      return;
+    }
+
+    const registerWorkerShell = async () => {
+      try {
+        await navigator.serviceWorker.register("/sw.js", {
+          scope: "/",
+          updateViaCache: "none",
+        });
+      } catch (error) {
+        logger.error("Failed to register worker service worker:", error);
+      }
+    };
+
+    void registerWorkerShell();
+  }, []);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !("serviceWorker" in navigator) ||
+      isLoading ||
+      !worker ||
+      pathname === "/worker/login" ||
+      !pathname.startsWith("/worker")
+    ) {
+      return;
+    }
+
+    const criticalWorkerRoutes = [
+      "/worker/tasks",
+      "/worker/picking",
+      "/worker/putaway",
+      "/worker/cycle-count",
+    ];
+
+    const warmCriticalRoutes = async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        registration.active?.postMessage({
+          type: "PRECACHE_WORKER_ROUTES",
+          routes: criticalWorkerRoutes,
+        });
+      } catch (error) {
+        logger.error("Failed to warm worker route cache:", error);
+      }
+    };
+
+    void warmCriticalRoutes();
+  }, [isLoading, pathname, worker]);
+
+  return null;
 }
 
 function WorkerLayoutWrapper({ children }: { children: React.ReactNode }) {
@@ -113,8 +179,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     message: string;
     time: string;
     read: boolean;
+    actionUrl?: string;
   }>>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [calendarTasks, setCalendarTasks] = useState<Array<{
+    id: string;
+    taskNumber: string;
+    dueDate?: string;
+    status: string;
+  }>>([]);
 
   // Load notifications from database
   useEffect(() => {
@@ -123,7 +196,10 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
       try {
         const { notificationsApi } = await import("@/lib/api/notifications");
-        const allNotifications = await notificationsApi.getAll(worker.id);
+        const allNotifications = await notificationsApi.getAll(worker.id, undefined, {
+          role: role || undefined,
+          warehouseId: worker.warehouseId,
+        });
         
         // Transform to display format
         const formatted = allNotifications.map(notif => ({
@@ -132,19 +208,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
           message: notif.message,
           time: formatTimeAgo(notif.createdAt),
           read: notif.read,
+          actionUrl: notif.actionUrl,
         }));
 
         setNotifications(formatted);
-        
-        // Get unread count
-        try {
-          const count = await notificationsApi.getUnreadCount(worker.id);
-          setUnreadCount(count);
-        } catch (countError) {
-          // If unread count fails, calculate from notifications
-          const unread = formatted.filter(n => !n.read).length;
-          setUnreadCount(unread);
-        }
+        setUnreadCount(formatted.filter(n => !n.read).length);
       } catch (error: any) {
         // Only log if it's not a 404 or 500 (endpoint might not exist)
         if (error?.message && !error.message.includes('404') && !error.message.includes('500')) {
@@ -160,6 +228,35 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     
     // Refresh notifications every 30 seconds
     const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [worker?.id, worker?.warehouseId, isOnline, role]);
+
+  useEffect(() => {
+    const loadCalendarTasks = async () => {
+      if (!worker?.id || !isOnline) {
+        setCalendarTasks([]);
+        return;
+      }
+
+      try {
+        const { tasksApi } = await import("@/lib/api/tasks-api");
+        const workerTasks = await tasksApi.getAll(undefined, undefined, worker.id);
+        setCalendarTasks(
+          workerTasks.map((task) => ({
+            id: task.id,
+            taskNumber: task.taskNumber,
+            dueDate: task.dueDate,
+            status: task.status,
+          }))
+        );
+      } catch (error) {
+        logger.error("Failed to load calendar tasks:", error);
+        setCalendarTasks([]);
+      }
+    };
+
+    void loadCalendarTasks();
+    const interval = setInterval(loadCalendarTasks, 60000);
     return () => clearInterval(interval);
   }, [worker?.id, isOnline]);
 
@@ -178,6 +275,48 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     return date.toLocaleDateString();
   };
 
+  const today = new Date();
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth();
+  const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+  const dueDaySet = new Set(
+    calendarTasks
+      .map((task) => (task.dueDate ? new Date(task.dueDate) : null))
+      .filter((date): date is Date => !!date && !Number.isNaN(date.getTime()))
+      .filter(
+        (date) =>
+          date.getFullYear() === currentYear &&
+          date.getMonth() === currentMonth
+      )
+      .map((date) => date.getDate())
+  );
+
+  const todaysTaskCount = calendarTasks.filter((task) => {
+    if (!task.dueDate) {
+      return false;
+    }
+    const dueDate = new Date(task.dueDate);
+    return !Number.isNaN(dueDate.getTime()) && dueDate.toDateString() === today.toDateString();
+  }).length;
+
+  const endOfWeek = new Date(today);
+  endOfWeek.setDate(today.getDate() + (6 - today.getDay()));
+  endOfWeek.setHours(23, 59, 59, 999);
+
+  const upcomingTaskCount = calendarTasks.filter((task) => {
+    if (!task.dueDate) {
+      return false;
+    }
+    const dueDate = new Date(task.dueDate);
+    return (
+      !Number.isNaN(dueDate.getTime()) &&
+      dueDate >= today &&
+      dueDate <= endOfWeek
+    );
+  }).length;
+
   const handleNotificationClick = async (notif: { id: string; read: boolean }) => {
     if (!notif.read && isOnline) {
       try {
@@ -190,6 +329,12 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       } catch (error) {
         logger.error("Failed to mark notification as read:", error);
       }
+    }
+
+    const selected = notifications.find((item) => item.id === notif.id);
+    if (selected?.actionUrl) {
+      setShowNotifications(false);
+      router.push(selected.actionUrl);
     }
   };
 
@@ -423,7 +568,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     >
       <OfflineIndicator />
       {/* Header - Matching Sample UI */}
-      <header className="bg-neutral text-neutral-content px-4 py-3 flex-shrink-0">
+      <header className="bg-base-100 text-base-content border-b border-base-300 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
           <div className="flex items-center gap-3">
@@ -440,10 +585,10 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-neutral-content">
+              <h1 className="text-lg font-bold text-base-content">
                 OptiWMS
               </h1>
-              <p className="text-xs text-neutral-content/80">Worker App</p>
+              <p className="text-xs text-base-content/70">Worker App</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -469,13 +614,13 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                 setShowNotifications(false);
                 setShowCalendar(false);
               }}
-              className="flex items-center gap-3 px-2 py-1 rounded-lg hover:bg-white/10 transition-colors"
+              className="flex items-center gap-3 px-2 py-1 rounded-lg hover:bg-base-200 transition-colors"
             >
               <div className="text-right">
-                <h2 className="text-sm font-semibold text-neutral-content">
+                <h2 className="text-sm font-semibold text-base-content">
                   {displayWorker.name}
                 </h2>
-                <p className="text-xs text-neutral-content/70">
+                <p className="text-xs text-base-content/60">
                   Worker ID: {displayWorker.id}
                 </p>
                 {role && (
@@ -606,10 +751,10 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
       {/* Back Button - Only when inside widgets */}
       {canGoBack && (
-        <div className="bg-neutral border-b border-white/10 px-4 py-2">
+        <div className="bg-base-100 border-b border-base-300 px-4 py-2">
           <button
             onClick={() => router.back()}
-            className="btn btn-ghost btn-sm text-neutral-content"
+            className="btn btn-ghost btn-sm text-base-content"
           >
             <span className="material-symbols-outlined">arrow_back</span>
             <span>Back</span>
@@ -621,7 +766,6 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       <main
         className="flex-1 overflow-y-auto"
         style={{
-          background: "oklch(98% 0 0)",
           overflowY: showNotifications || showCalendar ? "hidden" : "auto",
           paddingBottom: "4.5rem", // Space for fixed bottom nav
         }}
@@ -630,14 +774,14 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* Bottom Navigation - Always visible on mobile */}
-      <nav className="bg-neutral border-t-2 border-primary/30 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
+      <nav className="bg-base-100 border-t border-base-300 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
         <div className="flex items-center justify-around">
           <Link
             href={role ? `/worker/${role}` : "/worker"}
             className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
               isHome
                 ? "bg-primary/15"
-                : "text-neutral-content/50 hover:bg-white/5"
+                : "text-base-content/60 hover:bg-base-200"
             }`}
           >
             <span
@@ -655,7 +799,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
           </Link>
           <button
             onClick={() => setShowCalendar(!showCalendar)}
-            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors"
+            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-base-content/60 hover:bg-base-200 transition-colors"
           >
             <span className="material-symbols-outlined text-xl">
               calendar_month
@@ -667,7 +811,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
             className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl transition-colors ${
               pathname === "/worker/tasks"
                 ? "bg-primary/15"
-                : "text-neutral-content/50 hover:bg-white/5"
+                : "text-base-content/60 hover:bg-base-200"
             }`}
           >
             <span
@@ -687,13 +831,13 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
           </Link>
           <button
             onClick={() => setShowNotifications(!showNotifications)}
-            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-neutral-content/50 hover:bg-white/5 transition-colors relative"
+            className="flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-base-content/60 hover:bg-base-200 transition-colors relative"
           >
             <span className="material-symbols-outlined text-xl">
               notifications
             </span>
             {unreadCount > 0 && (
-              <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border-2 border-neutral"></span>
+              <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full border-2 border-base-100"></span>
             )}
             <span className="text-xs font-medium">Updates</span>
           </button>
@@ -704,7 +848,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               pathname === "/worker/settings" ||
               pathname === "/worker/account-settings"
                 ? "bg-primary/15"
-                : "text-neutral-content/50 hover:bg-white/5"
+                : "text-base-content/60 hover:bg-base-200"
             }`}
           >
             <span
@@ -833,10 +977,13 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
             <div className="p-4">
               <div className="text-center mb-4">
                 <div className="text-2xl font-bold text-base-content">
-                  December 2025
+                  {today.toLocaleDateString("en-US", {
+                    month: "long",
+                    year: "numeric",
+                  })}
                 </div>
                 <div className="text-sm text-base-content/60">
-                  Today: {new Date().toLocaleDateString()}
+                  Today: {today.toLocaleDateString()}
                 </div>
               </div>
               <div className="grid grid-cols-7 gap-1 mb-2">
@@ -852,10 +999,13 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                 )}
               </div>
               <div className="grid grid-cols-7 gap-1">
-                {Array.from({ length: 31 }, (_, i) => {
+                {Array.from({ length: firstDayOfMonth }).map((_, index) => (
+                  <div key={`empty-${index}`} className="aspect-square"></div>
+                ))}
+                {Array.from({ length: daysInMonth }, (_, i) => {
                   const day = i + 1;
-                  const isToday = day === new Date().getDate();
-                  const hasTasks = [5, 12, 18, 25].includes(day);
+                  const isToday = day === today.getDate();
+                  const hasTasks = dueDaySet.has(day);
                   return (
                     <div
                       key={day}
@@ -869,7 +1019,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     >
                       <span>{day}</span>
                       {hasTasks && (
-                        <div className="w-1 h-1 bg-primary rounded-full mt-0.5"></div>
+                        <div
+                          className={`w-1 h-1 rounded-full mt-0.5 ${
+                            isToday ? "bg-primary-content" : "bg-primary"
+                          }`}
+                        ></div>
                       )}
                     </div>
                   );
@@ -881,7 +1035,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     Today's Tasks
                   </div>
                   <div className="text-xs text-base-content/60 mt-1">
-                    3 tasks scheduled
+                    {todaysTaskCount} task{todaysTaskCount === 1 ? "" : "s"} scheduled
                   </div>
                 </div>
                 <div className="p-3 bg-base-200 rounded-lg">
@@ -889,9 +1043,29 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     Upcoming
                   </div>
                   <div className="text-xs text-base-content/60 mt-1">
-                    5 tasks this week
+                    {upcomingTaskCount} task{upcomingTaskCount === 1 ? "" : "s"} due this week
                   </div>
                 </div>
+                {calendarTasks.length > 0 && (
+                  <div className="p-3 bg-base-200 rounded-lg">
+                    <div className="font-semibold text-sm text-base-content">
+                      Next Due Tasks
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {calendarTasks
+                        .filter((task) => !!task.dueDate)
+                        .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime())
+                        .slice(0, 3)
+                        .map((task) => (
+                          <div key={task.id} className="text-xs text-base-content/70">
+                            <span className="font-medium text-base-content">{task.taskNumber}</span>
+                            {" · "}
+                            {new Date(task.dueDate || "").toLocaleString()}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

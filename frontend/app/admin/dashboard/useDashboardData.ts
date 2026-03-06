@@ -28,8 +28,9 @@ const initialState: DashboardDataState = {
   error: null,
 };
 
-export function useDashboardData() {
+export function useDashboardData(options?: { topProductsLimit?: number }) {
   const [state, setState] = useState<DashboardDataState>(initialState);
+  const topProductsLimit = options?.topProductsLimit ?? 4;
 
   const fetchDashboardData = useCallback(async () => {
     logger.debug("[Dashboard] Starting data fetch...");
@@ -74,7 +75,7 @@ export function useDashboardData() {
             logger.error("[Dashboard] Orders chart fetch error:", err);
             return [];
           }),
-          fetchWithTimeout(analyticsApi.getTopProducts(4)).catch((err) => {
+          fetchWithTimeout(analyticsApi.getTopProducts(topProductsLimit)).catch((err) => {
             logger.error("[Dashboard] Top products fetch error:", err);
             return [];
           }),
@@ -109,7 +110,7 @@ export function useDashboardData() {
         window.location.href = "/admin/login";
       }
     }
-  }, []);
+  }, [topProductsLimit]);
 
   useEffect(() => {
     fetchDashboardData();

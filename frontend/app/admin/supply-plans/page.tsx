@@ -150,7 +150,7 @@ export default function SupplyPlansPage() {
             No Supply Plans Found
           </h3>
           <p className="text-base-content/60 mb-4">
-            Supply plans will appear here once the API endpoint is implemented.
+            No supply plans match the current filters, or none have been imported yet.
           </p>
           <p className="text-sm text-base-content/40">
             Supply plans are imported from CSV and stored in the database.

@@ -1,12 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAdmin } from "@/contexts/AdminContext";
 import { Pagination } from "@/components/Pagination";
 import { operationsApi } from "@/lib/api/operations";
-import { warehousesApi } from "@/lib/api/warehouses";
-import { materialsApi } from "@/lib/api/materials";
-import { usersApi, User } from "@/lib/api/users";
+import {
+  useInvalidateAdminList,
+  useInvalidateAdminListAndDetail,
+  usePagedAdminQuery,
+  useReferenceMaterials,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
+import { User } from "@/lib/api/users";
+import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { StockTransferHeader } from "./components/StockTransferHeader";
@@ -28,13 +35,6 @@ export default function StockTransfersPage() {
   const [typeFilter, setTypeFilter] = useState<TransferType | "all">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const [transfers, setTransfers] = useState<StockTransfer[]>([]);
-  const [workers, setWorkers] = useState<User[]>([]);
-  const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
-  const [materials, setMaterials] = useState<Array<{ id: string; materialCode?: string; description?: string }>>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
@@ -49,90 +49,41 @@ export default function StockTransfersPage() {
         destLocationCode: "",
         quantity: "1",
         assignedWorkerId: "",
-      },
+        },
+      ],
+    });
+
+  const transfersQuery = usePagedAdminQuery({
+    queryKey: [
+      "admin-stock-transfers",
+      currentPage,
+      itemsPerPage,
+      statusFilter,
+      typeFilter,
+      searchQuery.trim() || "",
+      isWarehouseManager ? assignedWarehouseId || "assigned" : "all",
     ],
+    queryFn: () =>
+      operationsApi.getStockTransfersPaged({
+        page: currentPage - 1,
+        size: itemsPerPage,
+        sortBy: "createdAt",
+        sortDir: "desc",
+        warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        transferType: typeFilter === "all" ? undefined : typeFilter,
+        q: searchQuery.trim() || undefined,
+      }),
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const [transfersPage, warehousesData, materialsData, workersData] = await Promise.all([
-        operationsApi.getStockTransfersPaged({
-          page: currentPage - 1,
-          size: itemsPerPage,
-          sortBy: "createdAt",
-          sortDir: "desc",
-          warehouseId: isWarehouseManager ? assignedWarehouseId : undefined,
-          status: statusFilter === "all" ? undefined : statusFilter,
-          transferType: typeFilter === "all" ? undefined : typeFilter,
-          q: searchQuery.trim() || undefined,
-        }),
-        warehousesApi.getAll(),
-        materialsApi.getAll(),
-        usersApi.getAll(undefined, undefined, "active"),
-      ]);
-
-      const warehouseMap = new Map<string, string>();
-      warehousesData.forEach((warehouse) => warehouseMap.set(warehouse.id, warehouse.name));
-      setWarehouses(warehousesData.map((warehouse) => ({ id: warehouse.id, name: warehouse.name })));
-      setMaterials(materialsData);
-      setWorkers(workersData.filter((u) => u.role === "worker" || u.role === "forklift_operator" || u.role === "warehouse_worker"));
-
-      const materialMap = new Map<string, { name: string; sku: string }>();
-      materialsData.forEach((material) => {
-        materialMap.set(material.id, {
-          name: material.description || "Unknown",
-          sku: material.materialCode || material.id,
-        });
-      });
-
-      const displayTransfers: StockTransfer[] = transfersPage.data.map((transfer) => {
-        const firstLine = transfer.lines?.[0];
-        const materialId = firstLine?.materialId || transfer.materialId || "";
-        const sourceWarehouseId = firstLine?.sourceWarehouseId || transfer.sourceWarehouseId || "";
-        const destWarehouseId = firstLine?.destWarehouseId || transfer.destWarehouseId || "";
-        const material = materialMap.get(materialId) || { name: "Unknown", sku: "N/A" };
-        const sourceWarehouse = warehouseMap.get(sourceWarehouseId);
-        const destWarehouse = warehouseMap.get(destWarehouseId);
-
-        const isIntraWarehouse =
-          transfer.transferType === "intra_warehouse" || transfer.sourceWarehouseId === transfer.destWarehouseId;
-
-        return {
-          id: transfer.id,
-          transferNumber: transfer.transferNumber,
-          transferType: (transfer.transferType as TransferType) || (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse"),
-          sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
-          sourceLocationCode: firstLine?.sourceLocationCode || transfer.sourceLocationCode || "-",
-          destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
-          destLocationCode: firstLine?.destLocationCode || transfer.destLocationCode || "-",
-          itemSku: material.sku,
-          itemName: transfer.lines && transfer.lines.length > 1 ? `${transfer.lines.length} items` : material.name,
-          quantity: transfer.lines?.reduce((sum, line) => sum + (line.requestedQuantity || 0), 0) || parseInt(transfer.quantity) || 0,
-          status: (transfer.status as TransferStatus) || "draft",
-          notes: transfer.notes,
-          createdAt: new Date().toISOString(),
-        };
-      });
-
-      setTransfers(displayTransfers);
-      setTotalItems(transfersPage.totalElements);
-      setTotalPages(Math.max(transfersPage.totalPages, 1));
-    } catch (err) {
-      logger.error("Failed to load stock transfers:", err);
-      setError(err instanceof Error ? err.message : "Failed to load stock transfers");
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, itemsPerPage, statusFilter, typeFilter, searchQuery, isWarehouseManager, assignedWarehouseId]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const warehousesQuery = useReferenceWarehouses();
+  const materialsQuery = useReferenceMaterials();
+  const usersQuery = useReferenceUsers();
+  const invalidateTransferList = useInvalidateAdminList(["admin-stock-transfers"]);
+  const invalidateTransferListAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-stock-transfers"],
+    (id) => ["admin-stock-transfers", "detail", id]
+  );
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -141,6 +92,99 @@ export default function StockTransfersPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const warehouses = useMemo(
+    () => (warehousesQuery.data || []).map((warehouse) => ({ id: warehouse.id, name: warehouse.name })),
+    [warehousesQuery.data]
+  );
+
+  const materials = useMemo(
+    () => materialsQuery.data || [],
+    [materialsQuery.data]
+  );
+
+  const workers = useMemo<User[]>(
+    () =>
+      (usersQuery.data || []).filter(
+        (user) =>
+          user.role === "worker" ||
+          user.role === "forklift_operator" ||
+          user.role === "warehouse_worker"
+      ),
+    [usersQuery.data]
+  );
+
+  const transfers = useMemo<StockTransfer[]>(() => {
+    const warehouseMap = new Map<string, string>();
+    (warehousesQuery.data || []).forEach((warehouse) => {
+      warehouseMap.set(warehouse.id, warehouse.name);
+    });
+
+    const materialMap = new Map<string, { name: string; sku: string }>();
+    (materialsQuery.data || []).forEach((material) => {
+      materialMap.set(material.id, {
+        name: material.description || "Unknown",
+        sku: material.materialCode || material.id,
+      });
+    });
+
+    return (transfersQuery.data?.data || []).map((transfer) => {
+      const firstLine = transfer.lines?.[0];
+      const materialId = firstLine?.materialId || transfer.materialId || "";
+      const sourceWarehouseId = firstLine?.sourceWarehouseId || transfer.sourceWarehouseId || "";
+      const destWarehouseId = firstLine?.destWarehouseId || transfer.destWarehouseId || "";
+      const material = materialMap.get(materialId) || { name: "Unknown", sku: "N/A" };
+      const sourceWarehouse = warehouseMap.get(sourceWarehouseId);
+      const destWarehouse = warehouseMap.get(destWarehouseId);
+
+      const isIntraWarehouse =
+        transfer.transferType === "intra_warehouse" ||
+        transfer.sourceWarehouseId === transfer.destWarehouseId;
+
+      return {
+        id: transfer.id,
+        transferNumber: transfer.transferNumber,
+        transferType:
+          (transfer.transferType as TransferType) ||
+          (isIntraWarehouse ? "intra_warehouse" : "inter_warehouse"),
+        sourceWarehouse: isIntraWarehouse ? undefined : sourceWarehouse,
+        sourceLocationCode: firstLine?.sourceLocationCode || transfer.sourceLocationCode || "-",
+        destWarehouse: isIntraWarehouse ? undefined : destWarehouse,
+        destLocationCode: firstLine?.destLocationCode || transfer.destLocationCode || "-",
+        itemSku: material.sku,
+        itemName:
+          transfer.lines && transfer.lines.length > 1
+            ? `${transfer.lines.length} items`
+            : material.name,
+        quantity:
+          transfer.lines?.reduce((sum, line) => sum + (line.requestedQuantity || 0), 0) ||
+          parseInt(transfer.quantity) ||
+          0,
+        status: (transfer.status as TransferStatus) || "draft",
+        notes: transfer.notes,
+        createdAt: new Date().toISOString(),
+      };
+    });
+  }, [materialsQuery.data, transfersQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (transfersQuery.isPending && !transfersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data) ||
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data);
+  const error =
+    transfersQuery.error || warehousesQuery.error || materialsQuery.error || usersQuery.error
+      ? "Failed to load stock transfers"
+      : null;
+  const totalItems = transfersQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(transfersQuery.data?.totalPages ?? 1, 1);
+  const reload = async () => {
+    try {
+      await invalidateTransferList();
+    } catch (err) {
+      logger.error("Failed to reload stock transfers:", err);
+    }
+  };
 
   const totalTransfers = totalItems;
   const inTransitCount = transfers.filter((transfer) => transfer.status === "in_transit").length;
@@ -161,7 +205,7 @@ export default function StockTransfersPage() {
     try {
       await operationsApi.cancelStockTransfer(transfer.id);
       showToast.success("Transfer cancelled successfully");
-      await loadData();
+      await invalidateTransferListAndDetail(transfer.id);
     } catch (err) {
       logger.error("Failed to cancel transfer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to cancel transfer");
@@ -169,7 +213,32 @@ export default function StockTransfersPage() {
   };
 
   const handlePrintTransferSlip = (transfer: StockTransfer) => {
-    showToast.warning(`Printing transfer slip: ${transfer.transferNumber}`);
+    downloadHtmlDocument(
+      `${transfer.transferNumber}-transfer-slip.html`,
+      `Transfer Slip - ${transfer.transferNumber}`,
+      `
+        <h1>Stock Transfer Slip</h1>
+        <p class="muted">Execution reference for inventory movement</p>
+        <div class="section grid">
+          <div class="card"><strong>Transfer #</strong><br />${escapeHtml(transfer.transferNumber)}</div>
+          <div class="card"><strong>Status</strong><br />${escapeHtml(transfer.status.replace("_", " ").toUpperCase())}</div>
+          <div class="card"><strong>Type</strong><br />${escapeHtml(
+            transfer.transferType === "intra_warehouse" ? "Intra-Warehouse" : "Inter-Warehouse"
+          )}</div>
+          <div class="card"><strong>Quantity</strong><br />${transfer.quantity}</div>
+          <div class="card"><strong>Item</strong><br />${escapeHtml(transfer.itemName)}</div>
+          <div class="card"><strong>SKU</strong><br />${escapeHtml(transfer.itemSku)}</div>
+          <div class="card"><strong>From</strong><br />${escapeHtml(transfer.sourceLocationCode)}</div>
+          <div class="card"><strong>To</strong><br />${escapeHtml(transfer.destLocationCode)}</div>
+        </div>
+        ${
+          transfer.notes
+            ? `<div class="section"><h2>Notes</h2><p>${escapeHtml(transfer.notes)}</p></div>`
+            : ""
+        }
+      `
+    );
+    showToast.success(`Transfer slip downloaded: ${transfer.transferNumber}`);
   };
 
   const addLine = () => {
@@ -264,7 +333,7 @@ export default function StockTransfersPage() {
           },
         ],
       });
-      await loadData();
+      await invalidateTransferListAndDetail(created.id);
     } catch (err) {
       logger.error("Failed to create transfer:", err);
       showToast.error(err instanceof Error ? err.message : "Failed to create transfer");

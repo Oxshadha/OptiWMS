@@ -94,9 +94,15 @@ export default function ReceivingPage() {
   // Load order details when scanned
   useEffect(() => {
     const loadOrderDetails = async () => {
-      if (!scannedValue || !isOnline) {
+      if (!scannedValue) {
         setItems([]);
         setOrderDetails(null);
+        setLoadingOrder(false);
+        return;
+      }
+
+      if (!isOnline) {
+        setLoadingOrder(false);
         return;
       }
       
@@ -479,6 +485,11 @@ export default function ReceivingPage() {
           <div className="text-xs text-primary mt-2 flex items-center gap-2">
             <span className="loading loading-spinner loading-xs"></span>
             Loading order details...
+          </div>
+        )}
+        {!isOnline && scannedValue && (items.length > 0 || orderDetails) && (
+          <div className="text-xs text-warning mt-2">
+            Offline: showing last loaded order details. New order lookups will resume when connection returns.
           </div>
         )}
       </div>

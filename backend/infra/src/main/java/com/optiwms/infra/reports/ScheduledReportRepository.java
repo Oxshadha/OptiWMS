@@ -10,9 +10,9 @@ import java.util.UUID;
 @Repository
 public interface ScheduledReportRepository extends JpaRepository<ScheduledReportEntity, UUID> {
     List<ScheduledReportEntity> findByIsActive(Boolean isActive);
+    List<ScheduledReportEntity> findByIsActiveTrueAndNextGenerationAtLessThanEqual(LocalDateTime dateTime);
     List<ScheduledReportEntity> findByReportType(String reportType);
     List<ScheduledReportEntity> findByFrequency(String frequency);
     List<ScheduledReportEntity> findByNextGenerationAtBefore(LocalDateTime dateTime);
     List<ScheduledReportEntity> findByCreatedBy(UUID createdBy);
 }
-

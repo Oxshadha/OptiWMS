@@ -4,6 +4,7 @@ export interface Shipment {
   id: string;
   shipmentNumber: string;
   orderId?: string;
+  deliveryPartnerId?: string;
   carrier?: string;
   trackingNumber?: string;
   destination?: string;
@@ -28,10 +29,15 @@ export interface PagedShipmentsResponse {
 }
 
 export const shipmentsApi = {
-  getAll: async (orderId?: string, status?: string): Promise<Shipment[]> => {
+  getAll: async (
+    orderId?: string,
+    status?: string,
+    deliveryPartnerId?: string
+  ): Promise<Shipment[]> => {
     const params = new URLSearchParams();
     if (orderId) params.append('orderId', orderId);
     if (status) params.append('status', status);
+    if (deliveryPartnerId) params.append('deliveryPartnerId', deliveryPartnerId);
     const query = params.toString();
     return apiClient.get<Shipment[]>(`/shipments${query ? `?${query}` : ''}`);
   },
@@ -42,6 +48,7 @@ export const shipmentsApi = {
     sortBy = "createdAt",
     sortDir = "desc",
     orderId,
+    deliveryPartnerId,
     status,
     q,
   }: {
@@ -50,6 +57,7 @@ export const shipmentsApi = {
     sortBy?: string;
     sortDir?: "asc" | "desc";
     orderId?: string;
+    deliveryPartnerId?: string;
     status?: string;
     q?: string;
   }): Promise<PagedShipmentsResponse> => {
@@ -59,6 +67,7 @@ export const shipmentsApi = {
     params.append("sortBy", sortBy);
     params.append("sortDir", sortDir);
     if (orderId) params.append("orderId", orderId);
+    if (deliveryPartnerId) params.append("deliveryPartnerId", deliveryPartnerId);
     if (status) params.append("status", status);
     if (q && q.trim()) params.append("q", q.trim());
     return apiClient.get<PagedShipmentsResponse>(`/shipments/paged?${params.toString()}`);

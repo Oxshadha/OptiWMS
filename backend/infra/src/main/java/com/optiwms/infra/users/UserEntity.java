@@ -57,6 +57,10 @@ public class UserEntity {
     @Column(name = "blind_receiving_mode")
     private Boolean blindReceivingMode;
 
+    @Column(name = "dashboard_settings", columnDefinition = "JSONB")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String dashboardSettings;
+
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
@@ -95,6 +99,8 @@ public class UserEntity {
     public void setDeviceId(String deviceId) { this.deviceId = deviceId; }
     public Boolean getBlindReceivingMode() { return blindReceivingMode; }
     public void setBlindReceivingMode(Boolean blindReceivingMode) { this.blindReceivingMode = blindReceivingMode; }
+    public String getDashboardSettings() { return dashboardSettings; }
+    public void setDashboardSettings(String dashboardSettings) { this.dashboardSettings = dashboardSettings; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
@@ -116,4 +122,3 @@ public class UserEntity {
         this.updatedAt = OffsetDateTime.now();
     }
 }
-

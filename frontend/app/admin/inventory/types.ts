@@ -3,10 +3,14 @@ export interface InventoryDisplayItem {
   sku: string;
   name: string;
   qty: number;
+  availableQty?: number;
+  reservedQty?: number;
   location: string;
   locations?: string[];
   batches?: string[];
   nearestExpiryDate?: string;
+  lastMovementDate?: string;
+  daysSinceLastMovement?: number;
   status: "Available" | "Low" | "Out of Stock";
   warehouseName: string;
   itemType: "Product" | "Raw Material" | "Packaging";

@@ -24,13 +24,16 @@ public class NotificationController {
     @GetMapping
     public ResponseEntity<List<NotificationDto>> getAll(
             @RequestParam String userId,
-            @RequestParam(required = false) Boolean read
+            @RequestParam(required = false) Boolean read,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String warehouseId
     ) {
+        UUID parsedWarehouseId = warehouseId != null && !warehouseId.isBlank() ? UUID.fromString(warehouseId) : null;
         List<Notification> notifications;
         if (read != null) {
-            notifications = service.findByUserIdAndRead(UUID.fromString(userId), read);
+            notifications = service.findByUserIdAndRead(UUID.fromString(userId), read, role, parsedWarehouseId);
         } else {
-            notifications = service.findByUserId(UUID.fromString(userId));
+            notifications = service.findByUserId(UUID.fromString(userId), role, parsedWarehouseId);
         }
 
         List<NotificationDto> dtos = notifications.stream()
@@ -40,8 +43,13 @@ public class NotificationController {
     }
 
     @GetMapping("/unread-count")
-    public ResponseEntity<UnreadCountDto> getUnreadCount(@RequestParam String userId) {
-        Long count = service.countUnreadByUserId(UUID.fromString(userId));
+    public ResponseEntity<UnreadCountDto> getUnreadCount(
+            @RequestParam String userId,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String warehouseId
+    ) {
+        UUID parsedWarehouseId = warehouseId != null && !warehouseId.isBlank() ? UUID.fromString(warehouseId) : null;
+        Long count = service.countUnreadByUserId(UUID.fromString(userId), role, parsedWarehouseId);
         return ResponseEntity.ok(new UnreadCountDto(count));
     }
 
@@ -49,6 +57,8 @@ public class NotificationController {
     public ResponseEntity<NotificationDto> create(@RequestBody CreateNotificationRequest request) {
         Notification notification = new Notification();
         notification.setUserId(request.userId() != null ? UUID.fromString(request.userId()) : null);
+        notification.setAudienceRoles(request.audienceRoles());
+        notification.setWarehouseId(request.warehouseId() != null && !request.warehouseId().isBlank() ? UUID.fromString(request.warehouseId()) : null);
         notification.setTitle(request.title());
         notification.setMessage(request.message());
         notification.setNotificationType(request.notificationType());
@@ -83,6 +93,8 @@ public class NotificationController {
         return new NotificationDto(
                 notification.getId().toString(),
                 notification.getUserId() != null ? notification.getUserId().toString() : null,
+                notification.getAudienceRoles(),
+                notification.getWarehouseId() != null ? notification.getWarehouseId().toString() : null,
                 notification.getTitle(),
                 notification.getMessage(),
                 notification.getNotificationType(),
@@ -95,6 +107,8 @@ public class NotificationController {
 
     public record CreateNotificationRequest(
             String userId, // null for broadcast
+            String audienceRoles,
+            String warehouseId,
             String title,
             String message,
             String notificationType,
@@ -105,6 +119,8 @@ public class NotificationController {
     public record NotificationDto(
             String id,
             String userId,
+            String audienceRoles,
+            String warehouseId,
             String title,
             String message,
             String notificationType,

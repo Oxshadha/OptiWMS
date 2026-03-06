@@ -43,6 +43,126 @@ async function syncItem(item: SyncItem): Promise<boolean> {
     // Determine endpoint based on type
     let endpoint = "";
     let method = "POST";
+    let requestBody = item.data;
+
+    const resolveOperationSync = () => {
+      const operationType = item.data?.type;
+
+      switch (operationType) {
+        case "blind_receive": {
+          const { type, ...payload } = item.data;
+          return {
+            endpoint: "/operations/receiving/blind-receive",
+            method: "POST",
+            body: payload,
+          };
+        }
+        case "receive": {
+          const { type, ...payload } = item.data;
+          return {
+            endpoint: "/operations/receiving/receive",
+            method: "POST",
+            body: payload,
+          };
+        }
+        case "packing_create": {
+          const payload = item.data?.payload ?? item.data;
+          return {
+            endpoint: "/packing",
+            method: "POST",
+            body: payload,
+          };
+        }
+        case "picking_complete": {
+          const taskId = item.data?.taskId;
+          if (!taskId) {
+            throw new Error("Missing taskId for picking completion sync");
+          }
+          return {
+            endpoint: `/operations/picking/complete/${taskId}`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "picking_issue": {
+          const taskId = item.data?.taskId;
+          if (!taskId) {
+            throw new Error("Missing taskId for picking issue sync");
+          }
+          return {
+            endpoint: `/operations/picking/issue/${taskId}`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "putaway_complete": {
+          const taskId = item.data?.taskId;
+          if (!taskId) {
+            throw new Error("Missing taskId for putaway sync");
+          }
+          return {
+            endpoint: `/operations/putaway/complete/${taskId}`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "putaway_skip": {
+          const taskId = item.data?.taskId;
+          if (!taskId) {
+            throw new Error("Missing taskId for putaway skip sync");
+          }
+          return {
+            endpoint: `/operations/putaway/skip/${taskId}`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "cycle_count_record": {
+          const cycleCountId = item.data?.cycleCountId;
+          if (!cycleCountId) {
+            throw new Error("Missing cycleCountId for cycle count sync");
+          }
+          return {
+            endpoint: `/operations/cycle-counts/${cycleCountId}/record`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "stock_transfer_execute": {
+          const lineId = item.data?.lineId;
+          if (!lineId) {
+            throw new Error("Missing lineId for stock transfer execution sync");
+          }
+          return {
+            endpoint: `/operations/stock-transfers/lines/${lineId}/execute`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        case "stock_transfer_skip": {
+          const lineId = item.data?.lineId;
+          if (!lineId) {
+            throw new Error("Missing lineId for stock transfer skip sync");
+          }
+          return {
+            endpoint: `/operations/stock-transfers/lines/${lineId}/skip`,
+            method: "POST",
+            body: item.data?.payload ?? {},
+          };
+        }
+        default: {
+          // Backward compatibility for older queued packing payloads.
+          if (item.data?.orderNumber && item.data?.status === "packed") {
+            return {
+              endpoint: "/packing",
+              method: "POST",
+              body: item.data,
+            };
+          }
+          throw new Error(`Unsupported operation sync type: ${String(operationType)}`);
+        }
+      }
+    };
 
     switch (item.type) {
       case "task":
@@ -53,21 +173,39 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         endpoint = "/scans";
         method = "POST";
         break;
-      case "operation":
-        endpoint = "/operations";
-        method = "POST";
+      case "operation": {
+        const resolved = resolveOperationSync();
+        endpoint = resolved.endpoint;
+        method = resolved.method;
+        requestBody = resolved.body;
+        break;
+      }
+      case "shipment":
+        if (!item.data?.shipmentId) {
+          throw new Error("Missing shipmentId for shipment sync");
+        }
+        if (item.data?.mode === "status") {
+          endpoint = `/shipments/${item.data.shipmentId}/status`;
+        } else {
+          endpoint = `/shipments/${item.data.shipmentId}`;
+        }
+        method = "PUT";
+        requestBody = item.data.payload;
         break;
       default:
         throw new Error(`Unsupported sync item type: ${String(item.type)}`);
     }
+
+    const accessToken = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
 
     // Make API call
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method,
       headers: {
         "Content-Type": "application/json",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       },
-      body: JSON.stringify(item.data),
+      body: JSON.stringify(requestBody),
     });
 
     // Handle conflict (409 Conflict)
@@ -80,6 +218,7 @@ async function syncItem(item: SyncItem): Promise<boolean> {
         method,
         headers: {
           "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
         },
         body: JSON.stringify(resolvedData),
       });

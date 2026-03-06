@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/Modal";
 import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { tasksApi, Task } from "@/lib/api/tasks-api";
-import { usersApi, User } from "@/lib/api/users";
-import { warehousesApi } from "@/lib/api/warehouses";
+import { User } from "@/lib/api/users";
 import { useAdmin } from "@/contexts/AdminContext";
+import {
+  useInvalidateAdminListAndDetail,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 
 interface TaskDetailDisplay {
@@ -113,63 +118,67 @@ function toDisplayTask(
 
 export default function TaskDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const { admin } = useAdmin();
   const taskId = params.id as string;
 
-  const [task, setTask] = useState<TaskDetailDisplay | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [workers, setWorkers] = useState<User[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedWorkerId, setSelectedWorkerId] = useState("");
+  const taskQuery = useQuery({
+    queryKey: ["admin-tasks", "detail", taskId],
+    queryFn: () => tasksApi.getById(taskId),
+    enabled: !!taskId,
+  });
+  const usersQuery = useReferenceUsers();
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateTaskListAndDetail = useInvalidateAdminListAndDetail(
+    ["admin-tasks"],
+    (id) => ["admin-tasks", "detail", id]
+  );
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const workers = useMemo<User[]>(
+    () =>
+      (usersQuery.data || []).filter((user) =>
+        (user.role || "").toLowerCase().includes("worker")
+      ),
+    [usersQuery.data]
+  );
 
-      const apiTask = await tasksApi.getById(taskId);
-      const [usersData, warehousesData] = await Promise.all([
-        usersApi.getAll(),
-        warehousesApi.getAll(),
-      ]);
-
-      const workersOnly = usersData.filter((u) =>
-        (u.role || "").toLowerCase().includes("worker")
-      );
-      setWorkers(workersOnly);
-
-      const warehouseName = apiTask.warehouseId
-        ? warehousesData.find((w) => w.id === apiTask.warehouseId)?.name || "Unknown"
-        : "Unknown";
-      const workerName = apiTask.assignedTo
-        ? usersData.find((u) => u.id === apiTask.assignedTo)
-          ? `${usersData.find((u) => u.id === apiTask.assignedTo)?.firstName || ""} ${
-              usersData.find((u) => u.id === apiTask.assignedTo)?.lastName || ""
-            }`.trim() ||
-            usersData.find((u) => u.id === apiTask.assignedTo)?.username ||
-            "Unknown"
-          : "Unassigned"
-        : "Unassigned";
-
-      setTask(toDisplayTask(apiTask, workerName, warehouseName));
-      setSelectedWorkerId(apiTask.assignedTo || "");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load task");
-      setTask(null);
-    } finally {
-      setLoading(false);
+  const task = useMemo<TaskDetailDisplay | null>(() => {
+    const apiTask = taskQuery.data;
+    if (!apiTask) {
+      return null;
     }
-  };
+
+    const warehouseName = apiTask.warehouseId
+      ? (warehousesQuery.data || []).find((warehouse) => warehouse.id === apiTask.warehouseId)?.name || "Unknown"
+      : "Unknown";
+
+    const assignedUser = apiTask.assignedTo
+      ? (usersQuery.data || []).find((user) => user.id === apiTask.assignedTo)
+      : null;
+    const workerName = assignedUser
+      ? `${assignedUser.firstName || ""} ${assignedUser.lastName || ""}`.trim() ||
+        assignedUser.username ||
+        "Unknown"
+      : "Unassigned";
+
+    return toDisplayTask(apiTask, workerName, warehouseName);
+  }, [taskQuery.data, usersQuery.data, warehousesQuery.data]);
 
   useEffect(() => {
-    if (taskId) {
-      loadData();
-    }
-  }, [taskId]);
+    setSelectedWorkerId(taskQuery.data?.assignedTo || "");
+  }, [taskQuery.data?.assignedTo]);
+
+  const loading =
+    (taskQuery.isPending && !taskQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const error = taskQuery.error || usersQuery.error || warehousesQuery.error
+    ? taskQuery.error instanceof Error
+      ? taskQuery.error.message
+      : "Failed to load task"
+    : null;
 
   const taskType = useMemo(() => {
     if (!task) return null;
@@ -208,7 +217,7 @@ export default function TaskDetailPage() {
       setIsSubmitting(true);
       await tasksApi.updateStatus(task.id, "cancelled");
       showToast.success("Task cancelled");
-      await loadData();
+      await invalidateTaskListAndDetail(task.id);
     } catch (err) {
       showToast.error(err instanceof Error ? err.message : "Failed to cancel task");
     } finally {
@@ -230,7 +239,7 @@ export default function TaskDetailPage() {
       });
       showToast.success("Task reassigned");
       setShowAssignModal(false);
-      await loadData();
+      await invalidateTaskListAndDetail(task.id);
     } catch (err) {
       showToast.error(err instanceof Error ? err.message : "Failed to reassign task");
     } finally {

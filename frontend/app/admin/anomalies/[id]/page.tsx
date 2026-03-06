@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
@@ -8,9 +9,12 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { anomaliesApi, Anomaly } from "@/lib/api/anomalies";
-import { materialsApi } from "@/lib/api/materials";
-import { usersApi } from "@/lib/api/users";
-import { warehousesApi } from "@/lib/api/warehouses";
+import {
+  useInvalidateAdminListAndDetail,
+  useReferenceMaterials,
+  useReferenceUsers,
+  useReferenceWarehouses,
+} from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 
 const severityConfig: Record<string, { label: string; tone: StatusTone }> = {
@@ -104,62 +108,65 @@ export default function AnomalyDetailPage() {
   const anomalyId = params.id as string;
   const canEdit = hasPermission(ADMIN_ROUTES.ANOMALIES, "edit");
 
-  const [anomaly, setAnomaly] = useState<AnomalyDisplay | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [markAsFalsePositive, setMarkAsFalsePositive] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const anomalyQuery = useQuery({
+    queryKey: ["admin-anomalies", "detail", anomalyId],
+    queryFn: () => anomaliesApi.getById(anomalyId),
+    enabled: !!anomalyId,
+  });
+  const materialsQuery = useReferenceMaterials();
+  const usersQuery = useReferenceUsers();
+  const warehousesQuery = useReferenceWarehouses();
+  const invalidateAnomaly = useInvalidateAdminListAndDetail(
+    ["admin-anomalies"],
+    (id) => ["admin-anomalies", "detail", id]
+  );
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const apiAnomaly = await anomaliesApi.getById(anomalyId);
-      const [warehouse, material, reviewer] = await Promise.all([
-        apiAnomaly.warehouseId
-          ? warehousesApi.getById(apiAnomaly.warehouseId).catch(() => null)
-          : Promise.resolve(null),
-        apiAnomaly.materialId
-          ? materialsApi.getById(apiAnomaly.materialId).catch(() => null)
-          : Promise.resolve(null),
-        apiAnomaly.reviewedBy
-          ? usersApi.getById(apiAnomaly.reviewedBy).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-
-      const reviewerName = reviewer
-        ? `${reviewer.firstName || ""} ${reviewer.lastName || ""}`.trim() ||
-          reviewer.username ||
-          reviewer.email ||
-          "System"
-        : "System";
-
-      setAnomaly(
-        toDisplayAnomaly(
-          apiAnomaly,
-          warehouse?.name,
-          material?.materialCode,
-          reviewerName
-        )
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to load anomaly";
-      setError(message);
-      setAnomaly(null);
-    } finally {
-      setLoading(false);
+  const anomaly = useMemo<AnomalyDisplay | null>(() => {
+    const apiAnomaly = anomalyQuery.data as Anomaly | undefined;
+    if (!apiAnomaly) {
+      return null;
     }
-  };
 
-  useEffect(() => {
-    if (anomalyId) {
-      loadData();
-    }
-  }, [anomalyId]);
+    const warehouse = apiAnomaly.warehouseId
+      ? (warehousesQuery.data || []).find((item) => item.id === apiAnomaly.warehouseId)
+      : null;
+    const material = apiAnomaly.materialId
+      ? (materialsQuery.data || []).find((item) => item.id === apiAnomaly.materialId)
+      : null;
+    const reviewer = apiAnomaly.reviewedBy
+      ? (usersQuery.data || []).find((item) => item.id === apiAnomaly.reviewedBy)
+      : null;
+
+    const reviewerName = reviewer
+      ? `${reviewer.firstName || ""} ${reviewer.lastName || ""}`.trim() ||
+        reviewer.username ||
+        reviewer.email ||
+        "System"
+      : "System";
+
+    return toDisplayAnomaly(
+      apiAnomaly,
+      warehouse?.name,
+      material?.materialCode,
+      reviewerName
+    );
+  }, [anomalyQuery.data, materialsQuery.data, usersQuery.data, warehousesQuery.data]);
+
+  const loading =
+    (anomalyQuery.isPending && !anomalyQuery.data) ||
+    (materialsQuery.isPending && !materialsQuery.data) ||
+    (usersQuery.isPending && !usersQuery.data) ||
+    (warehousesQuery.isPending && !warehousesQuery.data);
+  const error =
+    anomalyQuery.error || materialsQuery.error || usersQuery.error || warehousesQuery.error
+      ? anomalyQuery.error instanceof Error
+        ? anomalyQuery.error.message
+        : "Failed to load anomaly"
+      : null;
 
   const severity = useMemo(() => {
     if (!anomaly) return null;
@@ -176,7 +183,7 @@ export default function AnomalyDetailPage() {
       setActionLoading(true);
       await anomaliesApi.resolve(anomalyId, nextStatus, admin?.id, notes);
       showToast.success("Anomaly status updated");
-      await loadData();
+      await invalidateAnomaly(anomalyId);
       if (nextStatus === "RESOLVED" || nextStatus === "FALSE_POSITIVE") {
         setShowResolveModal(false);
         setResolutionNotes("");

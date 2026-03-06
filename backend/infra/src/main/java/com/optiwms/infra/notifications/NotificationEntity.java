@@ -20,6 +20,12 @@ public class NotificationEntity {
     @Column(name = "user_id", columnDefinition = "UUID")
     private UUID userId; // NULL means broadcast to all users
 
+    @Column(name = "audience_roles", length = 255)
+    private String audienceRoles;
+
+    @Column(name = "warehouse_id", columnDefinition = "UUID")
+    private UUID warehouseId;
+
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
@@ -55,6 +61,10 @@ public class NotificationEntity {
     public void setId(UUID id) { this.id = id; }
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
+    public String getAudienceRoles() { return audienceRoles; }
+    public void setAudienceRoles(String audienceRoles) { this.audienceRoles = audienceRoles; }
+    public UUID getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getMessage() { return message; }
@@ -70,4 +80,3 @@ public class NotificationEntity {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }
-

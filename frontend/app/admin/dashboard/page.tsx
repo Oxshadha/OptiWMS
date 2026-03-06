@@ -1,11 +1,17 @@
 "use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { logger } from "@/lib/utils/logger";
-import { KpiTile } from "@/components/KpiTile";
 import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { useDashboardData } from "./useDashboardData";
+import { usersApi } from "@/lib/api/users";
+import { getScopedSettings } from "@/lib/user-preferences";
+import { applyAppTheme } from "@/lib/theme";
+import { notificationsApi, type Notification } from "@/lib/api/notifications";
 import {
   BarChart,
   Bar,
@@ -15,23 +21,57 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
-  YAxis,
-  CartesianGrid,
 } from "recharts";
 
 const COLORS = ["#CF0F47", "#E5E7EB"];
 
+const defaultDashboardSettings = {
+  darkMode: false,
+  autoRefresh: true,
+  refreshInterval: "30",
+  itemsPerPage: "10",
+  defaultView: "grid",
+  showCharts: true,
+  showNotifications: true,
+  dateFormat: "MM/DD/YYYY",
+  timeFormat: "12h",
+};
+
+function formatChartDate(date: string, locale: string, dateFormat: string) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+
+  if (dateFormat === "YYYY-MM-DD") {
+    return parsed.toISOString().slice(5, 10);
+  }
+
+  if (dateFormat === "DD/MM/YYYY") {
+    return new Intl.DateTimeFormat(locale, {
+      day: "2-digit",
+      month: "2-digit",
+    }).format(parsed);
+  }
+
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+  }).format(parsed);
+}
+
 export default function DashboardPage() {
   logger.debug("[Dashboard] Component mounted");
-  
+
   const { role, admin } = useAdmin();
-  logger.debug("[Dashboard] Admin context:", { role, hasAdmin: !!admin });
-  
-  const isWarehouseManager = role === "warehouse_manager";
-  const isInboundCoordinator = role === "inbound_coordinator";
-  const isAdmin = role === "admin";
+  const [dashboardSettings, setDashboardSettings] = useState(defaultDashboardSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  const topProductsLimit = Math.min(
+    Math.max(Number.parseInt(dashboardSettings.itemsPerPage, 10) || 4, 1),
+    10
+  );
 
   const {
     kpis,
@@ -41,20 +81,114 @@ export default function DashboardPage() {
     loading,
     error,
     reload,
-  } = useDashboardData();
-  
-  logger.debug("[Dashboard] Initial state:", { loading, error, hasToken: !!localStorage.getItem('accessToken') });
+  } = useDashboardData({ topProductsLimit });
 
-  // Transform orders chart data for display
-  const ordersData = ordersChart.map(item => ({
-    day: new Date(item.date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    }),
+  const isWarehouseManager = role === "warehouse_manager";
+  const isInboundCoordinator = role === "inbound_coordinator";
+  const isAdmin = role === "admin";
+  const locale = "en-US";
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!admin?.id) {
+        setSettingsLoading(false);
+        return;
+      }
+
+      try {
+        setSettingsLoading(true);
+        const user = await usersApi.getById(admin.id);
+        if (!user.dashboardSettings) {
+          setDashboardSettings(defaultDashboardSettings);
+          return;
+        }
+
+        const parsed = getScopedSettings<typeof defaultDashboardSettings>(
+          user.dashboardSettings,
+          "adminDashboardSettings"
+        );
+
+        setDashboardSettings((prev) => ({ ...prev, ...parsed }));
+      } catch (loadError) {
+        logger.error("[Dashboard] Failed to load dashboard settings:", loadError);
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    void loadSettings();
+  }, [admin?.id]);
+
+  useEffect(() => {
+    applyAppTheme(dashboardSettings.darkMode);
+  }, [dashboardSettings.darkMode]);
+
+  useEffect(() => {
+    const loadNotifications = async () => {
+      if (!admin?.id || !dashboardSettings.showNotifications) {
+        setNotifications([]);
+        return;
+      }
+
+      try {
+        const nextNotifications = await notificationsApi.getAll(admin.id, undefined, {
+          role: role || undefined,
+          warehouseId: admin.warehouseId,
+        });
+        setNotifications(nextNotifications.slice(0, 5));
+      } catch (loadError) {
+        logger.error("[Dashboard] Failed to load notifications:", loadError);
+        setNotifications([]);
+      }
+    };
+
+    void loadNotifications();
+
+    if (!dashboardSettings.showNotifications) {
+      return;
+    }
+
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [admin?.id, admin?.warehouseId, dashboardSettings.showNotifications, role]);
+
+  useEffect(() => {
+    if (settingsLoading || !dashboardSettings.autoRefresh) {
+      return;
+    }
+
+    const intervalMs = Math.max(
+      (Number.parseInt(dashboardSettings.refreshInterval, 10) || 30) * 1000,
+      10000
+    );
+
+    const interval = setInterval(() => {
+      reload();
+    }, intervalMs);
+
+    return () => clearInterval(interval);
+  }, [
+    dashboardSettings.autoRefresh,
+    dashboardSettings.refreshInterval,
+    reload,
+    settingsLoading,
+  ]);
+
+  const gridClass = useMemo(() => {
+    if (dashboardSettings.defaultView === "list") {
+      return "grid grid-cols-1 gap-6";
+    }
+    if (dashboardSettings.defaultView === "table") {
+      return "grid grid-cols-1 md:grid-cols-2 gap-6";
+    }
+    return "grid grid-cols-1 lg:grid-cols-3 gap-6";
+  }, [dashboardSettings.defaultView]);
+
+  const ordersData = ordersChart.map((item) => ({
+    day: formatChartDate(item.date, locale, dashboardSettings.dateFormat),
     value: item.count,
   }));
 
-  // Calculate summary data from KPIs
   const totalOrdersInPeriod = kpis?.totalOrdersThisPeriod ?? kpis?.totalTasks ?? 0;
   const completedOrdersInPeriod = kpis?.completedOrdersThisPeriod ?? kpis?.completedTasks ?? 0;
   const summaryData = kpis
@@ -67,11 +201,12 @@ export default function DashboardPage() {
         { name: "Remaining", value: 0 },
       ];
 
-  const completionPercentage = totalOrdersInPeriod > 0
-    ? Math.round((completedOrdersInPeriod / totalOrdersInPeriod) * 100)
-    : 0;
+  const completionPercentage =
+    totalOrdersInPeriod > 0
+      ? Math.round((completedOrdersInPeriod / totalOrdersInPeriod) * 100)
+      : 0;
 
-  if (loading) {
+  if (loading || settingsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
@@ -83,163 +218,171 @@ export default function DashboardPage() {
     );
   }
 
-  // Show error only if we have no data at all (allow partial data display)
   if (error && !kpis && !ordersChart.length && !topProducts.length && !inventoryOverview) {
     return (
       <div className="alert alert-error m-6">
         <span className="material-symbols-outlined">error</span>
         <div className="flex-1">
           <span>Error loading dashboard: {error}</span>
-          <button 
-            className="btn btn-sm btn-outline ml-4"
-            onClick={() => {
-              reload();
-            }}
-          >
+          <button className="btn btn-sm btn-outline ml-4" onClick={() => reload()}>
             Retry
           </button>
         </div>
       </div>
     );
   }
-  
-  // Show warning if we have partial data
-  const hasPartialData = (kpis || ordersChart.length > 0 || topProducts.length > 0 || inventoryOverview) && error;
+
+  const hasPartialData =
+    (kpis || ordersChart.length > 0 || topProducts.length > 0 || inventoryOverview) && error;
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-base-content">Dashboard</h1>
           <p className="text-sm text-base-content/60 mt-1">
-            Welcome back{admin?.name ? `, ${admin.name}` : ""}! Here's what's
-            happening today.
+            Welcome back{admin?.name ? `, ${admin.name}` : ""}! Here's what's happening today.
           </p>
         </div>
-        {/* AI Services Status Indicator - Single functional indicator */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-base-content/60">AI:</span>
-          <AIServiceStatus
-            serviceId={AI_SERVICES.ANOMALY_DETECTION}
-            size="sm"
-          />
-        </div>
+        {dashboardSettings.showNotifications && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-base-content/60">AI:</span>
+            <AIServiceStatus serviceId={AI_SERVICES.ANOMALY_DETECTION} size="sm" />
+          </div>
+        )}
       </div>
 
-      {/* Main Stats Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {hasPartialData && dashboardSettings.showNotifications && (
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">warning</span>
+          <span>Some dashboard panels could not be refreshed completely.</span>
+        </div>
+      )}
+
+      <div className={gridClass}>
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-base-content/70 font-medium">
-              Orders This Month
-            </div>
-            <span className="material-symbols-outlined text-primary">
-              inventory_2
-            </span>
+            <div className="text-sm text-base-content/70 font-medium">Orders This Month</div>
+            <span className="material-symbols-outlined text-primary">inventory_2</span>
           </div>
-          <div className="text-4xl font-bold text-base-content mb-2">
-            {kpis?.ordersThisPeriod ?? 0}
-          </div>
-          <div className="text-sm text-base-content/60">
-            Orders processed this month
-          </div>
+          <div className="text-4xl font-bold text-base-content mb-2">{kpis?.ordersThisPeriod ?? 0}</div>
+          <div className="text-sm text-base-content/60">Orders processed this month</div>
           <div className="mt-4 pt-4 border-t border-base-200">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-base-content/60">
-                Total: {kpis?.totalOrders ?? 0} orders
-              </span>
-            </div>
+            <div className="text-sm text-base-content/60">Total: {kpis?.totalOrders ?? 0} orders</div>
           </div>
         </div>
 
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-base-content/70 font-medium">
-              Order Statistics
-            </div>
-            <span className="material-symbols-outlined text-info">
-              bar_chart
-            </span>
+            <div className="text-sm text-base-content/70 font-medium">Order Statistics</div>
+            <span className="material-symbols-outlined text-info">bar_chart</span>
           </div>
-          <div className="text-xs text-base-content/60 mb-3">
-            Orders created per day (current monthly window)
-          </div>
-          <div className="h-40">
-            {ordersData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={ordersData}>
-                  <XAxis
-                    dataKey="day"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 12 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#fff",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "8px",
-                    }}
-                  />
-                  <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#CF0F47" />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-base-content/60 text-sm">
-                No orders in selected period
+          {dashboardSettings.showCharts ? (
+            <>
+              <div className="text-xs text-base-content/60 mb-3">
+                Orders created per day (current monthly window)
               </div>
-            )}
-          </div>
+              <div className="h-40">
+                {ordersData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={ordersData}>
+                      <XAxis
+                        dataKey="day"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fontSize: 12 }}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#fff",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "8px",
+                        }}
+                      />
+                      <Bar dataKey="value" radius={[6, 6, 0, 0]} fill="#CF0F47" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-base-content/60 text-sm">
+                    No orders in selected period
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <div className="p-3 bg-base-200 rounded-lg flex justify-between">
+                <span>Completed</span>
+                <span className="font-semibold">{completedOrdersInPeriod}</span>
+              </div>
+              <div className="p-3 bg-base-200 rounded-lg flex justify-between">
+                <span>Remaining</span>
+                <span className="font-semibold">
+                  {Math.max(0, totalOrdersInPeriod - completedOrdersInPeriod)}
+                </span>
+              </div>
+              <div className="p-3 bg-base-200 rounded-lg flex justify-between">
+                <span>Refresh</span>
+                <span className="font-semibold">
+                  {dashboardSettings.autoRefresh
+                    ? `${dashboardSettings.refreshInterval}s`
+                    : "Manual"}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <div className="text-sm text-base-content/70 font-medium">
-              Order Summary
+            <div className="text-sm text-base-content/70 font-medium">Order Summary</div>
+          </div>
+          {dashboardSettings.showCharts ? (
+            <>
+              <div className="h-40 flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={summaryData}
+                      dataKey="value"
+                      innerRadius={50}
+                      outerRadius={70}
+                      startAngle={180}
+                      endAngle={0}
+                      paddingAngle={2}
+                    >
+                      {summaryData.map((entry, index) => (
+                        <Cell key={`cell-${entry.name}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
+                  <div className="text-success font-semibold text-lg">{completionPercentage}%</div>
+                </div>
+              </div>
+              <div className="text-center font-semibold text-lg mt-2">{totalOrdersInPeriod}</div>
+              <div className="text-center text-sm text-base-content/60">Orders This Period</div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="text-4xl font-bold text-base-content">{completionPercentage}%</div>
+              <div className="text-sm text-base-content/60">Completion rate</div>
+              <div className="p-3 bg-base-200 rounded-lg flex justify-between">
+                <span>Orders This Period</span>
+                <span className="font-semibold">{totalOrdersInPeriod}</span>
+              </div>
             </div>
-          </div>
-          <div className="h-40 flex items-center justify-center relative">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={summaryData}
-                  dataKey="value"
-                  innerRadius={50}
-                  outerRadius={70}
-                  startAngle={180}
-                  endAngle={0}
-                  paddingAngle={2}
-                >
-                  {summaryData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
-              <div className="text-success font-semibold text-lg">{completionPercentage}%</div>
-            </div>
-          </div>
-          <div className="text-center font-semibold text-lg mt-2">{totalOrdersInPeriod}</div>
-          <div className="text-center text-sm text-base-content/60">
-            Orders This Period
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Inventory Overview and Top Products */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className={gridClass}>
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6 lg:col-span-2">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-base-content">
-              Inventory Overview
-            </h3>
-            <button className="btn btn-ghost btn-sm">
-              <span className="material-symbols-outlined">more_vert</span>
+            <h3 className="text-xl font-bold text-base-content">Inventory Overview</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => reload()}>
+              <span className="material-symbols-outlined">refresh</span>
             </button>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -247,12 +390,8 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-3xl text-success mb-2 block">
                 inventory_2
               </span>
-              <div className="text-xs text-success font-semibold mb-1">
-                Total Items
-              </div>
-              <div className="text-2xl font-bold text-base-content">
-                {inventoryOverview?.totalItems ?? 0}
-              </div>
+              <div className="text-xs text-success font-semibold mb-1">Total Items</div>
+              <div className="text-2xl font-bold text-base-content">{inventoryOverview?.totalItems ?? 0}</div>
               <div className="text-xs text-base-content/60 mt-1">
                 Active: {inventoryOverview?.activeItems ?? 0}
               </div>
@@ -261,40 +400,30 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-3xl text-warning mb-2 block">
                 warning
               </span>
-              <div className="text-xs text-warning font-semibold mb-1">
-                Low Stock
-              </div>
+              <div className="text-xs text-warning font-semibold mb-1">Low Stock</div>
               <div className="text-2xl font-bold text-base-content">
                 {inventoryOverview?.lowStockItems ?? 0}
               </div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Items below threshold
-              </div>
+              <div className="text-xs text-base-content/60 mt-1">Items below threshold</div>
             </div>
             <div className="text-center p-4 bg-base-200 rounded-lg">
               <span className="material-symbols-outlined text-3xl text-error mb-2 block">
                 cancel
               </span>
-              <div className="text-xs text-error font-semibold mb-1">
-                Out of Stock
-              </div>
+              <div className="text-xs text-error font-semibold mb-1">Out of Stock</div>
               <div className="text-2xl font-bold text-base-content">
                 {inventoryOverview?.outOfStockItems ?? 0}
               </div>
-              <div className="text-xs text-base-content/60 mt-1">
-                Items unavailable
-              </div>
+              <div className="text-xs text-base-content/60 mt-1">Items unavailable</div>
             </div>
           </div>
         </div>
 
         <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
           <div className="flex justify-between items-center mb-6">
-            <h3 className="text-xl font-bold text-base-content">
-              Top Moving Products
-            </h3>
-            <button className="btn btn-ghost btn-sm">
-              <span className="material-symbols-outlined">more_vert</span>
+            <h3 className="text-xl font-bold text-base-content">Top Moving Products</h3>
+            <button className="btn btn-ghost btn-sm" onClick={() => reload()}>
+              <span className="material-symbols-outlined">refresh</span>
             </button>
           </div>
           {topProducts.length > 0 ? (
@@ -309,17 +438,21 @@ export default function DashboardPage() {
                 const icons = ["inventory_2", "package", "shopping_cart", "category"];
                 const colorClass = colorClasses[index % colorClasses.length];
                 const icon = icons[index % icons.length];
+
                 return (
-                  <li key={product.materialId} className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
+                  <li
+                    key={product.materialId}
+                    className="flex items-center justify-between p-3 bg-base-200 rounded-lg"
+                  >
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 ${colorClass.bg} rounded-lg flex items-center justify-center`}>
-                        <span className={`material-symbols-outlined ${colorClass.text}`}>
-                          {icon}
-                        </span>
+                        <span className={`material-symbols-outlined ${colorClass.text}`}>{icon}</span>
                       </div>
                       <div>
                         <div className="font-semibold text-sm">{product.materialName}</div>
-                        <div className="text-xs text-base-content/60">{product.materialId.substring(0, 8)}</div>
+                        <div className="text-xs text-base-content/60">
+                          {product.materialId.substring(0, 8)}
+                        </div>
                       </div>
                     </div>
                     <div className="text-right">
@@ -339,16 +472,55 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* AI Services Section - Role-Based Visibility */}
+      {dashboardSettings.showNotifications && (
+        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-base-content">Operations Feed</h2>
+              <p className="text-sm text-base-content/60">
+                Latest operational updates between inventory insight cards and the AI dashboard
+              </p>
+            </div>
+            <a href="/admin/notifications" className="btn btn-ghost btn-sm">
+              View All
+            </a>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="text-sm text-base-content/60">No recent notifications.</div>
+          ) : (
+            <div className="space-y-3">
+              {notifications.map((notification) => (
+                <Link
+                  key={notification.id}
+                  href={notification.actionUrl || "/admin/notifications"}
+                  className={`rounded-lg border p-3 ${
+                    notification.read
+                      ? "border-base-300 bg-base-100"
+                      : "border-primary/20 bg-primary/5"
+                  } block hover:border-primary/30 transition-colors`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-base-content">{notification.title}</div>
+                      <div className="text-sm text-base-content/70 mt-1">{notification.message}</div>
+                    </div>
+                    <span className="text-xs text-base-content/50 whitespace-nowrap">
+                      {new Date(notification.createdAt).toLocaleString()}
+                    </span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {(isWarehouseManager || isInboundCoordinator || isAdmin) && (
         <div className="space-y-6">
           <div className="divider">
-            <span className="text-lg font-semibold">
-              AI Insights & Recommendations
-            </span>
+            <span className="text-lg font-semibold">AI Insights & Recommendations</span>
           </div>
 
-          {/* Warehouse Manager AI Panels */}
           {isWarehouseManager && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AIDashboardPanel
@@ -357,8 +529,7 @@ export default function DashboardPage() {
                 description="AI-recommended storage positions for incoming inventory"
               >
                 <div className="text-sm text-base-content/60">
-                  Storage optimization suggestions will appear here when the
-                  service is available.
+                  Storage optimization suggestions will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -368,8 +539,7 @@ export default function DashboardPage() {
                 description="Optimized picking routes and efficiency metrics"
               >
                 <div className="text-sm text-base-content/60">
-                  Picking path recommendations will appear here when the service
-                  is available.
+                  Picking path recommendations will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -379,8 +549,7 @@ export default function DashboardPage() {
                 description="Future demand predictions for capacity planning"
               >
                 <div className="text-sm text-base-content/60">
-                  Demand forecasts will appear here when the service is
-                  available.
+                  Demand forecasts will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -390,14 +559,12 @@ export default function DashboardPage() {
                 description="Suggested min-max inventory levels for space planning"
               >
                 <div className="text-sm text-base-content/60">
-                  Inventory level suggestions will appear here when the service
-                  is available.
+                  Inventory level suggestions will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
             </div>
           )}
 
-          {/* Inbound Coordinator AI Panels */}
           {isInboundCoordinator && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AIDashboardPanel
@@ -407,14 +574,13 @@ export default function DashboardPage() {
               >
                 <div className="space-y-4">
                   <div className="text-sm text-base-content/60">
-                    Procurement recommendations will appear here when the
-                    service is available.
+                    Procurement recommendations will appear here when the service is available.
                   </div>
                   <div className="alert alert-info">
                     <span className="material-symbols-outlined">info</span>
                     <span className="text-sm">
-                      The AI agent analyzes demand, inventory, storage capacity,
-                      and budget to suggest optimal orders.
+                      The AI agent analyzes demand, inventory, storage capacity, and budget to
+                      suggest optimal orders.
                     </span>
                   </div>
                 </div>
@@ -426,8 +592,7 @@ export default function DashboardPage() {
                 description="90-day demand predictions with confidence intervals"
               >
                 <div className="text-sm text-base-content/60">
-                  Demand forecasts will appear here when the service is
-                  available.
+                  Demand forecasts will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -437,8 +602,7 @@ export default function DashboardPage() {
                 description="Review and approve suggested inventory levels"
               >
                 <div className="text-sm text-base-content/60">
-                  Min-max inventory suggestions will appear here when the
-                  service is available.
+                  Min-max inventory suggestions will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -448,14 +612,12 @@ export default function DashboardPage() {
                 description="Price spikes, late deliveries, and quality issues"
               >
                 <div className="text-sm text-base-content/60">
-                  Supplier anomaly alerts will appear here when the service is
-                  available.
+                  Supplier anomaly alerts will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
             </div>
           )}
 
-          {/* Admin AI Panels - All Services */}
           {isAdmin && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <AIDashboardPanel
@@ -464,8 +626,7 @@ export default function DashboardPage() {
                 description="Configure model parameters and view forecasts"
               >
                 <div className="text-sm text-base-content/60">
-                  Service configuration and metrics will appear here when the
-                  service is available.
+                  Service configuration and metrics will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -475,8 +636,7 @@ export default function DashboardPage() {
                 description="System performance anomalies and service health"
               >
                 <div className="text-sm text-base-content/60">
-                  System anomaly alerts will appear here when the service is
-                  available.
+                  System anomaly alerts will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -486,8 +646,7 @@ export default function DashboardPage() {
                 description="Service configuration and performance metrics"
               >
                 <div className="text-sm text-base-content/60">
-                  Service metrics will appear here when the service is
-                  available.
+                  Service metrics will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
 
@@ -497,8 +656,7 @@ export default function DashboardPage() {
                 description="Slotting rules and algorithm configuration"
               >
                 <div className="text-sm text-base-content/60">
-                  Service configuration will appear here when the service is
-                  available.
+                  Service configuration will appear here when the service is available.
                 </div>
               </AIDashboardPanel>
             </div>

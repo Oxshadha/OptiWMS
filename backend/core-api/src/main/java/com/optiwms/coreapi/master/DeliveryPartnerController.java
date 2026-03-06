@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.master.DeliveryPartnerService;
+import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import com.optiwms.domain.master.DeliveryPartner;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -8,6 +9,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.WebRequest;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -26,7 +28,8 @@ public class DeliveryPartnerController {
 
     @GetMapping
     public ResponseEntity<List<DeliveryPartnerDto>> listAll(
-            @RequestParam(required = false) String status
+            @RequestParam(required = false) String status,
+            WebRequest webRequest
     ) {
         List<DeliveryPartner> partners;
         if (status != null) {
@@ -38,7 +41,7 @@ public class DeliveryPartnerController {
         List<DeliveryPartnerDto> dtos = partners.stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
-        return ResponseEntity.ok(dtos);
+        return ReferenceDataCacheSupport.ok(webRequest, dtos, "delivery-partners", status, dtos);
     }
 
     @GetMapping("/paged")

@@ -7,6 +7,8 @@ import java.util.UUID;
 
 public class Notification extends BaseEntity {
     private UUID userId; // NULL means broadcast to all users
+    private String audienceRoles; // Comma-separated role names for broadcast targeting
+    private UUID warehouseId; // Optional warehouse scope for targeted broadcasts
     private String title;
     private String message;
     private String notificationType; // order, inventory, cycle_count, task, anomaly, shipment, return, system
@@ -18,6 +20,10 @@ public class Notification extends BaseEntity {
     // Getters and Setters
     public UUID getUserId() { return userId; }
     public void setUserId(UUID userId) { this.userId = userId; }
+    public String getAudienceRoles() { return audienceRoles; }
+    public void setAudienceRoles(String audienceRoles) { this.audienceRoles = audienceRoles; }
+    public UUID getWarehouseId() { return warehouseId; }
+    public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
     public String getMessage() { return message; }
@@ -33,4 +39,3 @@ public class Notification extends BaseEntity {
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }
-

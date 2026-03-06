@@ -1,99 +1,181 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
-import { getTask } from "@/lib/indexeddb";
+import { tasksApi, Task } from "@/lib/api/tasks-api";
+import { useWorker } from "@/contexts/WorkerContext";
+import { useOffline } from "@/hooks/useOffline";
+import { getTask, saveTask } from "@/lib/indexeddb";
+import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
-
-// Fallback task data if not found in IndexedDB
-const defaultTaskDetails: Record<string, any> = {
-  "1": {
-    id: 1,
-    title: "Receiving",
-    detail: "PO/ASN 452368",
-    type: "info",
-    icon: "inventory_2",
-    priority: "high",
-    dueTime: "2:00 PM",
-    status: "in_progress",
-    items: [
-      { sku: "WB-1001", name: "Wireless Earbuds", expected: 50, received: 0 },
-    ],
-  },
-  "2": {
-    id: 2,
-    title: "Putaway",
-    detail: "Stage -> Aisle A",
-    type: "primary",
-    icon: "move_to_inbox",
-    priority: "medium",
-    dueTime: "3:30 PM",
-    status: "pending",
-    lpn: "LPN-123",
-    fromLocation: "Stage Area",
-    toLocation: "Aisle A / Bin A5",
-    item: "Wireless Earbuds",
-    qty: 50,
-  },
-  "3": {
-    id: 3,
-    title: "Picking",
-    detail: "Order #56281",
-    type: "accent",
-    icon: "shopping_cart",
-    priority: "high",
-    dueTime: "4:00 PM",
-    status: "pending",
-    order: "#56281",
-    location: "B3",
-    item: "Smart Projector",
-    sku: "SKU-1002",
-    qty: 2,
-  },
-};
 
 const priorityColors = {
   high: "bg-error/10 text-error border-error/20",
   medium: "bg-warning/10 text-warning border-warning/20",
   low: "bg-info/10 text-info border-info/20",
+  normal: "bg-base-200 text-base-content border-base-300",
 };
+
+const taskTypeConfig: Record<string, { icon: string; type: string; title: string }> = {
+  receiving: { icon: "inventory_2", type: "info", title: "Receiving" },
+  putaway: { icon: "move_to_inbox", type: "primary", title: "Putaway" },
+  picking: { icon: "shopping_cart", type: "accent", title: "Picking" },
+  cycle_count: { icon: "calculate", type: "warning", title: "Cycle Count" },
+  packing: { icon: "inventory", type: "success", title: "Packing" },
+  stock_transfer: { icon: "swap_horiz", type: "info", title: "Stock Transfer" },
+  returns: { icon: "keyboard_return", type: "warning", title: "Returns" },
+  shipment: { icon: "local_shipping", type: "primary", title: "Shipment" },
+};
+
+function formatDateTime(value?: string) {
+  if (!value) {
+    return "Not set";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Not set";
+  }
+  return date.toLocaleString();
+}
+
+function formatTaskTitle(taskType: string) {
+  const config = taskTypeConfig[taskType.toLowerCase()];
+  if (config) {
+    return config.title;
+  }
+  return taskType
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function toIndexedDbTaskType(taskType: string): "picking" | "putaway" | "receiving" | "cycle_count" | "shipment" | "return" {
+  const normalized = taskType.toLowerCase();
+  if (normalized === "putaway") return "putaway";
+  if (normalized === "receiving") return "receiving";
+  if (normalized === "cycle_count") return "cycle_count";
+  if (normalized === "shipment") return "shipment";
+  if (normalized === "returns" || normalized === "return") return "return";
+  return "picking";
+}
+
+async function cacheTask(task: Task, workerId?: string) {
+  await saveTask({
+    id: task.id,
+    type: toIndexedDbTaskType(task.taskType),
+    status:
+      task.status === "in_progress" || task.status === "completed" || task.status === "cancelled"
+        ? task.status
+        : "pending",
+    data: task,
+    createdAt: task.dueDate ? new Date(task.dueDate).getTime() : Date.now(),
+    updatedAt: Date.now(),
+    synced: true,
+    workerId,
+    assignedTo: task.assignedTo,
+    warehouseId: task.warehouseId,
+    startedAt: task.startedAt ? new Date(task.startedAt).getTime() : undefined,
+    completedAt: task.completedAt ? new Date(task.completedAt).getTime() : undefined,
+  });
+}
 
 export default function TaskDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { worker } = useWorker();
+  const { isOnline } = useOffline();
   const taskId = params.id as string;
-  const [task, setTask] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
-  const [receivedQty, setReceivedQty] = useState(0);
-  const [pickedQty, setPickedQty] = useState(0);
-  const [scannedLPN, setScannedLPN] = useState("");
-  const [scannedLocation, setScannedLocation] = useState("");
+  const [task, setTask] = useState<Task | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [reportingIssue, setReportingIssue] = useState(false);
 
   useEffect(() => {
     const loadTask = async () => {
+      if (!taskId) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        // Try to load from IndexedDB first
-        const dbTask = await getTask(taskId);
-        if (dbTask) {
-          setTask(dbTask);
+        setLoading(true);
+        if (isOnline) {
+          const nextTask = await tasksApi.getById(taskId);
+          setTask(nextTask);
+          await cacheTask(nextTask, worker?.id);
         } else {
-          // Fallback to default tasks
-          setTask(defaultTaskDetails[taskId] || null);
+          const cachedTask = await getTask(taskId);
+          const cachedData = cachedTask?.data;
+          if (cachedData && typeof cachedData === "object") {
+            setTask(cachedData as Task);
+          } else {
+            setTask(null);
+          }
         }
       } catch (error) {
         logger.error("Error loading task:", error);
-        // Fallback to default tasks
-        setTask(defaultTaskDetails[taskId] || null);
+        if (isOnline) {
+          showToast.error("Failed to load task");
+        }
+        try {
+          const cachedTask = await getTask(taskId);
+          const cachedData = cachedTask?.data;
+          setTask(cachedData && typeof cachedData === "object" ? (cachedData as Task) : null);
+        } catch {
+          setTask(null);
+        }
       } finally {
         setLoading(false);
       }
     };
 
-    if (taskId) {
-      loadTask();
+    void loadTask();
+  }, [taskId, isOnline, worker?.id]);
+
+  const updateTaskStatus = async (nextStatus: "in_progress" | "completed") => {
+    if (!task || !worker?.id || !isOnline) {
+      showToast.error("You must be online to update tasks");
+      return;
     }
-  }, [taskId]);
+
+    try {
+      setUpdating(true);
+      const updated = await tasksApi.updateStatus(task.id, nextStatus, worker.id);
+      await cacheTask(updated, worker.id);
+      setTask(updated);
+      showToast.success(nextStatus === "completed" ? "Task completed" : "Task started");
+      if (nextStatus === "completed") {
+        router.push("/worker/tasks");
+      }
+    } catch (error) {
+      logger.error("Failed to update task status:", error);
+      showToast.error("Failed to update task");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const reportTaskIssue = async () => {
+    if (!task || !worker?.id || !isOnline) {
+      showToast.error("You must be online to report issues");
+      return;
+    }
+
+    try {
+      setReportingIssue(true);
+      await tasksApi.reportError(task.id, {
+        workerId: worker.id,
+        message: `Issue reported from worker task screen for ${task.taskNumber}`,
+      });
+      showToast.success("Issue reported");
+    } catch (error) {
+      logger.error("Failed to report task issue:", error);
+      showToast.error("Failed to report issue");
+    } finally {
+      setReportingIssue(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -116,205 +198,120 @@ export default function TaskDetailPage() {
     );
   }
 
-  const handleStart = () => {
-    // Handle task start
-    logger.debug("Task started:", task.id);
+  const taskConfig = taskTypeConfig[task.taskType.toLowerCase()] || {
+    icon: "task",
+    type: "info",
+    title: formatTaskTitle(task.taskType),
   };
 
-  const handleComplete = () => {
-    // Handle task completion
-    logger.debug("Task completed:", task.id);
-    router.push("/worker/tasks");
-  };
+  const canStart = task.status === "pending" || task.status === "assigned";
+  const canComplete = task.status === "in_progress";
 
   return (
     <div className="p-4 space-y-4">
-      {/* Task Header */}
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="flex items-start justify-between mb-3">
+        <div className="flex items-start justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className={`w-12 h-12 bg-${task.type}/10 rounded-xl flex items-center justify-center`}>
-              <span className={`material-symbols-outlined text-${task.type} text-xl`}>
-                {task.icon}
+            <div className={`w-12 h-12 bg-${taskConfig.type}/10 rounded-xl flex items-center justify-center`}>
+              <span className={`material-symbols-outlined text-${taskConfig.type} text-xl`}>
+                {taskConfig.icon}
               </span>
             </div>
             <div>
-              <h2 className="font-bold text-lg text-base-content">{task.title}</h2>
-              <p className="text-sm text-base-content/60">{task.detail}</p>
+              <h2 className="font-bold text-lg text-base-content">{taskConfig.title}</h2>
+              <p className="text-sm text-base-content/60">{task.taskNumber}</p>
             </div>
           </div>
-          <span className={`px-2 py-1 rounded-full text-xs font-medium border ${priorityColors[task.priority as keyof typeof priorityColors]}`}>
+          <span
+            className={`px-2 py-1 rounded-full text-xs font-medium border ${
+              priorityColors[task.priority.toLowerCase() as keyof typeof priorityColors] || priorityColors.normal
+            }`}
+          >
             {task.priority}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-xs text-base-content/60">
-          <span className="material-symbols-outlined text-sm">schedule</span>
-          <span>Due: {task.dueTime}</span>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Status</div>
+            <div className="font-semibold text-base-content capitalize">{task.status.replace(/_/g, " ")}</div>
+          </div>
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Due</div>
+            <div className="font-semibold text-base-content">{formatDateTime(task.dueDate)}</div>
+          </div>
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Started</div>
+            <div className="font-semibold text-base-content">{formatDateTime(task.startedAt)}</div>
+          </div>
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Completed</div>
+            <div className="font-semibold text-base-content">{formatDateTime(task.completedAt)}</div>
+          </div>
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Reference</div>
+            <div className="font-semibold text-base-content">
+              {task.referenceId ? `${task.referenceType || "Reference"}: ${task.referenceId}` : "No reference"}
+            </div>
+          </div>
+          <div className="bg-base-200 rounded-lg p-3">
+            <div className="text-xs text-base-content/60">Location</div>
+            <div className="font-semibold text-base-content">{task.locationCode || "Not specified"}</div>
+          </div>
         </div>
       </div>
 
-      {/* Receiving Task Content */}
-      {task.title === "Receiving" && task.items && (
-        <div className="space-y-4">
-          {task.items.map((item: any, idx: number) => (
-            <div key={idx} className="bg-base-100 rounded-xl p-4 border border-base-300">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="font-bold text-base-content mb-1">{item.name}</div>
-                  <div className="text-sm text-base-content/60">SKU: {item.sku}</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-xs text-base-content/60">Expected</div>
-                  <div className="font-bold text-base-content">{item.expected}</div>
-                </div>
-              </div>
-              <div className="bg-base-200 rounded-lg p-3">
-                <div className="text-sm text-base-content/60 mb-2">Received Quantity</div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setReceivedQty(Math.max(0, receivedQty - 1))}
-                    className="btn btn-circle btn-outline btn-sm"
-                  >
-                    <span className="material-symbols-outlined">remove</span>
-                  </button>
-                  <input
-                    type="number"
-                    className="input input-bordered flex-1 text-center text-xl font-bold"
-                    value={receivedQty}
-                    onChange={(e) => setReceivedQty(Math.max(0, parseInt(e.target.value) || 0))}
-                    min="0"
-                  />
-                  <button
-                    onClick={() => setReceivedQty(receivedQty + 1)}
-                    className="btn btn-circle btn-outline btn-sm"
-                  >
-                    <span className="material-symbols-outlined">add</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Putaway Task Content */}
-      {task.title === "Putaway" && (
-        <div className="space-y-4">
-          <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-                <span className="text-sm text-base-content/60">LPN</span>
-                <span className="font-semibold text-base-content">{task.lpn}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-                <span className="text-sm text-base-content/60">Item</span>
-                <span className="font-semibold text-base-content">{task.item}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-base-200 rounded-lg">
-                <span className="text-sm text-base-content/60">Quantity</span>
-                <span className="font-semibold text-base-content">{task.qty}</span>
-              </div>
-              <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg border border-primary/20">
-                <span className="text-sm text-primary font-medium">To Location</span>
-                <span className="font-bold text-primary">{task.toLocation}</span>
-              </div>
-            </div>
+      <div className="bg-base-100 rounded-xl p-4 border border-base-300">
+        <h3 className="font-bold text-base-content mb-2">Work Instructions</h3>
+        <p className="text-sm text-base-content/70">
+          {task.notes?.trim()
+            ? task.notes
+            : `Complete the ${taskConfig.title.toLowerCase()} workflow for ${task.referenceId || task.taskNumber}.`}
+        </p>
+        {task.assignedTo && worker?.id && task.assignedTo !== worker.id && (
+          <div className="alert alert-warning mt-3">
+            <span className="material-symbols-outlined">warning</span>
+            <span>This task is currently assigned to another worker.</span>
           </div>
-          <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-            <div className="text-sm font-medium text-base-content mb-2">Scan Location</div>
-            <div className="flex gap-2">
-              <input
-                className="input input-bordered flex-1"
-                placeholder="Scan or enter location"
-                value={scannedLocation}
-                onChange={(e) => setScannedLocation(e.target.value)}
-              />
-              <button className="btn btn-primary btn-square">
-                <span className="material-symbols-outlined">qr_code_scanner</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Picking Task Content */}
-      {task.title === "Picking" && (
-        <div className="space-y-4">
-          <div className="bg-primary/10 border-2 border-primary rounded-xl p-4">
-            <div className="space-y-3">
-              <div>
-                <div className="text-sm text-base-content/60">Order</div>
-                <div className="font-bold text-lg text-base-content">{task.order}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-xs text-base-content/60">Location</div>
-                  <div className="font-semibold text-base-content">{task.location}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-base-content/60">Quantity</div>
-                  <div className="font-semibold text-base-content">{task.qty}</div>
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-base-content/60">Item</div>
-                <div className="font-semibold text-base-content">{task.item}</div>
-                <div className="text-xs text-base-content/60">SKU: {task.sku}</div>
-              </div>
-              <div className="bg-base-100 rounded-lg p-3">
-                <div className="text-xs text-base-content/60 mb-2">Picked Quantity</div>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setPickedQty(Math.max(0, pickedQty - 1))}
-                    className="btn btn-circle btn-outline btn-sm"
-                  >
-                    <span className="material-symbols-outlined">remove</span>
-                  </button>
-                  <input
-                    type="number"
-                    className="input input-bordered flex-1 text-center text-xl font-bold"
-                    value={pickedQty}
-                    onChange={(e) => setPickedQty(Math.max(0, parseInt(e.target.value) || 0))}
-                    min="0"
-                    max={task.qty}
-                  />
-                  <button
-                    onClick={() => setPickedQty(Math.min(task.qty, pickedQty + 1))}
-                    className="btn btn-circle btn-outline btn-sm"
-                  >
-                    <span className="material-symbols-outlined">add</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
       <div className="space-y-2">
-        {task.status === "pending" && (
-          <button onClick={handleStart} className="btn btn-primary w-full btn-lg">
+        <button
+          onClick={() => void reportTaskIssue()}
+          className="btn btn-outline w-full"
+          disabled={reportingIssue || updating || !isOnline}
+        >
+          <span className="material-symbols-outlined">report_problem</span>
+          Report Issue
+        </button>
+        {canStart && (
+          <button
+            onClick={() => void updateTaskStatus("in_progress")}
+            className="btn btn-primary w-full btn-lg"
+            disabled={updating || !isOnline}
+          >
             <span className="material-symbols-outlined">play_arrow</span>
             Start Task
           </button>
         )}
-        {task.status === "in_progress" && (
+        {canComplete && (
           <button
-            onClick={handleComplete}
+            onClick={() => void updateTaskStatus("completed")}
             className="btn btn-success w-full btn-lg"
-            disabled={
-              (task.title === "Receiving" && receivedQty === 0) ||
-              (task.title === "Picking" && (pickedQty === 0 || pickedQty > task.qty)) ||
-              (task.title === "Putaway" && !scannedLocation)
-            }
+            disabled={updating || !isOnline}
           >
             <span className="material-symbols-outlined">check_circle</span>
             Complete Task
           </button>
         )}
+        {!canStart && !canComplete && (
+          <div className="alert alert-info">
+            <span className="material-symbols-outlined">info</span>
+            <span>This task is already {task.status.replace(/_/g, " ")}.</span>
+          </div>
+        )}
       </div>
     </div>
   );
 }
-

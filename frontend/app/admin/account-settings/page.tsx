@@ -1,17 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { accountApi, UserProfile } from "@/lib/api/account";
-import { showToast } from "@/lib/utils/toast";
 import { useAdmin } from "@/contexts/AdminContext";
+import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
 export default function AccountSettingsPage() {
-  const { admin } = useAdmin();
+  const { admin, setAdmin } = useAdmin();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [updatingAvatar, setUpdatingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [formData, setFormData] = useState({
@@ -43,6 +45,15 @@ export default function AccountSettingsPage() {
         email: data.email,
         phone: data.phone || "",
       });
+      if (admin) {
+        setAdmin({
+          ...admin,
+          name:
+            `${data.firstName || ""} ${data.lastName || ""}`.trim() || data.username,
+          email: data.email,
+          avatar: data.avatarUrl || undefined,
+        });
+      }
     } catch (error) {
       logger.error("[AccountSettings] Failed to load profile:", error);
       showToast.error("Failed to load profile");
@@ -103,6 +114,59 @@ export default function AccountSettingsPage() {
     }
   };
 
+  const handleAvatarFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      showToast.error("Please choose an image file");
+      return;
+    }
+
+    if (file.size > 1024 * 1024) {
+      showToast.error("Please choose an image smaller than 1 MB");
+      return;
+    }
+
+    try {
+      setUpdatingAvatar(true);
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Failed to read image"));
+        reader.readAsDataURL(file);
+      });
+
+      await accountApi.updateProfile({ avatarUrl: dataUrl });
+      showToast.success("Profile photo updated");
+      await loadProfile();
+    } catch (error: any) {
+      logger.error("[AccountSettings] Failed to update avatar:", error);
+      showToast.error(error.message || "Failed to update profile photo");
+    } finally {
+      setUpdatingAvatar(false);
+    }
+  };
+
+  const handleClearAvatar = async () => {
+    try {
+      setUpdatingAvatar(true);
+      await accountApi.updateProfile({ avatarUrl: "" });
+      showToast.success("Profile photo cleared");
+      await loadProfile();
+    } catch (error: any) {
+      logger.error("[AccountSettings] Failed to clear avatar:", error);
+      showToast.error(error.message || "Failed to clear profile photo");
+    } finally {
+      setUpdatingAvatar(false);
+    }
+  };
+
   if (loading || !profile) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -126,8 +190,8 @@ export default function AccountSettingsPage() {
             <div className="flex flex-col items-center">
               <div className="w-32 h-32 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden mb-4">
                 <Image
-                  src="/assets/avatars/Henry Kual.jpg"
-                  alt="Henry Kaul"
+                  src={profile.avatarUrl || "/assets/avatars/Henry Kual.jpg"}
+                  alt={profile.username}
                   width={128}
                   height={128}
                   className="rounded-full object-cover"
@@ -139,10 +203,38 @@ export default function AccountSettingsPage() {
               <p className="text-sm text-base-content/60 mt-1 capitalize">
                 {profile.role.replace('_', ' ')}
               </p>
-              <button className="btn btn-sm btn-ghost mt-4">
-                <span className="material-symbols-outlined">camera_alt</span>
-                Change Photo
-              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarFileChange}
+              />
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+                <button
+                  className="btn btn-sm btn-ghost"
+                  type="button"
+                  disabled={updatingAvatar}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  <span className="material-symbols-outlined">camera_alt</span>
+                  {updatingAvatar ? "Updating..." : "Upload Photo"}
+                </button>
+                {profile.avatarUrl ? (
+                  <button
+                    className="btn btn-sm btn-ghost text-error"
+                    type="button"
+                    disabled={updatingAvatar}
+                    onClick={() => void handleClearAvatar()}
+                  >
+                    <span className="material-symbols-outlined">delete</span>
+                    Clear
+                  </button>
+                ) : null}
+              </div>
+              <p className="text-xs text-base-content/60 mt-2 text-center">
+                Stores a small image directly on your profile for consistent admin and worker headers.
+              </p>
             </div>
           </div>
         </div>
@@ -289,4 +381,3 @@ export default function AccountSettingsPage() {
     </div>
   );
 }
-

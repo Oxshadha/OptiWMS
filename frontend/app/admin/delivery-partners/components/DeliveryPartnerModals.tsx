@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
@@ -10,6 +11,7 @@ import {
   deliveryPartnersApi,
   DeliveryPartner as ApiDeliveryPartner,
 } from "@/lib/api/deliveryPartners";
+import { shipmentsApi } from "@/lib/api/shipments";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { formatCurrency } from "../utils";
@@ -111,6 +113,173 @@ export function DeliveryPartnerDetailModal({
               Edit Partner
             </button>
           )}
+        </div>
+      </div>
+    </DetailModal>
+  );
+}
+
+export function DeliveryPartnerMetricsModal({
+  isOpen,
+  onClose,
+  partner,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  partner: DeliveryPartnerDisplay;
+}) {
+  const shipmentsQuery = useQuery({
+    queryKey: ["admin-delivery-partners", "metrics", partner.id],
+    queryFn: () => shipmentsApi.getAll(undefined, undefined, partner.id),
+    enabled: isOpen,
+  });
+
+  const shipments = shipmentsQuery.data || [];
+  const totalShipments = shipments.length;
+  const deliveredShipments = shipments.filter((shipment) => shipment.status === "delivered");
+  const inTransitShipments = shipments.filter((shipment) =>
+    shipment.status === "in_transit" || shipment.status === "shipped"
+  );
+  const etaTrackedShipments = deliveredShipments.filter((shipment) => shipment.eta);
+  const onTimeDeliveries = etaTrackedShipments.filter((shipment) => {
+    if (!shipment.deliveredAt || !shipment.eta) {
+      return false;
+    }
+    return new Date(shipment.deliveredAt) <= new Date(shipment.eta);
+  });
+  const onTimeRate =
+    etaTrackedShipments.length > 0
+      ? (onTimeDeliveries.length / etaTrackedShipments.length) * 100
+      : totalShipments > 0
+        ? partner.onTimeDeliveryRate
+        : 0;
+  const delayedRate = Math.max(0, 100 - onTimeRate);
+  const estimatedSpend = totalShipments * partner.costPerDelivery;
+  const reliability =
+    onTimeRate >= 95 ? "Excellent" : onTimeRate >= 85 ? "Stable" : onTimeRate >= 70 ? "Monitor" : "At Risk";
+
+  return (
+    <DetailModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={`Delivery Metrics: ${partner.companyName}`}
+      size="lg"
+    >
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Tracked Shipments</p>
+            <p className="text-3xl font-bold text-base-content">{totalShipments}</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Delivered</p>
+            <p className="text-3xl font-bold text-base-content">{deliveredShipments.length}</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">On-Time Rate</p>
+            <p className="text-3xl font-bold text-success">{onTimeRate.toFixed(1)}%</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Estimated Spend</p>
+            <p className="text-3xl font-bold text-base-content">
+              {formatCurrency(estimatedSpend, partner.currencyCode)}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-base-300 bg-base-100 p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-base-content">Service Reliability</h3>
+              <p className="text-sm text-base-content/60">
+                Derived from real shipments linked to this delivery partner.
+              </p>
+            </div>
+            <StatusChip
+              label={reliability}
+              tone={
+                reliability === "Excellent"
+                  ? "success"
+                  : reliability === "Stable"
+                    ? "info"
+                    : reliability === "Monitor"
+                      ? "warning"
+                      : "danger"
+              }
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm text-base-content/70">
+              <span>On-time deliveries</span>
+              <span>{onTimeRate.toFixed(1)}%</span>
+            </div>
+            <progress
+              className="progress progress-success w-full"
+              value={Math.max(0, Math.min(onTimeRate, 100))}
+              max="100"
+            />
+            <div className="flex items-center justify-between text-sm text-base-content/70">
+              <span>Exceptions / delays</span>
+              <span>{delayedRate.toFixed(1)}%</span>
+            </div>
+            <progress
+              className="progress progress-warning w-full"
+              value={Math.max(0, Math.min(delayedRate, 100))}
+              max="100"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Average Cost Per Shipment</p>
+            <p className="text-xl font-bold text-base-content">
+              {formatCurrency(partner.costPerDelivery, partner.currencyCode)}
+            </p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Coverage</p>
+            <p className="text-xl font-bold text-base-content">{partner.serviceAreas.length} service areas</p>
+          </div>
+          <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+            <p className="text-sm text-base-content/60">Active Shipments</p>
+            <p className="text-xl font-bold text-base-content">{inTransitShipments.length}</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-base-300 bg-base-200 p-4">
+          <p className="text-sm text-base-content/60 mb-1">Interpretation</p>
+          <p className="text-sm text-base-content/80">
+            Use this view to review actual shipment throughput and delivery reliability before assigning more outbound work.
+            On-time rate is calculated from delivered shipments that have an ETA recorded.
+          </p>
+        </div>
+
+        {shipmentsQuery.isPending ? (
+          <div className="flex items-center justify-center py-4">
+            <span className="loading loading-spinner loading-md"></span>
+          </div>
+        ) : null}
+
+        {shipmentsQuery.isError ? (
+          <div className="alert alert-warning">
+            <span className="material-symbols-outlined">warning</span>
+            <span>Unable to load linked shipment history. Showing current totals only.</span>
+          </div>
+        ) : null}
+
+        {!shipmentsQuery.isPending && !shipmentsQuery.isError && totalShipments === 0 ? (
+          <div className="rounded-xl border border-dashed border-base-300 bg-base-200 p-4 text-sm text-base-content/70">
+            No shipments are linked to this delivery partner yet. New shipments created from the shipments page will now
+            be linked automatically.
+          </div>
+        ) : null}
+
+        <div className="flex justify-end">
+          <button className="btn btn-primary" onClick={onClose}>
+            Close
+          </button>
         </div>
       </div>
     </DetailModal>

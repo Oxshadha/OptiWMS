@@ -1,6 +1,8 @@
 package com.optiwms.coreapi.operations;
 
+import com.optiwms.coreapp.notifications.NotificationService;
 import com.optiwms.coreapp.operations.ShipmentService;
+import com.optiwms.domain.notifications.Notification;
 import com.optiwms.domain.operations.Shipment;
 import com.optiwms.infra.users.UserRepository;
 import org.springframework.data.domain.Page;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -24,20 +27,25 @@ public class ShipmentController {
 
     private final ShipmentService service;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
-    public ShipmentController(ShipmentService service, UserRepository userRepository) {
+    public ShipmentController(ShipmentService service, UserRepository userRepository, NotificationService notificationService) {
         this.service = service;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     @GetMapping
     public ResponseEntity<List<ShipmentDto>> listAll(
             @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String deliveryPartnerId,
             @RequestParam(required = false) String status
     ) {
         List<Shipment> shipments;
         if (orderId != null) {
             shipments = service.findByOrderId(UUID.fromString(orderId));
+        } else if (deliveryPartnerId != null) {
+            shipments = service.findByDeliveryPartnerId(UUID.fromString(deliveryPartnerId));
         } else if (status != null) {
             shipments = service.findByStatus(status);
         } else {
@@ -57,6 +65,7 @@ public class ShipmentController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String orderId,
+            @RequestParam(required = false) String deliveryPartnerId,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String q
     ) {
@@ -67,6 +76,7 @@ public class ShipmentController {
 
         Page<Shipment> shipmentPage = service.findPaged(
                 orderId != null && !orderId.isBlank() ? UUID.fromString(orderId) : null,
+                deliveryPartnerId != null && !deliveryPartnerId.isBlank() ? UUID.fromString(deliveryPartnerId) : null,
                 status,
                 q,
                 PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy))
@@ -96,6 +106,11 @@ public class ShipmentController {
         Shipment shipment = new Shipment();
         shipment.setShipmentNumber(request.shipmentNumber());
         shipment.setOrderId(request.orderId() != null ? UUID.fromString(request.orderId()) : null);
+        shipment.setDeliveryPartnerId(
+                request.deliveryPartnerId() != null && !request.deliveryPartnerId().isBlank()
+                        ? UUID.fromString(request.deliveryPartnerId())
+                        : null
+        );
         shipment.setCarrier(request.carrier());
         shipment.setTrackingNumber(request.trackingNumber());
         shipment.setDestination(request.destination());
@@ -107,12 +122,20 @@ public class ShipmentController {
         shipment.setEta(parseOptionalDate(request.eta()));
 
         Shipment created = service.create(shipment);
+        notifyShipmentEvent("Shipment Created", "Shipment " + created.getShipmentNumber() + " was created.", created, "created");
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<ShipmentDto> update(@PathVariable UUID id, @RequestBody UpdateShipmentRequest request) {
         Shipment shipment = service.findById(id);
+        if (request.deliveryPartnerId() != null) {
+            shipment.setDeliveryPartnerId(
+                    request.deliveryPartnerId().isBlank()
+                            ? null
+                            : UUID.fromString(request.deliveryPartnerId())
+            );
+        }
         if (request.carrier() != null) shipment.setCarrier(request.carrier());
         if (request.trackingNumber() != null) shipment.setTrackingNumber(request.trackingNumber());
         if (request.destination() != null) shipment.setDestination(request.destination());
@@ -138,6 +161,12 @@ public class ShipmentController {
                 ? UUID.fromString(request.workerId())
                 : resolveActorUserId(authentication);
         Shipment updated = service.updateStatus(id, request.status(), actorUserId, managerApproval);
+        notifyShipmentEvent(
+                "Shipment Status Updated",
+                "Shipment " + updated.getShipmentNumber() + " moved to " + updated.getStatus() + ".",
+                updated,
+                "status_updated"
+        );
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -151,6 +180,12 @@ public class ShipmentController {
         }
         UUID actorUserId = resolveActorUserId(authentication);
         Shipment updated = service.updateStatus(id, "delivered", actorUserId, true);
+        notifyShipmentEvent(
+                "Shipment Delivered",
+                "Shipment " + updated.getShipmentNumber() + " was confirmed delivered.",
+                updated,
+                "delivered"
+        );
         return ResponseEntity.ok(toDto(updated));
     }
 
@@ -165,6 +200,7 @@ public class ShipmentController {
                 shipment.getId() != null ? shipment.getId().toString() : null,
                 shipment.getShipmentNumber() != null ? shipment.getShipmentNumber() : "",
                 shipment.getOrderId() != null ? shipment.getOrderId().toString() : null,
+                shipment.getDeliveryPartnerId() != null ? shipment.getDeliveryPartnerId().toString() : null,
                 shipment.getCarrier(),
                 shipment.getTrackingNumber(),
                 shipment.getDestination(),
@@ -184,6 +220,7 @@ public class ShipmentController {
     public record CreateShipmentRequest(
             String shipmentNumber,
             String orderId,
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
@@ -196,6 +233,7 @@ public class ShipmentController {
     ) {}
 
     public record UpdateShipmentRequest(
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
@@ -213,6 +251,7 @@ public class ShipmentController {
             String id,
             String shipmentNumber,
             String orderId,
+            String deliveryPartnerId,
             String carrier,
             String trackingNumber,
             String destination,
@@ -288,5 +327,25 @@ public class ShipmentController {
             case "createdAt", "shipmentNumber", "status", "carrier", "destination", "eta", "shippedAt", "deliveredAt" -> sortBy;
             default -> "createdAt";
         };
+    }
+
+    private void notifyShipmentEvent(String title, String message, Shipment shipment, String eventType) {
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(null);
+            notification.setAudienceRoles("admin,warehouse_manager,inbound_coordinator");
+            notification.setTitle(title);
+            notification.setMessage(message);
+            notification.setNotificationType("shipment");
+            notification.setRead(false);
+            notification.setActionUrl("/admin/shipments/" + shipment.getId());
+            notification.setMetadata(
+                    "{\"shipmentId\":\"" + shipment.getId() + "\",\"shipmentNumber\":\"" + shipment.getShipmentNumber() + "\",\"status\":\"" + shipment.getStatus() + "\",\"event\":\"" + eventType + "\"}"
+            );
+            notification.setCreatedAt(OffsetDateTime.now());
+            notificationService.create(notification);
+        } catch (Exception ignored) {
+            // Notifications must not block shipment workflows.
+        }
     }
 }

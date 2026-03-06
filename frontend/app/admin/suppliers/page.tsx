@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -9,6 +9,7 @@ import { StatusChip } from "@/components/StatusChip";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
+import { useInvalidateAdminList, usePagedAdminQuery } from "@/lib/hooks/useQuery";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import type { SupplierDisplay } from "./types";
@@ -40,14 +41,6 @@ export default function SuppliersPage() {
   );
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [isFetching, setIsFetching] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [totalItems, setTotalItems] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-
-  const [suppliers, setSuppliers] = useState<SupplierDisplay[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const transformSupplierData = (s: Supplier): SupplierDisplay => {
     const isLocal =
@@ -71,13 +64,10 @@ export default function SuppliersPage() {
     };
   };
 
-  const loadData = async () => {
-    try {
-      setIsFetching(true);
-      if (!hasLoadedOnce) setIsLoading(true);
-      setError(null);
-
-      const suppliersPage = await suppliersApi.getPaged({
+  const suppliersQuery = usePagedAdminQuery({
+    queryKey: ["admin-suppliers", currentPage, itemsPerPage, statusFilter, searchQuery],
+    queryFn: async () => {
+      return suppliersApi.getPaged({
         page: currentPage - 1,
         size: itemsPerPage,
         sortBy: "createdAt",
@@ -85,25 +75,9 @@ export default function SuppliersPage() {
         status: statusFilter === "all" ? undefined : statusFilter,
         q: searchQuery.trim() || undefined,
       });
-
-      setSuppliers(suppliersPage.data.map(transformSupplierData));
-      setTotalItems(suppliersPage.totalElements);
-      setTotalPages(Math.max(suppliersPage.totalPages, 1));
-      setHasLoadedOnce(true);
-    } catch (err) {
-      logger.error("Failed to load suppliers:", err);
-      setError(err instanceof Error ? err.message : "Failed to load suppliers");
-      setSuppliers([]);
-      showToast.error("Failed to load suppliers. Please try again.");
-    } finally {
-      setIsLoading(false);
-      setIsFetching(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadData();
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery]);
+    },
+  });
+  const reload = useInvalidateAdminList(["admin-suppliers"]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -113,10 +87,26 @@ export default function SuppliersPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const filteredSuppliers =
-    typeFilter === "all"
-      ? suppliers
-      : suppliers.filter((supplier) => supplier.type === typeFilter);
+  const suppliers = useMemo(
+    () => (suppliersQuery.data?.data || []).map(transformSupplierData),
+    [suppliersQuery.data]
+  );
+  const filteredSuppliers = useMemo(
+    () =>
+      typeFilter === "all"
+        ? suppliers
+        : suppliers.filter((supplier) => supplier.type === typeFilter),
+    [suppliers, typeFilter]
+  );
+  const isLoading = suppliersQuery.isPending && !suppliersQuery.data;
+  const isFetching = suppliersQuery.isFetching;
+  const error = suppliersQuery.error
+    ? suppliersQuery.error instanceof Error
+      ? suppliersQuery.error.message
+      : "Failed to load suppliers"
+    : null;
+  const totalItems = suppliersQuery.data?.totalElements ?? 0;
+  const totalPages = Math.max(suppliersQuery.data?.totalPages ?? 1, 1);
 
   const summary = {
     totalSuppliers: totalItems,
@@ -337,7 +327,7 @@ export default function SuppliersPage() {
               Updating...
             </div>
           )}
-          <button className="btn btn-sm btn-ghost" onClick={() => void loadData()} title="Refresh data">
+          <button className="btn btn-sm btn-ghost" onClick={() => void reload()} title="Refresh data">
             <span className="material-symbols-outlined">refresh</span>
           </button>
           <div className="form-control">
@@ -420,7 +410,7 @@ export default function SuppliersPage() {
         <div className="alert alert-error">
           <span className="material-symbols-outlined">error</span>
           <span>{error}</span>
-          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void loadData()}>
+          <button className="btn btn-xs btn-ghost ml-auto" onClick={() => void reload()}>
             Retry
           </button>
         </div>
@@ -465,10 +455,10 @@ export default function SuppliersPage() {
         </>
       )}
 
-      <CreateSupplierModal
+        <CreateSupplierModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}
-        onSuccess={loadData}
+        onSuccess={reload}
       />
 
       {selectedSupplier && (
@@ -494,7 +484,7 @@ export default function SuppliersPage() {
             setShowEditModal(false);
             setSelectedSupplier(null);
           }}
-          onUpdated={loadData}
+          onUpdated={reload}
           supplier={selectedSupplier}
         />
       )}
@@ -513,7 +503,7 @@ export default function SuppliersPage() {
               showToast.success("Supplier deleted successfully");
               setShowDeleteModal(false);
               setSelectedSupplier(null);
-              await loadData();
+              await reload();
             } catch (err) {
               logger.error("Failed to delete supplier:", err);
               showToast.error(
@@ -532,7 +522,7 @@ export default function SuppliersPage() {
             setShowManageMaterialsModal(false);
             setSelectedSupplier(null);
           }}
-          onSaved={loadData}
+          onSaved={reload}
           supplier={selectedSupplier}
         />
       )}
