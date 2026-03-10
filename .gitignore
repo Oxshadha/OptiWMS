@@ -159,6 +159,8 @@ backend/.gradle-local/
 *.xlsx
 
 *.pdf
+# Local viva notes
+VIVA_FOLDER_MAP_AND_GRADLE.md
 *.md
 !README.md
 
