@@ -76,10 +76,14 @@ def load_dataset(dataset: str) -> pd.DataFrame:
 
 def get_split_dates(df: pd.DataFrame) -> SplitDates:
     months = np.sort(df['month'].dropna().unique())
-    if len(months) < 12:
-        raise ValueError('Need at least 12 months for train/val/test split.')
-    train_end = pd.Timestamp(months[-7])
-    val_end = pd.Timestamp(months[-4])
+    # For 36-month data, use 18/6/12 split so H+12 evaluation is possible.
+    val_months = 6
+    test_months = 12
+    min_required = val_months + test_months + 1
+    if len(months) < min_required:
+        raise ValueError(f'Need at least {min_required} months for train/val/test split.')
+    train_end = pd.Timestamp(months[-(val_months + test_months + 1)])
+    val_end = pd.Timestamp(months[-(test_months + 1)])
     return SplitDates(train_end=train_end, val_end=val_end)
 
 

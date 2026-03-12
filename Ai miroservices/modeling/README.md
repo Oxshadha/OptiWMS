@@ -14,8 +14,8 @@ This workspace trains and compares baseline forecasting models for datasets A/B/
 - `outputs/`: forecasts, metrics, inventory, reports
 
 ## Statistical Protocol
-- Time split: Train / Validation / Test using last 6 months as 3+3 holdout.
-- Multi-horizon: H+1, H+2, H+3 metrics and outputs.
+- Time split: Train / Validation / Test using 18/6/12 monthly holdout (for 36-month data).
+- Multi-horizon: H+1 ... H+12 metrics and outputs.
 - Dataset C: scenario-safe evaluation (`scenario_split=train` for fitting/validation and `scenario_split=test` for stress testing).
 - No feature leakage: only lagged operational features are used for boosted models.
 
@@ -23,7 +23,7 @@ This workspace trains and compares baseline forecasting models for datasets A/B/
 ```bash
 cd "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling"
 python scripts/run_classical.py --datasets A B
-python scripts/run_boosting.py --datasets A B C --sample-frac-c 0.5
+python scripts/run_boosting.py --datasets A B C --sample-frac-c 0.5 --horizons 1,2,3,4,5,6,7,8,9,10,11,12
 python scripts/compare_models.py
 ```
 

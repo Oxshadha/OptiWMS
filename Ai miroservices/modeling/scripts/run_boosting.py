@@ -89,7 +89,28 @@ def prepare_train_lookup(df: pd.DataFrame, split_dates) -> dict[str, np.ndarray]
     return lookup
 
 
-def run_dataset(dataset: str, models: list[str], sample_frac: float) -> None:
+def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
+    base = ['fg_code', 'fg_category', 'month_num', 'quarter', 'year', 'month_sin', 'month_cos']
+    lag12 = ['lag_12', 'roll_mean_12', 'roll_std_12']
+    lag6 = ['lag_6', 'roll_mean_6', 'roll_std_6']
+    lag3 = ['lag_3', 'roll_mean_3', 'roll_std_3']
+    lag2 = ['lag_2']
+    lag1 = ['lag_1']
+
+    exog_lag = [f'{c}_lag1' for c in EXOG_COLS if f'{c}_lag1' in dfh.columns]
+
+    tiers = [
+        base + lag1 + lag2 + lag3 + lag6 + lag12 + exog_lag,
+        base + lag1 + lag2 + lag3 + lag6 + exog_lag,
+        base + lag1 + lag2 + lag3 + exog_lag,
+        base + lag1 + lag2 + exog_lag,
+        base + lag1 + exog_lag,
+        base + lag1,
+    ]
+    return [list(dict.fromkeys(t)) for t in tiers]
+
+
+def run_dataset(dataset: str, models: list[str], sample_frac: float, horizons: list[int]) -> None:
     df = add_series_id(load_dataset(dataset), dataset)
     split_dates = get_split_dates(df)
 
@@ -121,47 +142,27 @@ def run_dataset(dataset: str, models: list[str], sample_frac: float) -> None:
     for model_name in models:
         model_rows = []
 
-        for h in [1, 2, 3]:
+        for h in horizons:
             dfh = make_features(df, horizon=h)
-            # Keep only rows with complete predictors and target.
-            model_cols = [
-                'fg_code',
-                'fg_category',
-                'month_num',
-                'quarter',
-                'year',
-                'month_sin',
-                'month_cos',
-                'lag_1',
-                'lag_2',
-                'lag_3',
-                'lag_6',
-                'lag_12',
-                'roll_mean_3',
-                'roll_std_3',
-                'roll_mean_6',
-                'roll_std_6',
-                'roll_mean_12',
-                'roll_std_12',
-            ]
-            for c in EXOG_COLS:
-                lagc = f'{c}_lag1'
-                if lagc in dfh.columns:
-                    model_cols.append(lagc)
-            model_cols = list(dict.fromkeys(model_cols))
+            # Adaptive feature tiers keep long horizons trainable on short histories.
+            chosen_cols = None
+            train_df = val_df = test_df = None
 
-            keep_cols = list(dict.fromkeys(feature_base + model_cols))
-            dfh = dfh[keep_cols].dropna(subset=['target'])
-            dfh = dfh.dropna(subset=model_cols)
+            for model_cols in get_feature_tiers(dfh):
+                keep_cols = list(dict.fromkeys(feature_base + model_cols))
+                d = dfh[keep_cols].dropna(subset=['target']).dropna(subset=model_cols)
+                train_mask, val_mask, test_mask = split_masks(d, dataset, split_dates)
+                tr = d[train_mask].copy()
+                va = d[val_mask].copy()
+                te = d[test_mask].copy()
+                if not tr.empty and not va.empty and not te.empty:
+                    chosen_cols = model_cols
+                    train_df, val_df, test_df = tr, va, te
+                    break
 
-            train_mask, val_mask, test_mask = split_masks(dfh, dataset, split_dates)
-
-            train_df = dfh[train_mask].copy()
-            val_df = dfh[val_mask].copy()
-            test_df = dfh[test_mask].copy()
-
-            if train_df.empty or val_df.empty or test_df.empty:
+            if chosen_cols is None:
                 continue
+            model_cols = chosen_cols
 
             if model_name == 'XGBOOST':
                 X_train = pd.get_dummies(train_df[model_cols], columns=['fg_code', 'fg_category'], drop_first=False)
@@ -271,11 +272,13 @@ def main() -> None:
     parser.add_argument('--datasets', nargs='+', default=['A', 'B', 'C'])
     parser.add_argument('--models', nargs='+', default=['XGBOOST', 'CATBOOST'])
     parser.add_argument('--sample-frac-c', type=float, default=0.5)
+    parser.add_argument('--horizons', type=str, default='1,2,3,4,5,6,7,8,9,10,11,12')
     args = parser.parse_args()
+    horizons = [int(x.strip()) for x in args.horizons.split(',') if x.strip()]
 
     for ds in args.datasets:
         frac = args.sample_frac_c if ds == 'C' else 1.0
-        run_dataset(ds, args.models, frac)
+        run_dataset(ds, args.models, frac, horizons)
 
 
 if __name__ == '__main__':
