@@ -167,3 +167,6 @@ VIVA_FOLDER_MAP_AND_GRADLE.md
 *.csv
 
 *.sh
+
+# AI microservices modeling run artifacts
+Ai miroservices/modeling/**/catboost_info/
