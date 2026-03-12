@@ -16,9 +16,9 @@ datasets:
 
 split_protocol:
   time_based:
-    train_end: last_minus_6_month
-    validation_window_months: 3
-    test_window_months: 3
+    train_end: last_minus_18_month
+    validation_window_months: 6
+    test_window_months: 12
   scenario_based_for_C:
     train_scenarios: scenario_split == train
     test_scenarios: scenario_split == test
@@ -31,7 +31,7 @@ models:
   boosting:
     - XGBoost
     - CatBoost
-  horizons: [1, 2, 3]
+  horizons: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 metrics:
   - WAPE
