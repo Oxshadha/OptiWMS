@@ -7,10 +7,9 @@
 
 import { AIServiceId, AIServiceStatus } from './registry';
 
-// AI Services Base URL
-// Note: AI services are optional microservices - if not running, health checks will return 'unavailable'
-// This is expected behavior - the core WMS works without AI services
-const AI_SERVICES_BASE_URL = process.env.NEXT_PUBLIC_AI_SERVICES_URL || 'http://localhost:8081/ai-services';
+// AI services are optional. Keep them disabled unless explicitly configured.
+const AI_SERVICES_BASE_URL = process.env.NEXT_PUBLIC_AI_SERVICES_URL?.trim();
+const AI_SERVICES_ENABLED = Boolean(AI_SERVICES_BASE_URL);
 
 export interface AIRequest {
   serviceId: AIServiceId;
@@ -31,6 +30,10 @@ export interface AIResponse<T = any> {
  * Check AI service health
  */
 export async function checkAIServiceHealth(serviceId: AIServiceId): Promise<AIServiceStatus> {
+  if (!AI_SERVICES_ENABLED) {
+    return 'unavailable';
+  }
+
   try {
     // AI services are optional - fail gracefully if not available
     const controller = new AbortController();
@@ -63,6 +66,14 @@ export async function checkAIServiceHealth(serviceId: AIServiceId): Promise<AISe
  */
 export async function callAIService<T = any>(request: AIRequest): Promise<AIResponse<T>> {
   const { serviceId, endpoint, method = 'GET', data, params } = request;
+
+  if (!AI_SERVICES_ENABLED) {
+    return {
+      success: false,
+      error: 'AI services are disabled. Set NEXT_PUBLIC_AI_SERVICES_URL to enable.',
+      serviceStatus: 'unavailable',
+    };
+  }
   
   try {
     // Check if service is available first
@@ -286,4 +297,3 @@ export const aiFeedbackAPI = {
     });
   },
 };
-
