@@ -1,5 +1,8 @@
 package com.optiwms.coreapi.ai;
 
+import com.optiwms.infra.users.UserEntity;
+import com.optiwms.infra.users.UserRepository;
+import org.springframework.security.core.Authentication;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -13,6 +16,7 @@ import java.util.Map;
 public class AiProxyService {
 
     private final RestTemplate restTemplate;
+    private final UserRepository userRepository;
 
     @Value("${ai.services.forecast-base-url:http://localhost:8091}")
     private String forecastBaseUrl;
@@ -23,8 +27,9 @@ public class AiProxyService {
     @Value("${ai.services.auth-token:}")
     private String authToken;
 
-    public AiProxyService(RestTemplate restTemplate) {
+    public AiProxyService(RestTemplate restTemplate, UserRepository userRepository) {
         this.restTemplate = restTemplate;
+        this.userRepository = userRepository;
     }
 
     public Map<String, Object> health() {
@@ -34,40 +39,70 @@ public class AiProxyService {
         return out;
     }
 
-    public ResponseEntity<Object> getForecasts(String sku, Integer horizon, String dataset, String model, Integer runId) {
+    public ResponseEntity<Object> getForecasts(String sku, Integer horizon, String dataset, String model, Integer runId, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/forecasts");
         if (sku != null && !sku.isBlank()) ub.queryParam("sku", sku);
         if (horizon != null) ub.queryParam("horizon", horizon);
         if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
         if (model != null && !model.isBlank()) ub.queryParam("model", model);
         if (runId != null) ub.queryParam("run_id", runId);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
         return exchangeGet(ub.toUriString());
     }
 
-    public ResponseEntity<Object> getForecastMetrics(String split, Integer horizon) {
+    public ResponseEntity<Object> getForecastMetrics(String split, Integer horizon, String dataset, String model, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/forecast-metrics");
         if (split != null && !split.isBlank()) ub.queryParam("split", split);
         if (horizon != null) ub.queryParam("horizon", horizon);
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model", model);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
         return exchangeGet(ub.toUriString());
     }
 
-    public ResponseEntity<Object> getInventoryRecommendations(String sku, String dataset, String model, Integer runId) {
+    public ResponseEntity<Object> getInventoryRecommendations(String sku, String dataset, String model, Integer runId, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/inventory-recommendations");
         if (sku != null && !sku.isBlank()) ub.queryParam("sku", sku);
         if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
         if (model != null && !model.isBlank()) ub.queryParam("model", model);
         if (runId != null) ub.queryParam("run_id", runId);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
         return exchangeGet(ub.toUriString());
     }
 
-    public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName) {
+    public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
                 .queryParam("model_name", modelName);
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            ub.queryParam("warehouse_id", warehouseId);
+        }
 
         HttpEntity<String> request = new HttpEntity<>(headers());
         ResponseEntity<Map> response = restTemplate.exchange(ub.toUriString(), HttpMethod.POST, request, Map.class);
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
+    public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
+        if (authentication == null || authentication.getName() == null) {
+            return requestedWarehouseId;
+        }
+
+        UserEntity user = userRepository.findByUsername(authentication.getName())
+                .or(() -> userRepository.findByEmail(authentication.getName()))
+                .orElse(null);
+        if (user == null) {
+            return requestedWarehouseId;
+        }
+
+        String role = user.getRole() == null ? "" : user.getRole().toLowerCase();
+        boolean isAdminLike = role.contains("admin") || role.contains("supervisor");
+
+        if (isAdminLike) {
+            return requestedWarehouseId;
+        }
+
+        return user.getWarehouseId() != null ? user.getWarehouseId().toString() : null;
     }
 
     private ResponseEntity<Object> exchangeGet(String url) {

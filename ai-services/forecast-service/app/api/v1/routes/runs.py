@@ -14,6 +14,7 @@ class RunCreate(BaseModel):
     dataset: str
     model_name: str
     model_version: str = "v1"
+    warehouse_id: str | None = None
     notes: str | None = None
 
 
@@ -23,6 +24,7 @@ def create_run(payload: RunCreate, db: Session = Depends(get_db)):
         dataset=payload.dataset,
         model_name=payload.model_name,
         model_version=payload.model_version,
+        warehouse_id=payload.warehouse_id,
         notes=payload.notes,
         status="created",
     )
@@ -42,6 +44,7 @@ def list_runs(db: Session = Depends(get_db)):
                 "dataset": r.dataset,
                 "model_name": r.model_name,
                 "model_version": r.model_version,
+                "warehouse_id": r.warehouse_id,
                 "status": r.status,
                 "created_at": r.created_at.isoformat(),
             }
@@ -57,7 +60,7 @@ def publish_snapshot(run_id: int, db: Session = Depends(get_db)):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
 
-    inserted = ingest_snapshot(db, run_id)
+    inserted = ingest_snapshot(db, run)
     run.status = "published"
     db.commit()
     return {"run_id": run_id, "status": run.status, "inserted": inserted}

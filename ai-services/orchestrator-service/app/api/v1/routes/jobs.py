@@ -8,18 +8,21 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("/forecast-run")
-def trigger_forecast_run(dataset: str = "B", model_name: str = "CATBOOST") -> dict:
-    # Step 1: register run in forecast service
+def trigger_forecast_run(dataset: str = "B", model_name: str = "CATBOOST", warehouse_id: str | None = None) -> dict:
     try:
         r = httpx.post(
             f"{settings.forecast_api_base_url}/runs",
-            json={"dataset": dataset, "model_name": model_name, "model_version": "v1"},
+            json={
+                "dataset": dataset,
+                "model_name": model_name,
+                "model_version": "v1",
+                "warehouse_id": warehouse_id,
+            },
             timeout=20,
         )
         r.raise_for_status()
         run_id = r.json()["id"]
 
-        # Step 2: publish latest snapshot outputs into DB for this run
         p = httpx.post(f"{settings.forecast_api_base_url}/runs/{run_id}/publish-snapshot", timeout=60)
         p.raise_for_status()
 

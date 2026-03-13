@@ -11,6 +11,7 @@ class ForecastRun(Base):
     dataset: Mapped[str] = mapped_column(String(16), index=True)
     model_name: Mapped[str] = mapped_column(String(64), index=True)
     model_version: Mapped[str] = mapped_column(String(64), default="v1")
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="created")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -21,6 +22,9 @@ class ForecastPrediction(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     sku: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     month: Mapped[str] = mapped_column(String(16), index=True)
@@ -36,6 +40,9 @@ class ForecastMetric(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     split: Mapped[str] = mapped_column(String(16), index=True)
     horizon: Mapped[int] = mapped_column(Integer, index=True)
     wape: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -49,6 +56,9 @@ class InventoryRecommendation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     sku: Mapped[str] = mapped_column(String(64), index=True)
     category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     safety_stock: Mapped[float] = mapped_column(Float)

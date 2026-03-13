@@ -8,6 +8,7 @@ services:
       - SERVICE_NAME=forecast-service
       - SERVICE_PORT=${FORECAST_SERVICE_PORT}
       - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - WMS_SERVICE_TOKEN=${WMS_SERVICE_TOKEN}
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
       - DATABASE_URL=sqlite:///./forecast_service.db
