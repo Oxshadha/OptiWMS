@@ -170,7 +170,7 @@ def run_dataset(dataset: str, models: list[str], max_series: int | None) -> None
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--datasets', nargs='+', default=['A', 'B'])
+    parser.add_argument('--datasets', nargs='+', default=['A', 'B', 'C'])
     parser.add_argument('--models', nargs='+', default=['ETS', 'ARIMA', 'SARIMA'])
     parser.add_argument('--max-series', type=int, default=None)
     args = parser.parse_args()
