@@ -9,17 +9,33 @@ router = APIRouter(prefix="/inventory-recommendations", tags=["inventory"])
 
 
 @router.get("")
-def get_inventory_recommendations(sku: str | None = None, run_id: int | None = None, db: Session = Depends(get_db)):
+def get_inventory_recommendations(
+    sku: str | None = None,
+    run_id: int | None = None,
+    dataset: str | None = None,
+    model: str | None = None,
+    warehouse_id: str | None = None,
+    db: Session = Depends(get_db),
+):
     stmt = select(InventoryRecommendation)
     if run_id is not None:
         stmt = stmt.where(InventoryRecommendation.run_id == run_id)
     if sku:
         stmt = stmt.where(InventoryRecommendation.sku == sku)
+    if dataset:
+        stmt = stmt.where(InventoryRecommendation.dataset == dataset)
+    if model:
+        stmt = stmt.where(InventoryRecommendation.model_name == model)
+    if warehouse_id:
+        stmt = stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
 
     rows = db.execute(stmt.limit(5000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,
+            "dataset": r.dataset,
+            "model": r.model_name,
+            "warehouse_id": r.warehouse_id,
             "sku": r.sku,
             "category": r.category,
             "safety_stock": r.safety_stock,
