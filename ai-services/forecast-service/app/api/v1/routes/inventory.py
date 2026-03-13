@@ -1,21 +1,32 @@
-from fastapi import APIRouter
-from app.services.forecast_service import load_inventory
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.database import get_db
+from app.db.models import InventoryRecommendation
 
 router = APIRouter(prefix="/inventory-recommendations", tags=["inventory"])
 
 
 @router.get("")
-def get_inventory_recommendations(sku: str | None = None, dataset: str | None = None, model: str | None = None):
-    df = load_inventory()
-    if df.empty:
-        return {"items": [], "count": 0}
-
+def get_inventory_recommendations(sku: str | None = None, run_id: int | None = None, db: Session = Depends(get_db)):
+    stmt = select(InventoryRecommendation)
+    if run_id is not None:
+        stmt = stmt.where(InventoryRecommendation.run_id == run_id)
     if sku:
-        df = df[df["fg_code"] == sku]
-    if dataset:
-        df = df[df["dataset"] == dataset]
-    if model:
-        df = df[df["model"] == model]
+        stmt = stmt.where(InventoryRecommendation.sku == sku)
 
-    items = df.head(500).to_dict(orient="records")
-    return {"items": items, "count": int(len(df))}
+    rows = db.execute(stmt.limit(5000)).scalars().all()
+    items = [
+        {
+            "run_id": r.run_id,
+            "sku": r.sku,
+            "category": r.category,
+            "safety_stock": r.safety_stock,
+            "reorder_point": r.reorder_point,
+            "target_max": r.target_max,
+            "suggested_order_qty": r.suggested_order_qty,
+        }
+        for r in rows
+    ]
+    return {"items": items, "count": len(items)}
