@@ -1,0 +1,28 @@
+services:
+  forecast-service:
+    build:
+      context: ./forecast-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=forecast-service
+      - SERVICE_PORT=${FORECAST_SERVICE_PORT}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+    ports:
+      - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
+
+  orchestrator-service:
+    build:
+      context: ./orchestrator-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=orchestrator-service
+      - SERVICE_PORT=${ORCHESTRATOR_SERVICE_PORT}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+    ports:
+      - "${ORCHESTRATOR_SERVICE_PORT}:${ORCHESTRATOR_SERVICE_PORT}"
