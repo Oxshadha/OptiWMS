@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     ai_env: str = "local"
     log_level: str = "INFO"
     wms_api_base_url: str = "http://localhost:8080/api"
+    forecast_api_base_url: str = "http://forecast-service:8091"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
