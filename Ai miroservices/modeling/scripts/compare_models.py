@@ -42,6 +42,14 @@ def main() -> None:
         print('No metrics files found.')
         return
 
+    expected_models = ['ETS', 'ARIMA', 'SARIMA', 'XGBOOST', 'CATBOOST']
+    expected_datasets = ['A', 'B', 'C']
+
+    test_available = metrics[(metrics['split'] == 'test') & (metrics['horizon'] == 0)][['dataset', 'model']].drop_duplicates()
+    expected_rows = pd.MultiIndex.from_product([expected_datasets, expected_models], names=['dataset', 'model']).to_frame(index=False)
+    coverage = expected_rows.merge(test_available.assign(status='available'), on=['dataset', 'model'], how='left')
+    coverage['status'] = coverage['status'].fillna('missing')
+
     # Keep best (lowest WAPE) per dataset on test overall horizon=0.
     test_overall = metrics[(metrics['split'] == 'test') & (metrics['horizon'] == 0)].copy()
     leaderboard = (
@@ -59,6 +67,7 @@ def main() -> None:
     metrics.to_csv(reports_dir / 'all_metrics_combined.csv', index=False)
     leaderboard.to_csv(reports_dir / 'leaderboard_top5_per_dataset.csv', index=False)
     by_h.to_csv(reports_dir / 'test_metrics_by_horizon.csv', index=False)
+    coverage.to_csv(reports_dir / 'model_coverage_matrix.csv', index=False)
 
     if not forecasts.empty:
         # Dashboard-ready forecast table: p50 and interval for test rows only.
@@ -74,6 +83,7 @@ def main() -> None:
 
     print('Saved report files in', reports_dir)
     print('Leaderboard rows:', len(leaderboard))
+    print('Coverage available rows:', int((coverage['status'] == 'available').sum()))
 
 
 if __name__ == '__main__':
