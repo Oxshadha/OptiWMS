@@ -48,3 +48,10 @@ optiwms:
 # - Use strong secrets and non-default DB credentials
 # - Restrict CORS to real frontend domains only
 # -----------------------------------------------------------------------------
+
+
+ai:
+  services:
+    forecast-base-url: http://localhost:8091
+    orchestrator-base-url: http://localhost:8092
+    auth-token: ""

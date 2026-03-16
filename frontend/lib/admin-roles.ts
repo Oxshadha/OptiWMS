@@ -25,6 +25,7 @@ export const ADMIN_ROUTES = {
   SHIPMENTS: '/admin/shipments',
   DELIVERY_PARTNERS: '/admin/delivery-partners',
   INVENTORY: '/admin/inventory',
+  FORECASTS: '/admin/forecasts',
   MATERIALS: '/admin/materials',
   // Legacy routes (for backward compatibility)
   PRODUCTS: '/admin/products',
@@ -64,6 +65,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -97,6 +99,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']), // Manage shipping workflows
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']), // Cannot delete
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']), // View, initiate cycle counts, approve adjustments
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit']), // Forecast viewing and run trigger
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit']), // Unified materials management
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']), // Operational product management
@@ -129,6 +132,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit']),
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
@@ -330,4 +334,3 @@ export function filterRoutesByRole<T extends { href?: string; subItems?: { href:
     return route;
   });
 }
-
