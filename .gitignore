@@ -68,6 +68,8 @@ Resources/*
 docs/plan.md
 docs/erd.md
 docs/domain.md
+docs/ai-microservices-implementation-brief.md
+docs/ai-microservices-implementation-brief.tex
 docs/API_CONNECTION_MATRIX.csv
 docs/API_CONNECTION_UNMATCHED.csv
 docs/BACKEND_ENDPOINT_CATALOG.csv
