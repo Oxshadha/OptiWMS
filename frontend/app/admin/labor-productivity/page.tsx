@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
@@ -81,7 +81,7 @@ export default function LaborProductivityPage() {
     );
   }
 
-  const summary = useMemo(() => ({
+  const summary = {
     averagePPH: productivityMetrics.length > 0
       ? productivityMetrics.reduce((sum, m) => sum + (m.picksPerHour ?? 0), 0) / productivityMetrics.length
       : 0,
@@ -93,7 +93,7 @@ export default function LaborProductivityPage() {
       : 0,
     totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
     topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
-  }), [leaderboard, productivityMetrics]);
+  };
   const pagedMetrics = productivityMetrics.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
