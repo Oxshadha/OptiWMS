@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     wms_api_base_url: str = "http://localhost:8080/api"
     wms_service_token: str | None = None
     database_url: str = "sqlite:///./forecast_service.db"
+    reports_dir: str = "/reports"
+    forecast_report_file: str = "dashboard_forecast_output.csv"
+    inventory_report_file: str = "dashboard_inventory_recommendations.csv"
+    metrics_report_file: str = "test_metrics_by_horizon.csv"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

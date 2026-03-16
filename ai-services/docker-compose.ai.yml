@@ -12,8 +12,14 @@ services:
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
       - DATABASE_URL=sqlite:///./forecast_service.db
+      - REPORTS_DIR=${REPORTS_DIR}
+      - FORECAST_REPORT_FILE=${FORECAST_REPORT_FILE}
+      - INVENTORY_REPORT_FILE=${INVENTORY_REPORT_FILE}
+      - METRICS_REPORT_FILE=${METRICS_REPORT_FILE}
     ports:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
+    volumes:
+      - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR}:ro
 
   orchestrator-service:
     build:

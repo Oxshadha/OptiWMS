@@ -1,18 +1,18 @@
-from pathlib import Path
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models import ForecastRun, ForecastPrediction, ForecastMetric, InventoryRecommendation
 
-REPORT_PATH = Path("/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/dashboard_forecast_output.csv")
-INV_PATH = Path("/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/dashboard_inventory_recommendations.csv")
-METRIC_PATH = Path("/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/test_metrics_by_horizon.csv")
+REPORT_PATH = f"{settings.reports_dir}/{settings.forecast_report_file}"
+INV_PATH = f"{settings.reports_dir}/{settings.inventory_report_file}"
+METRIC_PATH = f"{settings.reports_dir}/{settings.metrics_report_file}"
 
 
 def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
     inserted = {"predictions": 0, "metrics": 0, "inventory": 0}
 
-    if REPORT_PATH.exists():
+    if pd.io.common.file_exists(REPORT_PATH):
         f = pd.read_csv(REPORT_PATH)
         f = f[(f["dataset"] == run.dataset) & (f["model"] == run.model_name)]
         for r in f.itertuples(index=False):
@@ -35,7 +35,7 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
             )
             inserted["predictions"] += 1
 
-    if METRIC_PATH.exists():
+    if pd.io.common.file_exists(METRIC_PATH):
         m = pd.read_csv(METRIC_PATH)
         if "dataset" in m.columns and "model" in m.columns:
             m = m[(m["dataset"] == run.dataset) & (m["model"] == run.model_name)]
@@ -46,7 +46,7 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
                     dataset=run.dataset,
                     model_name=run.model_name,
                     warehouse_id=run.warehouse_id,
-                    split=str(r.split),
+                    split=str(getattr(r, "split", "test")),
                     horizon=int(r.horizon),
                     wape=float(r.WAPE) if pd.notna(r.WAPE) else None,
                     mase_mean=float(r.MASE_mean) if pd.notna(r.MASE_mean) else None,
@@ -56,7 +56,7 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
             )
             inserted["metrics"] += 1
 
-    if INV_PATH.exists():
+    if pd.io.common.file_exists(INV_PATH):
         i = pd.read_csv(INV_PATH)
         if "dataset" in i.columns and "model" in i.columns:
             i = i[(i["dataset"] == run.dataset) & (i["model"] == run.model_name)]
