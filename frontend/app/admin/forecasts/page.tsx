@@ -70,6 +70,7 @@ export default function ForecastsPage() {
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [showModelPerformance, setShowModelPerformance] = useState(false);
 
   const effectiveWarehouseId = isAdmin
     ? filters.warehouseId || undefined
@@ -223,6 +224,57 @@ export default function ForecastsPage() {
     return (avgRmse / avgActualDemand) * 100;
   }, [avgActualDemand, avgRmse]);
 
+  const reorderNowCount = useMemo(
+    () =>
+      recommendations.filter(
+        (row) =>
+          row.on_hand_inventory !== null &&
+          row.on_hand_inventory !== undefined &&
+          row.on_hand_inventory < row.reorder_point
+      ).length,
+    [recommendations]
+  );
+
+  const overstockCount = useMemo(
+    () =>
+      recommendations.filter(
+        (row) =>
+          row.on_hand_inventory !== null &&
+          row.on_hand_inventory !== undefined &&
+          row.on_hand_inventory > row.target_max
+      ).length,
+    [recommendations]
+  );
+
+  const coveredSkuCount = useMemo(
+    () =>
+      recommendations.filter(
+        (row) =>
+          row.on_hand_inventory !== null &&
+          row.on_hand_inventory !== undefined &&
+          row.on_hand_inventory >= row.target_max
+      ).length,
+    [recommendations]
+  );
+
+  const totalSuggestedQty = useMemo(
+    () => recommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0),
+    [recommendations]
+  );
+
+  const topReorderItems = useMemo(
+    () =>
+      [...recommendations]
+        .sort((a, b) => b.suggested_order_qty - a.suggested_order_qty)
+        .slice(0, 8),
+    [recommendations]
+  );
+
+  const metricsByHorizon = useMemo(
+    () => [...metrics].sort((a, b) => a.horizon - b.horizon),
+    [metrics]
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -233,6 +285,22 @@ export default function ForecastsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <div className="join mr-2">
+              <button
+                className={`btn btn-sm join-item ${!showModelPerformance ? "btn-secondary" : "btn-outline"}`}
+                onClick={() => setShowModelPerformance(false)}
+              >
+                Decision View
+              </button>
+              <button
+                className={`btn btn-sm join-item ${showModelPerformance ? "btn-secondary" : "btn-outline"}`}
+                onClick={() => setShowModelPerformance(true)}
+              >
+                Model Performance
+              </button>
+            </div>
+          )}
           <button className="btn btn-outline btn-sm" onClick={() => void loadData()} disabled={loading}>
             {loading ? "Loading..." : "Reload"}
           </button>
@@ -355,41 +423,80 @@ export default function ForecastsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="text-xs text-base-content/60">Latest Run</div>
-          <div className="text-2xl font-semibold">{latestRunId ?? "N/A"}</div>
-        </div>
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="text-xs text-base-content/60">Forecast Rows</div>
-          <div className="text-2xl font-semibold">{forecasts.length}</div>
-        </div>
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="text-xs text-base-content/60">Avg WAPE ({filters.split})</div>
-          <div className="text-2xl font-semibold">{avgWape !== null ? avgWape.toFixed(3) : "N/A"}</div>
-        </div>
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="text-xs text-base-content/60">Avg RMSE ({filters.split})</div>
-          <div className="text-2xl font-semibold">{avgRmse !== null ? avgRmse.toFixed(3) : "N/A"}</div>
-        </div>
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="text-xs text-base-content/60">RMSE vs Avg Demand</div>
-          <div className="text-2xl font-semibold">
-            {normalizedRmse !== null ? `${normalizedRmse.toFixed(1)}%` : "N/A"}
+      {(!isAdmin || !showModelPerformance) ? (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Latest Run</div>
+              <div className="text-2xl font-semibold">{latestRunId ?? "N/A"}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Reorder Now</div>
+              <div className="text-2xl font-semibold">{reorderNowCount}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Overstock Risk</div>
+              <div className="text-2xl font-semibold">{overstockCount}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Covered Above Target</div>
+              <div className="text-2xl font-semibold">{coveredSkuCount}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Total Suggested Qty</div>
+              <div className="text-2xl font-semibold">{Math.round(totalSuggestedQty).toLocaleString()}</div>
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div className="alert alert-info">
-        <span className="material-symbols-outlined">info</span>
-        <div className="text-sm">
-          P10 = low case, P50 = expected case, P90 = high case. RMSE is measured in the same units as demand, so it can
-          look large on high-volume SKUs. For the current filter, average demand is{" "}
-          <span className="font-semibold">{avgActualDemand !== null ? Math.round(avgActualDemand).toLocaleString() : "N/A"}</span>
-          {" "}and RMSE is{" "}
-          <span className="font-semibold">{avgRmse !== null ? Math.round(avgRmse).toLocaleString() : "N/A"}</span>.
-        </div>
-      </div>
+          <div className="alert alert-info">
+            <span className="material-symbols-outlined">info</span>
+            <div className="text-sm">
+              This view is decision-centric. Focus on SKUs below reorder point, suggested order quantity, and cases where
+              on-hand inventory is already above target max.
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Latest Run</div>
+              <div className="text-2xl font-semibold">{latestRunId ?? "N/A"}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Forecast Rows</div>
+              <div className="text-2xl font-semibold">{forecasts.length}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Avg WAPE ({filters.split})</div>
+              <div className="text-2xl font-semibold">{avgWape !== null ? avgWape.toFixed(3) : "N/A"}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">Avg RMSE ({filters.split})</div>
+              <div className="text-2xl font-semibold">{avgRmse !== null ? avgRmse.toFixed(3) : "N/A"}</div>
+            </div>
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="text-xs text-base-content/60">RMSE vs Avg Demand</div>
+              <div className="text-2xl font-semibold">
+                {normalizedRmse !== null ? `${normalizedRmse.toFixed(1)}%` : "N/A"}
+              </div>
+            </div>
+          </div>
+
+          <div className="alert alert-info">
+            <span className="material-symbols-outlined">info</span>
+            <div className="text-sm">
+              P10 = low case, P50 = expected case, P90 = high case. RMSE is measured in demand units, so it can look
+              large on high-volume SKUs. For the current filter, average demand is{" "}
+              <span className="font-semibold">
+                {avgActualDemand !== null ? Math.round(avgActualDemand).toLocaleString() : "N/A"}
+              </span>{" "}
+              and RMSE is{" "}
+              <span className="font-semibold">{avgRmse !== null ? Math.round(avgRmse).toLocaleString() : "N/A"}</span>.
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -447,6 +554,94 @@ export default function ForecastsPage() {
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {isAdmin && showModelPerformance && (
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold">Model Evaluators By Horizon</h2>
+            <button className="btn btn-xs btn-outline" onClick={() => downloadCsv("model_metrics.csv", metricsByHorizon)}>
+              Export Metrics CSV
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>Horizon</th>
+                  <th className="text-right">WAPE</th>
+                  <th className="text-right">RMSE</th>
+                  <th className="text-right">MASE</th>
+                  <th className="text-right">Bias</th>
+                </tr>
+              </thead>
+              <tbody>
+                {metricsByHorizon.length > 0 ? (
+                  metricsByHorizon.map((row) => (
+                    <tr key={`${row.run_id}-${row.horizon}`}>
+                      <td>{row.horizon}</td>
+                      <td className="text-right">{row.WAPE !== undefined ? row.WAPE.toFixed(3) : "-"}</td>
+                      <td className="text-right">{row.RMSE !== undefined ? row.RMSE.toFixed(0) : "-"}</td>
+                      <td className="text-right">{row.MASE_mean !== undefined ? row.MASE_mean.toFixed(3) : "-"}</td>
+                      <td className="text-right">{row.Bias !== undefined ? row.Bias.toFixed(0) : "-"}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="text-center text-sm text-base-content/60 py-6">
+                      No model metrics available for selected filters
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="card bg-base-100 border border-base-300 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Top Reorder Priorities</h2>
+          <div className="text-sm text-base-content/60">Highest suggested order quantity first</div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Category</th>
+                <th className="text-right">On Hand</th>
+                <th className="text-right">Reorder Point</th>
+                <th className="text-right">Target Max</th>
+                <th className="text-right">Suggested Order Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topReorderItems.length > 0 ? (
+                topReorderItems.map((row) => (
+                  <tr key={`top-${row.run_id}-${row.sku}`}>
+                    <td>{row.sku}</td>
+                    <td>{row.category ?? "-"}</td>
+                    <td className="text-right">
+                      {row.on_hand_inventory !== null && row.on_hand_inventory !== undefined
+                        ? Math.round(row.on_hand_inventory)
+                        : "-"}
+                    </td>
+                    <td className="text-right">{Math.round(row.reorder_point)}</td>
+                    <td className="text-right">{Math.round(row.target_max)}</td>
+                    <td className="text-right font-semibold">{Math.round(row.suggested_order_qty)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="text-center text-sm text-base-content/60 py-6">
+                    No reorder priorities available for selected filters
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
