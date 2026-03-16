@@ -73,6 +73,7 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
                     safety_stock=float(r.safety_stock),
                     reorder_point=float(r.reorder_point),
                     target_max=float(r.target_max),
+                    on_hand_inventory=float(r.on_hand_inventory) if pd.notna(r.on_hand_inventory) else None,
                     suggested_order_qty=float(r.suggested_order_qty),
                 )
             )
