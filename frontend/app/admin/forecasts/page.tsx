@@ -9,6 +9,8 @@ import {
 } from "@/lib/api/ai-forecast";
 import { useAdmin } from "@/contexts/AdminContext";
 import {
+  Bar,
+  BarChart,
   LineChart,
   Line,
   XAxis,
@@ -69,8 +71,10 @@ export default function ForecastsPage() {
   const [forecasts, setForecasts] = useState<ForecastPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
+  const [modelComparisonMetrics, setModelComparisonMetrics] = useState<ForecastMetric[]>([]);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
+  const [selectedSku, setSelectedSku] = useState<string>("");
 
   const effectiveWarehouseId = isAdmin
     ? filters.warehouseId || undefined
@@ -102,9 +106,17 @@ export default function ForecastsPage() {
           warehouseId: effectiveWarehouseId,
         }),
       ]);
+      const comparisonMetrics = isAdmin
+        ? await aiForecastApi.getForecastMetrics({
+            dataset: filters.dataset,
+            split: filters.split,
+            warehouseId: effectiveWarehouseId,
+          })
+        : null;
       setForecasts(forecastRes.items ?? []);
       setMetrics(metricRes.items ?? []);
       setRecommendations(recoRes.items ?? []);
+      setModelComparisonMetrics(comparisonMetrics?.items ?? []);
       setLastLoadedAt(new Date().toISOString());
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
@@ -148,6 +160,22 @@ export default function ForecastsPage() {
     [forecasts, latestRunId]
   );
 
+  const skuOptions = useMemo(() => {
+    const fromRecommendations = recommendations.map((row) => row.sku);
+    const fromForecasts = latestForecasts.map((row) => row.sku);
+    return Array.from(new Set([...fromRecommendations, ...fromForecasts])).sort((a, b) => a.localeCompare(b));
+  }, [latestForecasts, recommendations]);
+
+  useEffect(() => {
+    if (!skuOptions.length) {
+      setSelectedSku("");
+      return;
+    }
+    if (!selectedSku || !skuOptions.includes(selectedSku)) {
+      setSelectedSku(filters.sku && skuOptions.includes(filters.sku) ? filters.sku : skuOptions[0]);
+    }
+  }, [filters.sku, selectedSku, skuOptions]);
+
   const horizonChartData = useMemo(() => {
     const grouped = new Map<number, { horizon: number; p50Sum: number; p90Sum: number; count: number }>();
     for (const row of latestForecasts) {
@@ -186,6 +214,21 @@ export default function ForecastsPage() {
         p90: Math.round(item.p90Sum / item.count),
       }));
   }, [latestForecasts]);
+
+  const selectedSkuForecasts = useMemo(
+    () =>
+      latestForecasts
+        .filter((row) => row.sku === selectedSku)
+        .sort((a, b) => String(a.month).localeCompare(String(b.month)))
+        .map((row) => ({
+          month: row.month,
+          p10: Math.round(row.p10),
+          p50: Math.round(row.p50),
+          p90: Math.round(row.p90),
+          actual: row.y_true !== null && row.y_true !== undefined ? Math.round(row.y_true) : null,
+        })),
+    [latestForecasts, selectedSku]
+  );
 
   const avgWape = useMemo(() => {
     const values = metrics
@@ -273,6 +316,65 @@ export default function ForecastsPage() {
   const metricsByHorizon = useMemo(
     () => [...metrics].sort((a, b) => a.horizon - b.horizon),
     [metrics]
+  );
+
+  const selectedSkuRecommendation = useMemo(
+    () => recommendations.find((row) => row.sku === selectedSku) ?? null,
+    [recommendations, selectedSku]
+  );
+
+  const inventoryPositionData = useMemo(() => {
+    if (!selectedSkuRecommendation) {
+      return [];
+    }
+    return [
+      { label: "On Hand", value: Math.round(selectedSkuRecommendation.on_hand_inventory ?? 0), fill: "#2563eb" },
+      { label: "Reorder Point", value: Math.round(selectedSkuRecommendation.reorder_point), fill: "#f59e0b" },
+      { label: "Target Max", value: Math.round(selectedSkuRecommendation.target_max), fill: "#16a34a" },
+    ];
+  }, [selectedSkuRecommendation]);
+
+  const topReorderChartData = useMemo(
+    () =>
+      topReorderItems
+        .filter((row) => row.suggested_order_qty > 0)
+        .slice(0, 6)
+        .map((row) => ({
+          sku: row.sku,
+          suggested: Math.round(row.suggested_order_qty),
+          gap: Math.max(Math.round(row.reorder_point - (row.on_hand_inventory ?? 0)), 0),
+        })),
+    [topReorderItems]
+  );
+
+  const modelComparisonData = useMemo(() => {
+    const grouped = new Map<string, { model: string; wape: number[]; rmse: number[]; mase: number[] }>();
+    for (const row of modelComparisonMetrics) {
+      const bucket = grouped.get(row.model) ?? { model: row.model, wape: [], rmse: [], mase: [] };
+      if (typeof row.WAPE === "number" && Number.isFinite(row.WAPE)) bucket.wape.push(row.WAPE);
+      if (typeof row.RMSE === "number" && Number.isFinite(row.RMSE)) bucket.rmse.push(row.RMSE);
+      if (typeof row.MASE_mean === "number" && Number.isFinite(row.MASE_mean)) bucket.mase.push(row.MASE_mean);
+      grouped.set(row.model, bucket);
+    }
+    return Array.from(grouped.values())
+      .map((row) => ({
+        model: row.model,
+        wape: row.wape.length ? Number((row.wape.reduce((sum, v) => sum + v, 0) / row.wape.length).toFixed(3)) : 0,
+        rmse: row.rmse.length ? Math.round(row.rmse.reduce((sum, v) => sum + v, 0) / row.rmse.length) : 0,
+        mase: row.mase.length ? Number((row.mase.reduce((sum, v) => sum + v, 0) / row.mase.length).toFixed(3)) : 0,
+      }))
+      .sort((a, b) => a.wape - b.wape);
+  }, [modelComparisonMetrics]);
+
+  const horizonMetricChartData = useMemo(
+    () =>
+      metricsByHorizon.map((row) => ({
+        horizon: `H${row.horizon}`,
+        wape: row.WAPE !== undefined ? Number(row.WAPE.toFixed(3)) : null,
+        rmse: row.RMSE !== undefined ? Math.round(row.RMSE) : null,
+        mase: row.MASE_mean !== undefined ? Number(row.MASE_mean.toFixed(3)) : null,
+      })),
+    [metricsByHorizon]
   );
 
   return (
@@ -455,6 +557,145 @@ export default function ForecastsPage() {
               on-hand inventory is already above target max.
             </div>
           </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="card bg-base-100 border border-base-300 p-4 xl:col-span-2">
+              <div className="flex items-center justify-between mb-3 gap-3">
+                <h2 className="text-lg font-semibold">Product Forecast Detail</h2>
+                <select
+                  className="select select-bordered select-sm max-w-xs"
+                  value={selectedSku}
+                  onChange={(e) => setSelectedSku(e.target.value)}
+                >
+                  {skuOptions.map((sku) => (
+                    <option key={sku} value={sku}>
+                      {sku}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="h-80">
+                {selectedSkuForecasts.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={selectedSkuForecasts}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="p10" stroke="#94a3b8" name="Low Case (P10)" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p50" stroke="#22c55e" name="Expected (P50)" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p90" stroke="#f97316" name="High Case (P90)" strokeWidth={2} />
+                      <Line type="monotone" dataKey="actual" stroke="#1d4ed8" name="Actual" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No product forecast available for the selected SKU
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Inventory Position</h2>
+                <span className="badge badge-outline">{selectedSku || "No SKU"}</span>
+              </div>
+              <div className="h-64">
+                {inventoryPositionData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={inventoryPositionData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="value" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No inventory position available
+                  </div>
+                )}
+              </div>
+              {selectedSkuRecommendation && (
+                <div className="mt-3 text-sm text-base-content/70 space-y-1">
+                  <div>Category: <span className="font-medium">{selectedSkuRecommendation.category ?? "-"}</span></div>
+                  <div>
+                    Suggested Order:
+                    <span className="font-medium"> {Math.round(selectedSkuRecommendation.suggested_order_qty).toLocaleString()}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">Top Reorder Priorities</h2>
+              <div className="text-sm text-base-content/60">Highest suggested order quantity first</div>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="h-80">
+                {topReorderChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={topReorderChartData} layout="vertical" margin={{ left: 16, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis type="category" dataKey="sku" width={72} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="suggested" name="Suggested Order Qty" fill="#dc2626" radius={[0, 6, 6, 0]} />
+                      <Bar dataKey="gap" name="Gap To Reorder Point" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No reorder priorities available
+                  </div>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="table table-zebra table-sm">
+                  <thead>
+                    <tr>
+                      <th>SKU</th>
+                      <th>Category</th>
+                      <th className="text-right">On Hand</th>
+                      <th className="text-right">Reorder Point</th>
+                      <th className="text-right">Target Max</th>
+                      <th className="text-right">Suggested Order Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topReorderItems.length > 0 ? (
+                      topReorderItems.map((row) => (
+                        <tr key={`top-${row.run_id}-${row.sku}`}>
+                          <td>{row.sku}</td>
+                          <td>{row.category ?? "-"}</td>
+                          <td className="text-right">
+                            {row.on_hand_inventory !== null && row.on_hand_inventory !== undefined
+                              ? Math.round(row.on_hand_inventory)
+                              : "-"}
+                          </td>
+                          <td className="text-right">{Math.round(row.reorder_point)}</td>
+                          <td className="text-right">{Math.round(row.target_max)}</td>
+                          <td className="text-right font-semibold">{Math.round(row.suggested_order_qty)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="text-center text-sm text-base-content/60 py-6">
+                          No reorder priorities available for selected filters
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </>
       ) : (
         <>
@@ -495,67 +736,62 @@ export default function ForecastsPage() {
               <span className="font-semibold">{avgRmse !== null ? Math.round(avgRmse).toLocaleString() : "N/A"}</span>.
             </div>
           </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Model Comparison</h2>
+                <div className="text-sm text-base-content/60">Dataset {filters.dataset}, split {filters.split}</div>
+              </div>
+              <div className="h-80">
+                {modelComparisonData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={modelComparisonData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="model" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="wape" name="Avg WAPE" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="mase" name="Avg MASE" fill="#7c3aed" radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No model comparison data available
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Current Model Diagnostics</h2>
+                <div className="text-sm text-base-content/60">{filters.model}</div>
+              </div>
+              <div className="h-80">
+                {horizonMetricChartData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={horizonMetricChartData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="horizon" />
+                      <YAxis />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="wape" stroke="#2563eb" name="WAPE" strokeWidth={2} />
+                      <Line type="monotone" dataKey="mase" stroke="#7c3aed" name="MASE" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No horizon diagnostics available
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </>
       )}
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Multi-Horizon Forecast</h2>
-            <button className="btn btn-xs btn-outline" onClick={() => downloadCsv("forecasts.csv", latestForecasts)}>
-              Export CSV
-            </button>
-          </div>
-          <div className="h-80">
-            {horizonChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={horizonChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="horizon" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="p50" stroke="#0ea5e9" name="P50" strokeWidth={2} />
-                  <Line type="monotone" dataKey="p90" stroke="#ef4444" name="P90" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                No horizon data for selected filters
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-lg font-semibold">Monthly Forecast Trend</h2>
-            <button className="btn btn-xs btn-outline" onClick={() => downloadCsv("forecast_metrics.csv", metrics)}>
-              Export Metrics CSV
-            </button>
-          </div>
-          <div className="h-80">
-            {monthlyTrendData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={monthlyTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="p10" stroke="#94a3b8" name="P10" strokeWidth={2} />
-                  <Line type="monotone" dataKey="p50" stroke="#22c55e" name="P50" strokeWidth={2} />
-                  <Line type="monotone" dataKey="p90" stroke="#f97316" name="P90" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                No monthly forecast trend for selected filters
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
 
       {isAdmin && showModelPerformance && (
         <div className="card bg-base-100 border border-base-300 p-4">
@@ -599,51 +835,6 @@ export default function ForecastsPage() {
           </div>
         </div>
       )}
-
-      <div className="card bg-base-100 border border-base-300 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Top Reorder Priorities</h2>
-          <div className="text-sm text-base-content/60">Highest suggested order quantity first</div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="table table-zebra table-sm">
-            <thead>
-              <tr>
-                <th>SKU</th>
-                <th>Category</th>
-                <th className="text-right">On Hand</th>
-                <th className="text-right">Reorder Point</th>
-                <th className="text-right">Target Max</th>
-                <th className="text-right">Suggested Order Qty</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topReorderItems.length > 0 ? (
-                topReorderItems.map((row) => (
-                  <tr key={`top-${row.run_id}-${row.sku}`}>
-                    <td>{row.sku}</td>
-                    <td>{row.category ?? "-"}</td>
-                    <td className="text-right">
-                      {row.on_hand_inventory !== null && row.on_hand_inventory !== undefined
-                        ? Math.round(row.on_hand_inventory)
-                        : "-"}
-                    </td>
-                    <td className="text-right">{Math.round(row.reorder_point)}</td>
-                    <td className="text-right">{Math.round(row.target_max)}</td>
-                    <td className="text-right font-semibold">{Math.round(row.suggested_order_qty)}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={6} className="text-center text-sm text-base-content/60 py-6">
-                    No reorder priorities available for selected filters
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       <div className="card bg-base-100 border border-base-300 p-4">
         <div className="flex items-center justify-between mb-3">
