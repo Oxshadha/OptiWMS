@@ -41,6 +41,7 @@ def get_inventory_recommendations(
             "safety_stock": r.safety_stock,
             "reorder_point": r.reorder_point,
             "target_max": r.target_max,
+            "on_hand_inventory": r.on_hand_inventory,
             "suggested_order_qty": r.suggested_order_qty,
         }
         for r in rows

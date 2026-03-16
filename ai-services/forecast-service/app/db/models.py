@@ -64,4 +64,5 @@ class InventoryRecommendation(Base):
     safety_stock: Mapped[float] = mapped_column(Float)
     reorder_point: Mapped[float] = mapped_column(Float)
     target_max: Mapped[float] = mapped_column(Float)
+    on_hand_inventory: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggested_order_qty: Mapped[float] = mapped_column(Float)

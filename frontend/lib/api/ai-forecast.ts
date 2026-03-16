@@ -25,6 +25,7 @@ export interface InventoryRecommendation {
   safety_stock: number;
   reorder_point: number;
   target_max: number;
+  on_hand_inventory?: number | null;
   suggested_order_qty: number;
 }
 
