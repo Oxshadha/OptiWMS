@@ -3,6 +3,7 @@ package com.optiwms.coreapi.master;
 import com.optiwms.coreapp.master.WarehouseService;
 import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.WebRequest;
 
@@ -19,7 +20,7 @@ public class WarehouseController {
     }
 
     @GetMapping
-    public ResponseEntity<List<WarehouseDto>> list(WebRequest webRequest) {
+    public ResponseEntity<List<WarehouseDto>> list(@NonNull WebRequest webRequest) {
         var data = service.listAll().stream()
                 .map(w -> new WarehouseDto(
                         w.getId(),
@@ -31,8 +32,7 @@ public class WarehouseController {
                         w.getContactPerson(),
                         w.getPhone(),
                         w.getEmail(),
-                        w.getStatus()
-                ))
+                        w.getStatus()))
                 .toList();
         return ReferenceDataCacheSupport.ok(webRequest, data, "warehouses", data);
     }
@@ -51,8 +51,7 @@ public class WarehouseController {
                     warehouse.getContactPerson(),
                     warehouse.getPhone(),
                     warehouse.getEmail(),
-                    warehouse.getStatus()
-            ));
+                    warehouse.getStatus()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
@@ -83,15 +82,15 @@ public class WarehouseController {
                     created.getContactPerson(),
                     created.getPhone(),
                     created.getEmail(),
-                    created.getStatus()
-            ));
+                    created.getStatus()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
         }
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<WarehouseDto> update(@PathVariable java.util.UUID id, @RequestBody UpdateWarehouseRequest request) {
+    public ResponseEntity<WarehouseDto> update(@PathVariable java.util.UUID id,
+            @RequestBody UpdateWarehouseRequest request) {
         try {
             var warehouse = new com.optiwms.domain.master.Warehouse();
             warehouse.setCode(request.code());
@@ -115,8 +114,7 @@ public class WarehouseController {
                     updated.getContactPerson(),
                     updated.getPhone(),
                     updated.getEmail(),
-                    updated.getStatus()
-            ));
+                    updated.getStatus()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().build();
         }
@@ -142,8 +140,8 @@ public class WarehouseController {
             String contactPerson,
             String phone,
             String email,
-            String status
-    ) {}
+            String status) {
+    }
 
     public record CreateWarehouseRequest(
             String code,
@@ -154,8 +152,8 @@ public class WarehouseController {
             String contactPerson,
             String phone,
             String email,
-            String status
-    ) {}
+            String status) {
+    }
 
     public record UpdateWarehouseRequest(
             String code,
@@ -166,7 +164,6 @@ public class WarehouseController {
             String contactPerson,
             String phone,
             String email,
-            String status
-    ) {}
+            String status) {
+    }
 }
-
