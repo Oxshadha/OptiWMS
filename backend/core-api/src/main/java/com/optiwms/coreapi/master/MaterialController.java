@@ -9,6 +9,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.context.request.WebRequest;
@@ -39,7 +40,7 @@ public class MaterialController {
     public ResponseEntity<List<MaterialDto>> list(
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
-            WebRequest webRequest
+            @NonNull WebRequest webRequest
     ) {
         var materials = supplierId != null
                 ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)

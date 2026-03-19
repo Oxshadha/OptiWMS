@@ -66,6 +66,7 @@ public class AIServiceAdapter {
         try {
             String url = String.format("%s/optimal-storage/suggest", aiServicesBaseUrl);
             
+            // Create a new OptimalStorageRequest with the required parameters
             OptimalStorageRequest request = new OptimalStorageRequest(
                 warehouseId.toString(),
                 materialId.toString(),
@@ -131,6 +132,5 @@ public class AIServiceAdapter {
         public boolean success;
         public String locationCode;
         public String reason;
-        public String algorithm; // e.g., "genetic_algorithm", "rule_based"
     }
 }
