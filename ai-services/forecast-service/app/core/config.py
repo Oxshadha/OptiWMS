@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     wms_service_token: str | None = None
     database_url: str = "sqlite:///./forecast_service.db"
     reports_dir: str = "/reports"
+    artifact_dir: str = "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/artifacts"
     forecast_report_file: str = "dashboard_forecast_output.csv"
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"

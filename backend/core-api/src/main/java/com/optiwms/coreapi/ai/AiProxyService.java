@@ -83,6 +83,19 @@ public class AiProxyService {
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
 
+    public ResponseEntity<Object> getArtifacts(String dataset, String model) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model", model);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<Object> postForecastService(String path, Object payload) {
+        HttpEntity<Object> request = new HttpEntity<>(payload, headers());
+        ResponseEntity<Map> response = restTemplate.exchange(forecastBaseUrl + path, HttpMethod.POST, request, Map.class);
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
         if (authentication == null || authentication.getName() == null) {
             return requestedWarehouseId;

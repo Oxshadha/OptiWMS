@@ -5,6 +5,7 @@ from app.api.v1.routes.forecasts import router as forecast_router
 from app.api.v1.routes.inventory import router as inventory_router
 from app.api.v1.routes.metrics import router as metrics_router
 from app.api.v1.routes.runs import router as runs_router
+from app.api.v1.routes.artifacts import router as artifacts_router
 from app.core.config import settings
 from app.db.database import Base, engine
 
@@ -14,6 +15,7 @@ app.include_router(forecast_router)
 app.include_router(inventory_router)
 app.include_router(metrics_router)
 app.include_router(runs_router)
+app.include_router(artifacts_router)
 
 
 @app.on_event("startup")

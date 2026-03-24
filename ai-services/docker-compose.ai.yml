@@ -13,6 +13,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
       - DATABASE_URL=sqlite:///./forecast_service.db
       - REPORTS_DIR=${REPORTS_DIR}
+      - ARTIFACT_DIR=/model-artifacts
       - FORECAST_REPORT_FILE=${FORECAST_REPORT_FILE}
       - INVENTORY_REPORT_FILE=${INVENTORY_REPORT_FILE}
       - METRICS_REPORT_FILE=${METRICS_REPORT_FILE}
@@ -20,6 +21,7 @@ services:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
     volumes:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR}:ro
+      - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
 
   orchestrator-service:
     build:
