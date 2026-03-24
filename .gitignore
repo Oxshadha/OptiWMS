@@ -172,3 +172,22 @@ VIVA_FOLDER_MAP_AND_GRADLE.md
 
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
+Ai miroservices/modeling/catboost_info/
+catboost_info/
+
+# Local external benchmark data and notebook outputs
+Ai miroservices/external-data/
+ai-services/m5-forecasting-accuracy/
+# Modeling generated outputs
+Ai miroservices/modeling/outputs/artifacts/
+Ai miroservices/modeling/outputs/reports/
+Ai miroservices/modeling/outputs/audit/
+Ai miroservices/modeling/outputs/cleaned/
+Ai miroservices/modeling/logs/
+Ai miroservices/modeling/scripts/__pycache__/
+Ai miroservices/modeling/notebooks/__pycache__/
+Ai miroservices/modeling/notebooks/catboost_info/
+Ai miroservices/modeling/scripts/catboost_info/
+Ai miroservices/modeling/outputs/artifacts/**/*.pkl
+Ai miroservices/modeling/outputs/artifacts/**/*.cbm
+Ai miroservices/modeling/outputs/artifacts/**/*.json

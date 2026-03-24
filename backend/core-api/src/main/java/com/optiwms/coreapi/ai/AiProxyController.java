@@ -71,4 +71,22 @@ public class AiProxyController {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
         return service.triggerForecastRun(dataset, modelName, scopedWarehouse);
     }
+
+    @GetMapping("/artifacts")
+    public ResponseEntity<Object> artifacts(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model
+    ) {
+        return service.getArtifacts(dataset, model);
+    }
+
+    @PostMapping("/artifacts/infer-classical")
+    public ResponseEntity<Object> inferClassical(@RequestBody Map<String, Object> payload) {
+        return service.postForecastService("/artifacts/infer-classical", payload);
+    }
+
+    @PostMapping("/artifacts/infer-boosting")
+    public ResponseEntity<Object> inferBoosting(@RequestBody Map<String, Object> payload) {
+        return service.postForecastService("/artifacts/infer-boosting", payload);
+    }
 }
