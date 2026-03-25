@@ -14,6 +14,10 @@ from benchmark_m5 import aggregate_m5_monthly, get_feature_tiers, make_features
 from common import OUT_DIR, summarize_metrics
 
 
+def clamp(value: float, low: float, high: float) -> float:
+    return float(min(max(value, low), high))
+
+
 def load_boosting_artifact(dataset: str, model_name: str, horizon: int):
     path = ARTIFACT_DIR / dataset / f"{model_name}_h{horizon}".lower() / "production"
     meta = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
@@ -84,8 +88,14 @@ def choose_blend_weight(
     frame: pd.DataFrame,
     preds: np.ndarray,
     candidate_weights: list[float] | None = None,
+    max_weight: float = 1.0,
 ) -> float:
     candidate_weights = candidate_weights or [0.0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0]
+    max_weight = clamp(float(max_weight), 0.0, 1.0)
+    candidate_weights = [w for w in candidate_weights if w <= max_weight + 1e-9]
+    if max_weight not in candidate_weights:
+        candidate_weights.append(max_weight)
+    candidate_weights = sorted(set(candidate_weights))
     anchor = recent_level_anchor(frame).to_numpy(dtype=float)
     y_true = frame["target"].to_numpy(dtype=float)
     best_weight = 0.0
@@ -110,12 +120,14 @@ def predict_saved_model(
     horizons: list[int],
     calibration: str,
     calibration_weight: float,
-) -> pd.DataFrame:
+    calibration_max_weight: float,
+) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, float | int | str]]]:
     y_train_lookup = {
         sid: g[g["split"] == "train"]["demand_units"].to_numpy(dtype=float)
         for sid, g in m5_df.groupby("series_id")
     }
     model_rows = []
+    calibration_rows: list[dict[str, float | int | str]] = []
 
     for horizon in horizons:
         reg, meta = load_boosting_artifact(dataset, model_name, horizon)
@@ -150,12 +162,24 @@ def predict_saved_model(
             preds = np.clip(reg.predict(test_frame[model_cols]), 0, None)
 
         effective_weight = calibration_weight
-        if calibration == "recent_level_auto" and not val_frame.empty:
-            effective_weight = choose_blend_weight(val_frame, val_preds)
+        if calibration in {"recent_level_auto", "recent_level_auto_capped"} and not val_frame.empty:
+            max_weight = 1.0 if calibration == "recent_level_auto" else calibration_max_weight
+            effective_weight = choose_blend_weight(val_frame, val_preds, max_weight=max_weight)
             calibration_mode = "recent_level_blend"
         else:
             calibration_mode = calibration
 
+        calibration_rows.append(
+            {
+                "dataset": f"M5_TRANSFER_{dataset}",
+                "model": model_name,
+                "horizon": horizon,
+                "calibration": calibration,
+                "effective_weight": float(effective_weight),
+                "val_rows": int(len(val_frame)),
+                "test_rows": int(len(test_frame)),
+            }
+        )
         preds = calibrate_predictions(test_frame, preds, calibration_mode, effective_weight)
         sigma = float(np.std(test_frame["target"].to_numpy(dtype=float) - preds))
         model_label = model_name if calibration == "none" else f"{model_name}_{calibration}"
@@ -187,7 +211,8 @@ def predict_saved_model(
         y_train_lookup,
         seasonal_period=12,
     ) if not pred_df.empty else pd.DataFrame()
-    return pred_df, metrics
+    calibration_df = pd.DataFrame(calibration_rows)
+    return pred_df, metrics, calibration_df
 
 
 def main() -> None:
@@ -200,8 +225,9 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", default=["XGBOOST", "CATBOOST"])
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
     parser.add_argument("--tag", default="m5_saved_transfer")
-    parser.add_argument("--calibration", choices=["none", "recent_level_blend", "recent_level_auto"], default="none")
+    parser.add_argument("--calibration", choices=["none", "recent_level_blend", "recent_level_auto", "recent_level_auto_capped"], default="none")
     parser.add_argument("--calibration-weight", type=float, default=0.8)
+    parser.add_argument("--calibration-max-weight", type=float, default=0.8)
     args = parser.parse_args()
 
     horizons = [int(x) for x in args.horizons.split(",") if x.strip()]
@@ -213,26 +239,31 @@ def main() -> None:
 
     all_preds = []
     all_metrics = []
+    all_calibrations = []
     for dataset in args.datasets:
         for model_name in args.models:
-            pred_df, metrics = predict_saved_model(
+            pred_df, metrics, calibration_df = predict_saved_model(
                 dataset,
                 model_name,
                 m5_df,
                 horizons,
                 args.calibration,
                 args.calibration_weight,
+                args.calibration_max_weight,
             )
             if not pred_df.empty:
                 all_preds.append(pred_df)
             if not metrics.empty:
                 all_metrics.append(metrics)
+            if not calibration_df.empty:
+                all_calibrations.append(calibration_df)
 
     pred_all = pd.concat(all_preds, ignore_index=True) if all_preds else pd.DataFrame()
     metrics_all = pd.concat(all_metrics, ignore_index=True) if all_metrics else pd.DataFrame()
     pred_path = reports / f"{args.tag}_predictions.csv"
     metrics_path = reports / f"{args.tag}_metrics.csv"
     summary_path = reports / f"{args.tag}_summary.csv"
+    calibration_path = reports / f"{args.tag}_calibration.csv"
 
     if not pred_all.empty:
         pred_all.to_csv(pred_path, index=False)
@@ -240,10 +271,14 @@ def main() -> None:
         metrics_all.to_csv(metrics_path, index=False)
         summary = metrics_all[metrics_all["horizon"] == 0].sort_values(["WAPE", "MASE_mean", "RMSE"]).reset_index(drop=True)
         summary.to_csv(summary_path, index=False)
+    calibration_all = pd.concat(all_calibrations, ignore_index=True) if all_calibrations else pd.DataFrame()
+    if not calibration_all.empty:
+        calibration_all.to_csv(calibration_path, index=False)
 
     print(f"Saved predictions: {pred_path}")
     print(f"Saved metrics: {metrics_path}")
     print(f"Saved summary: {summary_path}")
+    print(f"Saved calibration: {calibration_path}")
 
 
 if __name__ == "__main__":
