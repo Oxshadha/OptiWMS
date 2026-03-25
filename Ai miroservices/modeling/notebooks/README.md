@@ -2,50 +2,53 @@
 
 Use these notebooks in this order.
 
-## Primary workflow
+## Current recommended workflow
 
-1. `00_dataset_audit_and_cleaning.ipynb`
-   - audit A, B, C
-   - apply conservative cleaning
-   - export cleaned datasets
+1. `00a_real_source_active_stock_audit.ipynb`
+   - audits the real Excel source
+   - extracts the canonical `Active stock` seed table
+   - confirms the real-data limitation before synthetic generation
 
-2. `01_split_protocol_validation.ipynb`
-   - confirm train / validation / test split logic
-   - confirm dataset C scenario handling
-   - check for leakage
+2. `02_global_model_training_and_artifact_save.ipynb`
+   - trains the current portable model track on dataset `P`
+   - current default path is `P + XGBOOST/CATBOOST`
+   - saves artifacts and leaderboard outputs
 
-3. `02_global_model_training_and_artifact_save.ipynb`
-   - train global models (`XGBOOST`, `CATBOOST`) on cleaned data
-   - save artifacts
-   - save leaderboard and registry outputs
+3. `05b_global_model_transfer_only.ipynb`
+   - runs saved-artifact transfer on M5 monthly aggregates
+   - current default path is `P + XGBOOST + recent_level_blend`
+   - this is the main external-transfer validation notebook
 
-4. `03_model_bias_overfit_analysis.ipynb`
-   - inspect test metrics
-   - inspect bias
-   - inspect horizon degradation
-   - review rolling CV outputs
+## Secondary / diagnostic notebooks
 
-5. `05a_classical_kaggle_csvs.ipynb`
-   - generates separate Kaggle-format CSV files for classical models only
-   - available outputs: `SNAIVE7.csv`, `SNAIVE28.csv`, `ETS.csv`, `ARIMA.csv`, `SARIMA.csv`
-   - does not use saved global boosting artifacts
+4. `00_dataset_audit_and_cleaning.ipynb`
+   - audits the older `A`, `B`, `C` synthetic datasets
+   - still useful for comparison against the older workflow
 
-6. `05b_global_model_transfer_only.ipynb`
-   - strict saved-artifact transfer test on M5
-   - no retraining on M5
-   - valid for global saved-model transfer evaluation
-   - there is currently no valid `XGBOOST.csv` or `CATBOOST.csv` from unchanged saved monthly synthetic-trained weights
+5. `01_split_protocol_validation.ipynb`
+   - confirms train / validation / test split logic
+   - checks leakage assumptions
+
+6. `03_model_bias_overfit_analysis.ipynb`
+   - inspects bias and horizon degradation on the training workflow outputs
+   - use this after a completed training run
+
+7. `05_m5_submission_inference.ipynb`
+   - keep this separate from transfer evaluation
+   - it is not the main proof notebook for the current portable workflow
+
+## Dataset interpretation
+
+- Dataset `P`: portable synthetic dataset anchored to the real `Active stock` sheet
+- Dataset `W`: WMS-style synthetic dataset with operational features
+- Dataset `A`: older baseline synthetic benchmark
+- Dataset `B`: older augmented synthetic benchmark
+- Dataset `C`: older stress / robustness scenario dataset
+
+Use `P` for transfer evaluation.
+Use `W` later for internal OptiWMS operational modeling.
 
 ## Legacy notebooks
 
 Older exploratory notebooks were moved into `notebooks/legacy/`.
 They are kept for reference, but they are not the main execution path anymore.
-
-## Important interpretation
-
-- Dataset `A`: baseline demand-only benchmark
-- Dataset `B`: main production candidate dataset
-- Dataset `C`: robustness / stress dataset
-
-Do **not** blindly merge A, B, and C into one raw dataset for the first pass.
-Treat them as separate evaluation tracks.
