@@ -15,7 +15,7 @@ from xgboost import XGBRegressor
 from artifacts import save_catboost_model, save_metadata, save_pickle_model, save_xgboost_model
 from common import OUT_DIR, summarize_metrics
 from preprocessing import CLEAN_DIR, clean_dataset, export_clean_dataset
-from run_boosting import get_feature_tiers, make_features
+from run_boosting import FEATURE_PROFILES, get_feature_tiers, make_features
 
 
 CLASSICAL_MODELS = ["ETS", "ARIMA", "SARIMA"]
@@ -243,7 +243,12 @@ def predict_boosting(model_name: str, reg, frame: pd.DataFrame, model_cols: list
     return np.clip(reg.predict(frame[model_cols]), 0, None)
 
 
-def run_boosting_training(dataset: str, models: list[str], horizons: list[int]) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, str]]]:
+def run_boosting_training(
+    dataset: str,
+    models: list[str],
+    horizons: list[int],
+    feature_profile: str = "full",
+) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, str]]]:
     base_df, train_end, val_end = assign_split(load_clean_dataset(dataset))
     y_train_lookup = prepare_train_lookup(base_df)
     all_forecasts: list[pd.DataFrame] = []
@@ -259,7 +264,7 @@ def run_boosting_training(dataset: str, models: list[str], horizons: list[int]) 
             train_df = val_df = test_df = final_train_df = None
 
             feature_base = ["series_id", "fg_code", "fg_category", "month", "target_month", "target", "scenario_split"]
-            for model_cols in get_feature_tiers(dfh):
+            for model_cols in get_feature_tiers(dfh, feature_profile=feature_profile):
                 keep_cols = list(dict.fromkeys(feature_base + model_cols))
                 d = dfh[keep_cols].dropna(subset=["target"]).dropna(subset=model_cols)
                 if dataset == "C":
@@ -317,6 +322,7 @@ def run_boosting_training(dataset: str, models: list[str], horizons: list[int]) 
                     "model_name": model_name,
                     "horizon": h,
                     "model_cols": chosen_cols,
+                    "feature_profile": feature_profile,
                 }
             )
             if model_name == "XGBOOST":
@@ -398,6 +404,7 @@ def main() -> None:
     parser.add_argument("--skip-classical", action="store_true")
     parser.add_argument("--skip-boosting", action="store_true")
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
+    parser.add_argument("--feature-profile", choices=FEATURE_PROFILES, default="full")
     parser.add_argument("--tag", default="artifact_training")
     args = parser.parse_args()
 
@@ -411,7 +418,12 @@ def main() -> None:
         if not args.skip_classical and args.classical_models:
             c_forecasts, c_metrics, c_artifacts = run_classical_training(dataset, args.classical_models)
         if not args.skip_boosting and args.boosting_models:
-            b_forecasts, b_metrics, b_artifacts = run_boosting_training(dataset, args.boosting_models, horizons)
+            b_forecasts, b_metrics, b_artifacts = run_boosting_training(
+                dataset,
+                args.boosting_models,
+                horizons,
+                feature_profile=args.feature_profile,
+            )
 
         metrics = pd.concat([c_metrics, b_metrics], ignore_index=True) if not c_metrics.empty or not b_metrics.empty else pd.DataFrame()
         forecasts = pd.concat([c_forecasts, b_forecasts], ignore_index=True) if not c_forecasts.empty or not b_forecasts.empty else pd.DataFrame()
@@ -427,6 +439,7 @@ def main() -> None:
             "classical_models": [] if args.skip_classical else args.classical_models,
             "boosting_models": [] if args.skip_boosting else args.boosting_models,
             "horizons": horizons,
+            "feature_profile": args.feature_profile,
             "leaderboard_path": str(leaderboard_path),
         })
         print(f"[OK] saved leaderboard: {leaderboard_path}")

@@ -22,6 +22,14 @@ EXOG_COLS = [
     "holiday_flag",
 ]
 
+FEATURE_PROFILES = [
+    "full",
+    "lags_only",
+    "lags_roll",
+    "lags_roll_seasonal",
+    "lags_roll_seasonal_category",
+]
+
 
 def make_features(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     out = df.copy().sort_values(["series_id", "month"])
@@ -75,7 +83,7 @@ def prepare_train_lookup(df: pd.DataFrame, split_dates) -> dict[str, np.ndarray]
     return lookup
 
 
-def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
+def get_feature_tiers(dfh: pd.DataFrame, feature_profile: str = "full") -> list[list[str]]:
     base = ["fg_code", "fg_category", "month_num", "quarter", "year", "month_sin", "month_cos"]
     lag12 = ["lag_12", "roll_mean_12", "roll_std_12"]
     lag6 = ["lag_6", "roll_mean_6", "roll_std_6"]
@@ -84,6 +92,17 @@ def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
     lag1 = ["lag_1"]
 
     exog_lag = [f"{c}_lag1" for c in EXOG_COLS if f"{c}_lag1" in dfh.columns]
+
+    if feature_profile == "lags_only":
+        return [lag1 + lag2 + ["lag_3", "lag_6", "lag_12"]]
+    if feature_profile == "lags_roll":
+        return [lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile == "lags_roll_seasonal":
+        return [["month_num", "quarter", "year", "month_sin", "month_cos"] + lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile == "lags_roll_seasonal_category":
+        return [base + lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile != "full":
+        raise ValueError(f"Unsupported feature profile: {feature_profile}")
 
     tiers = [
         base + lag1 + lag2 + lag3 + lag6 + lag12 + exog_lag,
@@ -295,7 +314,13 @@ def run_classical_like(df: pd.DataFrame, dataset_name: str, models: list[str]) -
     )
 
 
-def run_boosting_like(df: pd.DataFrame, dataset_name: str, models: list[str], horizons: list[int]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def run_boosting_like(
+    df: pd.DataFrame,
+    dataset_name: str,
+    models: list[str],
+    horizons: list[int],
+    feature_profile: str = "full",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     if not models:
         return pd.DataFrame(), pd.DataFrame()
 
@@ -326,7 +351,7 @@ def run_boosting_like(df: pd.DataFrame, dataset_name: str, models: list[str], ho
             chosen_cols = None
             train_df = val_df = test_df = None
 
-            for model_cols in get_feature_tiers(dfh):
+            for model_cols in get_feature_tiers(dfh, feature_profile=feature_profile):
                 keep_cols = list(dict.fromkeys(feature_base + model_cols))
                 d = dfh[keep_cols].dropna(subset=["target"]).dropna(subset=model_cols)
                 train_mask, val_mask, test_mask = split_masks(d, split_dates)
@@ -466,6 +491,7 @@ def main() -> None:
     parser.add_argument("--classical-models", nargs="*", default=["SNAIVE12", "ETS", "ARIMA", "SARIMA"])
     parser.add_argument("--boosting-models", nargs="*", default=["XGBOOST", "CATBOOST"])
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
+    parser.add_argument("--feature-profile", choices=FEATURE_PROFILES, default="full")
     args = parser.parse_args()
 
     dataset_name = f"M5_{args.granularity.upper()}"
@@ -477,6 +503,7 @@ def main() -> None:
         dataset_name,
         args.boosting_models,
         [int(x) for x in args.horizons.split(",") if x.strip()],
+        args.feature_profile,
     )
 
     forecasts = pd.concat([classical_forecasts, boosting_forecasts], ignore_index=True)
