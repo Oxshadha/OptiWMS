@@ -80,6 +80,29 @@ def calibrate_predictions(
     raise ValueError(f"Unsupported calibration mode: {calibration}")
 
 
+def choose_blend_weight(
+    frame: pd.DataFrame,
+    preds: np.ndarray,
+    candidate_weights: list[float] | None = None,
+) -> float:
+    candidate_weights = candidate_weights or [0.0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0]
+    anchor = recent_level_anchor(frame).to_numpy(dtype=float)
+    y_true = frame["target"].to_numpy(dtype=float)
+    best_weight = 0.0
+    best_wape = float("inf")
+    base_preds = np.asarray(preds, dtype=float)
+    for weight in candidate_weights:
+        adjusted = np.clip((1.0 - weight) * base_preds + weight * anchor, 0, None)
+        denom = np.abs(y_true).sum()
+        if denom <= 0:
+            continue
+        score = float(np.abs(y_true - adjusted).sum() / denom)
+        if score < best_wape:
+            best_wape = score
+            best_weight = float(weight)
+    return best_weight
+
+
 def predict_saved_model(
     dataset: str,
     model_name: str,
@@ -101,29 +124,46 @@ def predict_saved_model(
         base_cols = ["series_id", "fg_code", "fg_category", "target", "target_month"]
         keep_cols = [c for c in list(dict.fromkeys(base_cols + model_cols)) if c in dfh.columns]
         d = dfh[keep_cols].dropna(subset=["target"]).copy()
-        d = d[d["target_month"] > m5_df.loc[m5_df["split"] == "val", "month"].max()].copy()
-        if d.empty:
+        val_end = m5_df.loc[m5_df["split"] == "val", "month"].max()
+        d["eval_split"] = np.where(d["target_month"] > val_end, "test", "val")
+        val_frame = d[d["eval_split"] == "val"].copy()
+        test_frame = d[d["eval_split"] == "test"].copy()
+        if test_frame.empty:
             continue
 
         for col in model_cols:
-            if col not in d.columns:
-                d[col] = 0
+            if col not in val_frame.columns:
+                val_frame[col] = 0
+            if col not in test_frame.columns:
+                test_frame[col] = 0
 
         if model_name == "XGBOOST":
             feature_columns = meta.get("feature_columns") or []
-            x = pd.get_dummies(d[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in d.columns], drop_first=False)
-            x = x.reindex(columns=feature_columns, fill_value=0)
-            preds = np.clip(reg.predict(x), 0, None)
+            x_val = pd.get_dummies(val_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in val_frame.columns], drop_first=False)
+            x_val = x_val.reindex(columns=feature_columns, fill_value=0)
+            x_test = pd.get_dummies(test_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in test_frame.columns], drop_first=False)
+            x_test = x_test.reindex(columns=feature_columns, fill_value=0)
+            val_preds = np.clip(reg.predict(x_val), 0, None) if not val_frame.empty else np.array([])
+            preds = np.clip(reg.predict(x_test), 0, None)
         else:
-            preds = np.clip(reg.predict(d[model_cols]), 0, None)
+            val_preds = np.clip(reg.predict(val_frame[model_cols]), 0, None) if not val_frame.empty else np.array([])
+            preds = np.clip(reg.predict(test_frame[model_cols]), 0, None)
 
-        preds = calibrate_predictions(d, preds, calibration, calibration_weight)
-        sigma = float(np.std(d["target"].to_numpy(dtype=float) - preds))
-        for row, yp in zip(d.itertuples(index=False), preds):
+        effective_weight = calibration_weight
+        if calibration == "recent_level_auto" and not val_frame.empty:
+            effective_weight = choose_blend_weight(val_frame, val_preds)
+            calibration_mode = "recent_level_blend"
+        else:
+            calibration_mode = calibration
+
+        preds = calibrate_predictions(test_frame, preds, calibration_mode, effective_weight)
+        sigma = float(np.std(test_frame["target"].to_numpy(dtype=float) - preds))
+        model_label = model_name if calibration == "none" else f"{model_name}_{calibration}"
+        for row, yp in zip(test_frame.itertuples(index=False), preds):
             model_rows.append(
                 {
                     "dataset": f"M5_TRANSFER_{dataset}",
-                    "model": model_name if calibration == "none" else f"{model_name}_{calibration}",
+                    "model": model_label,
                     "series_id": row.series_id,
                     "fg_code": row.fg_code,
                     "fg_category": row.fg_category,
@@ -153,7 +193,7 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", default=["XGBOOST", "CATBOOST"])
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
     parser.add_argument("--tag", default="m5_saved_transfer")
-    parser.add_argument("--calibration", choices=["none", "recent_level_blend"], default="none")
+    parser.add_argument("--calibration", choices=["none", "recent_level_blend", "recent_level_auto"], default="none")
     parser.add_argument("--calibration-weight", type=float, default=0.8)
     args = parser.parse_args()
 
