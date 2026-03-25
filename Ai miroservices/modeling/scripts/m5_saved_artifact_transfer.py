@@ -52,7 +52,8 @@ def predict_saved_model(dataset: str, model_name: str, m5_df: pd.DataFrame, hori
         reg, meta = load_boosting_artifact(dataset, model_name, horizon)
         dfh = make_features(m5_df.assign(scenario_split="all"), horizon=horizon)
         model_cols = meta["model_cols"]
-        keep_cols = list(dict.fromkeys(["series_id", "fg_code", "fg_category", "target", "target_month"] + model_cols))
+        base_cols = ["series_id", "fg_code", "fg_category", "target", "target_month"]
+        keep_cols = [c for c in list(dict.fromkeys(base_cols + model_cols)) if c in dfh.columns]
         d = dfh[keep_cols].dropna(subset=["target"]).copy()
         d = d[d["target_month"] > m5_df.loc[m5_df["split"] == "val", "month"].max()].copy()
         if d.empty:
