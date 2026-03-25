@@ -280,8 +280,8 @@ def run_classical_like(df: pd.DataFrame, dataset_name: str, models: list[str]) -
             continue
 
         all_forecasts.append(pred_df)
-        met_val = summarize_metrics(pred_df, "val", model_name, dataset_name, y_train_lookup)
-        met_test = summarize_metrics(pred_df, "test", model_name, dataset_name, y_train_lookup)
+        met_val = summarize_metrics(pred_df, "val", model_name, dataset_name, y_train_lookup, seasonal_period=12)
+        met_test = summarize_metrics(pred_df, "test", model_name, dataset_name, y_train_lookup, seasonal_period=12)
         met_df = pd.concat([met_val, met_test], ignore_index=True)
         all_metrics.append(met_df)
         print(
@@ -415,8 +415,8 @@ def run_boosting_like(df: pd.DataFrame, dataset_name: str, models: list[str], ho
             continue
 
         all_forecasts.append(pred_df)
-        met_val = summarize_metrics(pred_df, "val", model_name, dataset_name, y_train_lookup)
-        met_test = summarize_metrics(pred_df, "test", model_name, dataset_name, y_train_lookup)
+        met_val = summarize_metrics(pred_df, "val", model_name, dataset_name, y_train_lookup, seasonal_period=12)
+        met_test = summarize_metrics(pred_df, "test", model_name, dataset_name, y_train_lookup, seasonal_period=12)
         all_metrics.append(pd.concat([met_val, met_test], ignore_index=True))
         print(f"[OK] {dataset_name}/{model_name}: forecasts={len(pred_df)}, metrics={len(met_val) + len(met_test)}")
 

@@ -179,7 +179,14 @@ def predict_saved_model(
 
     pred_df = pd.DataFrame(model_rows)
     metric_model_name = model_name if calibration == "none" else f"{model_name}_{calibration}"
-    metrics = summarize_metrics(pred_df, "test", metric_model_name, f"M5_TRANSFER_{dataset}", y_train_lookup) if not pred_df.empty else pd.DataFrame()
+    metrics = summarize_metrics(
+        pred_df,
+        "test",
+        metric_model_name,
+        f"M5_TRANSFER_{dataset}",
+        y_train_lookup,
+        seasonal_period=12,
+    ) if not pred_df.empty else pd.DataFrame()
     return pred_df, metrics
 
 
