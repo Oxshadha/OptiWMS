@@ -41,7 +41,53 @@ def assign_test_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Timestamp, pd.
     return out, train_end, val_end
 
 
-def predict_saved_model(dataset: str, model_name: str, m5_df: pd.DataFrame, horizons: list[int]) -> pd.DataFrame:
+def recent_level_anchor(frame: pd.DataFrame) -> pd.Series:
+    pieces: list[tuple[str, float]] = [
+        ("lag_1", 0.50),
+        ("roll_mean_3", 0.30),
+        ("roll_mean_6", 0.20),
+    ]
+    anchor = pd.Series(0.0, index=frame.index, dtype=float)
+    weight_sum = pd.Series(0.0, index=frame.index, dtype=float)
+    for col, weight in pieces:
+        if col in frame.columns:
+            vals = pd.to_numeric(frame[col], errors="coerce")
+            mask = vals.notna()
+            anchor.loc[mask] += vals.loc[mask] * weight
+            weight_sum.loc[mask] += weight
+
+    if "lag_1" in frame.columns:
+        fallback = pd.to_numeric(frame["lag_1"], errors="coerce").fillna(0.0)
+    else:
+        fallback = pd.Series(0.0, index=frame.index, dtype=float)
+
+    out = anchor.div(weight_sum.where(weight_sum > 0.0, np.nan)).fillna(fallback)
+    return out.clip(lower=0.0)
+
+
+def calibrate_predictions(
+    frame: pd.DataFrame,
+    preds: np.ndarray,
+    calibration: str,
+    calibration_weight: float,
+) -> np.ndarray:
+    if calibration == "none":
+        return np.clip(preds, 0, None)
+    if calibration == "recent_level_blend":
+        anchor = recent_level_anchor(frame).to_numpy(dtype=float)
+        adjusted = (1.0 - calibration_weight) * np.asarray(preds, dtype=float) + calibration_weight * anchor
+        return np.clip(adjusted, 0, None)
+    raise ValueError(f"Unsupported calibration mode: {calibration}")
+
+
+def predict_saved_model(
+    dataset: str,
+    model_name: str,
+    m5_df: pd.DataFrame,
+    horizons: list[int],
+    calibration: str,
+    calibration_weight: float,
+) -> pd.DataFrame:
     y_train_lookup = {
         sid: g[g["split"] == "train"]["demand_units"].to_numpy(dtype=float)
         for sid, g in m5_df.groupby("series_id")
@@ -71,12 +117,13 @@ def predict_saved_model(dataset: str, model_name: str, m5_df: pd.DataFrame, hori
         else:
             preds = np.clip(reg.predict(d[model_cols]), 0, None)
 
+        preds = calibrate_predictions(d, preds, calibration, calibration_weight)
         sigma = float(np.std(d["target"].to_numpy(dtype=float) - preds))
         for row, yp in zip(d.itertuples(index=False), preds):
             model_rows.append(
                 {
                     "dataset": f"M5_TRANSFER_{dataset}",
-                    "model": model_name,
+                    "model": model_name if calibration == "none" else f"{model_name}_{calibration}",
                     "series_id": row.series_id,
                     "fg_code": row.fg_code,
                     "fg_category": row.fg_category,
@@ -91,7 +138,8 @@ def predict_saved_model(dataset: str, model_name: str, m5_df: pd.DataFrame, hori
             )
 
     pred_df = pd.DataFrame(model_rows)
-    metrics = summarize_metrics(pred_df, "test", model_name, f"M5_TRANSFER_{dataset}", y_train_lookup) if not pred_df.empty else pd.DataFrame()
+    metric_model_name = model_name if calibration == "none" else f"{model_name}_{calibration}"
+    metrics = summarize_metrics(pred_df, "test", metric_model_name, f"M5_TRANSFER_{dataset}", y_train_lookup) if not pred_df.empty else pd.DataFrame()
     return pred_df, metrics
 
 
@@ -105,6 +153,8 @@ def main() -> None:
     parser.add_argument("--models", nargs="+", default=["XGBOOST", "CATBOOST"])
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
     parser.add_argument("--tag", default="m5_saved_transfer")
+    parser.add_argument("--calibration", choices=["none", "recent_level_blend"], default="none")
+    parser.add_argument("--calibration-weight", type=float, default=0.8)
     args = parser.parse_args()
 
     horizons = [int(x) for x in args.horizons.split(",") if x.strip()]
@@ -118,7 +168,14 @@ def main() -> None:
     all_metrics = []
     for dataset in args.datasets:
         for model_name in args.models:
-            pred_df, metrics = predict_saved_model(dataset, model_name, m5_df, horizons)
+            pred_df, metrics = predict_saved_model(
+                dataset,
+                model_name,
+                m5_df,
+                horizons,
+                args.calibration,
+                args.calibration_weight,
+            )
             if not pred_df.empty:
                 all_preds.append(pred_df)
             if not metrics.empty:
