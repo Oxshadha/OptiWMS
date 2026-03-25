@@ -1,0 +1,73 @@
+{
+  "portable": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1865.3868634259259,
+    "demand_median": 53.0,
+    "demand_p95": 5413.899999999998,
+    "zero_demand_rate": 0.15142746913580246
+  },
+  "wms": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1865.3868634259259,
+    "demand_median": 53.0,
+    "demand_p95": 5413.899999999998,
+    "zero_demand_rate": 0.15142746913580246
+  },
+  "wms_feature_ranges": {
+    "on_hand_inventory": {
+      "min": 0.0,
+      "max": 630127.0
+    },
+    "stockout_days": {
+      "min": 0.0,
+      "max": 6.0
+    },
+    "promotion_flag": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "price_or_discount": {
+      "min": 0.0,
+      "max": 0.2799
+    },
+    "lead_time_days": {
+      "min": 9.37,
+      "max": 136.57
+    },
+    "supplier_otif": {
+      "min": 0.55,
+      "max": 0.995
+    },
+    "inbound_po_qty": {
+      "min": 1.0,
+      "max": 276000.0
+    },
+    "open_sales_orders": {
+      "min": 0.0,
+      "max": 40822.0
+    },
+    "returns_qty": {
+      "min": 0.0,
+      "max": 3577.0
+    },
+    "holiday_flag": {
+      "min": 0.0,
+      "max": 1.0
+    }
+  },
+  "category_counts": {
+    "SLOW": 2736,
+    "STANDARD": 2376,
+    "INTERMITTENT": 2088,
+    "CORE": 1692,
+    "BULK_FAST": 1476
+  }
+}

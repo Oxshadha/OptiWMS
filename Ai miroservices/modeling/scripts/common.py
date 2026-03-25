@@ -27,6 +27,16 @@ DATASETS = {
         'sheet': None,
         'target_col': 'demand_units_clean',
     },
+    'P': {
+        'path': OUT_DIR / 'generated' / 'rule_based_portable_monthly.csv',
+        'sheet': None,
+        'target_col': 'demand_units',
+    },
+    'W': {
+        'path': OUT_DIR / 'generated' / 'rule_based_wms_monthly.csv',
+        'sheet': None,
+        'target_col': 'demand_units',
+    },
 }
 
 
