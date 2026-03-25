@@ -34,6 +34,14 @@ EXOG_COLS = [
     'holiday_flag',
 ]
 
+FEATURE_PROFILES = [
+    "full",
+    "lags_only",
+    "lags_roll",
+    "lags_roll_seasonal",
+    "lags_roll_seasonal_category",
+]
+
 
 def make_features(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     out = df.copy().sort_values(['series_id', 'month'])
@@ -89,7 +97,7 @@ def prepare_train_lookup(df: pd.DataFrame, split_dates) -> dict[str, np.ndarray]
     return lookup
 
 
-def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
+def get_feature_tiers(dfh: pd.DataFrame, feature_profile: str = "full") -> list[list[str]]:
     base = ['fg_code', 'fg_category', 'month_num', 'quarter', 'year', 'month_sin', 'month_cos']
     lag12 = ['lag_12', 'roll_mean_12', 'roll_std_12']
     lag6 = ['lag_6', 'roll_mean_6', 'roll_std_6']
@@ -98,6 +106,17 @@ def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
     lag1 = ['lag_1']
 
     exog_lag = [f'{c}_lag1' for c in EXOG_COLS if f'{c}_lag1' in dfh.columns]
+
+    if feature_profile == "lags_only":
+        return [lag1 + lag2 + ['lag_3', 'lag_6', 'lag_12']]
+    if feature_profile == "lags_roll":
+        return [lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile == "lags_roll_seasonal":
+        return [['month_num', 'quarter', 'year', 'month_sin', 'month_cos'] + lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile == "lags_roll_seasonal_category":
+        return [base + lag1 + lag2 + lag3 + lag6 + lag12]
+    if feature_profile != "full":
+        raise ValueError(f"Unsupported feature profile: {feature_profile}")
 
     tiers = [
         base + lag1 + lag2 + lag3 + lag6 + lag12 + exog_lag,
@@ -110,7 +129,7 @@ def get_feature_tiers(dfh: pd.DataFrame) -> list[list[str]]:
     return [list(dict.fromkeys(t)) for t in tiers]
 
 
-def run_dataset(dataset: str, models: list[str], sample_frac: float, horizons: list[int]) -> None:
+def run_dataset(dataset: str, models: list[str], sample_frac: float, horizons: list[int], feature_profile: str = "full") -> None:
     df = add_series_id(load_dataset(dataset), dataset)
     split_dates = get_split_dates(df)
 
@@ -148,7 +167,7 @@ def run_dataset(dataset: str, models: list[str], sample_frac: float, horizons: l
             chosen_cols = None
             train_df = val_df = test_df = None
 
-            for model_cols in get_feature_tiers(dfh):
+            for model_cols in get_feature_tiers(dfh, feature_profile=feature_profile):
                 keep_cols = list(dict.fromkeys(feature_base + model_cols))
                 d = dfh[keep_cols].dropna(subset=['target']).dropna(subset=model_cols)
                 train_mask, val_mask, test_mask = split_masks(d, dataset, split_dates)
