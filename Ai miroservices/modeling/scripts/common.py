@@ -106,13 +106,14 @@ def assign_time_split(df: pd.DataFrame, split_dates: SplitDates) -> pd.Series:
     )
 
 
-def mase(y_true: np.ndarray, y_pred: np.ndarray, y_train: np.ndarray) -> float:
+def mase(y_true: np.ndarray, y_pred: np.ndarray, y_train: np.ndarray, seasonal_period: int = 1) -> float:
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
     y_train = np.asarray(y_train, dtype=float)
-    if len(y_train) < 2:
+    seasonal_period = max(int(seasonal_period), 1)
+    if len(y_train) <= seasonal_period:
         return float('nan')
-    scale = np.mean(np.abs(np.diff(y_train)))
+    scale = np.mean(np.abs(y_train[seasonal_period:] - y_train[:-seasonal_period]))
     if scale == 0:
         return float('nan')
     return float(np.mean(np.abs(y_true - y_pred)) / scale)
@@ -146,6 +147,7 @@ def summarize_metrics(
     model_name: str,
     dataset: str,
     y_train_lookup: dict[str, np.ndarray],
+    seasonal_period: int = 1,
 ) -> pd.DataFrame:
     rows: list[dict] = []
     sdf = df_pred[df_pred['split'] == split].copy()
@@ -162,7 +164,7 @@ def summarize_metrics(
             y_train = y_train_lookup.get(sid)
             if y_train is None:
                 continue
-            mase_vals.append(mase(g['y_true'].to_numpy(), g['y_pred'].to_numpy(), y_train))
+            mase_vals.append(mase(g['y_true'].to_numpy(), g['y_pred'].to_numpy(), y_train, seasonal_period=seasonal_period))
 
         rows.append(
             {
@@ -188,7 +190,7 @@ def summarize_metrics(
         y_train = y_train_lookup.get(sid)
         if y_train is None:
             continue
-        mase_vals.append(mase(g['y_true'].to_numpy(), g['y_pred'].to_numpy(), y_train))
+        mase_vals.append(mase(g['y_true'].to_numpy(), g['y_pred'].to_numpy(), y_train, seasonal_period=seasonal_period))
 
     rows.append(
         {
