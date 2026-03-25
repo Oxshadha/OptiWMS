@@ -17,6 +17,17 @@ DEFAULT_START = "2023-02-01"
 DEFAULT_PERIODS = 36
 DEFAULT_SEED = 42
 
+FAMILY_KEYWORDS = {
+    "SOLVENT": ["ALCOHOL", "GLYCERINE", "GLYCOL", "ETHYL", "PROPYLENE"],
+    "SURFACTANT": ["EMULSION", "CREMOPHOR", "EMAL", "EMPILAN", "POLYSORBATE", "BETAINE", "SULFATE"],
+    "COLORANT": ["BLUE", "RED", "YELLOW", "GREEN", "CHLOROPHYLL", "LAKE", "COLOR"],
+    "ACID_BASE": ["ACID", "SODA", "HYDROXIDE", "CITRATE", "CAUSTIC"],
+    "STARCH_GUM": ["STARCH", "GUM", "CELLULOSE", "DEXTRIN"],
+    "OIL_WAX": ["CETYL", "STEARYL", "WAX", "OIL", "BUTTER"],
+    "ACTIVE": ["ALLANTOIN", "CLIMBAZOLE", "NIACINAMIDE", "VITAMIN", "ZINC", "BHT"],
+    "FRAGRANCE_COOLANT": ["FRESCOLAT", "FRAGRANCE", "PERFUME", "MENTHOL", "AROMA"],
+}
+
 
 @dataclass
 class GenerationConfig:
@@ -54,7 +65,7 @@ def round_to_pack(value: float, pack: float) -> float:
     return float(np.ceil(max(value, 0.0) / pack) * pack)
 
 
-def categorize_material(row: pd.Series) -> str:
+def demand_speed_bucket(row: pd.Series) -> str:
     avg = safe_value(row.get("future_average"), 0.0)
     pallet = safe_value(row.get("pallet_requirement"), 0.0)
     if avg >= 1500 or pallet >= 15:
@@ -68,7 +79,21 @@ def categorize_material(row: pd.Series) -> str:
     return "INTERMITTENT"
 
 
-def build_season_profile(row: pd.Series) -> np.ndarray:
+def infer_material_family(description: str) -> str:
+    text = description.upper()
+    for family, keywords in FAMILY_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return family
+    return "GENERAL"
+
+
+def categorize_material(row: pd.Series) -> str:
+    family = infer_material_family(str(row.get("description", "")))
+    speed = demand_speed_bucket(row)
+    return f"{family}_{speed}"
+
+
+def build_season_profile(row: pd.Series, family: str, speed: str) -> np.ndarray:
     plan_map = {
         7: safe_value(row.get("supply_plan_jul"), np.nan),
         8: safe_value(row.get("supply_plan_aug"), np.nan),
@@ -89,36 +114,96 @@ def build_season_profile(row: pd.Series) -> np.ndarray:
                 seasonal[month_num - 1] = clamp(value / max(observed_mean, 1e-6), 0.45, 1.85)
 
     # Smooth missing months with a low-amplitude sinusoid anchored to observed variation.
+    family_amp = {
+        "SOLVENT": 0.05,
+        "SURFACTANT": 0.08,
+        "COLORANT": 0.12,
+        "ACID_BASE": 0.04,
+        "STARCH_GUM": 0.07,
+        "OIL_WAX": 0.09,
+        "ACTIVE": 0.10,
+        "FRAGRANCE_COOLANT": 0.13,
+        "GENERAL": 0.08,
+    }
+    speed_amp = {
+        "BULK_FAST": 0.02,
+        "CORE": 0.04,
+        "STANDARD": 0.06,
+        "SLOW": 0.08,
+        "INTERMITTENT": 0.10,
+    }
     if observed.size >= 2:
         amplitude = clamp(float(np.std(observed) / max(np.mean(observed), 1e-6)), 0.03, 0.22)
     else:
-        amplitude = 0.08
+        amplitude = family_amp.get(family, 0.08) + speed_amp.get(speed, 0.05)
     phase_shift = int(safe_value(row.get("material_code"), 0.0)) % 12
     for idx in range(12):
         if seasonal[idx] == 1.0:
             seasonal[idx] = 1.0 + amplitude * np.sin((idx - phase_shift) * 2 * np.pi / 12.0)
 
+    # Family-specific demand peaks layered onto the generic profile.
+    boosts = {
+        "COLORANT": {4: 0.05, 11: 0.08, 12: 0.08},
+        "FRAGRANCE_COOLANT": {4: 0.06, 11: 0.10, 12: 0.10},
+        "SURFACTANT": {7: 0.04, 8: 0.04},
+        "OIL_WAX": {6: 0.05, 12: 0.04},
+        "ACTIVE": {3: 0.05, 9: 0.05},
+    }
+    for month_num, bump in boosts.get(family, {}).items():
+        seasonal[month_num - 1] *= 1.0 + bump
+
     seasonal = seasonal / seasonal.mean()
     return seasonal
 
 
-def demand_regime_params(row: pd.Series) -> tuple[float, float, float]:
+def demand_regime_params(row: pd.Series, family: str, speed: str) -> tuple[float, float, float, float, float]:
     avg = safe_value(row.get("future_average"), 1.0)
     variance = safe_value(row.get("demand_variance"), avg * 0.2)
     cv = clamp(np.sqrt(max(variance, 0.0)) / max(avg, 1.0), 0.05, 1.2)
-    if avg < 5:
-        intermittent_prob = 0.55
-    elif avg < 25:
-        intermittent_prob = 0.25
-    else:
-        intermittent_prob = 0.05
+    intermittent_prob = {
+        "BULK_FAST": 0.01,
+        "CORE": 0.03,
+        "STANDARD": 0.08,
+        "SLOW": 0.20,
+        "INTERMITTENT": 0.50,
+    }.get(speed, 0.08)
+    cv += {
+        "COLORANT": 0.08,
+        "FRAGRANCE_COOLANT": 0.10,
+        "ACTIVE": 0.06,
+        "SURFACTANT": 0.03,
+    }.get(family, 0.0)
+    cv = clamp(cv, 0.05, 1.3)
     trend_pct = clamp(
         (safe_value(row.get("supply_plan_nov"), avg) - safe_value(row.get("supply_plan_jul"), avg))
         / max(avg * 4.0, 1.0),
         -0.12,
         0.12,
     )
-    return cv, intermittent_prob, trend_pct
+    promo_rate = {
+        "BULK_FAST": 0.06,
+        "CORE": 0.08,
+        "STANDARD": 0.10,
+        "SLOW": 0.07,
+        "INTERMITTENT": 0.05,
+    }.get(speed, 0.08)
+    promo_rate += {
+        "COLORANT": 0.03,
+        "FRAGRANCE_COOLANT": 0.04,
+        "ACTIVE": 0.02,
+    }.get(family, 0.0)
+    shock_scale = {
+        "SOLVENT": 0.9,
+        "SURFACTANT": 1.0,
+        "COLORANT": 1.2,
+        "ACID_BASE": 0.9,
+        "STARCH_GUM": 1.0,
+        "OIL_WAX": 1.1,
+        "ACTIVE": 1.15,
+        "FRAGRANCE_COOLANT": 1.2,
+        "GENERAL": 1.0,
+    }.get(family, 1.0)
+    return cv, intermittent_prob, trend_pct, clamp(promo_rate, 0.02, 0.18), shock_scale
 
 
 def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int) -> pd.DataFrame:
@@ -127,14 +212,16 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
 
     fg_code = f"RM{material_code:06d}"
     fg_name = str(row["description"]).strip()
-    fg_category = categorize_material(row)
+    family = infer_material_family(fg_name)
+    speed = demand_speed_bucket(row)
+    fg_category = f"{family}_{speed}"
     avg = max(safe_value(row.get("future_average"), 1.0), 0.1)
-    seasonality = build_season_profile(row)
-    cv, intermittent_prob, trend_pct = demand_regime_params(row)
-    promo_rate = 0.04 if avg < 25 else 0.09 if avg < 300 else 0.14
+    seasonality = build_season_profile(row, family, speed)
+    cv, intermittent_prob, trend_pct, promo_rate, shock_scale = demand_regime_params(row, family, speed)
     trend_line = np.linspace(1.0 - trend_pct, 1.0 + trend_pct, len(months))
 
-    shock_months = set(rng.choice(len(months), size=max(1, len(months) // 18), replace=False).tolist())
+    shock_count = max(1, int(round((len(months) / 18.0) * shock_scale)))
+    shock_months = set(rng.choice(len(months), size=min(shock_count, len(months)), replace=False).tolist())
     rows: list[dict[str, object]] = []
     recent_demands: list[float] = []
     rolling_inventory = max(
@@ -159,7 +246,7 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
         holiday_lift = 1.0 + (rng.uniform(0.02, 0.08) if holiday_flag else 0.0)
         shock_multiplier = 1.0
         if idx in shock_months:
-            shock_multiplier = rng.choice([rng.uniform(0.55, 0.85), rng.uniform(1.15, 1.45)])
+            shock_multiplier = rng.choice([rng.uniform(0.50, 0.85), rng.uniform(1.12, 1.55)])
 
         mean_demand = max(avg * seasonal * trend_line[idx] * promo_lift * holiday_lift * shock_multiplier, 0.05)
         noise = rng.normal(0.0, cv)
@@ -167,6 +254,8 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
 
         if rng.random() < intermittent_prob:
             raw_demand *= rng.uniform(0.0, 0.35)
+        elif speed in {"SLOW", "INTERMITTENT"} and rng.random() < 0.10:
+            raw_demand *= rng.uniform(0.35, 0.75)
 
         demand_units = max(int(round(raw_demand)), 0)
         recent_demands.append(float(demand_units))
@@ -230,6 +319,8 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
                 "fg_code": fg_code,
                 "fg_name": fg_name,
                 "fg_category": fg_category,
+                "source_family": family,
+                "source_speed_bucket": speed,
                 "demand_units": demand_units,
                 "promotion_flag": promotion_flag,
                 "price_or_discount": price_or_discount,
