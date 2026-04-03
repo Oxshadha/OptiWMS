@@ -13,6 +13,8 @@ dependencies = [
   "statsmodels>=0.14",
   "xgboost>=2.0",
   "catboost>=1.2",
+  "lightgbm>=4.0",
+  "scikit-learn>=1.4",
 ]
 
 [build-system]
