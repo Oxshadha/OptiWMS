@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from catboost import CatBoostRegressor
+from sklearn.ensemble import RandomForestRegressor
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.statespace.sarimax import SARIMAX
@@ -19,7 +20,12 @@ from run_boosting import FEATURE_PROFILES, get_feature_tiers, make_features
 
 
 CLASSICAL_MODELS = ["ETS", "ARIMA", "SARIMA"]
-BOOSTING_MODELS = ["XGBOOST", "CATBOOST"]
+BOOSTING_MODELS = ["XGBOOST", "CATBOOST", "LIGHTGBM", "RANDOM_FOREST"]
+
+try:
+    from lightgbm import LGBMRegressor
+except Exception:
+    LGBMRegressor = None
 
 
 def load_clean_dataset(dataset: str) -> pd.DataFrame:
@@ -191,25 +197,46 @@ def run_classical_training(dataset: str, models: list[str]) -> tuple[pd.DataFram
 def fit_boosting_final_model(model_name: str, train_df: pd.DataFrame, val_df: pd.DataFrame, model_cols: list[str]):
     metadata = {"model_cols": model_cols}
     cat_cols = [c for c in ["fg_code", "fg_category"] if c in model_cols]
-    if model_name == "XGBOOST":
+    if model_name in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
         x_train = pd.get_dummies(train_df[model_cols], columns=cat_cols, drop_first=False)
         x_val = pd.get_dummies(val_df[model_cols], columns=cat_cols, drop_first=False)
         cols = sorted(set(x_train.columns) | set(x_val.columns))
         x_train = x_train.reindex(columns=cols, fill_value=0)
         x_val = x_val.reindex(columns=cols, fill_value=0)
-        reg = XGBRegressor(
-            n_estimators=500,
-            learning_rate=0.05,
-            max_depth=6,
-            subsample=0.85,
-            colsample_bytree=0.85,
-            reg_alpha=0.0,
-            reg_lambda=1.0,
-            objective="reg:squarederror",
-            random_state=42,
-            n_jobs=1,
-        )
-        reg.fit(x_train, train_df["target"].to_numpy(), eval_set=[(x_val, val_df["target"].to_numpy())], verbose=False)
+        if model_name == "XGBOOST":
+            reg = XGBRegressor(
+                n_estimators=500,
+                learning_rate=0.05,
+                max_depth=6,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                reg_alpha=0.0,
+                reg_lambda=1.0,
+                objective="reg:squarederror",
+                random_state=42,
+                n_jobs=1,
+            )
+            reg.fit(x_train, train_df["target"].to_numpy(), eval_set=[(x_val, val_df["target"].to_numpy())], verbose=False)
+        elif model_name == "LIGHTGBM":
+            if LGBMRegressor is None:
+                raise RuntimeError("LIGHTGBM requested but lightgbm is not installed.")
+            reg = LGBMRegressor(
+                n_estimators=700,
+                learning_rate=0.05,
+                num_leaves=31,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                random_state=42,
+                n_jobs=1,
+            )
+            reg.fit(x_train, train_df["target"].to_numpy())
+        else:
+            reg = RandomForestRegressor(
+                n_estimators=500,
+                random_state=42,
+                n_jobs=1,
+            )
+            reg.fit(x_train, train_df["target"].to_numpy())
         metadata["feature_columns"] = cols
         return reg, np.clip(reg.predict(x_val), 0, None), metadata
 
@@ -237,7 +264,7 @@ def fit_boosting_final_model(model_name: str, train_df: pd.DataFrame, val_df: pd
 
 
 def predict_boosting(model_name: str, reg, frame: pd.DataFrame, model_cols: list[str], feature_columns: list[str] | None):
-    if model_name == "XGBOOST":
+    if model_name in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
         cat_cols = [c for c in ["fg_code", "fg_category"] if c in model_cols]
         x = pd.get_dummies(frame[model_cols], columns=cat_cols, drop_first=False)
         x = x.reindex(columns=feature_columns or [], fill_value=0)
@@ -329,8 +356,10 @@ def run_boosting_training(
             )
             if model_name == "XGBOOST":
                 artifact_path = save_xgboost_model(prod_reg, dataset, f"{model_name}_h{h}", "production", prod_meta)
-            else:
+            elif model_name == "CATBOOST":
                 artifact_path = save_catboost_model(prod_reg, dataset, f"{model_name}_h{h}", "production", prod_meta)
+            else:
+                artifact_path = save_pickle_model(prod_reg, dataset, f"{model_name}_h{h}", "production", prod_meta)
             artifact_meta_rows.append(
                 {
                     "dataset": dataset,
