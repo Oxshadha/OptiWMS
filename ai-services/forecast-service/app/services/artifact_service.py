@@ -93,6 +93,13 @@ def load_boosting_artifact(dataset: str, model_name: str, horizon: int, stage: s
         reg = CatBoostRegressor()
         reg.load_model(str(model_path))
         return reg, metadata
+    if model_name.upper() in {"LIGHTGBM", "RANDOM_FOREST"}:
+        model_path = path / "model.pkl"
+        if not model_path.exists():
+            raise FileNotFoundError(f"Missing artifact: {model_path}")
+        with model_path.open("rb") as f:
+            reg = pickle.load(f)
+        return reg, metadata
     raise ValueError(f"Unsupported boosting model: {model_name}")
 
 
@@ -105,7 +112,7 @@ def infer_boosting(dataset: str, model_name: str, horizon: int, rows: list[dict[
             frame[col] = 0
     frame = frame[model_cols].copy()
 
-    if model_name.upper() == "XGBOOST":
+    if model_name.upper() in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
         feature_columns = metadata.get("feature_columns") or []
         x = pd.get_dummies(frame, columns=[c for c in ["fg_code", "fg_category"] if c in frame.columns], drop_first=False)
         x = x.reindex(columns=feature_columns, fill_value=0)
