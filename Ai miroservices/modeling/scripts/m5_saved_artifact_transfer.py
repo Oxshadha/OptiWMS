@@ -121,6 +121,9 @@ def predict_saved_model(
     calibration: str,
     calibration_weight: float,
     calibration_max_weight: float,
+    calibration_max_weight_short: float | None = None,
+    calibration_max_weight_long: float | None = None,
+    calibration_long_horizon_start: int = 9,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, float | int | str]]]:
     y_train_lookup = {
         sid: g[g["split"] == "train"]["demand_units"].to_numpy(dtype=float)
@@ -162,8 +165,18 @@ def predict_saved_model(
             preds = np.clip(reg.predict(test_frame[model_cols]), 0, None)
 
         effective_weight = calibration_weight
+        max_weight_applied = calibration_max_weight
         if calibration in {"recent_level_auto", "recent_level_auto_capped"} and not val_frame.empty:
-            max_weight = 1.0 if calibration == "recent_level_auto" else calibration_max_weight
+            if calibration == "recent_level_auto":
+                max_weight = 1.0
+            else:
+                max_weight = calibration_max_weight
+                if calibration_max_weight_short is not None or calibration_max_weight_long is not None:
+                    if horizon >= calibration_long_horizon_start and calibration_max_weight_long is not None:
+                        max_weight = calibration_max_weight_long
+                    elif horizon < calibration_long_horizon_start and calibration_max_weight_short is not None:
+                        max_weight = calibration_max_weight_short
+            max_weight_applied = float(max_weight)
             effective_weight = choose_blend_weight(val_frame, val_preds, max_weight=max_weight)
             calibration_mode = "recent_level_blend"
         else:
@@ -176,6 +189,7 @@ def predict_saved_model(
                 "horizon": horizon,
                 "calibration": calibration,
                 "effective_weight": float(effective_weight),
+                "max_weight_applied": float(max_weight_applied),
                 "val_rows": int(len(val_frame)),
                 "test_rows": int(len(test_frame)),
             }
@@ -228,6 +242,9 @@ def main() -> None:
     parser.add_argument("--calibration", choices=["none", "recent_level_blend", "recent_level_auto", "recent_level_auto_capped"], default="none")
     parser.add_argument("--calibration-weight", type=float, default=0.8)
     parser.add_argument("--calibration-max-weight", type=float, default=0.8)
+    parser.add_argument("--calibration-max-weight-short", type=float, default=None)
+    parser.add_argument("--calibration-max-weight-long", type=float, default=None)
+    parser.add_argument("--calibration-long-horizon-start", type=int, default=9)
     args = parser.parse_args()
 
     horizons = [int(x) for x in args.horizons.split(",") if x.strip()]
@@ -250,6 +267,9 @@ def main() -> None:
                 args.calibration,
                 args.calibration_weight,
                 args.calibration_max_weight,
+                args.calibration_max_weight_short,
+                args.calibration_max_weight_long,
+                args.calibration_long_horizon_start,
             )
             if not pred_df.empty:
                 all_preds.append(pred_df)
