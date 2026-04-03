@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
 from pathlib import Path
 
 import numpy as np
@@ -27,6 +28,9 @@ def load_boosting_artifact(dataset: str, model_name: str, horizon: int):
     elif model_name == "CATBOOST":
         reg = CatBoostRegressor()
         reg.load_model(str(path / "model.cbm"))
+    elif model_name in {"LIGHTGBM", "RANDOM_FOREST"}:
+        with (path / "model.pkl").open("rb") as f:
+            reg = pickle.load(f)
     else:
         raise ValueError(f"Unsupported model: {model_name}")
     return reg, meta
@@ -165,7 +169,7 @@ def predict_saved_model(
             if col not in test_frame.columns:
                 test_frame[col] = 0
 
-        if model_name == "XGBOOST":
+        if model_name in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
             feature_columns = meta.get("feature_columns") or []
             x_val = pd.get_dummies(val_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in val_frame.columns], drop_first=False)
             x_val = x_val.reindex(columns=feature_columns, fill_value=0)
@@ -272,7 +276,7 @@ def main() -> None:
     parser.add_argument("--sample-series", type=int, default=None)
     parser.add_argument("--chunk-size", type=int, default=1000)
     parser.add_argument("--datasets", nargs="+", default=["A", "B", "C"])
-    parser.add_argument("--models", nargs="+", default=["XGBOOST", "CATBOOST"])
+    parser.add_argument("--models", nargs="+", default=["XGBOOST", "CATBOOST", "LIGHTGBM", "RANDOM_FOREST"])
     parser.add_argument("--horizons", type=str, default="1,2,3,4,5,6,7,8,9,10,11,12")
     parser.add_argument("--tag", default="m5_saved_transfer")
     parser.add_argument("--calibration", choices=["none", "recent_level_blend", "recent_level_auto", "recent_level_auto_capped"], default="none")
