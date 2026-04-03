@@ -32,8 +32,23 @@ DATASETS = {
         'sheet': None,
         'target_col': 'demand_units',
     },
+    'PV2': {
+        'path': OUT_DIR / 'generated' / 'p_v2_portable_monthly.csv',
+        'sheet': None,
+        'target_col': 'demand_units',
+    },
     'W': {
         'path': OUT_DIR / 'generated' / 'rule_based_wms_monthly.csv',
+        'sheet': None,
+        'target_col': 'demand_units',
+    },
+    'WV2': {
+        'path': OUT_DIR / 'generated' / 'w_v2_wms_monthly.csv',
+        'sheet': None,
+        'target_col': 'demand_units',
+    },
+    'RMV2': {
+        'path': OUT_DIR / 'generated' / 'p_v2_rm_monthly.csv',
         'sheet': None,
         'target_col': 'demand_units',
     },

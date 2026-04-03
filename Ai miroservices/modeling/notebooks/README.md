@@ -33,30 +33,35 @@ Use these notebooks in this order.
      - `portable_fair_play_strict_by_horizon.csv`
      - `portable_fair_play_strict_decision.csv`
 
-7. `02_global_model_training_and_artifact_save.ipynb`
+7. `06_fair_refinement_pv2_and_m5_diagnostics.ipynb`
+   - equal-budget refinement for ML models on `PV2`
+   - unseen transfer comparison on M5 (raw vs auto-capped)
+   - diagnostics: bias/variance proxies, horizon degradation, generalization gap matrix
+
+8. `02_global_model_training_and_artifact_save.ipynb`
    - trains and stores selected global model artifacts on dataset `P`
    - use this after fair-play winner confirmation
 
-8. `05b_global_model_transfer_only.ipynb`
+9. `05b_global_model_transfer_only.ipynb`
    - runs saved-artifact transfer on M5 monthly aggregates
    - current default path is `P + XGBOOST + recent_level_blend`
    - this is the main external-transfer validation notebook
 
 ## Secondary / diagnostic notebooks
 
-9. `00_dataset_audit_and_cleaning.ipynb`
+10. `00_dataset_audit_and_cleaning.ipynb`
    - audits the older `A`, `B`, `C` synthetic datasets
    - still useful for comparison against the older workflow
 
-10. `01_split_protocol_validation.ipynb`
+11. `01_split_protocol_validation.ipynb`
    - confirms train / validation / test split logic
    - checks leakage assumptions
 
-11. `03_model_bias_overfit_analysis.ipynb`
+12. `03_model_bias_overfit_analysis.ipynb`
    - inspects bias and horizon degradation on the training workflow outputs
    - use this after a completed training run
 
-12. `05_m5_submission_inference.ipynb`
+13. `05_m5_submission_inference.ipynb`
    - keep this separate from transfer evaluation
    - it is not the main proof notebook for the current portable workflow
 
