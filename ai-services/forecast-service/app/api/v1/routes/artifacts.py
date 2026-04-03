@@ -1,23 +1,18 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
 
-from app.services.artifact_service import infer_boosting, infer_classical, list_artifacts
+from app.api.v1.schemas.artifacts import (
+    BoostingInferenceRequest,
+    BoostingOnlineInferenceRequest,
+    ClassicalInferenceRequest,
+)
+from app.services.artifact_service import (
+    infer_boosting,
+    infer_boosting_online,
+    infer_classical,
+    list_artifacts,
+)
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
-
-
-class ClassicalInferenceRequest(BaseModel):
-    dataset: str
-    model_name: str
-    series_id: str
-    steps: int = Field(default=12, ge=1, le=24)
-
-
-class BoostingInferenceRequest(BaseModel):
-    dataset: str
-    model_name: str
-    horizon: int = Field(ge=1, le=12)
-    rows: list[dict]
 
 
 @router.get("")
@@ -43,3 +38,20 @@ def infer_saved_boosting(payload: BoostingInferenceRequest):
         raise HTTPException(status_code=404, detail=str(ex))
     except Exception as ex:
         raise HTTPException(status_code=400, detail=f"boosting inference failed: {ex}")
+
+
+@router.post("/infer-boosting-online")
+def infer_saved_boosting_online(payload: BoostingOnlineInferenceRequest):
+    try:
+        return infer_boosting_online(
+            dataset=payload.dataset,
+            model_name=payload.model_name,
+            horizon=payload.horizon,
+            series=payload.series,
+            stage=payload.stage,
+            clip_negative=payload.clip_negative,
+        )
+    except FileNotFoundError as ex:
+        raise HTTPException(status_code=404, detail=str(ex))
+    except Exception as ex:
+        raise HTTPException(status_code=400, detail=f"online boosting inference failed: {ex}")
