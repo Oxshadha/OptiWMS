@@ -113,6 +113,13 @@ def choose_blend_weight(
     return best_weight
 
 
+def wape_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    denom = float(np.abs(y_true).sum())
+    if denom <= 0:
+        return float("inf")
+    return float(np.abs(y_true - y_pred).sum() / denom)
+
+
 def predict_saved_model(
     dataset: str,
     model_name: str,
@@ -124,6 +131,7 @@ def predict_saved_model(
     calibration_max_weight_short: float | None = None,
     calibration_max_weight_long: float | None = None,
     calibration_long_horizon_start: int = 9,
+    naive_guard: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list[dict[str, float | int | str]]]:
     y_train_lookup = {
         sid: g[g["split"] == "train"]["demand_units"].to_numpy(dtype=float)
@@ -142,6 +150,9 @@ def predict_saved_model(
         val_end = m5_df.loc[m5_df["split"] == "val", "month"].max()
         d["eval_split"] = np.where(d["target_month"] > val_end, "test", "val")
         val_frame = d[d["eval_split"] == "val"].copy()
+        # Use all pre-test rows for calibration selection to keep
+        # horizon-level tuning stable when explicit val rows are sparse.
+        calib_frame = d[d["eval_split"] != "test"].copy()
         test_frame = d[d["eval_split"] == "test"].copy()
         if test_frame.empty:
             continue
@@ -149,6 +160,8 @@ def predict_saved_model(
         for col in model_cols:
             if col not in val_frame.columns:
                 val_frame[col] = 0
+            if col not in calib_frame.columns:
+                calib_frame[col] = 0
             if col not in test_frame.columns:
                 test_frame[col] = 0
 
@@ -156,17 +169,21 @@ def predict_saved_model(
             feature_columns = meta.get("feature_columns") or []
             x_val = pd.get_dummies(val_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in val_frame.columns], drop_first=False)
             x_val = x_val.reindex(columns=feature_columns, fill_value=0)
+            x_calib = pd.get_dummies(calib_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in calib_frame.columns], drop_first=False)
+            x_calib = x_calib.reindex(columns=feature_columns, fill_value=0)
             x_test = pd.get_dummies(test_frame[model_cols], columns=[c for c in ["fg_code", "fg_category"] if c in test_frame.columns], drop_first=False)
             x_test = x_test.reindex(columns=feature_columns, fill_value=0)
             val_preds = np.clip(reg.predict(x_val), 0, None) if not val_frame.empty else np.array([])
+            calib_preds = np.clip(reg.predict(x_calib), 0, None) if not calib_frame.empty else np.array([])
             preds = np.clip(reg.predict(x_test), 0, None)
         else:
             val_preds = np.clip(reg.predict(val_frame[model_cols]), 0, None) if not val_frame.empty else np.array([])
+            calib_preds = np.clip(reg.predict(calib_frame[model_cols]), 0, None) if not calib_frame.empty else np.array([])
             preds = np.clip(reg.predict(test_frame[model_cols]), 0, None)
 
         effective_weight = calibration_weight
         max_weight_applied = calibration_max_weight
-        if calibration in {"recent_level_auto", "recent_level_auto_capped"} and not val_frame.empty:
+        if calibration in {"recent_level_auto", "recent_level_auto_capped"} and not calib_frame.empty:
             if calibration == "recent_level_auto":
                 max_weight = 1.0
             else:
@@ -177,10 +194,23 @@ def predict_saved_model(
                     elif horizon < calibration_long_horizon_start and calibration_max_weight_short is not None:
                         max_weight = calibration_max_weight_short
             max_weight_applied = float(max_weight)
-            effective_weight = choose_blend_weight(val_frame, val_preds, max_weight=max_weight)
+            effective_weight = choose_blend_weight(calib_frame, calib_preds, max_weight=max_weight)
             calibration_mode = "recent_level_blend"
         else:
             calibration_mode = calibration
+
+        # Optional per-horizon guard: if calibrated model underperforms seasonal naive on val,
+        # use lag_12 as fallback for that horizon.
+        fallback_to_naive = False
+        model_val_wape = float("nan")
+        naive_val_wape = float("nan")
+        if naive_guard and not calib_frame.empty and "lag_12" in calib_frame.columns:
+            calib_adjusted = calibrate_predictions(calib_frame, calib_preds, calibration_mode, effective_weight)
+            naive_calib = np.clip(pd.to_numeric(calib_frame["lag_12"], errors="coerce").fillna(0.0).to_numpy(dtype=float), 0, None)
+            y_calib = calib_frame["target"].to_numpy(dtype=float)
+            model_val_wape = wape_score(y_calib, calib_adjusted)
+            naive_val_wape = wape_score(y_calib, naive_calib)
+            fallback_to_naive = model_val_wape > naive_val_wape
 
         calibration_rows.append(
             {
@@ -190,11 +220,17 @@ def predict_saved_model(
                 "calibration": calibration,
                 "effective_weight": float(effective_weight),
                 "max_weight_applied": float(max_weight_applied),
-                "val_rows": int(len(val_frame)),
+                "fallback_to_naive": bool(fallback_to_naive),
+                "val_wape_model": float(model_val_wape) if not np.isnan(model_val_wape) else np.nan,
+                "val_wape_naive": float(naive_val_wape) if not np.isnan(naive_val_wape) else np.nan,
+                "val_rows": int(len(calib_frame)),
                 "test_rows": int(len(test_frame)),
             }
         )
-        preds = calibrate_predictions(test_frame, preds, calibration_mode, effective_weight)
+        if fallback_to_naive and "lag_12" in test_frame.columns:
+            preds = np.clip(pd.to_numeric(test_frame["lag_12"], errors="coerce").fillna(0.0).to_numpy(dtype=float), 0, None)
+        else:
+            preds = calibrate_predictions(test_frame, preds, calibration_mode, effective_weight)
         sigma = float(np.std(test_frame["target"].to_numpy(dtype=float) - preds))
         model_label = model_name if calibration == "none" else f"{model_name}_{calibration}"
         for row, yp in zip(test_frame.itertuples(index=False), preds):
@@ -245,6 +281,7 @@ def main() -> None:
     parser.add_argument("--calibration-max-weight-short", type=float, default=None)
     parser.add_argument("--calibration-max-weight-long", type=float, default=None)
     parser.add_argument("--calibration-long-horizon-start", type=int, default=9)
+    parser.add_argument("--naive-guard", action="store_true")
     args = parser.parse_args()
 
     horizons = [int(x) for x in args.horizons.split(",") if x.strip()]
@@ -270,6 +307,7 @@ def main() -> None:
                 args.calibration_max_weight_short,
                 args.calibration_max_weight_long,
                 args.calibration_long_horizon_start,
+                args.naive_guard,
             )
             if not pred_df.empty:
                 all_preds.append(pred_df)
