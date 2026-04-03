@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! git diff --cached --name-only --diff-filter=ACM | grep -qE '\.ipynb$'; then
+  exit 0
+fi
+
+if ! command -v python >/dev/null 2>&1; then
+  echo "[pre-commit] python not found; skipping notebook cleaning."
+  exit 0
+fi
+
+find "Ai miroservices/modeling/notebooks" -name '*.ipynb' -print0 | xargs -0 python tools/clean_notebook_outputs.py
+git add -- "Ai miroservices/modeling/notebooks"
