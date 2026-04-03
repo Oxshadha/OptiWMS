@@ -184,9 +184,10 @@ def run_dataset(dataset: str, models: list[str], sample_frac: float, horizons: l
             model_cols = chosen_cols
 
             if model_name == 'XGBOOST':
-                X_train = pd.get_dummies(train_df[model_cols], columns=['fg_code', 'fg_category'], drop_first=False)
-                X_val = pd.get_dummies(val_df[model_cols], columns=['fg_code', 'fg_category'], drop_first=False)
-                X_test = pd.get_dummies(test_df[model_cols], columns=['fg_code', 'fg_category'], drop_first=False)
+                cat_cols = [c for c in ['fg_code', 'fg_category'] if c in model_cols]
+                X_train = pd.get_dummies(train_df[model_cols], columns=cat_cols, drop_first=False)
+                X_val = pd.get_dummies(val_df[model_cols], columns=cat_cols, drop_first=False)
+                X_test = pd.get_dummies(test_df[model_cols], columns=cat_cols, drop_first=False)
 
                 cols = sorted(set(X_train.columns) | set(X_val.columns) | set(X_test.columns))
                 X_train = X_train.reindex(columns=cols, fill_value=0)

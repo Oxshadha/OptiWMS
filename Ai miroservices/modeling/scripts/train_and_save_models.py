@@ -190,9 +190,10 @@ def run_classical_training(dataset: str, models: list[str]) -> tuple[pd.DataFram
 
 def fit_boosting_final_model(model_name: str, train_df: pd.DataFrame, val_df: pd.DataFrame, model_cols: list[str]):
     metadata = {"model_cols": model_cols}
+    cat_cols = [c for c in ["fg_code", "fg_category"] if c in model_cols]
     if model_name == "XGBOOST":
-        x_train = pd.get_dummies(train_df[model_cols], columns=["fg_code", "fg_category"], drop_first=False)
-        x_val = pd.get_dummies(val_df[model_cols], columns=["fg_code", "fg_category"], drop_first=False)
+        x_train = pd.get_dummies(train_df[model_cols], columns=cat_cols, drop_first=False)
+        x_val = pd.get_dummies(val_df[model_cols], columns=cat_cols, drop_first=False)
         cols = sorted(set(x_train.columns) | set(x_val.columns))
         x_train = x_train.reindex(columns=cols, fill_value=0)
         x_val = x_val.reindex(columns=cols, fill_value=0)
@@ -225,7 +226,7 @@ def fit_boosting_final_model(model_name: str, train_df: pd.DataFrame, val_df: pd
         reg.fit(
             train_df[model_cols],
             train_df["target"],
-            cat_features=[model_cols.index(c) for c in ["fg_code", "fg_category"] if c in model_cols],
+            cat_features=[model_cols.index(c) for c in cat_cols],
             eval_set=(val_df[model_cols], val_df["target"]),
             use_best_model=True,
             verbose=False,
@@ -237,7 +238,8 @@ def fit_boosting_final_model(model_name: str, train_df: pd.DataFrame, val_df: pd
 
 def predict_boosting(model_name: str, reg, frame: pd.DataFrame, model_cols: list[str], feature_columns: list[str] | None):
     if model_name == "XGBOOST":
-        x = pd.get_dummies(frame[model_cols], columns=["fg_code", "fg_category"], drop_first=False)
+        cat_cols = [c for c in ["fg_code", "fg_category"] if c in model_cols]
+        x = pd.get_dummies(frame[model_cols], columns=cat_cols, drop_first=False)
         x = x.reindex(columns=feature_columns or [], fill_value=0)
         return np.clip(reg.predict(x), 0, None)
     return np.clip(reg.predict(frame[model_cols]), 0, None)
