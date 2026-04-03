@@ -1,5 +1,8 @@
 package com.optiwms.coreapi.ai;
 
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -88,5 +91,12 @@ public class AiProxyController {
     @PostMapping("/artifacts/infer-boosting")
     public ResponseEntity<Object> inferBoosting(@RequestBody Map<String, Object> payload) {
         return service.postForecastService("/artifacts/infer-boosting", payload);
+    }
+
+    @PostMapping("/artifacts/infer-boosting-online")
+    public ResponseEntity<AiBoostingOnlineInferenceResponse> inferBoostingOnline(
+            @Valid @RequestBody AiBoostingOnlineInferenceRequest payload
+    ) {
+        return service.inferBoostingOnline(payload);
     }
 }
