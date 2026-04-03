@@ -17,42 +17,46 @@ Use these notebooks in this order.
    - generates `P_v2/W_v2` with statistical controls and FG→RM lead-lag logic
    - writes realism and lag-validation reports
 
-4. `04_fair_play_model_comparison.ipynb`
+4. `00d_v2_data_eda_and_seasonality.ipynb`
+   - data scientist EDA before modeling
+   - validates distributions, trend/seasonality, operational feature behavior, and FG↔RM lag
+
+5. `04_fair_play_model_comparison.ipynb`
    - runs strict fair-play comparison on dataset `P`
    - same split and metric protocol across `ETS`, `ARIMA`, `SARIMA`, `XGBOOST`, `CATBOOST`, `LIGHTGBM`, `RANDOM_FOREST`
    - produces baseline winner table and comparison charts
 
-5. `04c_strict_equal_ground_comparison.ipynb`
+6. `04c_strict_equal_ground_comparison.ipynb`
    - enforces equal evaluation ground (same horizon-month points for every model)
    - writes strict decision CSV outputs:
      - `portable_fair_play_strict_overall.csv`
      - `portable_fair_play_strict_by_horizon.csv`
      - `portable_fair_play_strict_decision.csv`
 
-6. `02_global_model_training_and_artifact_save.ipynb`
+7. `02_global_model_training_and_artifact_save.ipynb`
    - trains and stores selected global model artifacts on dataset `P`
    - use this after fair-play winner confirmation
 
-7. `05b_global_model_transfer_only.ipynb`
+8. `05b_global_model_transfer_only.ipynb`
    - runs saved-artifact transfer on M5 monthly aggregates
    - current default path is `P + XGBOOST + recent_level_blend`
    - this is the main external-transfer validation notebook
 
 ## Secondary / diagnostic notebooks
 
-8. `00_dataset_audit_and_cleaning.ipynb`
+9. `00_dataset_audit_and_cleaning.ipynb`
    - audits the older `A`, `B`, `C` synthetic datasets
    - still useful for comparison against the older workflow
 
-9. `01_split_protocol_validation.ipynb`
+10. `01_split_protocol_validation.ipynb`
    - confirms train / validation / test split logic
    - checks leakage assumptions
 
-10. `03_model_bias_overfit_analysis.ipynb`
+11. `03_model_bias_overfit_analysis.ipynb`
    - inspects bias and horizon degradation on the training workflow outputs
    - use this after a completed training run
 
-11. `05_m5_submission_inference.ipynb`
+12. `05_m5_submission_inference.ipynb`
    - keep this separate from transfer evaluation
    - it is not the main proof notebook for the current portable workflow
 
