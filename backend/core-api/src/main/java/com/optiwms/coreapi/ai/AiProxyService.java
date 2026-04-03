@@ -1,5 +1,7 @@
 package com.optiwms.coreapi.ai;
 
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
 import org.springframework.security.core.Authentication;
@@ -93,6 +95,17 @@ public class AiProxyService {
     public ResponseEntity<Object> postForecastService(String path, Object payload) {
         HttpEntity<Object> request = new HttpEntity<>(payload, headers());
         ResponseEntity<Map> response = restTemplate.exchange(forecastBaseUrl + path, HttpMethod.POST, request, Map.class);
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
+    public ResponseEntity<AiBoostingOnlineInferenceResponse> inferBoostingOnline(AiBoostingOnlineInferenceRequest payload) {
+        HttpEntity<AiBoostingOnlineInferenceRequest> request = new HttpEntity<>(payload, headers());
+        ResponseEntity<AiBoostingOnlineInferenceResponse> response = restTemplate.exchange(
+                forecastBaseUrl + "/artifacts/infer-boosting-online",
+                HttpMethod.POST,
+                request,
+                AiBoostingOnlineInferenceResponse.class
+        );
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
 
