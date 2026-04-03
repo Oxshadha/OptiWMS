@@ -5,6 +5,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
 
 from common import OUT_DIR, get_split_dates, summarize_metrics
 from run_classical import fit_predict
@@ -29,6 +30,11 @@ FEATURE_PROFILES = [
     "lags_roll_seasonal",
     "lags_roll_seasonal_category",
 ]
+
+try:
+    from lightgbm import LGBMRegressor
+except Exception:
+    LGBMRegressor = None
 
 
 def make_features(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
@@ -366,29 +372,51 @@ def run_boosting_like(
             if chosen_cols is None:
                 continue
 
-            if model_name == "XGBOOST":
-                x_train = pd.get_dummies(train_df[chosen_cols], columns=["fg_code", "fg_category"], drop_first=False)
-                x_val = pd.get_dummies(val_df[chosen_cols], columns=["fg_code", "fg_category"], drop_first=False)
-                x_test = pd.get_dummies(test_df[chosen_cols], columns=["fg_code", "fg_category"], drop_first=False)
+            if model_name in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
+                cat_cols = [c for c in ["fg_code", "fg_category"] if c in chosen_cols]
+                x_train = pd.get_dummies(train_df[chosen_cols], columns=cat_cols, drop_first=False)
+                x_val = pd.get_dummies(val_df[chosen_cols], columns=cat_cols, drop_first=False)
+                x_test = pd.get_dummies(test_df[chosen_cols], columns=cat_cols, drop_first=False)
 
                 cols = sorted(set(x_train.columns) | set(x_val.columns) | set(x_test.columns))
                 x_train = x_train.reindex(columns=cols, fill_value=0)
                 x_val = x_val.reindex(columns=cols, fill_value=0)
                 x_test = x_test.reindex(columns=cols, fill_value=0)
 
-                reg = XGBRegressor(
-                    n_estimators=500,
-                    learning_rate=0.05,
-                    max_depth=6,
-                    subsample=0.85,
-                    colsample_bytree=0.85,
-                    reg_alpha=0.0,
-                    reg_lambda=1.0,
-                    objective="reg:squarederror",
-                    random_state=42,
-                    n_jobs=1,
-                )
-                reg.fit(x_train, train_df["target"].to_numpy(), eval_set=[(x_val, val_df["target"].to_numpy())], verbose=False)
+                if model_name == "XGBOOST":
+                    reg = XGBRegressor(
+                        n_estimators=500,
+                        learning_rate=0.05,
+                        max_depth=6,
+                        subsample=0.85,
+                        colsample_bytree=0.85,
+                        reg_alpha=0.0,
+                        reg_lambda=1.0,
+                        objective="reg:squarederror",
+                        random_state=42,
+                        n_jobs=1,
+                    )
+                    reg.fit(x_train, train_df["target"].to_numpy(), eval_set=[(x_val, val_df["target"].to_numpy())], verbose=False)
+                elif model_name == "LIGHTGBM":
+                    if LGBMRegressor is None:
+                        raise RuntimeError("LIGHTGBM requested but lightgbm is not installed.")
+                    reg = LGBMRegressor(
+                        n_estimators=700,
+                        learning_rate=0.05,
+                        num_leaves=31,
+                        subsample=0.85,
+                        colsample_bytree=0.85,
+                        random_state=42,
+                        n_jobs=1,
+                    )
+                    reg.fit(x_train, train_df["target"].to_numpy())
+                else:
+                    reg = RandomForestRegressor(
+                        n_estimators=500,
+                        random_state=42,
+                        n_jobs=1,
+                    )
+                    reg.fit(x_train, train_df["target"].to_numpy())
                 p_val = np.clip(reg.predict(x_val), 0, None)
                 p_test = np.clip(reg.predict(x_test), 0, None)
             elif model_name == "CATBOOST":
