@@ -39,7 +39,7 @@ public class AiProxyService {
     @Value("${ai.monitoring.allow-critical-override:false}")
     private boolean allowCriticalOverride;
 
-    @Value("${ai.monitoring.trigger-fail-open-on-guard-error:false}")
+    @Value("${ai.monitoring.trigger-fail-open-on-guard-error:true}")
     private boolean triggerFailOpenOnGuardError;
 
     public AiProxyService(RestTemplate restTemplate, UserRepository userRepository) {
