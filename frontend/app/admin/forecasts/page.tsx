@@ -79,7 +79,7 @@ export default function ForecastsPage() {
   const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
-  const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [skuSearchInput, setSkuSearchInput] = useState("");
   const [inventorySearch, setInventorySearch] = useState("");
@@ -87,9 +87,23 @@ export default function ForecastsPage() {
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
   const inventoryPageSize = 25;
 
+  const managerWarehouseScope = useMemo(() => {
+    if (!admin) {
+      return undefined;
+    }
+    if (admin.warehouseName) {
+      return admin.warehouseName;
+    }
+    if (!admin.warehouseId) {
+      return undefined;
+    }
+    const matched = warehouseMasterOptions.find((w) => w.id === admin.warehouseId);
+    return matched?.value ?? admin.warehouseId;
+  }, [admin, warehouseMasterOptions]);
+
   const effectiveWarehouseId = isAdmin
     ? filters.warehouseId || undefined
-    : admin?.warehouseId || undefined;
+    : managerWarehouseScope;
 
   const loadData = async (options?: { preserveOnEmpty?: boolean }) => {
     try {
@@ -215,7 +229,8 @@ export default function ForecastsPage() {
         const warehouses = await warehousesApi.getAll();
         const options = (warehouses ?? [])
           .map((w) => ({
-            value: String(w.id),
+            id: String(w.id),
+            value: (w.name && String(w.name).trim()) || String(w.id),
             label: w.name ? `${w.name}${w.code ? ` (${w.code})` : ""}` : String(w.id),
           }))
           .sort((a, b) => a.label.localeCompare(b.label));
@@ -591,6 +606,23 @@ export default function ForecastsPage() {
     }
   };
 
+  const onSkuSearchInputChange = (value: string) => {
+    setSkuSearchInput(value);
+    const q = value.trim().toLowerCase();
+    if (!q) {
+      return;
+    }
+    const exact = skuOptions.find((sku) => sku.toLowerCase() === q);
+    if (exact) {
+      setSelectedSku(exact);
+      return;
+    }
+    const starts = skuOptions.find((sku) => sku.toLowerCase().startsWith(q));
+    if (starts) {
+      setSelectedSku(starts);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -619,8 +651,8 @@ export default function ForecastsPage() {
             {loading ? "Loading..." : "Reload"}
           </button>
           {isAdmin && (
-            <button className="btn btn-primary btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
-              {triggering ? "Triggering..." : "Trigger Run"}
+            <button className="btn btn-outline btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
+              {triggering ? "Triggering..." : "Run Forecast"}
             </button>
           )}
         </div>
@@ -792,7 +824,7 @@ export default function ForecastsPage() {
                   ))}
                 </select>
               ) : (
-                <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
+                <input className="input input-bordered input-sm" value={admin?.warehouseName ?? admin?.warehouseId ?? "N/A"} disabled />
               )}
             </label>
           </div>
@@ -834,7 +866,7 @@ export default function ForecastsPage() {
                   ))}
                 </select>
               ) : (
-                <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
+                <input className="input input-bordered input-sm" value={admin?.warehouseName ?? admin?.warehouseId ?? "N/A"} disabled />
               )}
             </label>
           </div>
@@ -896,13 +928,19 @@ export default function ForecastsPage() {
                     className="input input-bordered input-sm w-56"
                     placeholder="Enter SKU (e.g. FG001)"
                     value={skuSearchInput}
-                    onChange={(e) => setSkuSearchInput(e.target.value)}
+                    list="forecast-sku-options"
+                    onChange={(e) => onSkuSearchInputChange(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         applySkuSearch();
                       }
                     }}
                   />
+                  <datalist id="forecast-sku-options">
+                    {skuOptions.map((sku) => (
+                      <option key={sku} value={sku} />
+                    ))}
+                  </datalist>
                   <button className="btn btn-sm btn-outline" onClick={applySkuSearch}>
                     Select
                   </button>
