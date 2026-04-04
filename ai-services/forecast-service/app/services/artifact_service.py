@@ -218,6 +218,98 @@ def list_inference_audit(
     }
 
 
+def evaluate_inference_alerts(
+    limit: int = 200,
+    dataset: str | None = None,
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    audit = list_inference_audit(limit=limit, dataset=dataset, model_name=model_name)
+    summary = audit["summary"]
+    rules: list[dict[str, Any]] = []
+
+    fallback_rate = float(summary.get("fallback_rate", 0.0) or 0.0)
+    total_errors = int(summary.get("total_errors", 0) or 0)
+    p95_latency_ms = float(summary.get("p95_latency_ms", 0.0) or 0.0)
+
+    if fallback_rate > settings.alert_fallback_rate_threshold:
+        rules.append(
+            {
+                "rule": "fallback_rate",
+                "status": "warn",
+                "threshold": settings.alert_fallback_rate_threshold,
+                "value": fallback_rate,
+                "message": "Fallback usage rate above threshold.",
+            }
+        )
+    if total_errors > settings.alert_errors_threshold:
+        rules.append(
+            {
+                "rule": "errors_count",
+                "status": "critical",
+                "threshold": settings.alert_errors_threshold,
+                "value": total_errors,
+                "message": "Inference error count above threshold.",
+            }
+        )
+    if p95_latency_ms > settings.alert_p95_latency_ms_threshold:
+        rules.append(
+            {
+                "rule": "p95_latency_ms",
+                "status": "warn",
+                "threshold": settings.alert_p95_latency_ms_threshold,
+                "value": p95_latency_ms,
+                "message": "P95 latency above threshold.",
+            }
+        )
+
+    status = "ok"
+    if any(r["status"] == "critical" for r in rules):
+        status = "critical"
+    elif rules:
+        status = "warn"
+
+    return {
+        "status": status,
+        "summary": summary,
+        "rules_triggered": rules,
+        "window_size": limit,
+        "dataset": dataset,
+        "model_name": model_name,
+    }
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def resolve_champion_model(dataset: str, horizon: int, requested_model: str | None) -> str:
+    if requested_model and requested_model.strip():
+        return requested_model.strip()
+
+    try:
+        raw = settings.champion_models_json or "{}"
+        cfg = json.loads(raw)
+    except json.JSONDecodeError:
+        cfg = {}
+
+    dataset_key = (dataset or "").upper()
+    bucket = cfg.get(dataset_key) or {}
+
+    specific = bucket.get(str(horizon))
+    if specific and isinstance(specific, str):
+        return specific
+
+    default_model = bucket.get("default")
+    if default_model and isinstance(default_model, str):
+        return default_model
+
+    # Safe global default when no champion config is provided.
+    return "XGBOOST"
+
+
 def _fallback_value_from_history(history: list[dict[str, Any]], horizon: int, preferred: str = "auto") -> tuple[float, str]:
     demands: list[float] = []
     for row in history:
@@ -384,13 +476,14 @@ def _build_online_feature_row(
 
 def infer_boosting_online(
     dataset: str,
-    model_name: str,
+    model_name: str | None,
     horizon: int,
     series: list[Any],
     stage: str = "production",
     clip_negative: bool = True,
 ) -> dict[str, Any]:
     started = time.perf_counter()
+    model_name = resolve_champion_model(dataset=dataset, horizon=horizon, requested_model=model_name)
     metadata: dict[str, Any] = {}
     errors: list[dict[str, str]] = []
     payloads = [s.model_dump() if hasattr(s, "model_dump") else s for s in series]
