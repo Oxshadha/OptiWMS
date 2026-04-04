@@ -84,3 +84,48 @@ def test_infer_boosting_online_validation_error():
 
     res = client.post("/artifacts/infer-boosting-online", json=payload)
     assert res.status_code == 422
+
+
+def test_get_inference_audit_success(monkeypatch):
+    def fake_list_inference_audit(**kwargs):
+        assert kwargs["limit"] == 20
+        assert kwargs["dataset"] == "A"
+        assert kwargs["model_name"] == "XGBOOST"
+        return {
+            "summary": {
+                "count": 2,
+                "fallback_rate": 0.5,
+                "total_errors": 1,
+                "avg_latency_ms": 120.5,
+                "p95_latency_ms": 200.0,
+            },
+            "items": [
+                {
+                    "event": "infer_boosting_online",
+                    "dataset": "A",
+                    "model_name": "XGBOOST",
+                    "fallback_used": False,
+                    "latency_ms": 41.0,
+                },
+                {
+                    "event": "infer_boosting_online",
+                    "dataset": "A",
+                    "model_name": "XGBOOST",
+                    "fallback_used": True,
+                    "latency_ms": 200.0,
+                },
+            ],
+        }
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.artifacts.list_inference_audit",
+        fake_list_inference_audit,
+    )
+
+    client = TestClient(app)
+    res = client.get("/artifacts/inference-audit?limit=20&dataset=A&model_name=XGBOOST")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["summary"]["count"] == 2
+    assert body["summary"]["fallback_rate"] == 0.5
+    assert len(body["items"]) == 2
