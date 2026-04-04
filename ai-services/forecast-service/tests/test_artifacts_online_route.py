@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import app
 
 
@@ -158,3 +159,64 @@ def test_get_inference_alerts_success(monkeypatch):
     assert body["status"] == "warn"
     assert body["summary"]["fallback_rate"] == 0.2
     assert len(body["rules_triggered"]) == 1
+
+
+def test_get_acceptance_gate_success(monkeypatch):
+    def fake_evaluate_acceptance_gate(**kwargs):
+        assert kwargs["dataset"] == "A"
+        assert kwargs["model_name"] == "XGBOOST"
+        assert kwargs["split"] == "test"
+        assert kwargs["inference_window"] == 300
+        return {"ready": True, "checks": []}
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.artifacts.evaluate_acceptance_gate",
+        fake_evaluate_acceptance_gate,
+    )
+
+    client = TestClient(app)
+    res = client.get("/artifacts/acceptance-gate?dataset=A&model_name=XGBOOST&split=test&inference_window=300")
+    assert res.status_code == 200
+    assert res.json()["ready"] is True
+
+
+def test_infer_boosting_online_rate_limited(monkeypatch):
+    monkeypatch.setattr("app.api.v1.routes.artifacts.RATE_LIMITER.allow", lambda _: False)
+
+    client = TestClient(app)
+    payload = {
+        "dataset": "A",
+        "model_name": "XGBOOST",
+        "horizon": 1,
+        "series": [
+            {
+                "series_id": "sku_001",
+                "fg_code": "FG001",
+                "history": [
+                    {"month": "2025-01", "demand_units": 100.0},
+                    {"month": "2025-02", "demand_units": 110.0},
+                ],
+            }
+        ],
+    }
+    res = client.post("/artifacts/infer-boosting-online", json=payload)
+    assert res.status_code == 429
+
+
+def test_service_auth_required(monkeypatch):
+    old_required = settings.api_auth_required
+    old_token = settings.api_auth_token
+    settings.api_auth_required = True
+    settings.api_auth_token = "secret-token"
+    try:
+        client = TestClient(app)
+        unauthorized = client.get("/artifacts/inference-audit")
+        assert unauthorized.status_code == 401
+        authorized = client.get(
+            "/artifacts/inference-audit",
+            headers={"Authorization": "Bearer secret-token"},
+        )
+        assert authorized.status_code == 200
+    finally:
+        settings.api_auth_required = old_required
+        settings.api_auth_token = old_token

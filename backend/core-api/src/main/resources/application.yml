@@ -54,7 +54,7 @@ ai:
   services:
     forecast-base-url: http://localhost:8091
     orchestrator-base-url: http://localhost:8092
-    auth-token: ""
+    auth-token: ${AI_SERVICES_AUTH_TOKEN:}
   monitoring:
     enabled: false
     fixed-delay-ms: 300000

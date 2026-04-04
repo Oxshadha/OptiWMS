@@ -103,6 +103,16 @@ public class AiProxyController {
         return service.getInferenceAlerts(limit, dataset, modelName);
     }
 
+    @GetMapping("/artifacts/acceptance-gate")
+    public ResponseEntity<Object> acceptanceGate(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow
+    ) {
+        return service.getAcceptanceGate(dataset, modelName, split, inferenceWindow);
+    }
+
     @PostMapping("/artifacts/infer-classical")
     public ResponseEntity<Object> inferClassical(@RequestBody Map<String, Object> payload) {
         return service.postForecastService("/artifacts/infer-classical", payload);

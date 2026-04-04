@@ -217,6 +217,20 @@ class AiProxyServiceTest {
     }
 
     @Test
+    void getAcceptanceGate_shouldForwardQueryParams() {
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/acceptance-gate?dataset=A&model_name=XGBOOST&split=test&inference_window=500"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(Map.class)
+        )).thenReturn(new ResponseEntity<>(Map.of("ready", true), HttpStatus.OK));
+
+        ResponseEntity<Object> result = service.getAcceptanceGate("A", "XGBOOST", "test", 500);
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertTrue(result.getBody() instanceof Map);
+    }
+
+    @Test
     void triggerForecastRunWithGuard_shouldBlockWhenCriticalAndNoOverride() {
         AiInferenceAlertsResponse critical = new AiInferenceAlertsResponse(
                 "critical",

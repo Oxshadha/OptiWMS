@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -139,5 +140,18 @@ class AiProxyControllerTest {
                 .andExpect(jsonPath("$.status").value("warn"))
                 .andExpect(jsonPath("$.summary.fallback_rate").value(0.2))
                 .andExpect(jsonPath("$.rules_triggered[0].rule").value("p95_latency_ms"));
+    }
+
+    @Test
+    void acceptanceGate_shouldProxyResponse() throws Exception {
+        when(aiProxyService.getAcceptanceGate("A", "XGBOOST", "test", 500))
+                .thenReturn(ResponseEntity.ok(Map.of("ready", true)));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/ai/artifacts/acceptance-gate?dataset=A&model_name=XGBOOST&split=test&inference_window=500"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ready").value(true));
+
+        verify(aiProxyService).getAcceptanceGate(eq("A"), eq("XGBOOST"), eq("test"), eq(500));
     }
 }
