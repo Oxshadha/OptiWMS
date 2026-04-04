@@ -62,4 +62,4 @@ ai:
     trigger-block-on-critical: true
     trigger-guard-window: 200
     allow-critical-override: false
-    trigger-fail-open-on-guard-error: false
+    trigger-fail-open-on-guard-error: true
