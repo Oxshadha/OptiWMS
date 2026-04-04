@@ -534,6 +534,8 @@ export default function ForecastsPage() {
     return "badge-success";
   }, [inferenceAlerts?.status]);
 
+  const isDecisionView = !isAdmin || !showModelPerformance;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -657,86 +659,68 @@ export default function ForecastsPage() {
       )}
 
       <div className="card bg-base-100 border border-base-300 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
-          <label className="form-control">
-            <span className="label-text text-xs">Dataset</span>
-            <select
-              className="select select-bordered select-sm"
-              value={filters.dataset}
-              disabled={!isAdmin}
-              onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
-            >
-              {DATASET_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-            {!isAdmin && (
-              <span className="label-text-alt text-base-content/50">
-                Dataset is fixed for manager decision mode.
-              </span>
-            )}
-          </label>
-          <label className="form-control">
-            <span className="label-text text-xs">Model</span>
-            <select
-              className="select select-bordered select-sm"
-              value={filters.model}
-              disabled={!isAdmin || !showModelPerformance}
-              onChange={(e) => setFilters((prev) => ({ ...prev, model: e.target.value }))}
-            >
-              {MODEL_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            {(!isAdmin || !showModelPerformance) && (
-              <span className="label-text-alt text-base-content/50">
-                Model switching is available only in Admin Model Performance view.
-              </span>
-            )}
-          </label>
-          <label className="form-control">
-            <span className="label-text text-xs">Horizon</span>
-            <select
-              className="select select-bordered select-sm"
-              value={filters.horizon ?? ""}
-              onChange={(e) =>
-                setFilters((prev) => ({
-                  ...prev,
-                  horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
-                }))
-              }
-            >
-              <option value="">All</option>
-              {Array.from({ length: 12 }).map((_, idx) => (
-                <option key={idx + 1} value={idx + 1}>
-                  {idx + 1}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-control">
-            <span className="label-text text-xs">Split</span>
-            <select
-              className="select select-bordered select-sm"
-              value={filters.split}
-              disabled={!isAdmin}
-              onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
-            >
-              <option value="test">test</option>
-              <option value="cv">cv</option>
-              <option value="train">train</option>
-            </select>
-            {!isAdmin && (
-              <span className="label-text-alt text-base-content/50">
-                Split is admin-only diagnostic control.
-              </span>
-            )}
-          </label>
-          {isAdmin ? (
+        {isAdmin && showModelPerformance ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3">
+            <label className="form-control">
+              <span className="label-text text-xs">Dataset</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.dataset}
+                onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
+              >
+                {DATASET_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Model</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.model}
+                onChange={(e) => setFilters((prev) => ({ ...prev, model: e.target.value }))}
+              >
+                {MODEL_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Horizon</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.horizon ?? ""}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+                  }))
+                }
+              >
+                <option value="">All</option>
+                {Array.from({ length: 12 }).map((_, idx) => (
+                  <option key={idx + 1} value={idx + 1}>
+                    {idx + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Split</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.split}
+                onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
+              >
+                <option value="test">test</option>
+                <option value="cv">cv</option>
+                <option value="train">train</option>
+              </select>
+            </label>
             <label className="form-control">
               <span className="label-text text-xs">Warehouse ID</span>
               <select
@@ -752,22 +736,131 @@ export default function ForecastsPage() {
                 ))}
               </select>
             </label>
-          ) : (
+            <label className="form-control">
+              <span className="label-text text-xs">Product</span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="Search SKU for chart/table"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+              />
+            </label>
+          </div>
+        ) : isAdmin ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+            <label className="form-control">
+              <span className="label-text text-xs">Dataset</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.dataset}
+                onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
+              >
+                {DATASET_OPTIONS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Horizon</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.horizon ?? ""}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+                  }))
+                }
+              >
+                <option value="">All</option>
+                {Array.from({ length: 12 }).map((_, idx) => (
+                  <option key={idx + 1} value={idx + 1}>
+                    {idx + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Split</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.split}
+                onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
+              >
+                <option value="test">test</option>
+                <option value="cv">cv</option>
+                <option value="train">train</option>
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Warehouse ID</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.warehouseId ?? ""}
+                onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
+              >
+                <option value="">All warehouses</option>
+                {warehouseOptions.map((wid) => (
+                  <option key={wid} value={wid}>
+                    {wid}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Product</span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="Search SKU for chart/table"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <label className="form-control">
+              <span className="label-text text-xs">Horizon</span>
+              <select
+                className="select select-bordered select-sm"
+                value={filters.horizon ?? ""}
+                onChange={(e) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+                  }))
+                }
+              >
+                <option value="">All</option>
+                {Array.from({ length: 12 }).map((_, idx) => (
+                  <option key={idx + 1} value={idx + 1}>
+                    {idx + 1}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="form-control">
               <span className="label-text text-xs">Warehouse Scope</span>
               <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
             </label>
-          )}
-          <label className="form-control">
-            <span className="label-text text-xs">Product</span>
-            <input
-              className="input input-bordered input-sm"
-              placeholder="Search SKU for chart/table"
-              value={productSearch}
-              onChange={(e) => setProductSearch(e.target.value)}
-            />
-          </label>
-        </div>
+            <label className="form-control">
+              <span className="label-text text-xs">Product</span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="Search SKU for chart/table"
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
+        {isAdmin && !showModelPerformance && (
+          <div className="mt-2 text-xs text-base-content/60">
+            Model selection is available in Admin Model Performance view.
+          </div>
+        )}
         <div className="mt-3 flex items-center gap-2">
           <button className="btn btn-sm btn-secondary" onClick={() => void loadData()} disabled={loading}>
             Apply Filters
