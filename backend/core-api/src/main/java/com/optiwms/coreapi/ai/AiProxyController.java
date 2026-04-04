@@ -70,10 +70,11 @@ public class AiProxyController {
             Authentication authentication,
             @RequestParam(defaultValue = "B") String dataset,
             @RequestParam(defaultValue = "CATBOOST") String modelName,
-            @RequestParam(required = false) String warehouseId
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        return service.triggerForecastRun(dataset, modelName, scopedWarehouse);
+        return service.triggerForecastRunWithGuard(authentication, dataset, modelName, scopedWarehouse, criticalOverride);
     }
 
     @GetMapping("/artifacts")

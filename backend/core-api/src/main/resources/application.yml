@@ -59,3 +59,7 @@ ai:
     enabled: false
     fixed-delay-ms: 300000
     limit: 200
+    trigger-block-on-critical: true
+    trigger-guard-window: 200
+    allow-critical-override: false
+    trigger-fail-open-on-guard-error: false
