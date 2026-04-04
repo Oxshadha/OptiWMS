@@ -2,6 +2,7 @@ package com.optiwms.coreapi.ai;
 
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
 import com.optiwms.infra.users.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -166,5 +168,42 @@ class AiProxyServiceTest {
         assertEquals(2, result.getBody().fallbackCount());
         assertEquals(true, result.getBody().items().get(0).fallbackUsed());
         assertEquals("last_value", result.getBody().items().get(0).baselineMethod());
+    }
+
+    @Test
+    void getInferenceAudit_shouldForwardQueryParams() {
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/inference-audit?limit=50&dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(Map.class)
+        )).thenReturn(new ResponseEntity<>(Map.of("summary", Map.of("count", 1)), HttpStatus.OK));
+
+        ResponseEntity<Object> result = service.getInferenceAudit(50, "A", "XGBOOST");
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertTrue(result.getBody() instanceof Map);
+    }
+
+    @Test
+    void getInferenceAlerts_shouldForwardQueryParams() {
+        AiInferenceAlertsResponse expected = new AiInferenceAlertsResponse(
+                "ok",
+                new AiInferenceAlertsResponse.Summary(3, 0.0, 0, 45.0, 60.0),
+                List.of(),
+                100,
+                "A",
+                "XGBOOST"
+        );
+
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/inference-alerts?limit=100&dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(AiInferenceAlertsResponse.class)
+        )).thenReturn(new ResponseEntity<>(expected, HttpStatus.OK));
+
+        ResponseEntity<AiInferenceAlertsResponse> result = service.getInferenceAlerts(100, "A", "XGBOOST");
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals("ok", result.getBody().status());
     }
 }

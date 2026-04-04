@@ -2,6 +2,7 @@ package com.optiwms.coreapi.ai;
 
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -81,6 +82,24 @@ public class AiProxyController {
             @RequestParam(required = false) String model
     ) {
         return service.getArtifacts(dataset, model);
+    }
+
+    @GetMapping("/artifacts/inference-audit")
+    public ResponseEntity<Object> inferenceAudit(
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName
+    ) {
+        return service.getInferenceAudit(limit, dataset, modelName);
+    }
+
+    @GetMapping("/artifacts/inference-alerts")
+    public ResponseEntity<AiInferenceAlertsResponse> inferenceAlerts(
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName
+    ) {
+        return service.getInferenceAlerts(limit, dataset, modelName);
     }
 
     @PostMapping("/artifacts/infer-classical")
