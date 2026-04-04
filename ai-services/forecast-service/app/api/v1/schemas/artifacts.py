@@ -44,9 +44,8 @@ class OnlineSeriesRequest(BaseModel):
 
 class BoostingOnlineInferenceRequest(BaseModel):
     dataset: str
-    model_name: str
+    model_name: str | None = None
     horizon: int = Field(ge=1, le=12)
     series: list[OnlineSeriesRequest] = Field(min_length=1)
     stage: str = "production"
     clip_negative: bool = True
-

@@ -6,6 +6,7 @@ from app.api.v1.schemas.artifacts import (
     ClassicalInferenceRequest,
 )
 from app.services.artifact_service import (
+    evaluate_inference_alerts,
     infer_boosting,
     infer_boosting_online,
     infer_classical,
@@ -31,6 +32,18 @@ def get_inference_audit(
         return list_inference_audit(limit=limit, dataset=dataset, model_name=model_name)
     except Exception as ex:
         raise HTTPException(status_code=400, detail=f"inference audit lookup failed: {ex}")
+
+
+@router.get("/inference-alerts")
+def get_inference_alerts(
+    limit: int = 200,
+    dataset: str | None = None,
+    model_name: str | None = None,
+):
+    try:
+        return evaluate_inference_alerts(limit=limit, dataset=dataset, model_name=model_name)
+    except Exception as ex:
+        raise HTTPException(status_code=400, detail=f"inference alert evaluation failed: {ex}")
 
 
 @router.post("/infer-classical")

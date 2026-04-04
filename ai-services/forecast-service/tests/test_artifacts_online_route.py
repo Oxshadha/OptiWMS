@@ -129,3 +129,32 @@ def test_get_inference_audit_success(monkeypatch):
     assert body["summary"]["count"] == 2
     assert body["summary"]["fallback_rate"] == 0.5
     assert len(body["items"]) == 2
+
+
+def test_get_inference_alerts_success(monkeypatch):
+    def fake_evaluate_inference_alerts(**kwargs):
+        assert kwargs["limit"] == 50
+        assert kwargs["dataset"] == "A"
+        return {
+            "status": "warn",
+            "summary": {"count": 10, "fallback_rate": 0.2, "total_errors": 0, "avg_latency_ms": 120.0, "p95_latency_ms": 510.0},
+            "rules_triggered": [
+                {"rule": "fallback_rate", "status": "warn", "threshold": 0.05, "value": 0.2, "message": "Fallback usage rate above threshold."}
+            ],
+            "window_size": 50,
+            "dataset": "A",
+            "model_name": None,
+        }
+
+    monkeypatch.setattr(
+        "app.api.v1.routes.artifacts.evaluate_inference_alerts",
+        fake_evaluate_inference_alerts,
+    )
+
+    client = TestClient(app)
+    res = client.get("/artifacts/inference-alerts?limit=50&dataset=A")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "warn"
+    assert body["summary"]["fallback_rate"] == 0.2
+    assert len(body["rules_triggered"]) == 1
