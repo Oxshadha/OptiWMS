@@ -143,6 +143,16 @@ export default function ForecastsPage() {
   };
 
   const triggerRun = async () => {
+    const currentInferenceStatus = String(inferenceAlerts?.status ?? "ok").toLowerCase();
+    if (currentInferenceStatus === "critical") {
+      const proceed = window.confirm(
+        "Inference health is CRITICAL (high fallback/error/latency). Do you still want to trigger a new run?"
+      );
+      if (!proceed) {
+        return;
+      }
+    }
+
     try {
       setTriggering(true);
       setError(null);
@@ -439,6 +449,25 @@ export default function ForecastsPage() {
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">warning</span>
           <span>{error}</span>
+        </div>
+      )}
+
+      {inferenceAlerts && String(inferenceAlerts.status).toLowerCase() !== "ok" && (
+        <div
+          className={`alert ${
+            String(inferenceAlerts.status).toLowerCase() === "critical" ? "alert-error" : "alert-warning"
+          }`}
+        >
+          <span className="material-symbols-outlined">report</span>
+          <div>
+            <div className="font-medium">
+              Inference status: {String(inferenceAlerts.status).toUpperCase()}.
+            </div>
+            <div className="text-sm">
+              Forecast service is degrading (fallback/error/latency). Review inference health before operational
+              decisions.
+            </div>
+          </div>
         </div>
       )}
 
