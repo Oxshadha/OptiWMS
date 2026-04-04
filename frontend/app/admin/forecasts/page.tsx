@@ -79,6 +79,9 @@ export default function ForecastsPage() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [selectedSku, setSelectedSku] = useState<string>("");
+  const [inventorySearch, setInventorySearch] = useState("");
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const inventoryPageSize = 25;
 
   const effectiveWarehouseId = isAdmin
     ? filters.warehouseId || undefined
@@ -417,6 +420,32 @@ export default function ForecastsPage() {
       })),
     [metricsByHorizon]
   );
+
+  const filteredRecommendations = useMemo(() => {
+    const q = inventorySearch.trim().toLowerCase();
+    if (!q) {
+      return recommendations;
+    }
+    return recommendations.filter((row) => {
+      const sku = String(row.sku ?? "").toLowerCase();
+      const category = String(row.category ?? "").toLowerCase();
+      return sku.includes(q) || category.includes(q);
+    });
+  }, [inventorySearch, recommendations]);
+
+  useEffect(() => {
+    setInventoryPage(1);
+  }, [inventorySearch, recommendations, filters.dataset, filters.model, filters.horizon, filters.sku, filters.split, effectiveWarehouseId]);
+
+  const totalInventoryPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredRecommendations.length / inventoryPageSize)),
+    [filteredRecommendations.length]
+  );
+
+  const pagedRecommendations = useMemo(() => {
+    const start = (inventoryPage - 1) * inventoryPageSize;
+    return filteredRecommendations.slice(start, start + inventoryPageSize);
+  }, [filteredRecommendations, inventoryPage]);
 
   const inferenceStatusBadgeClass = useMemo(() => {
     const status = String(inferenceAlerts?.status ?? "").toLowerCase();
@@ -952,15 +981,24 @@ export default function ForecastsPage() {
         </div>
       )}
 
+      {!showModelPerformance && (
       <div className="card bg-base-100 border border-base-300 p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">Inventory Recommendations</h2>
-          <button
-            className="btn btn-xs btn-outline"
-            onClick={() => downloadCsv("inventory_recommendations.csv", recommendations)}
-          >
-            Export CSV
-          </button>
+          <div className="flex items-center gap-2">
+            <input
+              className="input input-bordered input-xs w-56"
+              placeholder="Search SKU or category"
+              value={inventorySearch}
+              onChange={(e) => setInventorySearch(e.target.value)}
+            />
+            <button
+              className="btn btn-xs btn-outline"
+              onClick={() => downloadCsv("inventory_recommendations.csv", filteredRecommendations)}
+            >
+              Export CSV
+            </button>
+          </div>
         </div>
         <div className="alert alert-info mb-3">
           <span className="material-symbols-outlined">info</span>
@@ -983,8 +1021,8 @@ export default function ForecastsPage() {
               </tr>
             </thead>
             <tbody>
-              {recommendations.length > 0 ? (
-                recommendations.slice(0, 300).map((row) => (
+              {pagedRecommendations.length > 0 ? (
+                pagedRecommendations.map((row) => (
                   <tr key={`${row.run_id}-${row.sku}`}>
                     <td>{row.sku}</td>
                     <td>{row.category ?? "-"}</td>
@@ -1005,7 +1043,32 @@ export default function ForecastsPage() {
             </tbody>
           </table>
         </div>
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-xs text-base-content/60">
+            Showing {pagedRecommendations.length} of {filteredRecommendations.length} rows
+          </div>
+          <div className="join">
+            <button
+              className="btn btn-xs join-item"
+              disabled={inventoryPage <= 1}
+              onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </button>
+            <button className="btn btn-xs join-item" disabled>
+              Page {inventoryPage} / {totalInventoryPages}
+            </button>
+            <button
+              className="btn btn-xs join-item"
+              disabled={inventoryPage >= totalInventoryPages}
+              onClick={() => setInventoryPage((p) => Math.min(totalInventoryPages, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
+      )}
     </div>
   );
 }
