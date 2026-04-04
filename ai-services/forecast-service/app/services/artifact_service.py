@@ -7,6 +7,7 @@ import pickle
 import re
 import statistics
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -160,6 +161,61 @@ def _predict_boosting_from_frame(reg, metadata: dict[str, Any], model_name: str,
 
 def _log_inference_audit(payload: dict[str, Any]) -> None:
     AUDIT_LOGGER.info(json.dumps(payload, default=str))
+
+
+def list_inference_audit(
+    limit: int = 100,
+    dataset: str | None = None,
+    model_name: str | None = None,
+) -> dict[str, Any]:
+    limit = max(1, min(limit, 1000))
+    audit_path = Path(settings.inference_audit_log_file)
+    if not audit_path.exists():
+        return {
+            "summary": {
+                "count": 0,
+                "fallback_rate": 0.0,
+                "total_errors": 0,
+                "avg_latency_ms": 0.0,
+                "p95_latency_ms": 0.0,
+            },
+            "items": [],
+        }
+
+    records: deque[dict[str, Any]] = deque(maxlen=limit)
+    with audit_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if dataset and str(rec.get("dataset", "")).lower() != dataset.lower():
+                continue
+            if model_name and str(rec.get("model_name", "")).lower() != model_name.lower():
+                continue
+            records.append(rec)
+
+    items = list(records)
+    count = len(items)
+    fallback_count = sum(1 for r in items if bool(r.get("fallback_used")))
+    total_errors = sum(int(r.get("errors_count", 0) or 0) for r in items)
+    latencies = sorted(float(r.get("latency_ms", 0.0) or 0.0) for r in items)
+    avg_latency = (sum(latencies) / count) if count else 0.0
+    p95_latency = latencies[min(len(latencies) - 1, int(math.ceil(0.95 * len(latencies))) - 1)] if latencies else 0.0
+
+    return {
+        "summary": {
+            "count": count,
+            "fallback_rate": (fallback_count / count) if count else 0.0,
+            "total_errors": total_errors,
+            "avg_latency_ms": round(avg_latency, 3),
+            "p95_latency_ms": round(p95_latency, 3),
+        },
+        "items": items,
+    }
 
 
 def _fallback_value_from_history(history: list[dict[str, Any]], horizon: int, preferred: str = "auto") -> tuple[float, str]:
