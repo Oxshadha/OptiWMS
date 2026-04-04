@@ -5,6 +5,8 @@ import {
   aiForecastApi,
   type ForecastMetric,
   type ForecastPoint,
+  type InferenceAlertsResponse,
+  type InferenceAuditSummary,
   type InventoryRecommendation,
 } from "@/lib/api/ai-forecast";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -72,6 +74,8 @@ export default function ForecastsPage() {
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
   const [modelComparisonMetrics, setModelComparisonMetrics] = useState<ForecastMetric[]>([]);
+  const [inferenceSummary, setInferenceSummary] = useState<InferenceAuditSummary | null>(null);
+  const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [selectedSku, setSelectedSku] = useState<string>("");
@@ -84,7 +88,7 @@ export default function ForecastsPage() {
     try {
       setLoading(true);
       setError(null);
-      const [forecastRes, metricRes, recoRes] = await Promise.all([
+      const [forecastRes, metricRes, recoRes, inferenceAuditRes, inferenceAlertsRes] = await Promise.all([
         aiForecastApi.getForecasts({
           dataset: filters.dataset,
           model: filters.model,
@@ -105,6 +109,16 @@ export default function ForecastsPage() {
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
+        aiForecastApi.getInferenceAudit({
+          limit: 200,
+          dataset: filters.dataset,
+          modelName: filters.model,
+        }),
+        aiForecastApi.getInferenceAlerts({
+          limit: 200,
+          dataset: filters.dataset,
+          modelName: filters.model,
+        }),
       ]);
       const comparisonMetrics = isAdmin
         ? await aiForecastApi.getForecastMetrics({
@@ -117,6 +131,8 @@ export default function ForecastsPage() {
       setMetrics(metricRes.items ?? []);
       setRecommendations(recoRes.items ?? []);
       setModelComparisonMetrics(comparisonMetrics?.items ?? []);
+      setInferenceSummary(inferenceAuditRes.summary ?? null);
+      setInferenceAlerts(inferenceAlertsRes ?? null);
       setLastLoadedAt(new Date().toISOString());
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
@@ -377,6 +393,13 @@ export default function ForecastsPage() {
     [metricsByHorizon]
   );
 
+  const inferenceStatusBadgeClass = useMemo(() => {
+    const status = String(inferenceAlerts?.status ?? "").toLowerCase();
+    if (status === "critical") return "badge-error";
+    if (status === "warn") return "badge-warning";
+    return "badge-success";
+  }, [inferenceAlerts?.status]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -416,6 +439,55 @@ export default function ForecastsPage() {
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">warning</span>
           <span>{error}</span>
+        </div>
+      )}
+
+      {(inferenceSummary || inferenceAlerts) && (
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <h2 className="text-lg font-semibold">Online Inference Health</h2>
+            <span className={`badge ${inferenceStatusBadgeClass}`}>
+              {String(inferenceAlerts?.status ?? "ok").toUpperCase()}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Window Rows</div>
+              <div className="text-xl font-semibold">{inferenceSummary?.count ?? 0}</div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Fallback Rate</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? `${(inferenceSummary.fallback_rate * 100).toFixed(2)}%` : "N/A"}
+              </div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Error Rate</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? `${(inferenceSummary.error_rate * 100).toFixed(2)}%` : "N/A"}
+              </div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Avg Latency</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? `${Math.round(inferenceSummary.latency_avg_ms)} ms` : "N/A"}
+              </div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">P95 Latency</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? `${Math.round(inferenceSummary.latency_p95_ms)} ms` : "N/A"}
+              </div>
+            </div>
+          </div>
+          {inferenceAlerts?.rules_triggered?.length ? (
+            <div className="mt-3 text-sm">
+              <span className="font-medium">Triggered Rules:</span>{" "}
+              {inferenceAlerts.rules_triggered.map((r) => `${r.rule} (${r.severity})`).join(", ")}
+            </div>
+          ) : (
+            <div className="mt-3 text-sm text-base-content/70">No alert rules triggered in the selected window.</div>
+          )}
         </div>
       )}
 
