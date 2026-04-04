@@ -3,6 +3,7 @@ package com.optiwms.coreapi.ai;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
 import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
+import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,16 +17,19 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,7 +48,12 @@ class AiProxyServiceTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(service, "forecastBaseUrl", "http://localhost:8091");
+        ReflectionTestUtils.setField(service, "orchestratorBaseUrl", "http://localhost:8092");
         ReflectionTestUtils.setField(service, "authToken", "");
+        ReflectionTestUtils.setField(service, "blockTriggerOnCritical", true);
+        ReflectionTestUtils.setField(service, "triggerGuardWindow", 200);
+        ReflectionTestUtils.setField(service, "allowCriticalOverride", false);
+        ReflectionTestUtils.setField(service, "triggerFailOpenOnGuardError", false);
     }
 
     @Test
@@ -205,5 +214,71 @@ class AiProxyServiceTest {
         ResponseEntity<AiInferenceAlertsResponse> result = service.getInferenceAlerts(100, "A", "XGBOOST");
         assertEquals(HttpStatus.OK, result.getStatusCode());
         assertEquals("ok", result.getBody().status());
+    }
+
+    @Test
+    void triggerForecastRunWithGuard_shouldBlockWhenCriticalAndNoOverride() {
+        AiInferenceAlertsResponse critical = new AiInferenceAlertsResponse(
+                "critical",
+                new AiInferenceAlertsResponse.Summary(20, 0.30, 5, 200.0, 650.0),
+                List.of(),
+                200,
+                "A",
+                "XGBOOST"
+        );
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/inference-alerts?limit=200&dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(AiInferenceAlertsResponse.class)
+        )).thenReturn(new ResponseEntity<>(critical, HttpStatus.OK));
+
+        ResponseEntity<Object> result = service.triggerForecastRunWithGuard(null, "A", "XGBOOST", null, false);
+        assertEquals(HttpStatus.CONFLICT, result.getStatusCode());
+
+        verify(restTemplate, never()).exchange(
+                eq("http://localhost:8092/jobs/forecast-run?dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(Map.class)
+        );
+    }
+
+    @Test
+    void triggerForecastRunWithGuard_shouldAllowAdminBreakGlassWhenEnabled() {
+        ReflectionTestUtils.setField(service, "allowCriticalOverride", true);
+
+        Authentication auth = org.mockito.Mockito.mock(Authentication.class);
+        when(auth.getName()).thenReturn("admin_user");
+
+        UserEntity admin = new UserEntity();
+        admin.setRole("admin");
+        admin.setUsername("admin_user");
+        when(userRepository.findByUsername("admin_user")).thenReturn(Optional.of(admin));
+
+        AiInferenceAlertsResponse critical = new AiInferenceAlertsResponse(
+                "critical",
+                new AiInferenceAlertsResponse.Summary(20, 0.30, 5, 200.0, 650.0),
+                List.of(),
+                200,
+                "A",
+                "XGBOOST"
+        );
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/inference-alerts?limit=200&dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.GET),
+                any(HttpEntity.class),
+                eq(AiInferenceAlertsResponse.class)
+        )).thenReturn(new ResponseEntity<>(critical, HttpStatus.OK));
+
+        when(restTemplate.exchange(
+                eq("http://localhost:8092/jobs/forecast-run?dataset=A&model_name=XGBOOST"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(Map.class)
+        )).thenReturn(new ResponseEntity<>(Map.of("accepted", true), HttpStatus.OK));
+
+        ResponseEntity<Object> result = service.triggerForecastRunWithGuard(auth, "A", "XGBOOST", null, true);
+        assertEquals(HttpStatus.OK, result.getStatusCode());
     }
 }

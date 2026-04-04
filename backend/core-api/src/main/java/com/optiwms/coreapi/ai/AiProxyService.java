@@ -30,6 +30,18 @@ public class AiProxyService {
     @Value("${ai.services.auth-token:}")
     private String authToken;
 
+    @Value("${ai.monitoring.trigger-block-on-critical:true}")
+    private boolean blockTriggerOnCritical;
+
+    @Value("${ai.monitoring.trigger-guard-window:200}")
+    private int triggerGuardWindow;
+
+    @Value("${ai.monitoring.allow-critical-override:false}")
+    private boolean allowCriticalOverride;
+
+    @Value("${ai.monitoring.trigger-fail-open-on-guard-error:false}")
+    private boolean triggerFailOpenOnGuardError;
+
     public AiProxyService(RestTemplate restTemplate, UserRepository userRepository) {
         this.restTemplate = restTemplate;
         this.userRepository = userRepository;
@@ -86,6 +98,58 @@ public class AiProxyService {
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
 
+    public ResponseEntity<Object> triggerForecastRunWithGuard(
+            Authentication authentication,
+            String dataset,
+            String modelName,
+            String warehouseId,
+            boolean criticalOverrideRequested
+    ) {
+        if (!blockTriggerOnCritical) {
+            return triggerForecastRun(dataset, modelName, warehouseId);
+        }
+
+        try {
+            ResponseEntity<AiInferenceAlertsResponse> alertsResponse = getInferenceAlerts(
+                    triggerGuardWindow,
+                    dataset,
+                    modelName
+            );
+            AiInferenceAlertsResponse alerts = alertsResponse.getBody();
+            String status = alerts == null || alerts.status() == null ? "unknown" : alerts.status().toLowerCase();
+            boolean isCritical = "critical".equals(status);
+            if (!isCritical) {
+                return triggerForecastRun(dataset, modelName, warehouseId);
+            }
+
+            boolean adminLike = isAdminLike(authentication);
+            boolean overrideAllowed = criticalOverrideRequested && allowCriticalOverride && adminLike;
+            if (!overrideAllowed) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                        "ok", false,
+                        "blocked", true,
+                        "reason", "inference_health_critical",
+                        "message", "Forecast trigger blocked because inference health is CRITICAL.",
+                        "status", status,
+                        "override_allowed", allowCriticalOverride && adminLike
+                ));
+            }
+
+            return triggerForecastRun(dataset, modelName, warehouseId);
+        } catch (Exception ex) {
+            if (triggerFailOpenOnGuardError) {
+                return triggerForecastRun(dataset, modelName, warehouseId);
+            }
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "ok", false,
+                    "blocked", true,
+                    "reason", "inference_guard_unavailable",
+                    "message", "Forecast trigger blocked because inference guard check failed.",
+                    "error", ex.getMessage()
+            ));
+        }
+    }
+
     public ResponseEntity<Object> getArtifacts(String dataset, String model) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts");
         if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
@@ -135,25 +199,34 @@ public class AiProxyService {
     }
 
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
-        if (authentication == null || authentication.getName() == null) {
-            return requestedWarehouseId;
-        }
-
-        UserEntity user = userRepository.findByUsername(authentication.getName())
-                .or(() -> userRepository.findByEmail(authentication.getName()))
-                .orElse(null);
+        UserEntity user = resolveUser(authentication);
         if (user == null) {
             return requestedWarehouseId;
         }
 
-        String role = user.getRole() == null ? "" : user.getRole().toLowerCase();
-        boolean isAdminLike = role.contains("admin") || role.contains("supervisor");
-
-        if (isAdminLike) {
+        if (isAdminLike(authentication)) {
             return requestedWarehouseId;
         }
 
         return user.getWarehouseId() != null ? user.getWarehouseId().toString() : null;
+    }
+
+    private UserEntity resolveUser(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            return null;
+        }
+        return userRepository.findByUsername(authentication.getName())
+                .or(() -> userRepository.findByEmail(authentication.getName()))
+                .orElse(null);
+    }
+
+    private boolean isAdminLike(Authentication authentication) {
+        UserEntity user = resolveUser(authentication);
+        if (user == null || user.getRole() == null) {
+            return false;
+        }
+        String role = user.getRole().toLowerCase();
+        return role.contains("admin") || role.contains("supervisor");
     }
 
     private ResponseEntity<Object> exchangeGet(String url) {

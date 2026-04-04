@@ -153,11 +153,12 @@ export const aiForecastApi = {
     return apiClient.get<PagedResponse<InventoryRecommendation>>(`/ai/inventory-recommendations${query}`);
   },
 
-  triggerForecastRun(params: { dataset?: string; modelName?: string; warehouseId?: string } = {}) {
+  triggerForecastRun(params: { dataset?: string; modelName?: string; warehouseId?: string; criticalOverride?: boolean } = {}) {
     const query = buildQuery({
       dataset: params.dataset ?? 'B',
       modelName: params.modelName ?? 'CATBOOST',
       warehouseId: params.warehouseId,
+      critical_override: params.criticalOverride === true ? "true" : undefined,
     });
     return apiClient.post(`/ai/jobs/forecast-run${query}`);
   },

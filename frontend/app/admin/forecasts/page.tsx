@@ -144,6 +144,7 @@ export default function ForecastsPage() {
 
   const triggerRun = async () => {
     const currentInferenceStatus = String(inferenceAlerts?.status ?? "ok").toLowerCase();
+    let criticalOverride = false;
     if (currentInferenceStatus === "critical") {
       const proceed = window.confirm(
         "Inference health is CRITICAL (high fallback/error/latency). Do you still want to trigger a new run?"
@@ -151,6 +152,7 @@ export default function ForecastsPage() {
       if (!proceed) {
         return;
       }
+      criticalOverride = true;
     }
 
     try {
@@ -160,6 +162,7 @@ export default function ForecastsPage() {
         dataset: filters.dataset,
         modelName: filters.model,
         warehouseId: effectiveWarehouseId,
+        criticalOverride,
       });
       await loadData();
     } catch (triggerError) {
