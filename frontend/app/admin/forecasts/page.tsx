@@ -88,7 +88,7 @@ export default function ForecastsPage() {
     try {
       setLoading(true);
       setError(null);
-      const [forecastRes, metricRes, recoRes, inferenceAuditRes, inferenceAlertsRes] = await Promise.all([
+      const [forecastRes, metricRes, recoRes] = await Promise.all([
         aiForecastApi.getForecasts({
           dataset: filters.dataset,
           model: filters.model,
@@ -109,6 +109,8 @@ export default function ForecastsPage() {
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
+      ]);
+      const [inferenceAuditResult, inferenceAlertsResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAudit({
           limit: 200,
           dataset: filters.dataset,
@@ -131,8 +133,18 @@ export default function ForecastsPage() {
       setMetrics(metricRes.items ?? []);
       setRecommendations(recoRes.items ?? []);
       setModelComparisonMetrics(comparisonMetrics?.items ?? []);
-      setInferenceSummary(inferenceAuditRes.summary ?? null);
-      setInferenceAlerts(inferenceAlertsRes ?? null);
+      if (inferenceAuditResult.status === "fulfilled") {
+        setInferenceSummary(inferenceAuditResult.value?.summary ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
+        setInferenceSummary(null);
+      }
+      if (inferenceAlertsResult.status === "fulfilled") {
+        setInferenceAlerts(inferenceAlertsResult.value ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Inference alerts endpoint unavailable:", inferenceAlertsResult.reason);
+        setInferenceAlerts(null);
+      }
       setLastLoadedAt(new Date().toISOString());
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
