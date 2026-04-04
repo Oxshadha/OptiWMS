@@ -13,7 +13,7 @@ import java.util.Map;
 
 public record AiBoostingOnlineInferenceRequest(
         @NotBlank String dataset,
-        @NotBlank @JsonProperty("model_name") String modelName,
+        @JsonProperty("model_name") String modelName,
         @NotNull @Min(1) @Max(12) Integer horizon,
         String stage,
         @JsonProperty("clip_negative") Boolean clipNegative,
@@ -42,4 +42,3 @@ public record AiBoostingOnlineInferenceRequest(
             @JsonProperty("holiday_flag") Double holidayFlag
     ) {}
 }
-

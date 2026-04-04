@@ -2,6 +2,7 @@ package com.optiwms.coreapi.ai;
 
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -118,5 +119,25 @@ class AiProxyControllerTest {
                         .contentType(APPLICATION_JSON)
                         .content(invalidPayload))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void inferenceAlerts_shouldReturnTypedResponse() throws Exception {
+        AiInferenceAlertsResponse response = new AiInferenceAlertsResponse(
+                "warn",
+                new AiInferenceAlertsResponse.Summary(10, 0.2, 0, 120.0, 510.0),
+                List.of(new AiInferenceAlertsResponse.RuleTriggered("p95_latency_ms", "warn", 500.0, 510.0, "P95 latency above threshold.")),
+                200,
+                "A",
+                "XGBOOST"
+        );
+        when(aiProxyService.getInferenceAlerts(200, "A", "XGBOOST")).thenReturn(ResponseEntity.ok(response));
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/ai/artifacts/inference-alerts?limit=200&dataset=A&model_name=XGBOOST"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("warn"))
+                .andExpect(jsonPath("$.summary.fallback_rate").value(0.2))
+                .andExpect(jsonPath("$.rules_triggered[0].rule").value("p95_latency_ms"));
     }
 }

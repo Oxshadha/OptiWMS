@@ -2,6 +2,7 @@ package com.optiwms.coreapi.ai;
 
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
 import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
 import com.optiwms.infra.users.UserEntity;
 import com.optiwms.infra.users.UserRepository;
 import org.springframework.security.core.Authentication;
@@ -105,6 +106,30 @@ public class AiProxyService {
                 HttpMethod.POST,
                 request,
                 AiBoostingOnlineInferenceResponse.class
+        );
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
+    public ResponseEntity<Object> getInferenceAudit(Integer limit, String dataset, String modelName) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/inference-audit");
+        if (limit != null) ub.queryParam("limit", limit);
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (modelName != null && !modelName.isBlank()) ub.queryParam("model_name", modelName);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<AiInferenceAlertsResponse> getInferenceAlerts(Integer limit, String dataset, String modelName) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/inference-alerts");
+        if (limit != null) ub.queryParam("limit", limit);
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (modelName != null && !modelName.isBlank()) ub.queryParam("model_name", modelName);
+
+        HttpEntity<String> request = new HttpEntity<>(headers());
+        ResponseEntity<AiInferenceAlertsResponse> response = restTemplate.exchange(
+                ub.toUriString(),
+                HttpMethod.GET,
+                request,
+                AiInferenceAlertsResponse.class
         );
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
