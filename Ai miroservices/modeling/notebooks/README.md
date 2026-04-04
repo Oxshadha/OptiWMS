@@ -47,6 +47,22 @@ Use these notebooks in this order.
    - current default path is `P + XGBOOST + recent_level_blend`
    - this is the main external-transfer validation notebook
 
+## Publish to microservice (required for Trigger Run)
+
+After you produce report files from training/evaluation, publish the exact CSV names used by `forecast-service`:
+
+```bash
+cd "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts"
+python publish_reports_for_service.py --tag portable_fair_play_p --dataset P --model XGBOOST
+```
+
+This writes:
+- `outputs/reports/dashboard_forecast_output.csv`
+- `outputs/reports/dashboard_inventory_recommendations.csv`
+- `outputs/reports/test_metrics_by_horizon.csv`
+
+Then restart AI services and use **Run Forecast** from UI.
+
 ## Secondary / diagnostic notebooks
 
 10. `00_dataset_audit_and_cleaning.ipynb`
