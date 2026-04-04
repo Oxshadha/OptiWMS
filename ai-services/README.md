@@ -21,6 +21,8 @@ This workspace hosts Python AI services that integrate with the core WMS backend
   - fallback baselines (`last_value` / `snaive12`) when model artifacts or feature inference fail,
   - explicit fallback flags in response (`fallback_used`, `fallback_reason`, `fallback_count`),
   - JSONL inference audit logs (`inference_audit_log_file`).
+  - acceptance gate endpoint (`GET /artifacts/acceptance-gate`) for go/no-go checks.
+  - optional service-token auth and online inference rate limiting.
 
 ## Production Acceptance Gates
 - Forecast quality:
@@ -37,6 +39,16 @@ This workspace hosts Python AI services that integrate with the core WMS backend
   - Daily forecast-error + drift review
   - Weekly champion/challenger review
   - Rollback procedure tested and documented
+
+## Security and Reliability Controls
+- Optional service auth (FastAPI):
+  - `api_auth_required=true`
+  - `api_auth_token=<shared-secret>`
+- Online inference rate limit:
+  - `inference_rate_limit_per_minute` (default: 600)
+- Core API forecast-trigger guard:
+  - blocks run trigger when inference health is `critical`
+  - controlled break-glass override only when explicitly enabled + requested
 
 ## Local Run
 1. Copy env:

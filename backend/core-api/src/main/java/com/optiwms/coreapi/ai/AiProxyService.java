@@ -198,6 +198,15 @@ public class AiProxyService {
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
     }
 
+    public ResponseEntity<Object> getAcceptanceGate(String dataset, String modelName, String split, Integer inferenceWindow) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/acceptance-gate");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (modelName != null && !modelName.isBlank()) ub.queryParam("model_name", modelName);
+        if (split != null && !split.isBlank()) ub.queryParam("split", split);
+        if (inferenceWindow != null) ub.queryParam("inference_window", inferenceWindow);
+        return exchangeGet(ub.toUriString());
+    }
+
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
         UserEntity user = resolveUser(authentication);
         if (user == null) {

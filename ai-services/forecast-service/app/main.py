@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.forecasts import router as forecast_router
@@ -7,15 +7,16 @@ from app.api.v1.routes.metrics import router as metrics_router
 from app.api.v1.routes.runs import router as runs_router
 from app.api.v1.routes.artifacts import router as artifacts_router
 from app.core.config import settings
+from app.core.security import verify_service_auth
 from app.db.database import Base, engine
 
 app = FastAPI(title="OptiWMS Forecast Service", version="0.2.0")
 app.include_router(health_router)
-app.include_router(forecast_router)
-app.include_router(inventory_router)
-app.include_router(metrics_router)
-app.include_router(runs_router)
-app.include_router(artifacts_router)
+app.include_router(forecast_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(inventory_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(metrics_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(runs_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(artifacts_router, dependencies=[Depends(verify_service_auth)])
 
 
 @app.on_event("startup")

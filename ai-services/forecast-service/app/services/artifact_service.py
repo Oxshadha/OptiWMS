@@ -278,6 +278,138 @@ def evaluate_inference_alerts(
     }
 
 
+def evaluate_acceptance_gate(
+    dataset: str | None = None,
+    model_name: str | None = None,
+    split: str = "test",
+    inference_window: int = 500,
+) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+
+    quality_summary: dict[str, float | None] = {
+        "WAPE": None,
+        "Bias_abs": None,
+        "under_forecast_rate": None,
+        "MASE_mean": None,
+    }
+
+    metric_path = Path(f"{settings.reports_dir}/{settings.metrics_report_file}")
+    if metric_path.exists():
+        metric_df = pd.read_csv(metric_path)
+        if "dataset" in metric_df.columns and dataset:
+            metric_df = metric_df[metric_df["dataset"].astype(str).str.upper() == dataset.upper()]
+        if "model" in metric_df.columns and model_name:
+            metric_df = metric_df[metric_df["model"].astype(str).str.upper() == model_name.upper()]
+        if "split" in metric_df.columns:
+            metric_df = metric_df[metric_df["split"].astype(str).str.lower() == split.lower()]
+
+        def _mean_col(df: pd.DataFrame, col: str) -> float | None:
+            if col not in df.columns:
+                return None
+            series = pd.to_numeric(df[col], errors="coerce").dropna()
+            if series.empty:
+                return None
+            return float(series.mean())
+
+        quality_summary["WAPE"] = _mean_col(metric_df, "WAPE")
+        bias_val = _mean_col(metric_df, "Bias")
+        quality_summary["Bias_abs"] = abs(bias_val) if bias_val is not None else None
+        quality_summary["under_forecast_rate"] = _mean_col(metric_df, "under_forecast_rate")
+        quality_summary["MASE_mean"] = _mean_col(metric_df, "MASE_mean")
+
+    checks.append(
+        {
+            "name": "wape",
+            "value": quality_summary["WAPE"],
+            "threshold": settings.gate_max_wape,
+            "comparator": "<=",
+            "pass": quality_summary["WAPE"] is not None and quality_summary["WAPE"] <= settings.gate_max_wape,
+        }
+    )
+    checks.append(
+        {
+            "name": "bias_abs",
+            "value": quality_summary["Bias_abs"],
+            "threshold": settings.gate_max_abs_bias,
+            "comparator": "<=",
+            "pass": quality_summary["Bias_abs"] is not None and quality_summary["Bias_abs"] <= settings.gate_max_abs_bias,
+        }
+    )
+    checks.append(
+        {
+            "name": "under_forecast_rate",
+            "value": quality_summary["under_forecast_rate"],
+            "threshold": settings.gate_max_under_forecast_rate,
+            "comparator": "<=",
+            "pass": quality_summary["under_forecast_rate"] is not None
+            and quality_summary["under_forecast_rate"] <= settings.gate_max_under_forecast_rate,
+        }
+    )
+    checks.append(
+        {
+            "name": "mase_mean",
+            "value": quality_summary["MASE_mean"],
+            "threshold": settings.gate_max_mase_mean,
+            "comparator": "<=",
+            "pass": quality_summary["MASE_mean"] is not None and quality_summary["MASE_mean"] <= settings.gate_max_mase_mean,
+        }
+    )
+
+    serving = list_inference_audit(limit=inference_window, dataset=dataset, model_name=model_name).get("summary", {})
+    count = int(serving.get("count", 0) or 0)
+    fallback_rate = float(serving.get("fallback_rate", 0.0) or 0.0)
+    total_errors = int(serving.get("total_errors", 0) or 0)
+    error_rate = (total_errors / count) if count else 0.0
+    p95_latency = float(serving.get("p95_latency_ms", 0.0) or 0.0)
+
+    checks.append(
+        {
+            "name": "fallback_rate",
+            "value": fallback_rate,
+            "threshold": settings.gate_max_fallback_rate,
+            "comparator": "<=",
+            "pass": fallback_rate <= settings.gate_max_fallback_rate,
+        }
+    )
+    checks.append(
+        {
+            "name": "hard_error_rate",
+            "value": error_rate,
+            "threshold": settings.gate_max_hard_error_rate,
+            "comparator": "<=",
+            "pass": error_rate <= settings.gate_max_hard_error_rate,
+        }
+    )
+    checks.append(
+        {
+            "name": "p95_latency_ms",
+            "value": p95_latency,
+            "threshold": settings.gate_max_p95_latency_ms,
+            "comparator": "<=",
+            "pass": p95_latency <= settings.gate_max_p95_latency_ms,
+        }
+    )
+
+    required_checks = [c for c in checks if c["value"] is not None]
+    gate_passed = bool(required_checks) and all(bool(c["pass"]) for c in required_checks)
+
+    return {
+        "ready": gate_passed,
+        "dataset": dataset,
+        "model_name": model_name,
+        "split": split,
+        "inference_window": inference_window,
+        "checks": checks,
+        "quality_summary": quality_summary,
+        "serving_summary": {
+            "count": count,
+            "fallback_rate": fallback_rate,
+            "hard_error_rate": error_rate,
+            "p95_latency_ms": p95_latency,
+        },
+    }
+
+
 def _safe_int(value: Any, default: int) -> int:
     try:
         return int(value)

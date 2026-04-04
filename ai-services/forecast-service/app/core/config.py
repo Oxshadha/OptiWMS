@@ -19,6 +19,18 @@ class Settings(BaseSettings):
     alert_fallback_rate_threshold: float = 0.05
     alert_errors_threshold: int = 1
     alert_p95_latency_ms_threshold: float = 500.0
+    api_auth_required: bool = False
+    api_auth_token: str | None = None
+    inference_rate_limit_per_minute: int = 600
+    gate_max_wape: float = 0.135
+    gate_max_abs_bias: float = 0.10
+    gate_max_under_forecast_rate: float = 0.60
+    gate_max_mase_mean: float = 1.10
+    gate_max_fallback_rate: float = 0.05
+    gate_max_hard_error_rate: float = 0.01
+    gate_max_p95_latency_ms: float = 500.0
+    drift_alert_wape_increase_ratio: float = 0.25
+    drift_eval_min_rows: int = 200
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
