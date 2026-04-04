@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   aiForecastApi,
   type ForecastMetric,
@@ -82,6 +82,7 @@ export default function ForecastsPage() {
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [skuSearchInput, setSkuSearchInput] = useState("");
+  const [skuSearchOpen, setSkuSearchOpen] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
@@ -334,6 +335,20 @@ export default function ForecastsPage() {
         p90: Math.round(item.p90Sum / item.count),
       }));
   }, [latestForecasts]);
+
+  const deferredSkuQuery = useDeferredValue(skuSearchInput);
+  const skuSearchResults = useMemo(() => {
+    const q = deferredSkuQuery.trim().toLowerCase();
+    if (!q) {
+      return skuOptions.slice(0, 12);
+    }
+    const exact = skuOptions.filter((sku) => sku.toLowerCase() === q);
+    const starts = skuOptions.filter((sku) => sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q);
+    const contains = skuOptions.filter(
+      (sku) => sku.toLowerCase().includes(q) && !sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q
+    );
+    return [...exact, ...starts, ...contains].slice(0, 12);
+  }, [deferredSkuQuery, skuOptions]);
 
   const selectedSkuForecasts = useMemo(() => {
     const rows = latestForecasts
@@ -608,6 +623,7 @@ export default function ForecastsPage() {
 
   const onSkuSearchInputChange = (value: string) => {
     setSkuSearchInput(value);
+    setSkuSearchOpen(true);
     const q = value.trim().toLowerCase();
     if (!q) {
       return;
@@ -621,6 +637,12 @@ export default function ForecastsPage() {
     if (starts) {
       setSelectedSku(starts);
     }
+  };
+
+  const selectSkuFromSearch = (sku: string) => {
+    setSelectedSku(sku);
+    setSkuSearchInput(sku);
+    setSkuSearchOpen(false);
   };
 
   return (
@@ -923,24 +945,37 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-4 xl:col-span-2">
               <div className="flex items-center justify-between mb-3 gap-3">
                 <h2 className="text-lg font-semibold">Product Forecast Detail</h2>
-                <div className="flex items-center gap-2">
+                <div className="relative flex items-center gap-2">
                   <input
                     className="input input-bordered input-sm w-56"
                     placeholder="Enter SKU (e.g. FG001)"
                     value={skuSearchInput}
-                    list="forecast-sku-options"
                     onChange={(e) => onSkuSearchInputChange(e.target.value)}
+                    onFocus={() => setSkuSearchOpen(true)}
+                    onBlur={() => setTimeout(() => setSkuSearchOpen(false), 120)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         applySkuSearch();
                       }
                     }}
                   />
-                  <datalist id="forecast-sku-options">
-                    {skuOptions.map((sku) => (
-                      <option key={sku} value={sku} />
-                    ))}
-                  </datalist>
+                  {skuSearchOpen && skuSearchResults.length > 0 && (
+                    <div className="absolute left-0 top-10 z-20 max-h-64 w-56 overflow-auto rounded-md border border-base-300 bg-base-100 shadow-lg">
+                      {skuSearchResults.map((sku) => (
+                        <button
+                          key={sku}
+                          type="button"
+                          className="w-full px-3 py-2 text-left text-sm hover:bg-base-200"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            selectSkuFromSearch(sku);
+                          }}
+                        >
+                          {sku}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button className="btn btn-sm btn-outline" onClick={applySkuSearch}>
                     Select
                   </button>
