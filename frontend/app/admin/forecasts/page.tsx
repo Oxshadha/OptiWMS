@@ -25,7 +25,7 @@ import {
 import { logger } from "@/lib/utils/logger";
 
 const DATASET_OPTIONS = ["A", "B", "C"];
-const MODEL_OPTIONS = ["CATBOOST", "XGBOOST", "SARIMA", "ARIMA", "ETS", "NBEATS", "TFT"];
+const MODEL_OPTIONS = ["CATBOOST", "XGBOOST", "LIGHTGBM", "RANDOM_FOREST", "SARIMA", "ARIMA", "ETS", "NBEATS", "TFT"];
 
 type Filters = {
   dataset: string;
@@ -79,6 +79,7 @@ export default function ForecastsPage() {
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [selectedSku, setSelectedSku] = useState<string>("");
+  const [productSearch, setProductSearch] = useState("");
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
@@ -211,6 +212,25 @@ export default function ForecastsPage() {
     return Array.from(new Set([...fromRecommendations, ...fromForecasts])).sort((a, b) => a.localeCompare(b));
   }, [latestForecasts, recommendations]);
 
+  const warehouseOptions = useMemo(() => {
+    const values = new Set<string>();
+    forecasts.forEach((r) => r.warehouse_id && values.add(String(r.warehouse_id)));
+    recommendations.forEach((r) => r.warehouse_id && values.add(String(r.warehouse_id)));
+    metrics.forEach((r) => r.warehouse_id && values.add(String(r.warehouse_id)));
+    if (admin?.warehouseId) {
+      values.add(String(admin.warehouseId));
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [admin?.warehouseId, forecasts, metrics, recommendations]);
+
+  const matchedSkuOptions = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) {
+      return skuOptions.slice(0, 150);
+    }
+    return skuOptions.filter((sku) => sku.toLowerCase().includes(q)).slice(0, 150);
+  }, [productSearch, skuOptions]);
+
   useEffect(() => {
     if (!skuOptions.length) {
       setSelectedSku("");
@@ -220,6 +240,17 @@ export default function ForecastsPage() {
       setSelectedSku(filters.sku && skuOptions.includes(filters.sku) ? filters.sku : skuOptions[0]);
     }
   }, [filters.sku, selectedSku, skuOptions]);
+
+  useEffect(() => {
+    if (!selectedSku) {
+      return;
+    }
+    const q = productSearch.trim().toLowerCase();
+    if (!q || selectedSku.toLowerCase().includes(q)) {
+      return;
+    }
+    setProductSearch("");
+  }, [productSearch, selectedSku]);
 
   const horizonChartData = useMemo(() => {
     const grouped = new Map<number, { horizon: number; p50Sum: number; p90Sum: number; count: number }>();
@@ -437,9 +468,20 @@ export default function ForecastsPage() {
     return rows.sort((a, b) => {
       const onHandA = a.on_hand_inventory ?? 0;
       const onHandB = b.on_hand_inventory ?? 0;
-      const shortageA = a.reorder_point - onHandA;
-      const shortageB = b.reorder_point - onHandB;
-      return shortageB - shortageA;
+      const shortageA = Math.max(a.reorder_point - onHandA, 0);
+      const shortageB = Math.max(b.reorder_point - onHandB, 0);
+      if (shortageB !== shortageA) {
+        return shortageB - shortageA;
+      }
+      if (b.suggested_order_qty !== a.suggested_order_qty) {
+        return b.suggested_order_qty - a.suggested_order_qty;
+      }
+      const coverA = a.reorder_point > 0 ? onHandA / a.reorder_point : Number.POSITIVE_INFINITY;
+      const coverB = b.reorder_point > 0 ? onHandB / b.reorder_point : Number.POSITIVE_INFINITY;
+      if (coverA !== coverB) {
+        return coverA - coverB;
+      }
+      return String(a.sku).localeCompare(String(b.sku));
     });
   }, [filteredRecommendations, inventorySort]);
 
@@ -621,6 +663,7 @@ export default function ForecastsPage() {
             <select
               className="select select-bordered select-sm"
               value={filters.dataset}
+              disabled={!isAdmin}
               onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
             >
               {DATASET_OPTIONS.map((d) => (
@@ -629,6 +672,11 @@ export default function ForecastsPage() {
                 </option>
               ))}
             </select>
+            {!isAdmin && (
+              <span className="label-text-alt text-base-content/50">
+                Dataset is fixed for manager decision mode.
+              </span>
+            )}
           </label>
           <label className="form-control">
             <span className="label-text text-xs">Model</span>
@@ -671,35 +719,38 @@ export default function ForecastsPage() {
             </select>
           </label>
           <label className="form-control">
-            <span className="label-text text-xs">SKU</span>
-            <input
-              className="input input-bordered input-sm"
-              placeholder="Optional"
-              value={filters.sku ?? ""}
-              onChange={(e) => setFilters((prev) => ({ ...prev, sku: e.target.value || undefined }))}
-            />
-          </label>
-          <label className="form-control">
             <span className="label-text text-xs">Split</span>
             <select
               className="select select-bordered select-sm"
               value={filters.split}
+              disabled={!isAdmin}
               onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
             >
               <option value="test">test</option>
               <option value="cv">cv</option>
               <option value="train">train</option>
             </select>
+            {!isAdmin && (
+              <span className="label-text-alt text-base-content/50">
+                Split is admin-only diagnostic control.
+              </span>
+            )}
           </label>
           {isAdmin ? (
             <label className="form-control">
               <span className="label-text text-xs">Warehouse ID</span>
-              <input
-                className="input input-bordered input-sm"
-                placeholder="All warehouses"
+              <select
+                className="select select-bordered select-sm"
                 value={filters.warehouseId ?? ""}
                 onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
-              />
+              >
+                <option value="">All warehouses</option>
+                {warehouseOptions.map((wid) => (
+                  <option key={wid} value={wid}>
+                    {wid}
+                  </option>
+                ))}
+              </select>
             </label>
           ) : (
             <label className="form-control">
@@ -707,6 +758,15 @@ export default function ForecastsPage() {
               <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
             </label>
           )}
+          <label className="form-control">
+            <span className="label-text text-xs">Product</span>
+            <input
+              className="input input-bordered input-sm"
+              placeholder="Search SKU for chart/table"
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+            />
+          </label>
         </div>
         <div className="mt-3 flex items-center gap-2">
           <button className="btn btn-sm btn-secondary" onClick={() => void loadData()} disabled={loading}>
@@ -763,18 +823,20 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-4 xl:col-span-2">
               <div className="flex items-center justify-between mb-3 gap-3">
                 <h2 className="text-lg font-semibold">Product Forecast Detail</h2>
-                <input
-                  className="input input-bordered input-sm max-w-xs"
-                  list="forecast-sku-options"
-                  placeholder="Search/select SKU"
+                <select
+                  className="select select-bordered select-sm max-w-xs"
                   value={selectedSku}
                   onChange={(e) => setSelectedSku(e.target.value)}
-                />
-                <datalist id="forecast-sku-options">
-                  {skuOptions.map((sku) => (
-                    <option key={sku} value={sku} />
+                >
+                  {selectedSku && !matchedSkuOptions.includes(selectedSku) && (
+                    <option value={selectedSku}>{selectedSku}</option>
+                  )}
+                  {matchedSkuOptions.map((sku) => (
+                    <option key={sku} value={sku}>
+                      {sku}
+                    </option>
                   ))}
-                </datalist>
+                </select>
               </div>
               <div className="h-80">
                 {selectedSkuForecasts.length > 0 ? (
@@ -785,10 +847,10 @@ export default function ForecastsPage() {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="p10" stroke="#94a3b8" name="Low Case (P10)" strokeWidth={2} />
-                      <Line type="monotone" dataKey="p50" stroke="#22c55e" name="Expected (P50)" strokeWidth={2} />
-                      <Line type="monotone" dataKey="p90" stroke="#f97316" name="High Case (P90)" strokeWidth={2} />
-                      <Line type="monotone" dataKey="actual" stroke="#1d4ed8" name="Actual" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p10" stroke="#94a3b8" name="Lower Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p50" stroke="#22c55e" name="Expected Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p90" stroke="#f97316" name="Upper Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="actual" stroke="#1d4ed8" name="Actual History" strokeWidth={2} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -959,8 +1021,9 @@ export default function ForecastsPage() {
           <div className="alert alert-info">
             <span className="material-symbols-outlined">info</span>
             <div className="text-sm">
-              P10 = low case, P50 = expected case, P90 = high case. RMSE is measured in demand units, so it can look
-              large on high-volume SKUs. For the current filter, average demand is{" "}
+              Lower Forecast = conservative case, Expected Forecast = central estimate, Upper Forecast = stretch case.
+              Actual History is observed demand. RMSE is measured in demand units, so it can look large on high-volume
+              SKUs. For the current filter, average demand is{" "}
               <span className="font-semibold">
                 {avgActualDemand !== null ? Math.round(avgActualDemand).toLocaleString() : "N/A"}
               </span>{" "}
