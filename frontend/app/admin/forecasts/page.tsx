@@ -81,6 +81,7 @@ export default function ForecastsPage() {
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
+  const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
   const inventoryPageSize = 25;
 
   const effectiveWarehouseId = isAdmin
@@ -367,17 +368,6 @@ export default function ForecastsPage() {
     [recommendations, selectedSku]
   );
 
-  const inventoryPositionData = useMemo(() => {
-    if (!selectedSkuRecommendation) {
-      return [];
-    }
-    return [
-      { label: "On Hand", value: Math.round(selectedSkuRecommendation.on_hand_inventory ?? 0), fill: "#2563eb" },
-      { label: "Reorder Point", value: Math.round(selectedSkuRecommendation.reorder_point), fill: "#f59e0b" },
-      { label: "Target Max", value: Math.round(selectedSkuRecommendation.target_max), fill: "#16a34a" },
-    ];
-  }, [selectedSkuRecommendation]);
-
   const topReorderChartData = useMemo(
     () =>
       topReorderItems
@@ -433,19 +423,67 @@ export default function ForecastsPage() {
     });
   }, [inventorySearch, recommendations]);
 
+  const sortedRecommendations = useMemo(() => {
+    const rows = [...filteredRecommendations];
+    if (inventorySort === "sku_asc") {
+      return rows.sort((a, b) => String(a.sku).localeCompare(String(b.sku)));
+    }
+    if (inventorySort === "sku_desc") {
+      return rows.sort((a, b) => String(b.sku).localeCompare(String(a.sku)));
+    }
+    if (inventorySort === "suggested_desc") {
+      return rows.sort((a, b) => b.suggested_order_qty - a.suggested_order_qty);
+    }
+    return rows.sort((a, b) => {
+      const onHandA = a.on_hand_inventory ?? 0;
+      const onHandB = b.on_hand_inventory ?? 0;
+      const shortageA = a.reorder_point - onHandA;
+      const shortageB = b.reorder_point - onHandB;
+      return shortageB - shortageA;
+    });
+  }, [filteredRecommendations, inventorySort]);
+
   useEffect(() => {
     setInventoryPage(1);
-  }, [inventorySearch, recommendations, filters.dataset, filters.model, filters.horizon, filters.sku, filters.split, effectiveWarehouseId]);
+  }, [inventorySearch, inventorySort, recommendations, filters.dataset, filters.model, filters.horizon, filters.sku, filters.split, effectiveWarehouseId]);
 
   const totalInventoryPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredRecommendations.length / inventoryPageSize)),
-    [filteredRecommendations.length]
+    () => Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
+    [sortedRecommendations.length]
   );
 
   const pagedRecommendations = useMemo(() => {
     const start = (inventoryPage - 1) * inventoryPageSize;
-    return filteredRecommendations.slice(start, start + inventoryPageSize);
-  }, [filteredRecommendations, inventoryPage]);
+    return sortedRecommendations.slice(start, start + inventoryPageSize);
+  }, [sortedRecommendations, inventoryPage]);
+
+  const inferenceErrorRate = useMemo(() => {
+    if (!inferenceSummary) {
+      return 0;
+    }
+    if (typeof inferenceSummary.error_rate === "number" && Number.isFinite(inferenceSummary.error_rate)) {
+      return inferenceSummary.error_rate;
+    }
+    const totalErrors = Number(inferenceSummary.total_errors ?? 0);
+    const count = Number(inferenceSummary.count ?? 0);
+    return count > 0 ? totalErrors / count : 0;
+  }, [inferenceSummary]);
+
+  const inventoryInsight = useMemo(() => {
+    if (!selectedSkuRecommendation) {
+      return null;
+    }
+    const onHand = selectedSkuRecommendation.on_hand_inventory ?? 0;
+    const reorder = selectedSkuRecommendation.reorder_point;
+    const target = selectedSkuRecommendation.target_max;
+    const gapToReorder = onHand - reorder;
+    const gapToTarget = onHand - target;
+    let status: "critical" | "reorder" | "healthy" | "overstock" = "healthy";
+    if (onHand < reorder) status = "critical";
+    else if (onHand < reorder * 1.1) status = "reorder";
+    else if (onHand > target) status = "overstock";
+    return { onHand, reorder, target, gapToReorder, gapToTarget, status };
+  }, [selectedSkuRecommendation]);
 
   const inferenceStatusBadgeClass = useMemo(() => {
     const status = String(inferenceAlerts?.status ?? "").toLowerCase();
@@ -515,15 +553,15 @@ export default function ForecastsPage() {
         </div>
       )}
 
-      {(inferenceSummary || inferenceAlerts) && (
+      {isAdmin && showModelPerformance && (inferenceSummary || inferenceAlerts) && (
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h2 className="text-lg font-semibold">Online Inference Health</h2>
+            <h2 className="text-lg font-semibold">Admin Inference Operations</h2>
             <span className={`badge ${inferenceStatusBadgeClass}`}>
               {String(inferenceAlerts?.status ?? "ok").toUpperCase()}
             </span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
             <div className="rounded border border-base-300 p-3">
               <div className="text-xs text-base-content/60">Window Rows</div>
               <div className="text-xl font-semibold">{inferenceSummary?.count ?? 0}</div>
@@ -537,7 +575,19 @@ export default function ForecastsPage() {
             <div className="rounded border border-base-300 p-3">
               <div className="text-xs text-base-content/60">Error Rate</div>
               <div className="text-xl font-semibold">
-                {inferenceSummary ? `${(inferenceSummary.error_rate * 100).toFixed(2)}%` : "N/A"}
+                {inferenceSummary ? `${(inferenceErrorRate * 100).toFixed(2)}%` : "N/A"}
+              </div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Fallback Calls</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? Math.round((inferenceSummary.count ?? 0) * (inferenceSummary.fallback_rate ?? 0)) : "N/A"}
+              </div>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60">Total Errors</div>
+              <div className="text-xl font-semibold">
+                {inferenceSummary ? Number(inferenceSummary.total_errors ?? 0) : "N/A"}
               </div>
             </div>
             <div className="rounded border border-base-300 p-3">
@@ -585,6 +635,7 @@ export default function ForecastsPage() {
             <select
               className="select select-bordered select-sm"
               value={filters.model}
+              disabled={!isAdmin || !showModelPerformance}
               onChange={(e) => setFilters((prev) => ({ ...prev, model: e.target.value }))}
             >
               {MODEL_OPTIONS.map((m) => (
@@ -593,6 +644,11 @@ export default function ForecastsPage() {
                 </option>
               ))}
             </select>
+            {(!isAdmin || !showModelPerformance) && (
+              <span className="label-text-alt text-base-content/50">
+                Model switching is available only in Admin Model Performance view.
+              </span>
+            )}
           </label>
           <label className="form-control">
             <span className="label-text text-xs">Horizon</span>
@@ -707,17 +763,18 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-4 xl:col-span-2">
               <div className="flex items-center justify-between mb-3 gap-3">
                 <h2 className="text-lg font-semibold">Product Forecast Detail</h2>
-                <select
-                  className="select select-bordered select-sm max-w-xs"
+                <input
+                  className="input input-bordered input-sm max-w-xs"
+                  list="forecast-sku-options"
+                  placeholder="Search/select SKU"
                   value={selectedSku}
                   onChange={(e) => setSelectedSku(e.target.value)}
-                >
+                />
+                <datalist id="forecast-sku-options">
                   {skuOptions.map((sku) => (
-                    <option key={sku} value={sku}>
-                      {sku}
-                    </option>
+                    <option key={sku} value={sku} />
                   ))}
-                </select>
+                </datalist>
               </div>
               <div className="h-80">
                 {selectedSkuForecasts.length > 0 ? (
@@ -747,30 +804,60 @@ export default function ForecastsPage() {
                 <h2 className="text-lg font-semibold">Inventory Position</h2>
                 <span className="badge badge-outline">{selectedSku || "No SKU"}</span>
               </div>
-              <div className="h-64">
-                {inventoryPositionData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={inventoryPositionData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                    No inventory position available
+              {inventoryInsight ? (
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base-content/70">Category</span>
+                    <span className="font-medium">{selectedSkuRecommendation?.category ?? "-"}</span>
                   </div>
-                )}
-              </div>
-              {selectedSkuRecommendation && (
-                <div className="mt-3 text-sm text-base-content/70 space-y-1">
-                  <div>Category: <span className="font-medium">{selectedSkuRecommendation.category ?? "-"}</span></div>
-                  <div>
-                    Suggested Order:
-                    <span className="font-medium"> {Math.round(selectedSkuRecommendation.suggested_order_qty).toLocaleString()}</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-base-content/70">Health Status</span>
+                    <span className={`badge ${
+                      inventoryInsight.status === "critical" ? "badge-error" :
+                      inventoryInsight.status === "reorder" ? "badge-warning" :
+                      inventoryInsight.status === "overstock" ? "badge-info" : "badge-success"
+                    }`}>
+                      {inventoryInsight.status.toUpperCase()}
+                    </span>
                   </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="rounded border border-base-300 p-2 text-center">
+                      <div className="text-xs text-base-content/60">On Hand</div>
+                      <div className="font-semibold">{Math.round(inventoryInsight.onHand).toLocaleString()}</div>
+                    </div>
+                    <div className="rounded border border-base-300 p-2 text-center">
+                      <div className="text-xs text-base-content/60">Reorder</div>
+                      <div className="font-semibold">{Math.round(inventoryInsight.reorder).toLocaleString()}</div>
+                    </div>
+                    <div className="rounded border border-base-300 p-2 text-center">
+                      <div className="text-xs text-base-content/60">Target Max</div>
+                      <div className="font-semibold">{Math.round(inventoryInsight.target).toLocaleString()}</div>
+                    </div>
+                  </div>
+                  <div className="rounded border border-base-300 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-base-content/70">Gap to Reorder</span>
+                      <span className={`font-semibold ${inventoryInsight.gapToReorder < 0 ? "text-error" : "text-success"}`}>
+                        {Math.round(inventoryInsight.gapToReorder).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-base-content/70">Gap to Target</span>
+                      <span className={`font-semibold ${inventoryInsight.gapToTarget > 0 ? "text-warning" : "text-success"}`}>
+                        {Math.round(inventoryInsight.gapToTarget).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-base-content/70">Suggested Order</span>
+                    <span className="font-semibold">
+                      {Math.round(selectedSkuRecommendation?.suggested_order_qty ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="h-64 flex items-center justify-center text-sm text-base-content/60">
+                  No inventory position available
                 </div>
               )}
             </div>
@@ -986,6 +1073,16 @@ export default function ForecastsPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">Inventory Recommendations</h2>
           <div className="flex items-center gap-2">
+            <select
+              className="select select-bordered select-xs"
+              value={inventorySort}
+              onChange={(e) => setInventorySort(e.target.value as "risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc")}
+            >
+              <option value="risk_desc">Sort: Stock Risk</option>
+              <option value="suggested_desc">Sort: Suggested Qty</option>
+              <option value="sku_asc">Sort: SKU A-Z</option>
+              <option value="sku_desc">Sort: SKU Z-A</option>
+            </select>
             <input
               className="input input-bordered input-xs w-56"
               placeholder="Search SKU or category"
@@ -994,7 +1091,7 @@ export default function ForecastsPage() {
             />
             <button
               className="btn btn-xs btn-outline"
-              onClick={() => downloadCsv("inventory_recommendations.csv", filteredRecommendations)}
+              onClick={() => downloadCsv("inventory_recommendations.csv", sortedRecommendations)}
             >
               Export CSV
             </button>
@@ -1045,7 +1142,7 @@ export default function ForecastsPage() {
         </div>
         <div className="mt-3 flex items-center justify-between">
           <div className="text-xs text-base-content/60">
-            Showing {pagedRecommendations.length} of {filteredRecommendations.length} rows
+            Showing {pagedRecommendations.length} of {sortedRecommendations.length} rows
           </div>
           <div className="join">
             <button

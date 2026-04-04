@@ -45,7 +45,8 @@ export interface ForecastMetric {
 export interface InferenceAuditSummary {
   count: number;
   fallback_rate: number;
-  error_rate: number;
+  error_rate?: number;
+  total_errors?: number;
   latency_avg_ms: number;
   latency_p95_ms: number;
 }
