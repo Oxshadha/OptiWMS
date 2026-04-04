@@ -9,6 +9,7 @@ import {
   type InferenceAuditSummary,
   type InventoryRecommendation,
 } from "@/lib/api/ai-forecast";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { useAdmin } from "@/contexts/AdminContext";
 import {
   Bar,
@@ -78,6 +79,7 @@ export default function ForecastsPage() {
   const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
+  const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [skuSearchInput, setSkuSearchInput] = useState("");
   const [inventorySearch, setInventorySearch] = useState("");
@@ -89,7 +91,7 @@ export default function ForecastsPage() {
     ? filters.warehouseId || undefined
     : admin?.warehouseId || undefined;
 
-  const loadData = async () => {
+  const loadData = async (options?: { preserveOnEmpty?: boolean }) => {
     try {
       setLoading(true);
       setError(null);
@@ -134,10 +136,23 @@ export default function ForecastsPage() {
             warehouseId: effectiveWarehouseId,
           })
         : null;
-      setForecasts(forecastRes.items ?? []);
-      setMetrics(metricRes.items ?? []);
-      setRecommendations(recoRes.items ?? []);
-      setModelComparisonMetrics(comparisonMetrics?.items ?? []);
+      const nextForecasts = forecastRes.items ?? [];
+      const nextMetrics = metricRes.items ?? [];
+      const nextRecommendations = recoRes.items ?? [];
+      const nextModelComparisonMetrics = comparisonMetrics?.items ?? [];
+
+      const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
+      const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
+      if (options?.preserveOnEmpty && gotNoRows && hadPreviousRows) {
+        setError("Trigger started, but no new rows are available yet. Showing previous data.");
+        setLoading(false);
+        return;
+      }
+
+      setForecasts(nextForecasts);
+      setMetrics(nextMetrics);
+      setRecommendations(nextRecommendations);
+      setModelComparisonMetrics(nextModelComparisonMetrics);
       if (inferenceAuditResult.status === "fulfilled") {
         setInferenceSummary(inferenceAuditResult.value?.summary ?? null);
       } else {
@@ -181,7 +196,7 @@ export default function ForecastsPage() {
         warehouseId: effectiveWarehouseId,
         criticalOverride,
       });
-      await loadData();
+      await loadData({ preserveOnEmpty: true });
     } catch (triggerError) {
       logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
       setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
@@ -192,6 +207,25 @@ export default function ForecastsPage() {
 
   useEffect(() => {
     void loadData();
+  }, []);
+
+  useEffect(() => {
+    const loadWarehouses = async () => {
+      try {
+        const warehouses = await warehousesApi.getAll();
+        const options = (warehouses ?? [])
+          .map((w) => ({
+            value: String(w.id),
+            label: w.name ? `${w.name}${w.code ? ` (${w.code})` : ""}` : String(w.id),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        setWarehouseMasterOptions(options);
+      } catch (warehouseError) {
+        logger.warn("[ForecastsPage] Failed to load warehouses:", warehouseError);
+        setWarehouseMasterOptions([]);
+      }
+    };
+    void loadWarehouses();
   }, []);
 
   const latestRunId = useMemo(() => {
@@ -212,7 +246,7 @@ export default function ForecastsPage() {
     return Array.from(new Set([...fromRecommendations, ...fromForecasts])).sort((a, b) => a.localeCompare(b));
   }, [latestForecasts, recommendations]);
 
-  const warehouseOptions = useMemo(() => {
+  const warehouseOptionsFromData = useMemo(() => {
     const values = new Set<string>();
     forecasts.forEach((r) => r.warehouse_id && values.add(String(r.warehouse_id)));
     recommendations.forEach((r) => r.warehouse_id && values.add(String(r.warehouse_id)));
@@ -222,6 +256,13 @@ export default function ForecastsPage() {
     }
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [admin?.warehouseId, forecasts, metrics, recommendations]);
+
+  const warehouseOptions = useMemo(() => {
+    if (warehouseMasterOptions.length > 0) {
+      return warehouseMasterOptions;
+    }
+    return warehouseOptionsFromData.map((wid) => ({ value: wid, label: wid }));
+  }, [warehouseMasterOptions, warehouseOptionsFromData]);
 
   useEffect(() => {
     if (!skuOptions.length) {
@@ -279,20 +320,30 @@ export default function ForecastsPage() {
       }));
   }, [latestForecasts]);
 
-  const selectedSkuForecasts = useMemo(
-    () =>
-      latestForecasts
-        .filter((row) => row.sku === selectedSku)
-        .sort((a, b) => String(a.month).localeCompare(String(b.month)))
-        .map((row) => ({
-          month: row.month,
-          p10: Math.round(row.p10),
-          p50: Math.round(row.p50),
-          p90: Math.round(row.p90),
-          actual: row.y_true !== null && row.y_true !== undefined ? Math.round(row.y_true) : null,
-        })),
-    [latestForecasts, selectedSku]
-  );
+  const selectedSkuForecasts = useMemo(() => {
+    const rows = latestForecasts
+      .filter((row) => row.sku === selectedSku)
+      .sort((a, b) => String(a.month).localeCompare(String(b.month)));
+
+    if (!rows.length) {
+      return [];
+    }
+
+    let visibleRows = rows;
+    if (filters.horizon && Number.isFinite(filters.horizon) && filters.horizon > 0) {
+      const uniqueMonths = Array.from(new Set(rows.map((r) => String(r.month)))).sort((a, b) => a.localeCompare(b));
+      const visibleMonths = new Set(uniqueMonths.slice(-Math.min(filters.horizon, uniqueMonths.length)));
+      visibleRows = rows.filter((r) => visibleMonths.has(String(r.month)));
+    }
+
+    return visibleRows.map((row) => ({
+      month: row.month,
+      p10: Math.round(row.p10),
+      p50: Math.round(row.p50),
+      p90: Math.round(row.p90),
+      actual: row.y_true !== null && row.y_true !== undefined ? Math.round(row.y_true) : null,
+    }));
+  }, [filters.horizon, latestForecasts, selectedSku]);
 
   const avgWape = useMemo(() => {
     const values = metrics
@@ -522,7 +573,7 @@ export default function ForecastsPage() {
     return "badge-success";
   }, [inferenceAlerts?.status]);
 
-  const isDecisionView = !isAdmin || !showModelPerformance;
+  const isDecisionView = !showModelPerformance;
 
   const applySkuSearch = () => {
     const q = skuSearchInput.trim().toLowerCase();
@@ -550,28 +601,28 @@ export default function ForecastsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isAdmin && (
-            <div className="join mr-2">
-              <button
-                className={`btn btn-sm join-item ${!showModelPerformance ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setShowModelPerformance(false)}
-              >
-                Decision View
-              </button>
-              <button
-                className={`btn btn-sm join-item ${showModelPerformance ? "btn-secondary" : "btn-outline"}`}
-                onClick={() => setShowModelPerformance(true)}
-              >
-                Model Performance
-              </button>
-            </div>
-          )}
+          <div className="join mr-2">
+            <button
+              className={`btn btn-sm join-item ${!showModelPerformance ? "btn-secondary" : "btn-outline"}`}
+              onClick={() => setShowModelPerformance(false)}
+            >
+              Decision View
+            </button>
+            <button
+              className={`btn btn-sm join-item ${showModelPerformance ? "btn-secondary" : "btn-outline"}`}
+              onClick={() => setShowModelPerformance(true)}
+            >
+              Model Performance
+            </button>
+          </div>
           <button className="btn btn-outline btn-sm" onClick={() => void loadData()} disabled={loading}>
             {loading ? "Loading..." : "Reload"}
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
-            {triggering ? "Triggering..." : "Trigger Run"}
-          </button>
+          {isAdmin && (
+            <button className="btn btn-primary btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
+              {triggering ? "Triggering..." : "Trigger Run"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -663,7 +714,7 @@ export default function ForecastsPage() {
       )}
 
       <div className="card bg-base-100 border border-base-300 p-4">
-        {isAdmin && showModelPerformance ? (
+        {showModelPerformance ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
             <label className="form-control">
               <span className="label-text text-xs">Dataset</span>
@@ -694,26 +745,6 @@ export default function ForecastsPage() {
               </select>
             </label>
             <label className="form-control">
-              <span className="label-text text-xs">Horizon</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.horizon ?? ""}
-                onChange={(e) =>
-                  setFilters((prev) => ({
-                    ...prev,
-                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
-                  }))
-                }
-              >
-                <option value="">All</option>
-                {Array.from({ length: 12 }).map((_, idx) => (
-                  <option key={idx + 1} value={idx + 1}>
-                    {idx + 1}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-control">
               <span className="label-text text-xs">Split</span>
               <select
                 className="select select-bordered select-sm"
@@ -723,42 +754,6 @@ export default function ForecastsPage() {
                 <option value="test">test</option>
                 <option value="cv">cv</option>
                 <option value="train">train</option>
-              </select>
-            </label>
-            <label className="form-control">
-              <span className="label-text text-xs">Warehouse ID</span>
-              {warehouseOptions.length > 0 ? (
-                <select
-                  className="select select-bordered select-sm"
-                  value={filters.warehouseId ?? ""}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
-                >
-                  <option value="">All warehouses</option>
-                  {warehouseOptions.map((wid) => (
-                    <option key={wid} value={wid}>
-                      {wid}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input input-bordered input-sm" value="Colombo Main" disabled />
-              )}
-            </label>
-          </div>
-        ) : isAdmin ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            <label className="form-control">
-              <span className="label-text text-xs">Dataset</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.dataset}
-                onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
-              >
-                {DATASET_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
               </select>
             </label>
             <label className="form-control">
@@ -782,39 +777,27 @@ export default function ForecastsPage() {
               </select>
             </label>
             <label className="form-control">
-              <span className="label-text text-xs">Split</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.split}
-                onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
-              >
-                <option value="test">test</option>
-                <option value="cv">cv</option>
-                <option value="train">train</option>
-              </select>
-            </label>
-            <label className="form-control">
               <span className="label-text text-xs">Warehouse ID</span>
-              {warehouseOptions.length > 0 ? (
+              {isAdmin ? (
                 <select
                   className="select select-bordered select-sm"
                   value={filters.warehouseId ?? ""}
                   onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
                 >
                   <option value="">All warehouses</option>
-                  {warehouseOptions.map((wid) => (
-                    <option key={wid} value={wid}>
-                      {wid}
+                  {warehouseOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
                     </option>
                   ))}
                 </select>
               ) : (
-                <input className="input input-bordered input-sm" value="Colombo Main" disabled />
+                <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
               )}
             </label>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className={`grid grid-cols-1 md:grid-cols-2 ${isAdmin ? "lg:grid-cols-2" : ""} gap-3`}>
             <label className="form-control">
               <span className="label-text text-xs">Horizon</span>
               <select
@@ -836,14 +819,29 @@ export default function ForecastsPage() {
               </select>
             </label>
             <label className="form-control">
-              <span className="label-text text-xs">Warehouse Scope</span>
-              <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
+              <span className="label-text text-xs">Warehouse ID</span>
+              {isAdmin ? (
+                <select
+                  className="select select-bordered select-sm"
+                  value={filters.warehouseId ?? ""}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
+                >
+                  <option value="">All warehouses</option>
+                  {warehouseOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input className="input input-bordered input-sm" value={admin?.warehouseId ?? "N/A"} disabled />
+              )}
             </label>
           </div>
         )}
-        {isAdmin && !showModelPerformance && (
+        {!showModelPerformance && (
           <div className="mt-2 text-xs text-base-content/60">
-            Model selection is available in Admin Model Performance view.
+            Dataset and model selection is available in Model Performance view.
           </div>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -864,7 +862,7 @@ export default function ForecastsPage() {
         </div>
       </div>
 
-      {(!isAdmin || !showModelPerformance) ? (
+      {isDecisionView ? (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
             <div className="card bg-base-100 border border-base-300 p-4">
@@ -1146,7 +1144,7 @@ export default function ForecastsPage() {
         </>
       )}
 
-      {isAdmin && showModelPerformance && (
+      {showModelPerformance && (
         <div className="card bg-base-100 border border-base-300 p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold">Model Evaluators By Horizon</h2>
