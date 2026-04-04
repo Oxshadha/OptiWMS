@@ -15,7 +15,28 @@ This workspace hosts Python AI services that integrate with the core WMS backend
 ## Current State
 - The active data-science workflow now lives under `Ai miroservices/modeling/`.
 - Saved forecasting artifacts, cleaned datasets, and notebook-based evaluation are produced there.
-- `ai-services/forecast-service` still relies on mounted CSV report files and should be treated as transitional infrastructure until artifact loading and live WMS feature generation are added.
+- `ai-services/forecast-service` now supports online artifact inference via `POST /artifacts/infer-boosting-online` with:
+  - typed per-series history payloads,
+  - server-side feature construction,
+  - fallback baselines (`last_value` / `snaive12`) when model artifacts or feature inference fail,
+  - explicit fallback flags in response (`fallback_used`, `fallback_reason`, `fallback_count`),
+  - JSONL inference audit logs (`inference_audit_log_file`).
+
+## Production Acceptance Gates
+- Forecast quality:
+  - WAPE (overall): `<= 0.135`
+  - Bias (absolute, normalized): `<= 0.10`
+  - Under-forecast rate: `<= 0.60`
+  - MASE_mean: `<= 1.10`
+- Serving reliability:
+  - Endpoint `2xx` success rate: `>= 99.5%`
+  - P95 latency for online inference: `<= 500 ms` for normal batch sizes
+  - Fallback usage rate (`fallback_used=true`): `<= 5%` steady state
+  - Hard-failure rate (non-fallbackable requests): `<= 1%`
+- Monitoring/governance:
+  - Daily forecast-error + drift review
+  - Weekly champion/challenger review
+  - Rollback procedure tested and documented
 
 ## Local Run
 1. Copy env:

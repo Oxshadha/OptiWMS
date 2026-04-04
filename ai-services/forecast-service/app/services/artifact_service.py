@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import pickle
 import re
 import statistics
+import time
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,14 @@ EXOG_COLS = [
     "returns_qty",
     "holiday_flag",
 ]
+AUDIT_LOGGER = logging.getLogger("forecast.inference.audit")
+if not AUDIT_LOGGER.handlers:
+    AUDIT_LOGGER.setLevel(logging.INFO)
+    audit_path = Path(settings.inference_audit_log_file)
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    file_handler = logging.FileHandler(audit_path, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+    AUDIT_LOGGER.addHandler(file_handler)
 
 
 def _load_metadata(path: Path) -> dict[str, Any]:
@@ -146,6 +156,56 @@ def _predict_boosting_from_frame(reg, metadata: dict[str, Any], model_name: str,
         x = x.reindex(columns=feature_columns, fill_value=0)
         return reg.predict(x)
     return reg.predict(frame)
+
+
+def _log_inference_audit(payload: dict[str, Any]) -> None:
+    AUDIT_LOGGER.info(json.dumps(payload, default=str))
+
+
+def _fallback_value_from_history(history: list[dict[str, Any]], horizon: int, preferred: str = "auto") -> tuple[float, str]:
+    demands: list[float] = []
+    for row in history:
+        try:
+            val = float(row.get("demand_units", 0.0))
+        except (TypeError, ValueError):
+            val = 0.0
+        demands.append(max(0.0, val))
+
+    if not demands:
+        return 0.0, "last_value"
+
+    if preferred == "last_value":
+        return demands[-1], "last_value"
+    if preferred == "snaive12":
+        if len(demands) >= 12:
+            season = demands[-12:]
+            return season[(horizon - 1) % 12], "snaive12"
+        return demands[-1], "last_value"
+
+    # auto: use seasonal naive when enough history, else last-value.
+    if len(demands) >= 12:
+        season = demands[-12:]
+        return season[(horizon - 1) % 12], "snaive12"
+    return demands[-1], "last_value"
+
+
+def _build_fallback_item(
+    series_payload: dict[str, Any],
+    horizon: int,
+    reason: str,
+    preferred: str = "auto",
+) -> dict[str, Any]:
+    prediction, method = _fallback_value_from_history(series_payload.get("history") or [], horizon, preferred)
+    return {
+        "series_id": series_payload.get("series_id"),
+        "fg_code": series_payload.get("fg_code"),
+        "fg_category": series_payload.get("fg_category"),
+        "prediction": float(prediction),
+        "horizon": horizon,
+        "fallback_used": True,
+        "fallback_reason": reason,
+        "baseline_method": method,
+    }
 
 
 def _normalize_history(history: list[dict[str, Any]]) -> pd.DataFrame:
@@ -274,53 +334,95 @@ def infer_boosting_online(
     stage: str = "production",
     clip_negative: bool = True,
 ) -> dict[str, Any]:
-    reg, metadata = load_boosting_artifact(dataset, model_name, horizon, stage=stage)
-    model_cols = metadata.get("model_cols") or []
-    if not model_cols:
-        raise ValueError("Artifact metadata has no model_cols; cannot build online feature rows.")
-
-    request_rows: list[dict[str, Any]] = []
-    order: list[tuple[str, str, str | None]] = []
+    started = time.perf_counter()
+    metadata: dict[str, Any] = {}
     errors: list[dict[str, str]] = []
+    payloads = [s.model_dump() if hasattr(s, "model_dump") else s for s in series]
 
-    for s in series:
-        payload = s.model_dump() if hasattr(s, "model_dump") else s
-        series_id = payload.get("series_id")
-        fg_code = payload.get("fg_code")
-        fg_category = payload.get("fg_category")
+    items: list[dict[str, Any] | None] = [None] * len(payloads)
+    model_queue: list[tuple[int, dict[str, Any]]] = []
+    model_cols: list[str] = []
+
+    try:
+        reg, metadata = load_boosting_artifact(dataset, model_name, horizon, stage=stage)
+        model_cols = metadata.get("model_cols") or []
+        if not model_cols:
+            raise ValueError("Artifact metadata has no model_cols; cannot build online feature rows.")
+        for idx, payload in enumerate(payloads):
+            try:
+                row = _build_online_feature_row(payload, model_cols)
+                model_queue.append((idx, row))
+            except Exception as ex:  # noqa: BLE001
+                reason = f"feature_build_error: {ex}"
+                errors.append({"series_id": str(payload.get("series_id")), "error": reason})
+                items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
+    except Exception as ex:  # noqa: BLE001
+        # Global model failure: fallback all series.
+        reason = f"model_load_or_metadata_error: {ex}"
+        for idx, payload in enumerate(payloads):
+            items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
+        errors.append({"series_id": "*", "error": reason})
+        model_queue = []
+
+    if model_queue:
         try:
-            row = _build_online_feature_row(payload, model_cols)
-            request_rows.append(row)
-            order.append((series_id, fg_code, fg_category))
-        except ValueError as ex:
-            errors.append({"series_id": str(series_id), "error": str(ex)})
+            frame = _align_model_columns(pd.DataFrame([row for _, row in model_queue]), model_cols)
+            preds = [float(x) for x in _predict_boosting_from_frame(reg, metadata, model_name, frame)]
+            if clip_negative:
+                preds = [max(0.0, x) for x in preds]
+            for (idx, _), pred in zip(model_queue, preds):
+                payload = payloads[idx]
+                items[idx] = {
+                    "series_id": payload.get("series_id"),
+                    "fg_code": payload.get("fg_code"),
+                    "fg_category": payload.get("fg_category"),
+                    "prediction": float(pred),
+                    "horizon": horizon,
+                    "fallback_used": False,
+                    "fallback_reason": None,
+                    "baseline_method": None,
+                }
+        except Exception as ex:  # noqa: BLE001
+            reason = f"inference_error: {ex}"
+            errors.append({"series_id": "*", "error": reason})
+            for idx, _ in model_queue:
+                payload = payloads[idx]
+                items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
 
-    if not request_rows:
-        raise ValueError(f"No valid series rows to infer. Errors: {errors}")
+    finalized_items = [it for it in items if it is not None]
+    fallback_count = sum(1 for it in finalized_items if it.get("fallback_used"))
+    fallback_used = fallback_count > 0
+    fallback_reason = None
+    if fallback_used:
+        fallback_reason = "; ".join({it.get("fallback_reason") for it in finalized_items if it.get("fallback_reason")})
 
-    frame = _align_model_columns(pd.DataFrame(request_rows), model_cols)
-    preds = [float(x) for x in _predict_boosting_from_frame(reg, metadata, model_name, frame)]
-    if clip_negative:
-        preds = [max(0.0, x) for x in preds]
-
-    items = [
+    elapsed_ms = round((time.perf_counter() - started) * 1000.0, 3)
+    _log_inference_audit(
         {
-            "series_id": sid,
-            "fg_code": fg_code,
-            "fg_category": fg_category,
-            "prediction": float(pred),
+            "event": "infer_boosting_online",
+            "dataset": dataset,
+            "model_name": model_name,
             "horizon": horizon,
+            "stage": stage,
+            "series_count": len(payloads),
+            "response_count": len(finalized_items),
+            "errors_count": len(errors),
+            "fallback_count": fallback_count,
+            "fallback_used": fallback_used,
+            "latency_ms": elapsed_ms,
         }
-        for (sid, fg_code, fg_category), pred in zip(order, preds)
-    ]
+    )
 
     return {
         "dataset": dataset,
         "model_name": model_name,
         "horizon": horizon,
         "stage": stage,
-        "count": len(items),
-        "items": items,
+        "count": len(finalized_items),
+        "items": finalized_items,
         "errors": errors,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "fallback_count": fallback_count,
         "metadata": metadata,
     }

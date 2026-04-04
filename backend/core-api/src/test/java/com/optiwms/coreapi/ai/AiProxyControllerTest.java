@@ -47,8 +47,11 @@ class AiProxyControllerTest {
                 1,
                 "production",
                 1,
-                List.of(new AiBoostingOnlineInferenceResponse.Item("sku_001", "FG001", "Soap", 123.45, 1)),
+                List.of(new AiBoostingOnlineInferenceResponse.Item("sku_001", "FG001", "Soap", 123.45, 1, false, null, null)),
                 List.of(),
+                false,
+                null,
+                0,
                 Map.of("model_version", "v1")
         );
 
@@ -85,7 +88,9 @@ class AiProxyControllerTest {
                 .andExpect(jsonPath("$.model_name").value("XGBOOST"))
                 .andExpect(jsonPath("$.count").value(1))
                 .andExpect(jsonPath("$.items[0].series_id").value("sku_001"))
-                .andExpect(jsonPath("$.items[0].prediction").value(123.45));
+                .andExpect(jsonPath("$.items[0].prediction").value(123.45))
+                .andExpect(jsonPath("$.fallback_used").value(false))
+                .andExpect(jsonPath("$.fallback_count").value(0));
 
         verify(aiProxyService).inferBoostingOnline(any(AiBoostingOnlineInferenceRequest.class));
     }

@@ -73,8 +73,11 @@ class AiProxyServiceTest {
                 1,
                 "production",
                 1,
-                List.of(new AiBoostingOnlineInferenceResponse.Item("sku_001", "FG001", "Soap", 123.45, 1)),
+                List.of(new AiBoostingOnlineInferenceResponse.Item("sku_001", "FG001", "Soap", 123.45, 1, false, null, null)),
                 List.of(),
+                false,
+                null,
+                0,
                 Map.of("model_version", "v1")
         );
 
@@ -99,5 +102,69 @@ class AiProxyServiceTest {
         assertEquals(payload, captor.getValue().getBody());
         assertEquals(MediaType.APPLICATION_JSON, captor.getValue().getHeaders().getContentType());
     }
-}
 
+    @Test
+    void inferBoostingOnline_smokeFlowShouldExposeFallbackFlagsWhenModelMissing() {
+        AiBoostingOnlineInferenceRequest payload = new AiBoostingOnlineInferenceRequest(
+                "A",
+                "NON_EXISTENT_MODEL",
+                1,
+                "production",
+                true,
+                List.of(
+                        new AiBoostingOnlineInferenceRequest.SeriesPayload(
+                                "sku_001",
+                                "FG001",
+                                "Soap",
+                                List.of(
+                                        new AiBoostingOnlineInferenceRequest.HistoryPoint("2025-01", 100.0, null, null, null, null, null, null, null, null, null, null),
+                                        new AiBoostingOnlineInferenceRequest.HistoryPoint("2025-02", 120.0, null, null, null, null, null, null, null, null, null, null)
+                                ),
+                                Map.of()
+                        ),
+                        new AiBoostingOnlineInferenceRequest.SeriesPayload(
+                                "sku_002",
+                                "FG002",
+                                "Lotion/Cream",
+                                List.of(
+                                        new AiBoostingOnlineInferenceRequest.HistoryPoint("2025-01", 80.0, null, null, null, null, null, null, null, null, null, null),
+                                        new AiBoostingOnlineInferenceRequest.HistoryPoint("2025-02", 95.0, null, null, null, null, null, null, null, null, null, null)
+                                ),
+                                Map.of()
+                        )
+                )
+        );
+
+        AiBoostingOnlineInferenceResponse expected = new AiBoostingOnlineInferenceResponse(
+                "A",
+                "NON_EXISTENT_MODEL",
+                1,
+                "production",
+                2,
+                List.of(
+                        new AiBoostingOnlineInferenceResponse.Item("sku_001", "FG001", "Soap", 120.0, 1, true, "model_load_or_metadata_error: missing artifact", "last_value"),
+                        new AiBoostingOnlineInferenceResponse.Item("sku_002", "FG002", "Lotion/Cream", 95.0, 1, true, "model_load_or_metadata_error: missing artifact", "last_value")
+                ),
+                List.of(new AiBoostingOnlineInferenceResponse.ErrorItem("*", "model_load_or_metadata_error: missing artifact")),
+                true,
+                "model_load_or_metadata_error: missing artifact",
+                2,
+                Map.of()
+        );
+
+        when(restTemplate.exchange(
+                eq("http://localhost:8091/artifacts/infer-boosting-online"),
+                eq(HttpMethod.POST),
+                any(HttpEntity.class),
+                eq(AiBoostingOnlineInferenceResponse.class)
+        )).thenReturn(new ResponseEntity<>(expected, HttpStatus.OK));
+
+        ResponseEntity<AiBoostingOnlineInferenceResponse> result = service.inferBoostingOnline(payload);
+        assertEquals(HttpStatus.OK, result.getStatusCode());
+        assertEquals(2, result.getBody().count());
+        assertEquals(true, result.getBody().fallbackUsed());
+        assertEquals(2, result.getBody().fallbackCount());
+        assertEquals(true, result.getBody().items().get(0).fallbackUsed());
+        assertEquals("last_value", result.getBody().items().get(0).baselineMethod());
+    }
+}

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     forecast_report_file: str = "dashboard_forecast_output.csv"
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"
+    inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

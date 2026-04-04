@@ -13,6 +13,9 @@ public record AiBoostingOnlineInferenceResponse(
         Integer count,
         List<Item> items,
         List<ErrorItem> errors,
+        @JsonProperty("fallback_used") Boolean fallbackUsed,
+        @JsonProperty("fallback_reason") String fallbackReason,
+        @JsonProperty("fallback_count") Integer fallbackCount,
         Map<String, Object> metadata
 ) {
     public record Item(
@@ -20,7 +23,10 @@ public record AiBoostingOnlineInferenceResponse(
             @JsonProperty("fg_code") String fgCode,
             @JsonProperty("fg_category") String fgCategory,
             Double prediction,
-            Integer horizon
+            Integer horizon,
+            @JsonProperty("fallback_used") Boolean fallbackUsed,
+            @JsonProperty("fallback_reason") String fallbackReason,
+            @JsonProperty("baseline_method") String baselineMethod
     ) {}
 
     public record ErrorItem(
@@ -28,4 +34,3 @@ public record AiBoostingOnlineInferenceResponse(
             String error
     ) {}
 }
-
