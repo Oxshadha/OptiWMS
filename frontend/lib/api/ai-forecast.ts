@@ -42,6 +42,47 @@ export interface ForecastMetric {
   Bias?: number;
 }
 
+export interface InferenceAuditSummary {
+  count: number;
+  fallback_rate: number;
+  error_rate: number;
+  latency_avg_ms: number;
+  latency_p95_ms: number;
+}
+
+export interface InferenceAuditItem {
+  ts: string;
+  dataset?: string;
+  model?: string;
+  horizon?: number;
+  series_count?: number;
+  latency_ms?: number;
+  errors_count?: number;
+  fallback_count?: number;
+}
+
+export interface InferenceAuditResponse {
+  summary: InferenceAuditSummary;
+  items: InferenceAuditItem[];
+}
+
+export interface InferenceAlertRule {
+  rule: string;
+  severity: string;
+  threshold: number;
+  value: number;
+  message: string;
+}
+
+export interface InferenceAlertsResponse {
+  status: string;
+  summary: InferenceAuditSummary;
+  rules_triggered: InferenceAlertRule[];
+  window_size: number;
+  dataset?: string;
+  model_name?: string;
+}
+
 export interface PagedResponse<T> {
   items: T[];
   count: number;
@@ -123,5 +164,31 @@ export const aiForecastApi = {
 
   getHealth() {
     return apiClient.get<Record<string, unknown>>('/ai/health');
+  },
+
+  getInferenceAudit(params: {
+    limit?: number;
+    dataset?: string;
+    modelName?: string;
+  } = {}) {
+    const query = buildQuery({
+      limit: params.limit,
+      dataset: params.dataset,
+      model_name: params.modelName,
+    });
+    return apiClient.get<InferenceAuditResponse>(`/ai/artifacts/inference-audit${query}`);
+  },
+
+  getInferenceAlerts(params: {
+    limit?: number;
+    dataset?: string;
+    modelName?: string;
+  } = {}) {
+    const query = buildQuery({
+      limit: params.limit,
+      dataset: params.dataset,
+      model_name: params.modelName,
+    });
+    return apiClient.get<InferenceAlertsResponse>(`/ai/artifacts/inference-alerts${query}`);
   },
 };
