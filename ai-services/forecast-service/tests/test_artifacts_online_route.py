@@ -23,6 +23,9 @@ def test_infer_boosting_online_success(monkeypatch):
                 }
             ],
             "errors": [],
+            "fallback_used": False,
+            "fallback_reason": None,
+            "fallback_count": 0,
             "metadata": {"model_version": "v1"},
         }
 
@@ -58,6 +61,8 @@ def test_infer_boosting_online_success(monkeypatch):
     assert body["model_name"] == "XGBOOST"
     assert body["count"] == 1
     assert body["items"][0]["series_id"] == "sku_001"
+    assert body["fallback_used"] is False
+    assert body["fallback_count"] == 0
 
 
 def test_infer_boosting_online_validation_error():
@@ -79,4 +84,3 @@ def test_infer_boosting_online_validation_error():
 
     res = client.post("/artifacts/infer-boosting-online", json=payload)
     assert res.status_code == 422
-
