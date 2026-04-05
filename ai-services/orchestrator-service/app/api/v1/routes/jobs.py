@@ -23,7 +23,7 @@ def trigger_forecast_run(
                 "model_version": "v1",
                 "warehouse_id": warehouse_id,
             },
-            timeout=20,
+            timeout=settings.run_create_timeout_seconds,
         )
         r.raise_for_status()
         run_id = r.json()["id"]
@@ -31,7 +31,7 @@ def trigger_forecast_run(
         p = httpx.post(
             f"{settings.forecast_api_base_url}/runs/{run_id}/publish",
             params={"mode": mode},
-            timeout=90,
+            timeout=settings.run_publish_timeout_seconds,
         )
         p.raise_for_status()
 

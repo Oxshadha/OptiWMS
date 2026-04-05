@@ -36,6 +36,9 @@ logging:
     org.springframework.security: INFO
 
 ai:
+  http:
+    connect-timeout-seconds: 3
+    read-timeout-seconds: 300
   services:
     forecast-base-url: ${AI_FORECAST_BASE_URL:http://forecast-service:8091}
     orchestrator-base-url: ${AI_ORCHESTRATOR_BASE_URL:http://orchestrator-service:8092}
