@@ -71,6 +71,7 @@ export default function ForecastsPage() {
   const [loading, setLoading] = useState(false);
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [forecasts, setForecasts] = useState<ForecastPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
@@ -106,10 +107,15 @@ export default function ForecastsPage() {
     ? filters.warehouseId || undefined
     : managerWarehouseScope;
 
-  const loadData = async (options?: { preserveOnEmpty?: boolean }) => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
     try {
       setLoading(true);
       setError(null);
+      if (!options?.keepInfo) {
+        setInfoMessage(null);
+      }
       const [forecastRes, metricRes, recoRes] = await Promise.all([
         aiForecastApi.getForecasts({
           dataset: filters.dataset,
@@ -159,9 +165,9 @@ export default function ForecastsPage() {
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
       const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
       if (options?.preserveOnEmpty && gotNoRows && hadPreviousRows) {
-        setError("Trigger started, but no new rows are available yet. Showing previous data.");
+        setInfoMessage("Trigger started, but no new rows are available yet. Showing previous data.");
         setLoading(false);
-        return;
+        return { hasRows: false, latestRunId };
       }
 
       setForecasts(nextForecasts);
@@ -181,12 +187,38 @@ export default function ForecastsPage() {
         setInferenceAlerts(null);
       }
       setLastLoadedAt(new Date().toISOString());
+      return {
+        hasRows: !gotNoRows,
+        latestRunId: nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined,
+      };
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
       setError(loadError instanceof Error ? loadError.message : "Failed to load forecast data");
+      return { hasRows: false, latestRunId: undefined as number | undefined };
     } finally {
       setLoading(false);
     }
+  };
+
+  const waitForPublishedRows = async (runId: number) => {
+    const attempts = 18;
+    const delayMs = 1500;
+    for (let i = 0; i < attempts; i += 1) {
+      try {
+        const runRows = await aiForecastApi.getForecasts({
+          runId,
+          dataset: filters.dataset,
+          warehouseId: effectiveWarehouseId,
+        });
+        if ((runRows.items ?? []).length > 0) {
+          return true;
+        }
+      } catch (pollError) {
+        logger.warn("[ForecastsPage] Polling run rows failed:", pollError);
+      }
+      await sleep(delayMs);
+    }
+    return false;
   };
 
   const triggerRun = async () => {
@@ -205,16 +237,29 @@ export default function ForecastsPage() {
     try {
       setTriggering(true);
       setError(null);
-      await aiForecastApi.triggerForecastRun({
+      setInfoMessage("Forecast run accepted. Waiting for published rows...");
+      const triggerResult = await aiForecastApi.triggerForecastRun({
         dataset: filters.dataset,
         modelName: filters.model,
         warehouseId: effectiveWarehouseId,
         criticalOverride,
       });
-      await loadData({ preserveOnEmpty: true });
+      const runId = Number(triggerResult?.run_id ?? 0);
+      if (Number.isFinite(runId) && runId > 0) {
+        const published = await waitForPublishedRows(runId);
+        if (published) {
+          setInfoMessage(`Run ${runId} published. Showing latest data.`);
+        } else {
+          setInfoMessage("Run started, but publish is still in progress. Showing latest available data.");
+        }
+      } else {
+        setInfoMessage("Run started. Refreshing latest data...");
+      }
+      await loadData({ preserveOnEmpty: true, keepInfo: true });
     } catch (triggerError) {
       logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
       setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
+      setInfoMessage(null);
     } finally {
       setTriggering(false);
     }
@@ -500,6 +545,30 @@ export default function ForecastsPage() {
       .sort((a, b) => a.wape - b.wape);
   }, [modelComparisonMetrics]);
 
+  const availableModelsForSelectedDataset = useMemo(() => {
+    const present = new Set(
+      modelComparisonMetrics
+        .map((m) => String(m.model ?? "").toUpperCase())
+        .filter((m) => m.length > 0)
+    );
+    if (present.size === 0) {
+      return MODEL_OPTIONS;
+    }
+    return MODEL_OPTIONS.filter((m) => present.has(m.toUpperCase()));
+  }, [modelComparisonMetrics]);
+
+  useEffect(() => {
+    if (!showModelPerformance || !isAdmin) {
+      return;
+    }
+    if (!availableModelsForSelectedDataset.length) {
+      return;
+    }
+    if (!availableModelsForSelectedDataset.includes(filters.model)) {
+      setFilters((prev) => ({ ...prev, model: availableModelsForSelectedDataset[0] }));
+    }
+  }, [availableModelsForSelectedDataset, filters.model, isAdmin, showModelPerformance]);
+
   const horizonMetricChartData = useMemo(
     () =>
       metricsByHorizon.map((row) => ({
@@ -687,6 +756,13 @@ export default function ForecastsPage() {
         </div>
       )}
 
+      {infoMessage && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <span>{infoMessage}</span>
+        </div>
+      )}
+
       {inferenceAlerts && String(inferenceAlerts.status).toLowerCase() !== "ok" && (
         <div
           className={`alert ${
@@ -759,7 +835,7 @@ export default function ForecastsPage() {
           {inferenceAlerts?.rules_triggered?.length ? (
             <div className="mt-3 text-sm">
               <span className="font-medium">Triggered Rules:</span>{" "}
-              {inferenceAlerts.rules_triggered.map((r) => `${r.rule} (${r.severity})`).join(", ")}
+              {inferenceAlerts.rules_triggered.map((r) => `${r.rule} (${r.status ?? r.severity ?? "info"})`).join(", ")}
             </div>
           ) : (
             <div className="mt-3 text-sm text-base-content/70">No alert rules triggered in the selected window.</div>
@@ -791,11 +867,14 @@ export default function ForecastsPage() {
                 value={filters.model}
                 onChange={(e) => setFilters((prev) => ({ ...prev, model: e.target.value }))}
               >
-                {MODEL_OPTIONS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
+                {MODEL_OPTIONS.map((m) => {
+                  const enabled = availableModelsForSelectedDataset.includes(m);
+                  return (
+                    <option key={m} value={m} disabled={!enabled}>
+                      {enabled ? m : `${m} (no data)`}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label className="form-control">

@@ -69,7 +69,8 @@ export interface InferenceAuditResponse {
 
 export interface InferenceAlertRule {
   rule: string;
-  severity: string;
+  status: string;
+  severity?: string;
   threshold: number;
   value: number;
   message: string;
@@ -84,9 +85,37 @@ export interface InferenceAlertsResponse {
   model_name?: string;
 }
 
+function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
+  const s = (raw ?? {}) as Record<string, unknown>;
+  const count = Number(s.count ?? 0);
+  const fallbackRate = Number(s.fallback_rate ?? 0);
+  const totalErrors = Number(s.total_errors ?? 0);
+  const latencyAvg = Number(s.latency_avg_ms ?? s.avg_latency_ms ?? 0);
+  const latencyP95 = Number(s.latency_p95_ms ?? s.p95_latency_ms ?? 0);
+  const computedErrorRate = count > 0 ? totalErrors / count : 0;
+  const errorRate = Number(s.error_rate ?? computedErrorRate);
+  return {
+    count: Number.isFinite(count) ? count : 0,
+    fallback_rate: Number.isFinite(fallbackRate) ? fallbackRate : 0,
+    total_errors: Number.isFinite(totalErrors) ? totalErrors : 0,
+    error_rate: Number.isFinite(errorRate) ? errorRate : 0,
+    latency_avg_ms: Number.isFinite(latencyAvg) ? latencyAvg : 0,
+    latency_p95_ms: Number.isFinite(latencyP95) ? latencyP95 : 0,
+  };
+}
+
 export interface PagedResponse<T> {
   items: T[];
   count: number;
+}
+
+export interface ForecastRunTriggerResponse {
+  job?: string;
+  status?: string;
+  run_id?: number;
+  mode_requested?: string;
+  triggered_at?: string;
+  publish_result?: Record<string, unknown>;
 }
 
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
@@ -161,7 +190,7 @@ export const aiForecastApi = {
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
     });
-    return apiClient.post(`/ai/jobs/forecast-run${query}`);
+    return apiClient.post<ForecastRunTriggerResponse>(`/ai/jobs/forecast-run${query}`);
   },
 
   getHealth() {
@@ -178,7 +207,13 @@ export const aiForecastApi = {
       dataset: params.dataset,
       model_name: params.modelName,
     });
-    return apiClient.get<InferenceAuditResponse>(`/ai/artifacts/inference-audit${query}`);
+    return apiClient.get(`/ai/artifacts/inference-audit${query}`).then((raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>;
+      return {
+        summary: normalizeInferenceSummary(body.summary),
+        items: Array.isArray(body.items) ? (body.items as InferenceAuditItem[]) : [],
+      } as InferenceAuditResponse;
+    });
   },
 
   getInferenceAlerts(params: {
@@ -191,6 +226,28 @@ export const aiForecastApi = {
       dataset: params.dataset,
       model_name: params.modelName,
     });
-    return apiClient.get<InferenceAlertsResponse>(`/ai/artifacts/inference-alerts${query}`);
+    return apiClient.get(`/ai/artifacts/inference-alerts${query}`).then((raw) => {
+      const body = (raw ?? {}) as Record<string, unknown>;
+      const rules = Array.isArray(body.rules_triggered) ? body.rules_triggered : [];
+      return {
+        status: String(body.status ?? "ok"),
+        summary: normalizeInferenceSummary(body.summary),
+        rules_triggered: rules.map((r) => {
+          const item = (r ?? {}) as Record<string, unknown>;
+          const status = String(item.status ?? item.severity ?? "info");
+          return {
+            rule: String(item.rule ?? ""),
+            status,
+            severity: status,
+            threshold: Number(item.threshold ?? 0),
+            value: Number(item.value ?? 0),
+            message: String(item.message ?? ""),
+          } as InferenceAlertRule;
+        }),
+        window_size: Number(body.window_size ?? 0),
+        dataset: body.dataset ? String(body.dataset) : undefined,
+        model_name: body.model_name ? String(body.model_name) : undefined,
+      } as InferenceAlertsResponse;
+    });
   },
 };
