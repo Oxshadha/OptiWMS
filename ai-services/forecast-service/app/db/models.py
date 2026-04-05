@@ -66,3 +66,21 @@ class InventoryRecommendation(Base):
     target_max: Mapped[float] = mapped_column(Float)
     on_hand_inventory: Mapped[float | None] = mapped_column(Float, nullable=True)
     suggested_order_qty: Mapped[float] = mapped_column(Float)
+
+
+class ModelRegistryEntry(Base):
+    __tablename__ = "model_registry_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    dataset: Mapped[str] = mapped_column(String(32), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    model_version: Mapped[str] = mapped_column(String(64), default="v1")
+    artifact_stage: Mapped[str] = mapped_column(String(32), default="production")
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    is_champion: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
