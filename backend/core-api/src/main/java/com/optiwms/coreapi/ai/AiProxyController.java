@@ -69,7 +69,7 @@ public class AiProxyController {
     public ResponseEntity<Object> trigger(
             Authentication authentication,
             @RequestParam(defaultValue = "B") String dataset,
-            @RequestParam(defaultValue = "CATBOOST") String modelName,
+            @RequestParam(defaultValue = "AUTO") String modelName,
             @RequestParam(required = false) String warehouseId,
             @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride
     ) {

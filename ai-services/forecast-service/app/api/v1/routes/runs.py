@@ -6,13 +6,14 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import ForecastRun
 from app.services.forecast_service import ingest_snapshot
+from app.services.model_registry_service import resolve_champion_model
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 class RunCreate(BaseModel):
     dataset: str
-    model_name: str
+    model_name: str = "AUTO"
     model_version: str = "v1"
     warehouse_id: str | None = None
     notes: str | None = None
@@ -20,10 +21,20 @@ class RunCreate(BaseModel):
 
 @router.post("")
 def create_run(payload: RunCreate, db: Session = Depends(get_db)):
+    requested_model = (payload.model_name or "").strip()
+    if not requested_model or requested_model.upper() == "AUTO":
+        resolved_model_name, resolved_model_version = resolve_champion_model(
+            db=db,
+            dataset=payload.dataset,
+            warehouse_id=payload.warehouse_id,
+        )
+    else:
+        resolved_model_name, resolved_model_version = requested_model, payload.model_version
+
     run = ForecastRun(
         dataset=payload.dataset,
-        model_name=payload.model_name,
-        model_version=payload.model_version,
+        model_name=resolved_model_name,
+        model_version=resolved_model_version,
         warehouse_id=payload.warehouse_id,
         notes=payload.notes,
         status="created",

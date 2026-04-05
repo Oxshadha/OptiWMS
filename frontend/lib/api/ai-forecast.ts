@@ -157,7 +157,7 @@ export const aiForecastApi = {
   triggerForecastRun(params: { dataset?: string; modelName?: string; warehouseId?: string; criticalOverride?: boolean } = {}) {
     const query = buildQuery({
       dataset: params.dataset ?? 'B',
-      modelName: params.modelName ?? 'CATBOOST',
+      modelName: params.modelName ?? 'AUTO',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
     });

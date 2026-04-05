@@ -8,7 +8,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("/forecast-run")
-def trigger_forecast_run(dataset: str = "B", model_name: str = "CATBOOST", warehouse_id: str | None = None) -> dict:
+def trigger_forecast_run(dataset: str = "B", model_name: str = "AUTO", warehouse_id: str | None = None) -> dict:
     try:
         r = httpx.post(
             f"{settings.forecast_api_base_url}/runs",
