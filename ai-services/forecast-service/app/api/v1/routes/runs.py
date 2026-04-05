@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import ForecastRun
-from app.services.forecast_service import ingest_snapshot
+from app.services.forecast_service import ingest_snapshot, publish_online
 from app.services.model_registry_service import resolve_champion_model
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -75,3 +75,54 @@ def publish_snapshot(run_id: int, db: Session = Depends(get_db)):
     run.status = "published"
     db.commit()
     return {"run_id": run_id, "status": run.status, "inserted": inserted}
+
+
+@router.post("/{run_id}/publish")
+def publish_run(run_id: int, mode: str = "auto", db: Session = Depends(get_db)):
+    run = db.get(ForecastRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    mode_norm = (mode or "auto").strip().lower()
+    if mode_norm not in {"auto", "online", "snapshot"}:
+        raise HTTPException(status_code=400, detail="mode must be one of: auto, online, snapshot")
+
+    online_result: dict | None = None
+    snapshot_result: dict | None = None
+    path_used = "snapshot"
+    warnings: list[str] = []
+
+    if mode_norm in {"auto", "online"}:
+        try:
+            online_result = publish_online(db, run)
+            if int(online_result.get("predictions", 0) or 0) > 0:
+                path_used = "online"
+            elif mode_norm == "online":
+                raise RuntimeError("online publish returned zero predictions")
+            else:
+                warnings.append("online publish returned zero predictions; falling back to snapshot")
+        except Exception as ex:
+            if mode_norm == "online":
+                raise HTTPException(status_code=400, detail=f"online publish failed: {ex}")
+            warnings.append(f"online publish failed; falling back to snapshot: {ex}")
+
+    if path_used != "online":
+        snapshot_result = ingest_snapshot(db, run)
+        path_used = "snapshot"
+
+    run.status = "published"
+    if warnings:
+        prior = (run.notes or "").strip()
+        append = " | ".join(warnings)
+        run.notes = f"{prior} | {append}" if prior else append
+    db.commit()
+
+    return {
+        "run_id": run_id,
+        "status": run.status,
+        "mode_requested": mode_norm,
+        "path_used": path_used,
+        "online_result": online_result,
+        "snapshot_result": snapshot_result,
+        "warnings": warnings,
+    }

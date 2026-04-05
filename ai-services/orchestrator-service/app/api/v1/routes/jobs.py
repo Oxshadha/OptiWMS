@@ -8,7 +8,12 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("/forecast-run")
-def trigger_forecast_run(dataset: str = "B", model_name: str = "AUTO", warehouse_id: str | None = None) -> dict:
+def trigger_forecast_run(
+    dataset: str = "B",
+    model_name: str = "AUTO",
+    warehouse_id: str | None = None,
+    mode: str = "auto",
+) -> dict:
     try:
         r = httpx.post(
             f"{settings.forecast_api_base_url}/runs",
@@ -23,13 +28,18 @@ def trigger_forecast_run(dataset: str = "B", model_name: str = "AUTO", warehouse
         r.raise_for_status()
         run_id = r.json()["id"]
 
-        p = httpx.post(f"{settings.forecast_api_base_url}/runs/{run_id}/publish-snapshot", timeout=60)
+        p = httpx.post(
+            f"{settings.forecast_api_base_url}/runs/{run_id}/publish",
+            params={"mode": mode},
+            timeout=90,
+        )
         p.raise_for_status()
 
         return {
             "job": "forecast-run",
             "status": "published",
             "run_id": run_id,
+            "mode_requested": mode,
             "triggered_at": datetime.utcnow().isoformat() + "Z",
             "publish_result": p.json(),
         }
