@@ -457,45 +457,6 @@ export default function ForecastsPage() {
     setSkuSearchInput(selectedSku);
   }, [selectedSku]);
 
-  const horizonChartData = useMemo(() => {
-    const grouped = new Map<number, { horizon: number; p50Sum: number; p90Sum: number; count: number }>();
-    for (const row of latestForecasts) {
-      const item = grouped.get(row.horizon) ?? { horizon: row.horizon, p50Sum: 0, p90Sum: 0, count: 0 };
-      item.p50Sum += row.p50;
-      item.p90Sum += row.p90;
-      item.count += 1;
-      grouped.set(row.horizon, item);
-    }
-    return Array.from(grouped.values())
-      .sort((a, b) => a.horizon - b.horizon)
-      .map((item) => ({
-        horizon: `M+${item.horizon}`,
-        p50: Math.round(item.p50Sum / item.count),
-        p90: Math.round(item.p90Sum / item.count),
-      }));
-  }, [latestForecasts]);
-
-  const monthlyTrendData = useMemo(() => {
-    const grouped = new Map<string, { month: string; p50Sum: number; p10Sum: number; p90Sum: number; count: number }>();
-    for (const row of latestForecasts) {
-      const monthKey = String(row.month);
-      const item = grouped.get(monthKey) ?? { month: monthKey, p50Sum: 0, p10Sum: 0, p90Sum: 0, count: 0 };
-      item.p50Sum += row.p50;
-      item.p10Sum += row.p10;
-      item.p90Sum += row.p90;
-      item.count += 1;
-      grouped.set(monthKey, item);
-    }
-    return Array.from(grouped.values())
-      .sort((a, b) => String(a.month).localeCompare(String(b.month)))
-      .map((item) => ({
-        month: item.month,
-        p10: Math.round(item.p10Sum / item.count),
-        p50: Math.round(item.p50Sum / item.count),
-        p90: Math.round(item.p90Sum / item.count),
-      }));
-  }, [latestForecasts]);
-
   const deferredSkuQuery = useDeferredValue(skuSearchInput);
   const skuSearchResults = useMemo(() => {
     const q = deferredSkuQuery.trim().toLowerCase();
@@ -511,33 +472,44 @@ export default function ForecastsPage() {
   }, [deferredSkuQuery, skuOptions]);
 
   const selectedSkuForecasts = useMemo(() => {
-    const rows = latestForecasts
-      .filter((row) => row.sku === selectedSku)
-      .sort((a, b) => {
-        if (a.horizon !== b.horizon) {
-          return a.horizon - b.horizon;
-        }
-        return String(a.month).localeCompare(String(b.month));
-      });
+    const rows = latestForecasts.filter((row) => row.sku === selectedSku);
 
     if (!rows.length) {
       return [];
     }
 
-    let visibleRows = rows;
-    if (filters.horizon && Number.isFinite(filters.horizon) && filters.horizon > 0) {
-      const uniqueMonths = Array.from(new Set(rows.map((r) => String(r.month)))).sort((a, b) => a.localeCompare(b));
-      const visibleMonths = new Set(uniqueMonths.slice(-Math.min(filters.horizon, uniqueMonths.length)));
-      visibleRows = rows.filter((r) => visibleMonths.has(String(r.month)));
+    const grouped = new Map<number, { horizon: number; p10: number[]; p50: number[]; p90: number[]; actual: number[] }>();
+    for (const row of rows) {
+      const h = Number(row.horizon ?? 0);
+      if (!Number.isFinite(h) || h <= 0) {
+        continue;
+      }
+      const cur = grouped.get(h) ?? { horizon: h, p10: [], p50: [], p90: [], actual: [] };
+      cur.p10.push(Number(row.p10));
+      cur.p50.push(Number(row.p50));
+      cur.p90.push(Number(row.p90));
+      if (typeof row.y_true === "number" && Number.isFinite(row.y_true)) {
+        cur.actual.push(Number(row.y_true));
+      }
+      grouped.set(h, cur);
     }
 
-    return visibleRows.map((row) => ({
-      month: row.horizon ? `H+${row.horizon}` : row.month,
-      p10: Math.round(row.p10),
-      p50: Math.round(row.p50),
-      p90: Math.round(row.p90),
-      actual: row.y_true !== null && row.y_true !== undefined ? Math.round(row.y_true) : null,
-    }));
+    const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    let out = Array.from(grouped.values())
+      .sort((a, b) => a.horizon - b.horizon)
+      .map((g) => ({
+        month: `H+${g.horizon}`,
+        horizon: g.horizon,
+        p10: Math.round(mean(g.p10)),
+        p50: Math.round(mean(g.p50)),
+        p90: Math.round(mean(g.p90)),
+        actual: g.actual.length ? Math.round(mean(g.actual)) : null,
+      }));
+
+    if (filters.horizon && Number.isFinite(filters.horizon) && filters.horizon > 0) {
+      out = out.filter((r) => r.horizon <= filters.horizon!);
+    }
+    return out;
   }, [filters.horizon, latestForecasts, selectedSku]);
 
   const filteredMetrics = useMemo(() => {
@@ -667,21 +639,6 @@ export default function ForecastsPage() {
         })),
     [topReorderItems]
   );
-
-  const metricSummaryChartData = useMemo(() => {
-    const latest = metricsByHorizon.filter((r) => r.horizon !== 0);
-    const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-    const wapeVals = latest.map((r) => Number(r.WAPE ?? NaN)).filter((v) => Number.isFinite(v));
-    const rmseVals = latest.map((r) => Number(r.RMSE ?? NaN)).filter((v) => Number.isFinite(v));
-    const maseVals = latest.map((r) => Number(r.MASE_mean ?? NaN)).filter((v) => Number.isFinite(v));
-    const biasVals = latest.map((r) => Math.abs(Number(r.Bias ?? NaN))).filter((v) => Number.isFinite(v));
-    return [
-      { metric: "WAPE", value: Number(mean(wapeVals).toFixed(3)) },
-      { metric: "RMSE", value: Math.round(mean(rmseVals)) },
-      { metric: "MASE", value: Number(mean(maseVals).toFixed(3)) },
-      { metric: "|BIAS|", value: Math.round(mean(biasVals)) },
-    ];
-  }, [metricsByHorizon]);
 
   const inferenceMix = useMemo(() => {
     const items = inferenceAudit?.items ?? [];
@@ -1254,29 +1211,45 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6">
-            <div className="card bg-base-100 border border-base-300 p-4">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <div className="card bg-base-100 border border-base-300 p-4 xl:col-span-2">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">Current Model Diagnostics</h2>
+                <h2 className="text-lg font-semibold">Model Quality Snapshot</h2>
                 <div className="text-sm text-base-content/60">{filters.model || "N/A"}</div>
               </div>
-              <div className="h-80">
-                {metricSummaryChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={metricSummaryChartData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="metric" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="value" name="Score" fill={CHART_COLORS.expected} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                    No horizon diagnostics available
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Avg WAPE</div>
+                  <div className="text-2xl font-semibold">{avgWape !== null ? avgWape.toFixed(3) : "N/A"}</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Avg MASE</div>
+                  <div className="text-2xl font-semibold">
+                    {(() => {
+                      const vals = metricsByHorizon
+                        .map((m) => m.MASE_mean)
+                        .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+                      if (!vals.length) return "N/A";
+                      return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(3);
+                    })()}
                   </div>
-                )}
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Avg RMSE</div>
+                  <div className="text-2xl font-semibold">{avgRmse !== null ? avgRmse.toFixed(0) : "N/A"}</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">RMSE / Avg Demand</div>
+                  <div className="text-2xl font-semibold">{normalizedRmse !== null ? `${normalizedRmse.toFixed(1)}%` : "N/A"}</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Fallback Rate</div>
+                  <div className="text-2xl font-semibold">{inferenceMix.fallbackRatePct}%</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Error Rate</div>
+                  <div className="text-2xl font-semibold">{inferenceMix.errorRatePct}%</div>
+                </div>
               </div>
             </div>
 
@@ -1285,7 +1258,7 @@ export default function ForecastsPage() {
                 <h2 className="text-lg font-semibold">Inference Path Mix</h2>
                 <div className="text-sm text-base-content/60">Primary vs fallback vs failed</div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="rounded border border-base-300 p-3">
                   <div className="text-xs text-base-content/60">Primary Rate</div>
                   <div className="text-xl font-semibold">{inferenceMix.primaryRatePct}%</div>
@@ -1295,15 +1268,15 @@ export default function ForecastsPage() {
                   <div className="text-xl font-semibold">{inferenceMix.fallbackRatePct}%</div>
                 </div>
                 <div className="rounded border border-base-300 p-3">
-                  <div className="text-xs text-base-content/60">Error Rate</div>
-                  <div className="text-xl font-semibold">{inferenceMix.errorRatePct}%</div>
-                </div>
-                <div className="rounded border border-base-300 p-3">
                   <div className="text-xs text-base-content/60">Series Evaluated</div>
                   <div className="text-xl font-semibold">{inferenceMix.totalSeries.toLocaleString()}</div>
                 </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Error Rate</div>
+                  <div className="text-xl font-semibold">{inferenceMix.errorRatePct}%</div>
+                </div>
               </div>
-              <div className="h-72">
+              <div className="h-64">
                 {inferenceMix.totalSeries > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1313,7 +1286,7 @@ export default function ForecastsPage() {
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                        outerRadius={110}
+                        outerRadius={86}
                         label={(entry) => `${entry.name}: ${entry.value}`}
                       >
                         {inferenceMix.donut.map((slice, idx) => (
