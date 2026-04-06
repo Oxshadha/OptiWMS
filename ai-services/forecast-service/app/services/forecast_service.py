@@ -123,6 +123,45 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
     return inserted
 
 
+def ingest_snapshot_test_metrics_only(db: Session, run: ForecastRun) -> int:
+    existing = (
+        db.query(ForecastMetric)
+        .filter(ForecastMetric.run_id == run.id, ForecastMetric.split == "test")
+        .count()
+    )
+    if existing > 0:
+        return 0
+
+    metric_path = _resolve_report_path("metrics", METRIC_PATH, run.dataset, run.model_name)
+    if not metric_path or not pd.io.common.file_exists(str(metric_path)):
+        return 0
+
+    inserted = 0
+    m = pd.read_csv(metric_path)
+    if "dataset" in m.columns and "model" in m.columns:
+        m = m[(m["dataset"] == run.dataset) & (m["model"] == run.model_name)]
+    if "split" in m.columns:
+        m = m[m["split"].astype(str).str.lower() == "test"]
+    for r in m.itertuples(index=False):
+        db.add(
+            ForecastMetric(
+                run_id=run.id,
+                dataset=run.dataset,
+                model_name=run.model_name,
+                warehouse_id=run.warehouse_id,
+                split=str(getattr(r, "split", "test")),
+                horizon=int(r.horizon),
+                wape=float(r.WAPE) if pd.notna(r.WAPE) else None,
+                mase_mean=float(r.MASE_mean) if pd.notna(r.MASE_mean) else None,
+                rmse=float(r.RMSE) if pd.notna(r.RMSE) else None,
+                bias=float(r.Bias) if pd.notna(r.Bias) else None,
+            )
+        )
+        inserted += 1
+    db.flush()
+    return inserted
+
+
 def _build_online_history_series_from_csv(dataset: str, model_name: str, max_series: int = 500) -> list[dict]:
     forecast_path = _resolve_report_path("forecasts", REPORT_PATH, dataset, model_name)
     if not forecast_path or not forecast_path.exists():

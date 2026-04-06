@@ -42,6 +42,10 @@ def _engine():
     return create_engine(settings.wms_runtime_database_url, future=True, pool_pre_ping=True)
 
 
+def get_wms_engine():
+    return _engine()
+
+
 def _normalize_warehouse_id(warehouse_id: str | None) -> str | None:
     if warehouse_id is None:
         return None
@@ -81,7 +85,7 @@ def fetch_online_history_series_from_wms_db(dataset: str, warehouse_id: str | No
     )
         .bindparams(bindparam("statuses", expanding=True))
     )
-    with _engine().connect() as conn:
+    with get_wms_engine().connect() as conn:
         frame = pd.read_sql(sql, conn, params={"warehouse_id": wh, "statuses": statuses})
     if frame.empty:
         return []
@@ -124,7 +128,7 @@ def fetch_inventory_snapshot_from_wms_db(warehouse_id: str | None) -> list[Inven
         ORDER BY m.material_code
         """
     )
-    with _engine().connect() as conn:
+    with get_wms_engine().connect() as conn:
         frame = pd.read_sql(sql, conn, params={"warehouse_id": wh})
     out: list[InventorySnapshotRow] = []
     for r in frame.itertuples(index=False):
