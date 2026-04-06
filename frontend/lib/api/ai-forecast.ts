@@ -52,14 +52,18 @@ export interface InferenceAuditSummary {
 }
 
 export interface InferenceAuditItem {
-  ts: string;
+  ts?: string;
+  event?: string;
   dataset?: string;
   model?: string;
+  model_name?: string;
   horizon?: number;
   series_count?: number;
+  response_count?: number;
   latency_ms?: number;
   errors_count?: number;
   fallback_count?: number;
+  fallback_used?: boolean;
 }
 
 export interface InferenceAuditResponse {
@@ -154,6 +158,7 @@ export const aiForecastApi = {
     horizon?: number;
     dataset?: string;
     model?: string;
+    runId?: number;
     warehouseId?: string;
   } = {}) {
     const query = buildQuery({
@@ -161,6 +166,7 @@ export const aiForecastApi = {
       horizon: params.horizon,
       dataset: params.dataset,
       model: params.model,
+      run_id: params.runId,
       warehouseId: params.warehouseId,
     });
     return apiClient.get<PagedResponse<ForecastMetric>>(`/ai/forecast-metrics${query}`);

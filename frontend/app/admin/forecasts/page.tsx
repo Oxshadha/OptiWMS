@@ -5,6 +5,7 @@ import {
   aiForecastApi,
   type ForecastMetric,
   type ForecastPoint,
+  type InferenceAuditResponse,
   type InferenceAlertsResponse,
   type InventoryRecommendation,
 } from "@/lib/api/ai-forecast";
@@ -28,6 +29,15 @@ const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
 const EVAL_SPLIT = "test";
 const RUN_MODE: "snapshot" = "snapshot";
+const CHART_COLORS = {
+  lower: "#94a3b8",
+  expected: "#0ea5e9",
+  upper: "#f59e0b",
+  actual: "#334155",
+  reorderSuggested: "#0284c7",
+  reorderGap: "#f59e0b",
+  fallbackRate: "#ef4444",
+};
 
 type Filters = {
   dataset: string;
@@ -84,6 +94,7 @@ export default function ForecastsPage() {
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
   const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
+  const [inferenceAudit, setInferenceAudit] = useState<InferenceAuditResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
@@ -170,6 +181,7 @@ export default function ForecastsPage() {
         setMetrics([]);
         setRecommendations([]);
         setInferenceAlerts(null);
+        setInferenceAudit(null);
         setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
         return { hasRows: false, latestRunId: undefined };
       }
@@ -200,8 +212,13 @@ export default function ForecastsPage() {
           warehouseId: effectiveWarehouseId,
         }),
       ]);
-      const [inferenceAlertsResult] = await Promise.allSettled([
+      const [inferenceAlertsResult, inferenceAuditResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
+          limit: 200,
+          dataset: binding.dataset,
+          modelName: binding.model,
+        }),
+        aiForecastApi.getInferenceAudit({
           limit: 200,
           dataset: binding.dataset,
           modelName: binding.model,
@@ -227,6 +244,12 @@ export default function ForecastsPage() {
       } else {
         logger.warn("[ForecastsPage] Inference alerts endpoint unavailable:", inferenceAlertsResult.reason);
         setInferenceAlerts(null);
+      }
+      if (inferenceAuditResult.status === "fulfilled") {
+        setInferenceAudit(inferenceAuditResult.value ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
+        setInferenceAudit(null);
       }
       setLastLoadedAt(new Date().toISOString());
       return {
@@ -481,7 +504,12 @@ export default function ForecastsPage() {
   const selectedSkuForecasts = useMemo(() => {
     const rows = latestForecasts
       .filter((row) => row.sku === selectedSku)
-      .sort((a, b) => String(a.month).localeCompare(String(b.month)));
+      .sort((a, b) => {
+        if (a.horizon !== b.horizon) {
+          return a.horizon - b.horizon;
+        }
+        return String(a.month).localeCompare(String(b.month));
+      });
 
     if (!rows.length) {
       return [];
@@ -495,7 +523,7 @@ export default function ForecastsPage() {
     }
 
     return visibleRows.map((row) => ({
-      month: row.month,
+      month: row.horizon ? `H+${row.horizon}` : row.month,
       p10: Math.round(row.p10),
       p50: Math.round(row.p50),
       p90: Math.round(row.p90),
@@ -524,13 +552,19 @@ export default function ForecastsPage() {
   }, [metrics]);
 
   const avgActualDemand = useMemo(() => {
-    const values = latestForecasts
+    const actualValues = latestForecasts
       .map((row) => row.y_true)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    if (!values.length) {
+    if (actualValues.length) {
+      return actualValues.reduce((s, v) => s + v, 0) / actualValues.length;
+    }
+    const proxyValues = latestForecasts
+      .map((row) => row.p50)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!proxyValues.length) {
       return null;
     }
-    return values.reduce((s, v) => s + v, 0) / values.length;
+    return proxyValues.reduce((s, v) => s + v, 0) / proxyValues.length;
   }, [latestForecasts]);
 
   const normalizedRmse = useMemo(() => {
@@ -578,13 +612,18 @@ export default function ForecastsPage() {
     [recommendations]
   );
 
-  const topReorderItems = useMemo(
-    () =>
-      [...recommendations]
-        .sort((a, b) => b.suggested_order_qty - a.suggested_order_qty)
-        .slice(0, 8),
-    [recommendations]
-  );
+  const topReorderItems = useMemo(() => {
+    const bySku = new Map<string, InventoryRecommendation>();
+    for (const row of recommendations) {
+      const existing = bySku.get(row.sku);
+      if (!existing || row.suggested_order_qty > existing.suggested_order_qty) {
+        bySku.set(row.sku, row);
+      }
+    }
+    return Array.from(bySku.values())
+      .sort((a, b) => b.suggested_order_qty - a.suggested_order_qty)
+      .slice(0, 8);
+  }, [recommendations]);
 
   const metricsByHorizon = useMemo(
     () => [...metrics].sort((a, b) => a.horizon - b.horizon),
@@ -619,6 +658,32 @@ export default function ForecastsPage() {
       })),
     [metricsByHorizon]
   );
+
+  const fallbackByHorizon = useMemo(() => {
+    const items = inferenceAudit?.items ?? [];
+    const byH = new Map<number, { horizon: number; series: number; fallback: number; errors: number }>();
+    for (const item of items) {
+      const h = Number(item.horizon ?? 0);
+      if (!Number.isFinite(h) || h <= 0) {
+        continue;
+      }
+      const s = Number(item.series_count ?? 0);
+      const f = Number(item.fallback_count ?? 0);
+      const e = Number(item.errors_count ?? 0);
+      const cur = byH.get(h) ?? { horizon: h, series: 0, fallback: 0, errors: 0 };
+      cur.series += Number.isFinite(s) ? s : 0;
+      cur.fallback += Number.isFinite(f) ? f : 0;
+      cur.errors += Number.isFinite(e) ? e : 0;
+      byH.set(h, cur);
+    }
+    return Array.from(byH.values())
+      .sort((a, b) => a.horizon - b.horizon)
+      .map((r) => ({
+        horizon: `H${r.horizon}`,
+        fallbackRatePct: r.series > 0 ? Number(((r.fallback / r.series) * 100).toFixed(2)) : 0,
+        errorRatePct: r.series > 0 ? Number(((r.errors / r.series) * 100).toFixed(2)) : 0,
+      }));
+  }, [inferenceAudit]);
 
   const filteredRecommendations = useMemo(() => {
     const q = inventorySearch.trim().toLowerCase();
@@ -989,10 +1054,10 @@ export default function ForecastsPage() {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="p10" stroke="#94a3b8" name="Lower Forecast" strokeWidth={2} />
-                      <Line type="monotone" dataKey="p50" stroke="#22c55e" name="Expected Forecast" strokeWidth={2} />
-                      <Line type="monotone" dataKey="p90" stroke="#f97316" name="Upper Forecast" strokeWidth={2} />
-                      <Line type="monotone" dataKey="actual" stroke="#1d4ed8" name="Actual History" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p10" stroke={CHART_COLORS.lower} name="Lower Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p50" stroke={CHART_COLORS.expected} name="Expected Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="p90" stroke={CHART_COLORS.upper} name="Upper Forecast" strokeWidth={2} />
+                      <Line type="monotone" dataKey="actual" stroke={CHART_COLORS.actual} name="Actual History" strokeWidth={2} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
@@ -1082,8 +1147,8 @@ export default function ForecastsPage() {
                       <YAxis type="category" dataKey="sku" width={72} />
                       <Tooltip />
                       <Legend />
-                      <Bar dataKey="suggested" name="Suggested Order Qty" fill="#dc2626" radius={[0, 6, 6, 0]} />
-                      <Bar dataKey="gap" name="Gap To Reorder Point" fill="#f59e0b" radius={[0, 6, 6, 0]} />
+                      <Bar dataKey="suggested" name="Suggested Order Qty" fill={CHART_COLORS.reorderSuggested} radius={[0, 6, 6, 0]} />
+                      <Bar dataKey="gap" name="Gap To Reorder Point" fill={CHART_COLORS.reorderGap} radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -1175,13 +1240,39 @@ export default function ForecastsPage() {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="wape" stroke="#2563eb" name="WAPE" strokeWidth={2} />
-                      <Line type="monotone" dataKey="mase" stroke="#7c3aed" name="MASE" strokeWidth={2} />
+                      <Line type="monotone" dataKey="wape" stroke={CHART_COLORS.expected} name="WAPE" strokeWidth={2} />
+                      <Line type="monotone" dataKey="mase" stroke={CHART_COLORS.actual} name="MASE" strokeWidth={2} />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">
                     No horizon diagnostics available
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="card bg-base-100 border border-base-300 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold">Fallback & Error Rates</h2>
+                <div className="text-sm text-base-content/60">Primary vs fallback behavior</div>
+              </div>
+              <div className="h-72">
+                {fallbackByHorizon.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={fallbackByHorizon}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="horizon" />
+                      <YAxis unit="%" />
+                      <Tooltip formatter={(v: unknown) => `${v}%`} />
+                      <Legend />
+                      <Bar dataKey="fallbackRatePct" name="Fallback Rate %" fill={CHART_COLORS.fallbackRate} />
+                      <Bar dataKey="errorRatePct" name="Error Rate %" fill={CHART_COLORS.reorderSuggested} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                    No inference audit data yet
                   </div>
                 )}
               </div>

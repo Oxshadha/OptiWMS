@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import ForecastMetric, ForecastPrediction
@@ -14,21 +14,40 @@ def get_metrics(
     horizon: int | None = None,
     dataset: str | None = None,
     model: str | None = None,
+    run_id: int | None = None,
     warehouse_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    stmt = select(ForecastMetric)
+    base_stmt = select(ForecastMetric)
     if split:
-        stmt = stmt.where(ForecastMetric.split == split)
+        base_stmt = base_stmt.where(ForecastMetric.split == split)
     if horizon is not None:
-        stmt = stmt.where(ForecastMetric.horizon == horizon)
+        base_stmt = base_stmt.where(ForecastMetric.horizon == horizon)
     if dataset:
-        stmt = stmt.where(ForecastMetric.dataset == dataset)
+        base_stmt = base_stmt.where(ForecastMetric.dataset == dataset)
     if model:
-        stmt = stmt.where(ForecastMetric.model_name == model)
+        base_stmt = base_stmt.where(ForecastMetric.model_name == model)
     if warehouse_id:
-        stmt = stmt.where(ForecastMetric.warehouse_id == warehouse_id)
-    rows = db.execute(stmt.limit(2000)).scalars().all()
+        base_stmt = base_stmt.where(ForecastMetric.warehouse_id == warehouse_id)
+
+    selected_run_id = run_id
+    if selected_run_id is None:
+        run_stmt = select(func.max(ForecastMetric.run_id))
+        if split:
+            run_stmt = run_stmt.where(ForecastMetric.split == split)
+        if dataset:
+            run_stmt = run_stmt.where(ForecastMetric.dataset == dataset)
+        if model:
+            run_stmt = run_stmt.where(ForecastMetric.model_name == model)
+        if warehouse_id:
+            run_stmt = run_stmt.where(ForecastMetric.warehouse_id == warehouse_id)
+        selected_run_id = db.execute(run_stmt).scalar_one_or_none()
+
+    stmt = base_stmt
+    if selected_run_id is not None:
+        stmt = stmt.where(ForecastMetric.run_id == selected_run_id)
+
+    rows = db.execute(stmt.order_by(ForecastMetric.horizon.asc()).limit(2000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,
