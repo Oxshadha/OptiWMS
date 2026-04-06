@@ -15,6 +15,12 @@ from app.services.artifact_service import (
     list_artifacts,
 )
 from app.core.security import RATE_LIMITER
+from app.db.database import SessionLocal
+from app.services.health_monitor_service import (
+    compute_operational_health_snapshot,
+    latest_operational_health,
+    list_operational_health_history,
+)
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -64,6 +70,38 @@ def get_acceptance_gate(
         )
     except Exception as ex:
         raise HTTPException(status_code=400, detail=f"acceptance gate evaluation failed: {ex}")
+
+
+@router.get("/operational-health")
+def get_operational_health():
+    db = SessionLocal()
+    try:
+        return latest_operational_health(db)
+    finally:
+        db.close()
+
+
+@router.post("/operational-health/refresh")
+def refresh_operational_health():
+    db = SessionLocal()
+    try:
+        out = compute_operational_health_snapshot(db)
+        db.commit()
+        return out
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"operational health refresh failed: {ex}")
+    finally:
+        db.close()
+
+
+@router.get("/operational-health/history")
+def get_operational_health_history(limit: int = 50):
+    db = SessionLocal()
+    try:
+        return list_operational_health_history(db, limit=limit)
+    finally:
+        db.close()
 
 
 @router.post("/infer-classical")

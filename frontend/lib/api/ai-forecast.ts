@@ -130,6 +130,30 @@ export interface ForecastDashboardSummary {
   }>;
 }
 
+export interface RuntimeContractHealth {
+  status: string;
+  mode?: string;
+  reason?: string;
+  schema?: string;
+  missing_tables?: string[];
+  missing_columns?: Record<string, string[]>;
+}
+
+export interface OperationalHealthSnapshot {
+  id?: number;
+  status: string;
+  drift_status?: string;
+  freshness_status?: string;
+  inference_status?: string;
+  created_at?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface OperationalHealthHistoryResponse {
+  count: number;
+  items: OperationalHealthSnapshot[];
+}
+
 function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
   const s = (raw ?? {}) as Record<string, unknown>;
   const count = Number(s.count ?? 0);
@@ -251,6 +275,11 @@ export const aiForecastApi = {
     return apiClient.get<Record<string, unknown>>('/ai/health');
   },
 
+  getRuntimeContractHealth(force?: boolean) {
+    const query = buildQuery({ force: force === true ? "true" : undefined });
+    return apiClient.get<RuntimeContractHealth>(`/ai/health/runtime-contract${query}`);
+  },
+
   getInferenceAudit(params: {
     limit?: number;
     dataset?: string;
@@ -324,5 +353,18 @@ export const aiForecastApi = {
       top_n: params.topN,
     });
     return apiClient.get<ForecastDashboardSummary>(`/ai/forecast-dashboard-summary${query}`);
+  },
+
+  getOperationalHealth() {
+    return apiClient.get<OperationalHealthSnapshot>('/ai/artifacts/operational-health');
+  },
+
+  refreshOperationalHealth() {
+    return apiClient.post<OperationalHealthSnapshot>('/ai/artifacts/operational-health/refresh');
+  },
+
+  getOperationalHealthHistory(limit?: number) {
+    const query = buildQuery({ limit });
+    return apiClient.get<OperationalHealthHistoryResponse>(`/ai/artifacts/operational-health/history${query}`);
   },
 };
