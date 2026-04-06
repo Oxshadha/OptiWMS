@@ -24,8 +24,8 @@ import {
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
 
-const DEPLOYED_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PV2";
-const DEPLOYED_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "CATBOOST";
+const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
 const EVAL_SPLIT = "test";
 const RUN_MODE: "snapshot" = "snapshot";
 
@@ -71,8 +71,8 @@ export default function ForecastsPage() {
   const isAdmin = role === "admin";
 
   const [filters, setFilters] = useState<Filters>({
-    dataset: DEPLOYED_DATASET,
-    model: DEPLOYED_MODEL,
+    dataset: DEFAULT_DATASET,
+    model: DEFAULT_MODEL,
     split: EVAL_SPLIT,
     warehouseId: "",
   });
@@ -120,6 +120,43 @@ export default function ForecastsPage() {
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  const pickLatestBinding = (rows: ForecastPoint[]) => {
+    if (!rows.length) {
+      return null;
+    }
+    const latest = [...rows].sort((a, b) => b.run_id - a.run_id)[0];
+    if (!latest?.dataset || !latest?.model) {
+      return null;
+    }
+    return { dataset: String(latest.dataset), model: String(latest.model) };
+  };
+
+  const resolveBinding = async () => {
+    const configuredDataset = filters.dataset?.trim();
+    const configuredModel = filters.model?.trim();
+    if (configuredDataset && configuredModel) {
+      const configuredRows = await aiForecastApi.getForecasts({
+        dataset: configuredDataset,
+        model: configuredModel,
+        warehouseId: effectiveWarehouseId,
+      });
+      if ((configuredRows.items ?? []).length > 0) {
+        return { dataset: configuredDataset, model: configuredModel };
+      }
+    }
+
+    const discovered = await aiForecastApi.getForecasts({ warehouseId: effectiveWarehouseId });
+    const discoveredBinding = pickLatestBinding(discovered.items ?? []);
+    if (discoveredBinding) {
+      return discoveredBinding;
+    }
+
+    if (configuredDataset && configuredModel) {
+      return { dataset: configuredDataset, model: configuredModel };
+    }
+    return null;
+  };
+
   const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
     try {
       setLoading(true);
@@ -127,24 +164,38 @@ export default function ForecastsPage() {
       if (!options?.keepInfo) {
         setInfoMessage(null);
       }
+      const binding = await resolveBinding();
+      if (!binding) {
+        setForecasts([]);
+        setMetrics([]);
+        setRecommendations([]);
+        setInferenceAlerts(null);
+        setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
+        return { hasRows: false, latestRunId: undefined };
+      }
+
+      if (filters.dataset !== binding.dataset || filters.model !== binding.model) {
+        setFilters((prev) => ({ ...prev, dataset: binding.dataset, model: binding.model }));
+      }
+
       const [forecastRes, metricRes, recoRes] = await Promise.all([
         aiForecastApi.getForecasts({
-          dataset: DEPLOYED_DATASET,
-          model: DEPLOYED_MODEL,
+          dataset: binding.dataset,
+          model: binding.model,
           horizon: filters.horizon,
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
         aiForecastApi.getForecastMetrics({
-          dataset: DEPLOYED_DATASET,
-          model: DEPLOYED_MODEL,
+          dataset: binding.dataset,
+          model: binding.model,
           horizon: filters.horizon,
           split: EVAL_SPLIT,
           warehouseId: effectiveWarehouseId,
         }),
         aiForecastApi.getInventoryRecommendations({
-          dataset: DEPLOYED_DATASET,
-          model: DEPLOYED_MODEL,
+          dataset: binding.dataset,
+          model: binding.model,
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
@@ -152,8 +203,8 @@ export default function ForecastsPage() {
       const [inferenceAlertsResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
-          dataset: DEPLOYED_DATASET,
-          modelName: DEPLOYED_MODEL,
+          dataset: binding.dataset,
+          modelName: binding.model,
         }),
       ]);
       const nextForecasts = forecastRes.items ?? [];
@@ -198,7 +249,6 @@ export default function ForecastsPage() {
       try {
         const runRows = await aiForecastApi.getForecasts({
           runId,
-          dataset: DEPLOYED_DATASET,
           warehouseId: effectiveWarehouseId,
         });
         if ((runRows.items ?? []).length > 0) {
@@ -213,6 +263,14 @@ export default function ForecastsPage() {
   };
 
   const triggerRun = async () => {
+    const binding = await resolveBinding();
+    const resolvedDataset = binding?.dataset ?? DEFAULT_DATASET;
+    const resolvedModel = binding?.model ?? DEFAULT_MODEL;
+    if (!resolvedDataset || !resolvedModel) {
+      setError("No runtime dataset/model binding found. Publish at least one valid run first.");
+      return;
+    }
+
     const currentInferenceStatus = String(inferenceAlerts?.status ?? "ok").toLowerCase();
     let criticalOverride = false;
     if (currentInferenceStatus === "critical") {
@@ -235,8 +293,8 @@ export default function ForecastsPage() {
         updatedAt: new Date().toISOString(),
       });
       const triggerResult = await aiForecastApi.triggerForecastRun({
-        dataset: DEPLOYED_DATASET,
-        modelName: DEPLOYED_MODEL,
+        dataset: resolvedDataset,
+        modelName: resolvedModel,
         mode: RUN_MODE,
         warehouseId: effectiveWarehouseId,
         criticalOverride,
@@ -293,12 +351,6 @@ export default function ForecastsPage() {
   useEffect(() => {
     void loadData();
   }, []);
-
-  useEffect(() => {
-    if (filters.dataset !== DEPLOYED_DATASET || filters.split !== EVAL_SPLIT || filters.model !== DEPLOYED_MODEL) {
-      setFilters((prev) => ({ ...prev, dataset: DEPLOYED_DATASET, split: EVAL_SPLIT, model: DEPLOYED_MODEL }));
-    }
-  }, [filters.dataset, filters.model, filters.split]);
 
   useEffect(() => {
     const loadWarehouses = async () => {
@@ -751,7 +803,7 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <label className="form-control">
               <span className="label-text text-xs">Deployed Model</span>
-              <input className="input input-bordered input-sm" value={DEPLOYED_MODEL} disabled />
+              <input className="input input-bordered input-sm" value={filters.model || "N/A"} disabled />
             </label>
             <label className="form-control">
               <span className="label-text text-xs">Horizon</span>
@@ -852,7 +904,7 @@ export default function ForecastsPage() {
           <button
             className="btn btn-sm btn-ghost"
             onClick={() =>
-              setFilters({ dataset: DEPLOYED_DATASET, model: DEPLOYED_MODEL, split: EVAL_SPLIT, horizon: undefined, sku: "", warehouseId: "" })
+              setFilters({ dataset: DEFAULT_DATASET, model: DEFAULT_MODEL, split: EVAL_SPLIT, horizon: undefined, sku: "", warehouseId: "" })
             }
           >
             Reset
@@ -1112,7 +1164,7 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Current Model Diagnostics</h2>
-                <div className="text-sm text-base-content/60">{DEPLOYED_MODEL}</div>
+                <div className="text-sm text-base-content/60">{filters.model || "N/A"}</div>
               </div>
               <div className="h-80">
                 {horizonMetricChartData.length > 0 ? (
