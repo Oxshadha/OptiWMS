@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     metrics_report_file: str = "test_metrics_by_horizon.csv"
     inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
     champion_models_json: str = "{}"
+    fallback_classical_model: str = "ARIMA"
     alert_fallback_rate_threshold: float = 0.05
     alert_errors_threshold: int = 1
     alert_p95_latency_ms_threshold: float = 500.0
