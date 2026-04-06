@@ -42,7 +42,12 @@ def upsert_run_summary(db: Session, run_id: int) -> ForecastRunSummary | None:
     mases = [float(m.mase_mean) for m in test_metrics if m.mase_mean is not None]
     abs_bias = [abs(float(m.bias)) for m in test_metrics if m.bias is not None]
 
-    demand_values = [abs(float(r.y_true)) for r in pred_rows if r.y_true is not None]
+    demand_values: list[float] = []
+    for r in pred_rows:
+        if r.y_true is not None:
+            demand_values.append(abs(float(r.y_true)))
+        elif r.p50 is not None:
+            demand_values.append(abs(float(r.p50)))
     avg_demand = _avg(demand_values)
     avg_rmse = _avg(rmses)
     rmse_vs_avg_demand_pct = ((avg_rmse / avg_demand) * 100.0) if (avg_rmse is not None and avg_demand and avg_demand > 0) else None

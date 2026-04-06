@@ -6,6 +6,12 @@ This gate is the formal go/no-go decision for exposing forecasting outputs to WM
 ## Required pass conditions
 All checks below must pass in the same evaluation window.
 
+### Publish completeness (runtime integrity)
+- Published run must include:
+  - forecast rows (`> 0`)
+  - inventory recommendation rows (`> 0`)
+  - `test` metrics rows with non-null KPI values
+
 ### Forecast quality (offline / validation)
 - WAPE (overall): `<= 0.135`
 - `abs(Bias)`: `<= 0.10`

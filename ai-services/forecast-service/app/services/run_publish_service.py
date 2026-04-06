@@ -8,10 +8,48 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.db.database import SessionLocal
-from app.db.models import ForecastRun, PublishJob
-from app.services.forecast_service import ingest_snapshot, publish_online
+from app.db.models import ForecastMetric, ForecastRun, PublishJob
+from app.services.forecast_service import ingest_snapshot, ingest_snapshot_test_metrics_only, publish_online
 from app.services.retention_service import apply_retention_policy
 from app.services.run_summary_service import upsert_run_summary
+
+
+def _assert_publish_completeness(db, run: ForecastRun, path_used: str) -> None:
+    summary = upsert_run_summary(db, run.id)
+    if summary is None:
+        raise RuntimeError("publish completeness check failed: missing run summary")
+
+    min_preds = max(1, int(settings.publish_min_prediction_rows or 1))
+    min_inv = max(0, int(settings.publish_min_inventory_rows or 0))
+    errors: list[str] = []
+
+    if int(summary.forecast_rows or 0) < min_preds:
+        errors.append(f"forecast_rows<{min_preds} (actual={summary.forecast_rows})")
+    if int(summary.inventory_rows or 0) < min_inv:
+        errors.append(f"inventory_rows<{min_inv} (actual={summary.inventory_rows})")
+
+    if bool(settings.publish_require_test_metrics):
+        test_rows = db.execute(
+            select(ForecastMetric).where(
+                ForecastMetric.run_id == run.id,
+                ForecastMetric.split == "test",
+            )
+        ).scalars().all()
+        if not test_rows:
+            errors.append("missing_test_metrics")
+        elif bool(settings.publish_require_non_null_test_kpis):
+            has_non_null = any(
+                (m.wape is not None) or (m.rmse is not None) or (m.mase_mean is not None) or (m.bias is not None)
+                for m in test_rows
+            )
+            if not has_non_null:
+                errors.append("test_metrics_have_no_non_null_kpis")
+
+    if errors:
+        raise RuntimeError(
+            f"publish completeness failed for run_id={run.id} path={path_used}: "
+            + ", ".join(errors)
+        )
 
 
 def execute_publish_for_run(db, run: ForecastRun, mode_norm: str) -> dict:
@@ -37,7 +75,11 @@ def execute_publish_for_run(db, run: ForecastRun, mode_norm: str) -> dict:
     if path_used != "online":
         snapshot_result = ingest_snapshot(db, run)
         path_used = "snapshot"
+    elif bool(settings.publish_require_test_metrics):
+        # Online path may not generate evaluation metrics; backfill test metrics from report package.
+        ingest_snapshot_test_metrics_only(db, run)
 
+    _assert_publish_completeness(db, run, path_used)
     run.status = "published"
     if warnings:
         prior = (run.notes or "").strip()

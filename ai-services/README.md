@@ -16,6 +16,11 @@ This workspace hosts Python AI services that integrate with the core WMS backend
 - Run publish is asynchronous:
   - Forecast service marks run `publishing`, executes in background, then marks `published`/`failed`.
   - Orchestrator polls run state to return final status without long blocking calls.
+- Publish completeness is enforced before marking `published`:
+  - minimum prediction rows,
+  - minimum inventory rows,
+  - required `test` metrics rows (and non-null KPI values when enabled).
+  - If checks fail, run is marked `failed` with reason in run notes.
 - Duplicate concurrent runs are prevented per scope:
   - Same `(dataset, model, warehouse)` in `created/publishing` is reused (idempotent trigger behavior).
 - Run-level KPI summaries are persisted:
@@ -82,5 +87,8 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
 - Runtime data source is configurable:
   - `RUNTIME_DATA_SOURCE_MODE=csv|wms_db|auto`
   - `WMS_RUNTIME_DATABASE_URL` for live history/inventory reads.
+- Runtime schema contract validation:
+  - Startup validates required WMS tables/columns for `wms_db` mode.
+  - `GET /health/runtime-contract` returns contract status and missing schema details.
 - Forecast service writes only to its own forecast DB/state tables.
 - For live mode, forecast service reads WMS DB (read-only contract expected).

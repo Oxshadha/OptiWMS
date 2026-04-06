@@ -25,6 +25,13 @@ public class AiProxyController {
         return service.health();
     }
 
+    @GetMapping("/health/runtime-contract")
+    public ResponseEntity<Object> runtimeContractHealth(
+            @RequestParam(required = false) Boolean force
+    ) {
+        return service.getRuntimeContractHealth(force);
+    }
+
     @GetMapping("/forecasts")
     public ResponseEntity<Object> forecasts(
             Authentication authentication,

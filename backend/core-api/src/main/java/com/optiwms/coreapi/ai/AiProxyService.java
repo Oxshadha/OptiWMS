@@ -52,8 +52,15 @@ public class AiProxyService {
     public Map<String, Object> health() {
         Map<String, Object> out = new HashMap<>();
         out.put("forecast", getSimple(forecastBaseUrl + "/health"));
+        out.put("forecast_runtime_contract", getSimple(forecastBaseUrl + "/health/runtime-contract"));
         out.put("orchestrator", getSimple(orchestratorBaseUrl + "/health"));
         return out;
+    }
+
+    public ResponseEntity<Object> getRuntimeContractHealth(Boolean force) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/health/runtime-contract");
+        if (force != null) ub.queryParam("force", force);
+        return exchangeGet(ub.toUriString());
     }
 
     public ResponseEntity<Object> getForecasts(String sku, Integer horizon, String dataset, String model, Integer runId, String warehouseId) {

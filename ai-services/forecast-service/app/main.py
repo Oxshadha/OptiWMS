@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.security import verify_service_auth
 from app.db.database import Base, engine
 from app.services.run_publish_service import PublishQueueWorker
+from app.services.runtime_contract_service import assert_runtime_contract_on_startup
 
 app = FastAPI(title="OptiWMS Forecast Service", version="0.2.0")
 app.include_router(health_router)
@@ -28,6 +29,7 @@ publish_queue_worker = PublishQueueWorker()
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    assert_runtime_contract_on_startup()
     publish_queue_worker.start()
 
 

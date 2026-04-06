@@ -137,10 +137,15 @@ NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL=CATBOOST
 - **Can we replace model/data later without code changes?**
   - Yes. Artifacts and runtime source are config-driven. Cutover is env + artifact publish.
 
-## 8) Current known limitation (still pending)
+## 8) Publish completeness guard (now enforced)
 
-- Run publish can complete while metrics rows for `test` are missing for selected model/run, causing `N/A` cards in Model Performance.
-- This must be closed by adding publish completeness checks (`predictions + metrics + inventory`) before marking run fully successful.
+- Run is marked `published` only when completeness checks pass:
+  - `forecast_rows >= PUBLISH_MIN_PREDICTION_ROWS`
+  - `inventory_rows >= PUBLISH_MIN_INVENTORY_ROWS`
+  - `test` metrics rows exist when `PUBLISH_REQUIRE_TEST_METRICS=true`
+  - at least one non-null test KPI exists when `PUBLISH_REQUIRE_NON_NULL_TEST_KPIS=true`
+- If checks fail, run status becomes `failed` and notes include the exact missing component.
+- Online publish path also backfills `test` metrics from report package when available, before final completeness check.
 
 ## 9) Datascientist handoff checklist (final production cutover)
 
