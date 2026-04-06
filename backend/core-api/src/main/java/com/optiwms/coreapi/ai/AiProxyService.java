@@ -9,6 +9,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
@@ -85,28 +87,49 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
-    public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String warehouseId) {
+    public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String mode, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
-                .queryParam("model_name", modelName);
+                .queryParam("model_name", modelName)
+                .queryParam("mode", mode);
         if (warehouseId != null && !warehouseId.isBlank()) {
             ub.queryParam("warehouse_id", warehouseId);
         }
 
         HttpEntity<String> request = new HttpEntity<>(headers());
-        ResponseEntity<Map> response = restTemplate.exchange(ub.toUriString(), HttpMethod.POST, request, Map.class);
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        try {
+            ResponseEntity<Map> response = restTemplate.exchange(ub.toUriString(), HttpMethod.POST, request, Map.class);
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", "orchestrator_timeout",
+                    "message", "Forecast trigger timed out while waiting for orchestrator.",
+                    "orchestrator_url", ub.toUriString(),
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", "orchestrator_http_error",
+                    "message", "Orchestrator returned an HTTP error.",
+                    "orchestrator_url", ub.toUriString(),
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        }
     }
 
     public ResponseEntity<Object> triggerForecastRunWithGuard(
             Authentication authentication,
             String dataset,
             String modelName,
+            String mode,
             String warehouseId,
             boolean criticalOverrideRequested
     ) {
         if (!blockTriggerOnCritical) {
-            return triggerForecastRun(dataset, modelName, warehouseId);
+            return triggerForecastRun(dataset, modelName, mode, warehouseId);
         }
 
         try {
@@ -119,7 +142,7 @@ public class AiProxyService {
             String status = alerts == null || alerts.status() == null ? "unknown" : alerts.status().toLowerCase();
             boolean isCritical = "critical".equals(status);
             if (!isCritical) {
-                return triggerForecastRun(dataset, modelName, warehouseId);
+                return triggerForecastRun(dataset, modelName, mode, warehouseId);
             }
 
             boolean adminLike = isAdminLike(authentication);
@@ -135,10 +158,10 @@ public class AiProxyService {
                 ));
             }
 
-            return triggerForecastRun(dataset, modelName, warehouseId);
+            return triggerForecastRun(dataset, modelName, mode, warehouseId);
         } catch (Exception ex) {
             if (triggerFailOpenOnGuardError) {
-                return triggerForecastRun(dataset, modelName, warehouseId);
+                return triggerForecastRun(dataset, modelName, mode, warehouseId);
             }
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
                     "ok", false,

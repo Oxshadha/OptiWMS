@@ -6,7 +6,6 @@ import {
   type ForecastMetric,
   type ForecastPoint,
   type InferenceAlertsResponse,
-  type InferenceAuditSummary,
   type InventoryRecommendation,
 } from "@/lib/api/ai-forecast";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -25,8 +24,10 @@ import {
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
 
-const DATASET_OPTIONS = ["A", "B", "C"];
-const MODEL_OPTIONS = ["CATBOOST", "XGBOOST", "LIGHTGBM", "RANDOM_FOREST", "SARIMA", "ARIMA", "ETS", "NBEATS", "TFT"];
+const DEPLOYED_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PV2";
+const DEPLOYED_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "CATBOOST";
+const EVAL_SPLIT = "test";
+const RUN_MODE: "snapshot" = "snapshot";
 
 type Filters = {
   dataset: string;
@@ -35,6 +36,13 @@ type Filters = {
   sku?: string;
   split: string;
   warehouseId?: string;
+};
+
+type ForecastRunUiStatus = {
+  phase: "idle" | "triggering" | "waiting_publish" | "published" | "timeout" | "failed";
+  runId?: number;
+  message: string;
+  updatedAt: string;
 };
 
 function downloadCsv<T extends object>(filename: string, rows: T[]) {
@@ -63,9 +71,9 @@ export default function ForecastsPage() {
   const isAdmin = role === "admin";
 
   const [filters, setFilters] = useState<Filters>({
-    dataset: "B",
-    model: "CATBOOST",
-    split: "test",
+    dataset: DEPLOYED_DATASET,
+    model: DEPLOYED_MODEL,
+    split: EVAL_SPLIT,
     warehouseId: "",
   });
   const [loading, setLoading] = useState(false);
@@ -75,8 +83,6 @@ export default function ForecastsPage() {
   const [forecasts, setForecasts] = useState<ForecastPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
-  const [modelComparisonMetrics, setModelComparisonMetrics] = useState<ForecastMetric[]>([]);
-  const [inferenceSummary, setInferenceSummary] = useState<InferenceAuditSummary | null>(null);
   const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
@@ -87,6 +93,11 @@ export default function ForecastsPage() {
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
+  const [runStatus, setRunStatus] = useState<ForecastRunUiStatus>({
+    phase: "idle",
+    message: "No run triggered in this session.",
+    updatedAt: new Date().toISOString(),
+  });
   const inventoryPageSize = 25;
 
   const managerWarehouseScope = useMemo(() => {
@@ -118,49 +129,36 @@ export default function ForecastsPage() {
       }
       const [forecastRes, metricRes, recoRes] = await Promise.all([
         aiForecastApi.getForecasts({
-          dataset: filters.dataset,
-          model: filters.model,
+          dataset: DEPLOYED_DATASET,
+          model: DEPLOYED_MODEL,
           horizon: filters.horizon,
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
         aiForecastApi.getForecastMetrics({
-          dataset: filters.dataset,
-          model: filters.model,
+          dataset: DEPLOYED_DATASET,
+          model: DEPLOYED_MODEL,
           horizon: filters.horizon,
-          split: filters.split,
+          split: EVAL_SPLIT,
           warehouseId: effectiveWarehouseId,
         }),
         aiForecastApi.getInventoryRecommendations({
-          dataset: filters.dataset,
-          model: filters.model,
+          dataset: DEPLOYED_DATASET,
+          model: DEPLOYED_MODEL,
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
       ]);
-      const [inferenceAuditResult, inferenceAlertsResult] = await Promise.allSettled([
-        aiForecastApi.getInferenceAudit({
-          limit: 200,
-          dataset: filters.dataset,
-          modelName: filters.model,
-        }),
+      const [inferenceAlertsResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
-          dataset: filters.dataset,
-          modelName: filters.model,
+          dataset: DEPLOYED_DATASET,
+          modelName: DEPLOYED_MODEL,
         }),
       ]);
-      const comparisonMetrics = isAdmin
-        ? await aiForecastApi.getForecastMetrics({
-            dataset: filters.dataset,
-            split: filters.split,
-            warehouseId: effectiveWarehouseId,
-          })
-        : null;
       const nextForecasts = forecastRes.items ?? [];
       const nextMetrics = metricRes.items ?? [];
       const nextRecommendations = recoRes.items ?? [];
-      const nextModelComparisonMetrics = comparisonMetrics?.items ?? [];
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
       const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
@@ -173,13 +171,6 @@ export default function ForecastsPage() {
       setForecasts(nextForecasts);
       setMetrics(nextMetrics);
       setRecommendations(nextRecommendations);
-      setModelComparisonMetrics(nextModelComparisonMetrics);
-      if (inferenceAuditResult.status === "fulfilled") {
-        setInferenceSummary(inferenceAuditResult.value?.summary ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
-        setInferenceSummary(null);
-      }
       if (inferenceAlertsResult.status === "fulfilled") {
         setInferenceAlerts(inferenceAlertsResult.value ?? null);
       } else {
@@ -207,7 +198,7 @@ export default function ForecastsPage() {
       try {
         const runRows = await aiForecastApi.getForecasts({
           runId,
-          dataset: filters.dataset,
+          dataset: DEPLOYED_DATASET,
           warehouseId: effectiveWarehouseId,
         });
         if ((runRows.items ?? []).length > 0) {
@@ -238,28 +229,62 @@ export default function ForecastsPage() {
       setTriggering(true);
       setError(null);
       setInfoMessage("Forecast run accepted. Waiting for published rows...");
+      setRunStatus({
+        phase: "triggering",
+        message: "Submitting run request...",
+        updatedAt: new Date().toISOString(),
+      });
       const triggerResult = await aiForecastApi.triggerForecastRun({
-        dataset: filters.dataset,
-        modelName: filters.model,
+        dataset: DEPLOYED_DATASET,
+        modelName: DEPLOYED_MODEL,
+        mode: RUN_MODE,
         warehouseId: effectiveWarehouseId,
         criticalOverride,
       });
       const runId = Number(triggerResult?.run_id ?? 0);
       if (Number.isFinite(runId) && runId > 0) {
+        setRunStatus({
+          phase: "waiting_publish",
+          runId,
+          message: `Run ${runId} accepted (${RUN_MODE}). Waiting for published rows...`,
+          updatedAt: new Date().toISOString(),
+        });
         const published = await waitForPublishedRows(runId);
         if (published) {
           setInfoMessage(`Run ${runId} published. Showing latest data.`);
+          setRunStatus({
+            phase: "published",
+            runId,
+            message: `Run ${runId} published successfully via ${RUN_MODE} mode.`,
+            updatedAt: new Date().toISOString(),
+          });
         } else {
           setInfoMessage("Run started, but publish is still in progress. Showing latest available data.");
+          setRunStatus({
+            phase: "timeout",
+            runId,
+            message: `Run ${runId} still publishing after wait window. Data may appear shortly.`,
+            updatedAt: new Date().toISOString(),
+          });
         }
       } else {
         setInfoMessage("Run started. Refreshing latest data...");
+        setRunStatus({
+          phase: "waiting_publish",
+          message: "Run accepted, but run_id was not returned by API.",
+          updatedAt: new Date().toISOString(),
+        });
       }
       await loadData({ preserveOnEmpty: true, keepInfo: true });
     } catch (triggerError) {
       logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
       setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
       setInfoMessage(null);
+      setRunStatus({
+        phase: "failed",
+        message: triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run",
+        updatedAt: new Date().toISOString(),
+      });
     } finally {
       setTriggering(false);
     }
@@ -268,6 +293,12 @@ export default function ForecastsPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (filters.dataset !== DEPLOYED_DATASET || filters.split !== EVAL_SPLIT || filters.model !== DEPLOYED_MODEL) {
+      setFilters((prev) => ({ ...prev, dataset: DEPLOYED_DATASET, split: EVAL_SPLIT, model: DEPLOYED_MODEL }));
+    }
+  }, [filters.dataset, filters.model, filters.split]);
 
   useEffect(() => {
     const loadWarehouses = async () => {
@@ -526,49 +557,6 @@ export default function ForecastsPage() {
     [topReorderItems]
   );
 
-  const modelComparisonData = useMemo(() => {
-    const grouped = new Map<string, { model: string; wape: number[]; rmse: number[]; mase: number[] }>();
-    for (const row of modelComparisonMetrics) {
-      const bucket = grouped.get(row.model) ?? { model: row.model, wape: [], rmse: [], mase: [] };
-      if (typeof row.WAPE === "number" && Number.isFinite(row.WAPE)) bucket.wape.push(row.WAPE);
-      if (typeof row.RMSE === "number" && Number.isFinite(row.RMSE)) bucket.rmse.push(row.RMSE);
-      if (typeof row.MASE_mean === "number" && Number.isFinite(row.MASE_mean)) bucket.mase.push(row.MASE_mean);
-      grouped.set(row.model, bucket);
-    }
-    return Array.from(grouped.values())
-      .map((row) => ({
-        model: row.model,
-        wape: row.wape.length ? Number((row.wape.reduce((sum, v) => sum + v, 0) / row.wape.length).toFixed(3)) : 0,
-        rmse: row.rmse.length ? Math.round(row.rmse.reduce((sum, v) => sum + v, 0) / row.rmse.length) : 0,
-        mase: row.mase.length ? Number((row.mase.reduce((sum, v) => sum + v, 0) / row.mase.length).toFixed(3)) : 0,
-      }))
-      .sort((a, b) => a.wape - b.wape);
-  }, [modelComparisonMetrics]);
-
-  const availableModelsForSelectedDataset = useMemo(() => {
-    const present = new Set(
-      modelComparisonMetrics
-        .map((m) => String(m.model ?? "").toUpperCase())
-        .filter((m) => m.length > 0)
-    );
-    if (present.size === 0) {
-      return MODEL_OPTIONS;
-    }
-    return MODEL_OPTIONS.filter((m) => present.has(m.toUpperCase()));
-  }, [modelComparisonMetrics]);
-
-  useEffect(() => {
-    if (!showModelPerformance || !isAdmin) {
-      return;
-    }
-    if (!availableModelsForSelectedDataset.length) {
-      return;
-    }
-    if (!availableModelsForSelectedDataset.includes(filters.model)) {
-      setFilters((prev) => ({ ...prev, model: availableModelsForSelectedDataset[0] }));
-    }
-  }, [availableModelsForSelectedDataset, filters.model, isAdmin, showModelPerformance]);
-
   const horizonMetricChartData = useMemo(
     () =>
       metricsByHorizon.map((row) => ({
@@ -625,7 +613,7 @@ export default function ForecastsPage() {
 
   useEffect(() => {
     setInventoryPage(1);
-  }, [inventorySearch, inventorySort, recommendations, filters.dataset, filters.model, filters.horizon, filters.sku, filters.split, effectiveWarehouseId]);
+  }, [inventorySearch, inventorySort, recommendations, filters.horizon, filters.sku, effectiveWarehouseId]);
 
   const totalInventoryPages = useMemo(
     () => Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
@@ -636,18 +624,6 @@ export default function ForecastsPage() {
     const start = (inventoryPage - 1) * inventoryPageSize;
     return sortedRecommendations.slice(start, start + inventoryPageSize);
   }, [sortedRecommendations, inventoryPage]);
-
-  const inferenceErrorRate = useMemo(() => {
-    if (!inferenceSummary) {
-      return 0;
-    }
-    if (typeof inferenceSummary.error_rate === "number" && Number.isFinite(inferenceSummary.error_rate)) {
-      return inferenceSummary.error_rate;
-    }
-    const totalErrors = Number(inferenceSummary.total_errors ?? 0);
-    const count = Number(inferenceSummary.count ?? 0);
-    return count > 0 ? totalErrors / count : 0;
-  }, [inferenceSummary]);
 
   const inventoryInsight = useMemo(() => {
     if (!selectedSkuRecommendation) {
@@ -665,12 +641,13 @@ export default function ForecastsPage() {
     return { onHand, reorder, target, gapToReorder, gapToTarget, status };
   }, [selectedSkuRecommendation]);
 
-  const inferenceStatusBadgeClass = useMemo(() => {
-    const status = String(inferenceAlerts?.status ?? "").toLowerCase();
-    if (status === "critical") return "badge-error";
-    if (status === "warn") return "badge-warning";
-    return "badge-success";
-  }, [inferenceAlerts?.status]);
+  const runStatusBadgeClass = useMemo(() => {
+    if (runStatus.phase === "failed") return "badge-error";
+    if (runStatus.phase === "timeout") return "badge-warning";
+    if (runStatus.phase === "published") return "badge-success";
+    if (runStatus.phase === "triggering" || runStatus.phase === "waiting_publish") return "badge-info";
+    return "badge-ghost";
+  }, [runStatus.phase]);
 
   const isDecisionView = !showModelPerformance;
 
@@ -749,145 +726,32 @@ export default function ForecastsPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">warning</span>
-          <span>{error}</span>
-        </div>
-      )}
+      {error && <div className="text-sm text-error">{error}</div>}
+      {infoMessage && <div className="text-sm text-info">{infoMessage}</div>}
 
-      {infoMessage && (
-        <div className="alert alert-info">
-          <span className="material-symbols-outlined">info</span>
-          <span>{infoMessage}</span>
-        </div>
-      )}
-
-      {inferenceAlerts && String(inferenceAlerts.status).toLowerCase() !== "ok" && (
-        <div
-          className={`alert ${
-            String(inferenceAlerts.status).toLowerCase() === "critical" ? "alert-error" : "alert-warning"
-          }`}
-        >
-          <span className="material-symbols-outlined">report</span>
-          <div>
-            <div className="font-medium">
-              Inference status: {String(inferenceAlerts.status).toUpperCase()}.
-            </div>
-            <div className="text-sm">
-              Forecast service is degrading (fallback/error/latency). Review inference health before operational
-              decisions.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isAdmin && showModelPerformance && (inferenceSummary || inferenceAlerts) && (
+      {isAdmin && (
         <div className="card bg-base-100 border border-base-300 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <h2 className="text-lg font-semibold">Admin Inference Operations</h2>
-            <span className={`badge ${inferenceStatusBadgeClass}`}>
-              {String(inferenceAlerts?.status ?? "ok").toUpperCase()}
-            </span>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Run Status</div>
+              <div className="text-xs text-base-content/70">
+                Mode: <span className="font-medium">{RUN_MODE}</span>
+                {runStatus.runId ? <> • Run ID: <span className="font-medium">{runStatus.runId}</span></> : null}
+              </div>
+            </div>
+            <span className={`badge ${runStatusBadgeClass}`}>{runStatus.phase.toUpperCase()}</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Window Rows</div>
-              <div className="text-xl font-semibold">{inferenceSummary?.count ?? 0}</div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Fallback Rate</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? `${(inferenceSummary.fallback_rate * 100).toFixed(2)}%` : "N/A"}
-              </div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Error Rate</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? `${(inferenceErrorRate * 100).toFixed(2)}%` : "N/A"}
-              </div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Fallback Calls</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? Math.round((inferenceSummary.count ?? 0) * (inferenceSummary.fallback_rate ?? 0)) : "N/A"}
-              </div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Total Errors</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? Number(inferenceSummary.total_errors ?? 0) : "N/A"}
-              </div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">Avg Latency</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? `${Math.round(inferenceSummary.latency_avg_ms)} ms` : "N/A"}
-              </div>
-            </div>
-            <div className="rounded border border-base-300 p-3">
-              <div className="text-xs text-base-content/60">P95 Latency</div>
-              <div className="text-xl font-semibold">
-                {inferenceSummary ? `${Math.round(inferenceSummary.latency_p95_ms)} ms` : "N/A"}
-              </div>
-            </div>
-          </div>
-          {inferenceAlerts?.rules_triggered?.length ? (
-            <div className="mt-3 text-sm">
-              <span className="font-medium">Triggered Rules:</span>{" "}
-              {inferenceAlerts.rules_triggered.map((r) => `${r.rule} (${r.status ?? r.severity ?? "info"})`).join(", ")}
-            </div>
-          ) : (
-            <div className="mt-3 text-sm text-base-content/70">No alert rules triggered in the selected window.</div>
-          )}
+          <div className="mt-2 text-sm">{runStatus.message}</div>
+          <div className="mt-1 text-xs text-base-content/60">Updated: {new Date(runStatus.updatedAt).toLocaleString()}</div>
         </div>
       )}
 
       <div className="card bg-base-100 border border-base-300 p-4">
         {showModelPerformance ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             <label className="form-control">
-              <span className="label-text text-xs">Dataset</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.dataset}
-                onChange={(e) => setFilters((prev) => ({ ...prev, dataset: e.target.value }))}
-              >
-                {DATASET_OPTIONS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="form-control">
-              <span className="label-text text-xs">Model</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.model}
-                onChange={(e) => setFilters((prev) => ({ ...prev, model: e.target.value }))}
-              >
-                {MODEL_OPTIONS.map((m) => {
-                  const enabled = availableModelsForSelectedDataset.includes(m);
-                  return (
-                    <option key={m} value={m} disabled={!enabled}>
-                      {enabled ? m : `${m} (no data)`}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
-            <label className="form-control">
-              <span className="label-text text-xs">Split</span>
-              <select
-                className="select select-bordered select-sm"
-                value={filters.split}
-                onChange={(e) => setFilters((prev) => ({ ...prev, split: e.target.value }))}
-              >
-                <option value="test">test</option>
-                <option value="cv">cv</option>
-                <option value="train">train</option>
-              </select>
+              <span className="label-text text-xs">Deployed Model</span>
+              <input className="input input-bordered input-sm" value={DEPLOYED_MODEL} disabled />
             </label>
             <label className="form-control">
               <span className="label-text text-xs">Horizon</span>
@@ -927,6 +791,10 @@ export default function ForecastsPage() {
               ) : (
                 <input className="input input-bordered input-sm" value={admin?.warehouseName ?? admin?.warehouseId ?? "N/A"} disabled />
               )}
+            </label>
+            <label className="form-control">
+              <span className="label-text text-xs">Evaluation Split</span>
+              <input className="input input-bordered input-sm" value={EVAL_SPLIT} disabled />
             </label>
           </div>
         ) : (
@@ -974,7 +842,7 @@ export default function ForecastsPage() {
         )}
         {!showModelPerformance && (
           <div className="mt-2 text-xs text-base-content/60">
-            Dataset and model selection is available in Model Performance view.
+            Decision view is operational: set horizon and review forecast and reorder output.
           </div>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -984,7 +852,7 @@ export default function ForecastsPage() {
           <button
             className="btn btn-sm btn-ghost"
             onClick={() =>
-              setFilters({ dataset: "B", model: "CATBOOST", split: "test", horizon: undefined, sku: "", warehouseId: "" })
+              setFilters({ dataset: DEPLOYED_DATASET, model: DEPLOYED_MODEL, split: EVAL_SPLIT, horizon: undefined, sku: "", warehouseId: "" })
             }
           >
             Reset
@@ -1225,11 +1093,11 @@ export default function ForecastsPage() {
               <div className="text-2xl font-semibold">{forecasts.length}</div>
             </div>
             <div className="card bg-base-100 border border-base-300 p-4">
-              <div className="text-xs text-base-content/60">Avg WAPE ({filters.split})</div>
+              <div className="text-xs text-base-content/60">Avg WAPE ({EVAL_SPLIT})</div>
               <div className="text-2xl font-semibold">{avgWape !== null ? avgWape.toFixed(3) : "N/A"}</div>
             </div>
             <div className="card bg-base-100 border border-base-300 p-4">
-              <div className="text-xs text-base-content/60">Avg RMSE ({filters.split})</div>
+              <div className="text-xs text-base-content/60">Avg RMSE ({EVAL_SPLIT})</div>
               <div className="text-2xl font-semibold">{avgRmse !== null ? avgRmse.toFixed(3) : "N/A"}</div>
             </div>
             <div className="card bg-base-100 border border-base-300 p-4">
@@ -1240,37 +1108,11 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <div className="card bg-base-100 border border-base-300 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">Model Comparison</h2>
-                <div className="text-sm text-base-content/60">Dataset {filters.dataset}, split {filters.split}</div>
-              </div>
-              <div className="h-80">
-                {modelComparisonData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={modelComparisonData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="model" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="wape" name="Avg WAPE" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                      <Bar dataKey="mase" name="Avg MASE" fill="#7c3aed" radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                    No model comparison data available
-                  </div>
-                )}
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 gap-6">
             <div className="card bg-base-100 border border-base-300 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Current Model Diagnostics</h2>
-                <div className="text-sm text-base-content/60">{filters.model}</div>
+                <div className="text-sm text-base-content/60">{DEPLOYED_MODEL}</div>
               </div>
               <div className="h-80">
                 {horizonMetricChartData.length > 0 ? (

@@ -183,10 +183,17 @@ export const aiForecastApi = {
     return apiClient.get<PagedResponse<InventoryRecommendation>>(`/ai/inventory-recommendations${query}`);
   },
 
-  triggerForecastRun(params: { dataset?: string; modelName?: string; warehouseId?: string; criticalOverride?: boolean } = {}) {
+  triggerForecastRun(params: {
+    dataset?: string;
+    modelName?: string;
+    mode?: "snapshot" | "online" | "auto";
+    warehouseId?: string;
+    criticalOverride?: boolean;
+  } = {}) {
     const query = buildQuery({
       dataset: params.dataset ?? 'B',
       modelName: params.modelName ?? 'AUTO',
+      mode: params.mode ?? 'snapshot',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
     });
