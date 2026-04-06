@@ -8,6 +8,7 @@ import re
 import statistics
 import time
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,40 @@ def _load_metadata(path: Path) -> dict[str, Any]:
     meta_path = path / "metadata.json"
     if not meta_path.exists():
         return {}
-    return json.loads(meta_path.read_text(encoding="utf-8"))
+    mtime_ns = meta_path.stat().st_mtime_ns
+    return _load_metadata_cached(str(meta_path), mtime_ns)
+
+
+@lru_cache(maxsize=512)
+def _load_metadata_cached(meta_path: str, _mtime_ns: int) -> dict[str, Any]:
+    return json.loads(Path(meta_path).read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=256)
+def _load_pickle_model_cached(model_path: str, _mtime_ns: int):
+    with Path(model_path).open("rb") as f:
+        return pickle.load(f)
+
+
+@lru_cache(maxsize=128)
+def _load_boosting_model_cached(model_name: str, model_path: str, _mtime_ns: int):
+    model_name = model_name.upper()
+    p = Path(model_path)
+    if model_name == "XGBOOST":
+        from xgboost import XGBRegressor
+
+        reg = XGBRegressor()
+        reg.load_model(str(p))
+        return reg
+    if model_name == "CATBOOST":
+        from catboost import CatBoostRegressor
+
+        reg = CatBoostRegressor()
+        reg.load_model(str(p))
+        return reg
+    if model_name in {"LIGHTGBM", "RANDOM_FOREST"}:
+        return _load_pickle_model_cached(model_path, _mtime_ns)
+    raise ValueError(f"Unsupported boosting model: {model_name}")
 
 
 def list_artifacts(dataset: str | None = None, model: str | None = None) -> list[dict[str, Any]]:
@@ -82,8 +116,7 @@ def load_classical_artifact(dataset: str, model_name: str, series_id: str, stage
     model_path = path / "model.pkl"
     if not model_path.exists():
         raise FileNotFoundError(f"Missing artifact: {model_path}")
-    with model_path.open("rb") as f:
-        model = pickle.load(f)
+    model = _load_pickle_model_cached(str(model_path), model_path.stat().st_mtime_ns)
     return model, _load_metadata(path)
 
 
@@ -103,30 +136,19 @@ def infer_classical(dataset: str, model_name: str, series_id: str, steps: int = 
 def load_boosting_artifact(dataset: str, model_name: str, horizon: int, stage: str = "production"):
     path = _artifact_stage_path(dataset, f"{model_name}_h{horizon}", stage)
     metadata = _load_metadata(path)
-    if model_name.upper() == "XGBOOST":
-        from xgboost import XGBRegressor
+    model_upper = model_name.upper()
+    if model_upper == "XGBOOST":
         model_path = path / "model.json"
-        if not model_path.exists():
-            raise FileNotFoundError(f"Missing artifact: {model_path}")
-        reg = XGBRegressor()
-        reg.load_model(str(model_path))
-        return reg, metadata
-    if model_name.upper() == "CATBOOST":
-        from catboost import CatBoostRegressor
+    elif model_upper == "CATBOOST":
         model_path = path / "model.cbm"
-        if not model_path.exists():
-            raise FileNotFoundError(f"Missing artifact: {model_path}")
-        reg = CatBoostRegressor()
-        reg.load_model(str(model_path))
-        return reg, metadata
-    if model_name.upper() in {"LIGHTGBM", "RANDOM_FOREST"}:
+    elif model_upper in {"LIGHTGBM", "RANDOM_FOREST"}:
         model_path = path / "model.pkl"
-        if not model_path.exists():
-            raise FileNotFoundError(f"Missing artifact: {model_path}")
-        with model_path.open("rb") as f:
-            reg = pickle.load(f)
-        return reg, metadata
-    raise ValueError(f"Unsupported boosting model: {model_name}")
+    else:
+        raise ValueError(f"Unsupported boosting model: {model_name}")
+    if not model_path.exists():
+        raise FileNotFoundError(f"Missing artifact: {model_path}")
+    reg = _load_boosting_model_cached(model_upper, str(model_path), model_path.stat().st_mtime_ns)
+    return reg, metadata
 
 
 def infer_boosting(dataset: str, model_name: str, horizon: int, rows: list[dict[str, Any]]) -> dict[str, Any]:

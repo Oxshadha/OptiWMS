@@ -1,10 +1,10 @@
 import pandas as pd
 from sqlalchemy.orm import Session
 from pathlib import Path
-import numpy as np
 
 from app.core.config import settings
 from app.db.models import ForecastRun, ForecastPrediction, ForecastMetric, InventoryRecommendation
+from app.services.runtime_data_source import resolve_online_history_series, resolve_inventory_snapshot
 
 REPORT_PATH = f"{settings.reports_dir}/{settings.forecast_report_file}"
 INV_PATH = f"{settings.reports_dir}/{settings.inventory_report_file}"
@@ -123,7 +123,7 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
     return inserted
 
 
-def _build_online_history_series(dataset: str, model_name: str, max_series: int = 500) -> list[dict]:
+def _build_online_history_series_from_csv(dataset: str, model_name: str, max_series: int = 500) -> list[dict]:
     forecast_path = _resolve_report_path("forecasts", REPORT_PATH, dataset, model_name)
     if not forecast_path or not forecast_path.exists():
         raise FileNotFoundError(f"No forecast history source found for dataset={dataset}, model={model_name}")
@@ -188,6 +188,18 @@ def _build_online_history_series(dataset: str, model_name: str, max_series: int 
     return series_payloads[:max_series]
 
 
+def _build_online_history_series(dataset: str, model_name: str, warehouse_id: str | None, max_series: int = 500) -> tuple[list[dict], str]:
+    rows, source = resolve_online_history_series(
+        dataset=dataset,
+        warehouse_id=warehouse_id,
+        csv_fallback_loader=lambda max_series=max_series: _build_online_history_series_from_csv(dataset, model_name, max_series=max_series),
+        max_series=max_series,
+    )
+    if not rows:
+        raise ValueError(f"No series with sufficient history for online inference (source={source}).")
+    return rows, source
+
+
 def _persist_online_predictions(
     db: Session,
     run: ForecastRun,
@@ -219,15 +231,54 @@ def _persist_online_predictions(
     return inserted
 
 
+def _persist_online_inventory_recommendations(
+    db: Session,
+    run: ForecastRun,
+    h1_predictions: dict[str, float],
+) -> int:
+    snapshot_rows, _source = resolve_inventory_snapshot(run.warehouse_id)
+    if not snapshot_rows:
+        return 0
+
+    inserted = 0
+    for row in snapshot_rows:
+        pred_h1 = float(h1_predictions.get(row.sku, 0.0))
+        reorder_point = float(row.reorder_point if row.reorder_point > 0 else max(pred_h1 * 0.8, 0.0))
+        target_max = float(row.target_max if row.target_max > 0 else max(pred_h1 * 2.0, reorder_point))
+        safety_stock = float(row.safety_stock if row.safety_stock > 0 else max(pred_h1 * 0.15, 0.0))
+        on_hand = float(max(row.on_hand_inventory, 0.0))
+        suggested = max(target_max - on_hand, 0.0) if on_hand < reorder_point else 0.0
+
+        db.add(
+            InventoryRecommendation(
+                run_id=run.id,
+                dataset=run.dataset,
+                model_name=run.model_name,
+                warehouse_id=run.warehouse_id,
+                sku=row.sku,
+                category=row.category,
+                safety_stock=safety_stock,
+                reorder_point=reorder_point,
+                target_max=target_max,
+                on_hand_inventory=on_hand,
+                suggested_order_qty=suggested,
+            )
+        )
+        inserted += 1
+
+    return inserted
+
+
 def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = None) -> dict:
     from app.services.artifact_service import infer_boosting_online
 
     horizons = horizons or list(range(1, 13))
-    series = _build_online_history_series(run.dataset, run.model_name)
+    series, history_source = _build_online_history_series(run.dataset, run.model_name, run.warehouse_id)
 
     total_pred = 0
     total_fallback = 0
     total_errors = 0
+    h1_predictions: dict[str, float] = {}
     for h in horizons:
         res = infer_boosting_online(
             dataset=run.dataset,
@@ -239,8 +290,18 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
         )
         items = res.get("items") or []
         total_pred += _persist_online_predictions(db, run, items, h)
+        if h == 1:
+            for it in items:
+                sku = str(it.get("fg_code") or it.get("series_id") or "").strip()
+                if not sku:
+                    continue
+                pred = float(it.get("prediction") or 0.0)
+                if pred > 0:
+                    h1_predictions[sku] = pred
         total_fallback += int(res.get("fallback_count", 0) or 0)
         total_errors += len(res.get("errors") or [])
+
+    inventory_rows = _persist_online_inventory_recommendations(db, run, h1_predictions)
 
     # Minimal online metric record for audit visibility.
     db.add(
@@ -262,8 +323,9 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
     return {
         "predictions": total_pred,
         "metrics": 1,
-        "inventory": 0,
+        "inventory": inventory_rows,
         "fallback_count": total_fallback,
         "errors_count": total_errors,
         "mode": "online",
+        "history_source": history_source,
     }

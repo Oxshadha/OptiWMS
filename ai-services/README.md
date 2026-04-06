@@ -8,8 +8,8 @@ This workspace hosts Python AI services that integrate with the core WMS backend
 - Keep clear contracts with core WMS (`backend/core-api`) via HTTP.
 
 ## Services
-- `forecast-service`: currently serves ingested forecast outputs and inventory suggestions from report snapshots. This is a legacy bridge, not yet true artifact-based model inference.
-- `orchestrator-service`: currently triggers snapshot ingestion and health checks. It does not yet execute the full training/inference workflow.
+- `forecast-service`: serves forecast outputs for UI and supports artifact-based online inference with configurable runtime data source (`csv` or live `wms_db`).
+- `orchestrator-service`: triggers and publishes forecast runs (snapshot/online) and health checks.
 - `libs/wms_contracts`: shared request/response schemas and WMS API client.
 
 ## Current State
@@ -65,5 +65,8 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
 
 ## Integration Contract
 - Core WMS base URL from env (`WMS_API_BASE_URL`, default `http://localhost:8080/api`).
-- AI services never write directly to core DB in this skeleton.
-- Use API-level integration first; add message bus later if needed.
+- Runtime data source is configurable:
+  - `RUNTIME_DATA_SOURCE_MODE=csv|wms_db|auto`
+  - `WMS_RUNTIME_DATABASE_URL` for live history/inventory reads.
+- Forecast service writes only to its own forecast DB/state tables.
+- For live mode, forecast service reads WMS DB (read-only contract expected).
