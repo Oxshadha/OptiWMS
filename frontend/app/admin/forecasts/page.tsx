@@ -16,6 +16,9 @@ import {
   BarChart,
   LineChart,
   Line,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -37,6 +40,9 @@ const CHART_COLORS = {
   reorderSuggested: "#0284c7",
   reorderGap: "#f59e0b",
   fallbackRate: "#ef4444",
+  primaryUsage: "#0ea5e9",
+  fallbackUsage: "#f59e0b",
+  failedUsage: "#ef4444",
 };
 
 type Filters = {
@@ -194,14 +200,12 @@ export default function ForecastsPage() {
         aiForecastApi.getForecasts({
           dataset: binding.dataset,
           model: binding.model,
-          horizon: filters.horizon,
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
         aiForecastApi.getForecastMetrics({
           dataset: binding.dataset,
           model: binding.model,
-          horizon: filters.horizon,
           split: EVAL_SPLIT,
           warehouseId: effectiveWarehouseId,
         }),
@@ -348,6 +352,7 @@ export default function ForecastsPage() {
             updatedAt: new Date().toISOString(),
           });
         }
+        await loadData({ preserveOnEmpty: !published, keepInfo: true });
       } else {
         setInfoMessage("Run started. Refreshing latest data...");
         setRunStatus({
@@ -355,8 +360,8 @@ export default function ForecastsPage() {
           message: "Run accepted, but run_id was not returned by API.",
           updatedAt: new Date().toISOString(),
         });
+        await loadData({ preserveOnEmpty: true, keepInfo: true });
       }
-      await loadData({ preserveOnEmpty: true, keepInfo: true });
     } catch (triggerError) {
       logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
       setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
@@ -405,6 +410,10 @@ export default function ForecastsPage() {
   const latestForecasts = useMemo(
     () => forecasts.filter((f) => !latestRunId || f.run_id === latestRunId),
     [forecasts, latestRunId]
+  );
+  const visibleForecasts = useMemo(
+    () => (filters.horizon ? latestForecasts.filter((f) => f.horizon === filters.horizon) : latestForecasts),
+    [latestForecasts, filters.horizon]
   );
 
   const skuOptions = useMemo(() => {
@@ -531,41 +540,55 @@ export default function ForecastsPage() {
     }));
   }, [filters.horizon, latestForecasts, selectedSku]);
 
+  const filteredMetrics = useMemo(() => {
+    const byHorizon = new Map<number, ForecastMetric>();
+    for (const row of metrics) {
+      if (filters.horizon && row.horizon !== filters.horizon) {
+        continue;
+      }
+      const existing = byHorizon.get(row.horizon);
+      if (!existing || row.run_id > existing.run_id) {
+        byHorizon.set(row.horizon, row);
+      }
+    }
+    return Array.from(byHorizon.values()).sort((a, b) => a.horizon - b.horizon);
+  }, [metrics, filters.horizon]);
+
   const avgWape = useMemo(() => {
-    const values = metrics
+    const values = filteredMetrics
       .map((m) => m.WAPE)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) {
       return null;
     }
     return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [metrics]);
+  }, [filteredMetrics]);
 
   const avgRmse = useMemo(() => {
-    const values = metrics
+    const values = filteredMetrics
       .map((m) => m.RMSE)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) {
       return null;
     }
     return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [metrics]);
+  }, [filteredMetrics]);
 
   const avgActualDemand = useMemo(() => {
-    const actualValues = latestForecasts
+    const actualValues = visibleForecasts
       .map((row) => row.y_true)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (actualValues.length) {
       return actualValues.reduce((s, v) => s + v, 0) / actualValues.length;
     }
-    const proxyValues = latestForecasts
+    const proxyValues = visibleForecasts
       .map((row) => row.p50)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!proxyValues.length) {
       return null;
     }
     return proxyValues.reduce((s, v) => s + v, 0) / proxyValues.length;
-  }, [latestForecasts]);
+  }, [visibleForecasts]);
 
   const normalizedRmse = useMemo(() => {
     if (avgRmse === null || avgActualDemand === null || avgActualDemand === 0) {
@@ -625,10 +648,7 @@ export default function ForecastsPage() {
       .slice(0, 8);
   }, [recommendations]);
 
-  const metricsByHorizon = useMemo(
-    () => [...metrics].sort((a, b) => a.horizon - b.horizon),
-    [metrics]
-  );
+  const metricsByHorizon = useMemo(() => filteredMetrics, [filteredMetrics]);
 
   const selectedSkuRecommendation = useMemo(
     () => recommendations.find((row) => row.sku === selectedSku) ?? null,
@@ -648,41 +668,50 @@ export default function ForecastsPage() {
     [topReorderItems]
   );
 
-  const horizonMetricChartData = useMemo(
-    () =>
-      metricsByHorizon.map((row) => ({
-        horizon: `H${row.horizon}`,
-        wape: row.WAPE !== undefined ? Number(row.WAPE.toFixed(3)) : null,
-        rmse: row.RMSE !== undefined ? Math.round(row.RMSE) : null,
-        mase: row.MASE_mean !== undefined ? Number(row.MASE_mean.toFixed(3)) : null,
-      })),
-    [metricsByHorizon]
-  );
+  const metricSummaryChartData = useMemo(() => {
+    const latest = metricsByHorizon.filter((r) => r.horizon !== 0);
+    const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const wapeVals = latest.map((r) => Number(r.WAPE ?? NaN)).filter((v) => Number.isFinite(v));
+    const rmseVals = latest.map((r) => Number(r.RMSE ?? NaN)).filter((v) => Number.isFinite(v));
+    const maseVals = latest.map((r) => Number(r.MASE_mean ?? NaN)).filter((v) => Number.isFinite(v));
+    const biasVals = latest.map((r) => Math.abs(Number(r.Bias ?? NaN))).filter((v) => Number.isFinite(v));
+    return [
+      { metric: "WAPE", value: Number(mean(wapeVals).toFixed(3)) },
+      { metric: "RMSE", value: Math.round(mean(rmseVals)) },
+      { metric: "MASE", value: Number(mean(maseVals).toFixed(3)) },
+      { metric: "|BIAS|", value: Math.round(mean(biasVals)) },
+    ];
+  }, [metricsByHorizon]);
 
-  const fallbackByHorizon = useMemo(() => {
+  const inferenceMix = useMemo(() => {
     const items = inferenceAudit?.items ?? [];
-    const byH = new Map<number, { horizon: number; series: number; fallback: number; errors: number }>();
+    let totalSeries = 0;
+    let totalFallback = 0;
+    let totalErrors = 0;
     for (const item of items) {
-      const h = Number(item.horizon ?? 0);
-      if (!Number.isFinite(h) || h <= 0) {
-        continue;
-      }
       const s = Number(item.series_count ?? 0);
       const f = Number(item.fallback_count ?? 0);
       const e = Number(item.errors_count ?? 0);
-      const cur = byH.get(h) ?? { horizon: h, series: 0, fallback: 0, errors: 0 };
-      cur.series += Number.isFinite(s) ? s : 0;
-      cur.fallback += Number.isFinite(f) ? f : 0;
-      cur.errors += Number.isFinite(e) ? e : 0;
-      byH.set(h, cur);
+      totalSeries += Number.isFinite(s) ? s : 0;
+      totalFallback += Number.isFinite(f) ? f : 0;
+      totalErrors += Number.isFinite(e) ? e : 0;
     }
-    return Array.from(byH.values())
-      .sort((a, b) => a.horizon - b.horizon)
-      .map((r) => ({
-        horizon: `H${r.horizon}`,
-        fallbackRatePct: r.series > 0 ? Number(((r.fallback / r.series) * 100).toFixed(2)) : 0,
-        errorRatePct: r.series > 0 ? Number(((r.errors / r.series) * 100).toFixed(2)) : 0,
-      }));
+    const primary = Math.max(totalSeries - totalFallback - totalErrors, 0);
+    const denom = totalSeries || 1;
+    return {
+      totalSeries,
+      totalFallback,
+      totalErrors,
+      primary,
+      fallbackRatePct: Number(((totalFallback / denom) * 100).toFixed(2)),
+      errorRatePct: Number(((totalErrors / denom) * 100).toFixed(2)),
+      primaryRatePct: Number(((primary / denom) * 100).toFixed(2)),
+      donut: [
+        { name: "Primary Model", value: primary, color: CHART_COLORS.primaryUsage },
+        { name: "Fallback Model", value: totalFallback, color: CHART_COLORS.fallbackUsage },
+        { name: "Failed", value: totalErrors, color: CHART_COLORS.failedUsage },
+      ],
+    };
   }, [inferenceAudit]);
 
   const filteredRecommendations = useMemo(() => {
@@ -1232,17 +1261,16 @@ export default function ForecastsPage() {
                 <div className="text-sm text-base-content/60">{filters.model || "N/A"}</div>
               </div>
               <div className="h-80">
-                {horizonMetricChartData.length > 0 ? (
+                {metricSummaryChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={horizonMetricChartData}>
+                    <BarChart data={metricSummaryChartData}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="horizon" />
+                      <XAxis dataKey="metric" />
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="wape" stroke={CHART_COLORS.expected} name="WAPE" strokeWidth={2} />
-                      <Line type="monotone" dataKey="mase" stroke={CHART_COLORS.actual} name="MASE" strokeWidth={2} />
-                    </LineChart>
+                      <Bar dataKey="value" name="Score" fill={CHART_COLORS.expected} radius={[6, 6, 0, 0]} />
+                    </BarChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">
@@ -1254,21 +1282,47 @@ export default function ForecastsPage() {
 
             <div className="card bg-base-100 border border-base-300 p-4">
               <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold">Fallback & Error Rates</h2>
-                <div className="text-sm text-base-content/60">Primary vs fallback behavior</div>
+                <h2 className="text-lg font-semibold">Inference Path Mix</h2>
+                <div className="text-sm text-base-content/60">Primary vs fallback vs failed</div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Primary Rate</div>
+                  <div className="text-xl font-semibold">{inferenceMix.primaryRatePct}%</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Fallback Rate</div>
+                  <div className="text-xl font-semibold">{inferenceMix.fallbackRatePct}%</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Error Rate</div>
+                  <div className="text-xl font-semibold">{inferenceMix.errorRatePct}%</div>
+                </div>
+                <div className="rounded border border-base-300 p-3">
+                  <div className="text-xs text-base-content/60">Series Evaluated</div>
+                  <div className="text-xl font-semibold">{inferenceMix.totalSeries.toLocaleString()}</div>
+                </div>
               </div>
               <div className="h-72">
-                {fallbackByHorizon.length > 0 ? (
+                {inferenceMix.totalSeries > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={fallbackByHorizon}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="horizon" />
-                      <YAxis unit="%" />
-                      <Tooltip formatter={(v: unknown) => `${v}%`} />
+                    <PieChart>
+                      <Pie
+                        data={inferenceMix.donut}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={110}
+                        label={(entry) => `${entry.name}: ${entry.value}`}
+                      >
+                        {inferenceMix.donut.map((slice, idx) => (
+                          <Cell key={`slice-${idx}`} fill={slice.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
                       <Legend />
-                      <Bar dataKey="fallbackRatePct" name="Fallback Rate %" fill={CHART_COLORS.fallbackRate} />
-                      <Bar dataKey="errorRatePct" name="Error Rate %" fill={CHART_COLORS.reorderSuggested} />
-                    </BarChart>
+                    </PieChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">
