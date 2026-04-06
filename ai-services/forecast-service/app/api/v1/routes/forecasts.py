@@ -26,7 +26,7 @@ def get_forecasts(
     if dataset:
         base_stmt = base_stmt.where(ForecastPrediction.dataset == dataset)
     if model:
-        base_stmt = base_stmt.where(ForecastPrediction.model_name == model)
+        base_stmt = base_stmt.where(func.lower(ForecastPrediction.model_name) == model.lower())
     if warehouse_id:
         base_stmt = base_stmt.where(ForecastPrediction.warehouse_id == warehouse_id)
 
@@ -36,7 +36,7 @@ def get_forecasts(
         if dataset:
             run_stmt = run_stmt.where(ForecastPrediction.dataset == dataset)
         if model:
-            run_stmt = run_stmt.where(ForecastPrediction.model_name == model)
+            run_stmt = run_stmt.where(func.lower(ForecastPrediction.model_name) == model.lower())
         if warehouse_id:
             run_stmt = run_stmt.where(ForecastPrediction.warehouse_id == warehouse_id)
         selected_run_id = db.execute(run_stmt).scalar_one_or_none()
@@ -45,7 +45,7 @@ def get_forecasts(
     if selected_run_id is not None:
         stmt = stmt.where(ForecastPrediction.run_id == selected_run_id)
 
-    rows = db.execute(stmt.order_by(ForecastPrediction.horizon.asc(), ForecastPrediction.sku.asc()).limit(5000)).scalars().all()
+    rows = db.execute(stmt.order_by(ForecastPrediction.horizon.asc(), ForecastPrediction.sku.asc()).limit(50000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,

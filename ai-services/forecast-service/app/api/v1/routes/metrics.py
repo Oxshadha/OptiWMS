@@ -26,7 +26,7 @@ def get_metrics(
     if dataset:
         base_stmt = base_stmt.where(ForecastMetric.dataset == dataset)
     if model:
-        base_stmt = base_stmt.where(ForecastMetric.model_name == model)
+        base_stmt = base_stmt.where(func.lower(ForecastMetric.model_name) == model.lower())
     if warehouse_id:
         base_stmt = base_stmt.where(ForecastMetric.warehouse_id == warehouse_id)
 
@@ -38,7 +38,7 @@ def get_metrics(
         if dataset:
             run_stmt = run_stmt.where(ForecastMetric.dataset == dataset)
         if model:
-            run_stmt = run_stmt.where(ForecastMetric.model_name == model)
+            run_stmt = run_stmt.where(func.lower(ForecastMetric.model_name) == model.lower())
         if warehouse_id:
             run_stmt = run_stmt.where(ForecastMetric.warehouse_id == warehouse_id)
         selected_run_id = db.execute(run_stmt).scalar_one_or_none()

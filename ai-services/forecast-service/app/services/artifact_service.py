@@ -674,6 +674,13 @@ def infer_boosting_online(
     fallback_count = sum(1 for it in finalized_items if it.get("fallback_used"))
     fallback_used = fallback_count > 0
     fallback_reason = None
+    fallback_methods = sorted(
+        {
+            str(it.get("baseline_method")).strip().lower()
+            for it in finalized_items
+            if it.get("fallback_used") and it.get("baseline_method")
+        }
+    )
     if fallback_used:
         fallback_reason = "; ".join({it.get("fallback_reason") for it in finalized_items if it.get("fallback_reason")})
 
@@ -690,6 +697,7 @@ def infer_boosting_online(
             "errors_count": len(errors),
             "fallback_count": fallback_count,
             "fallback_used": fallback_used,
+            "fallback_methods": fallback_methods,
             "latency_ms": elapsed_ms,
         }
     )
@@ -705,5 +713,6 @@ def infer_boosting_online(
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
         "fallback_count": fallback_count,
+        "fallback_methods": fallback_methods,
         "metadata": metadata,
     }

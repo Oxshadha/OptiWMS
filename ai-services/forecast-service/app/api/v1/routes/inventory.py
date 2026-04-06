@@ -23,7 +23,7 @@ def get_inventory_recommendations(
     if dataset:
         base_stmt = base_stmt.where(InventoryRecommendation.dataset == dataset)
     if model:
-        base_stmt = base_stmt.where(InventoryRecommendation.model_name == model)
+        base_stmt = base_stmt.where(func.lower(InventoryRecommendation.model_name) == model.lower())
     if warehouse_id:
         base_stmt = base_stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
 
@@ -33,7 +33,7 @@ def get_inventory_recommendations(
         if dataset:
             run_stmt = run_stmt.where(InventoryRecommendation.dataset == dataset)
         if model:
-            run_stmt = run_stmt.where(InventoryRecommendation.model_name == model)
+            run_stmt = run_stmt.where(func.lower(InventoryRecommendation.model_name) == model.lower())
         if warehouse_id:
             run_stmt = run_stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
         selected_run_id = db.execute(run_stmt).scalar_one_or_none()
@@ -42,7 +42,7 @@ def get_inventory_recommendations(
     if selected_run_id is not None:
         stmt = stmt.where(InventoryRecommendation.run_id == selected_run_id)
 
-    rows = db.execute(stmt.order_by(InventoryRecommendation.suggested_order_qty.desc(), InventoryRecommendation.sku.asc()).limit(5000)).scalars().all()
+    rows = db.execute(stmt.order_by(InventoryRecommendation.suggested_order_qty.desc(), InventoryRecommendation.sku.asc()).limit(50000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,

@@ -216,6 +216,53 @@ export default function ForecastsPage() {
           warehouseId: effectiveWarehouseId,
         }),
       ]);
+
+      let nextForecasts = forecastRes.items ?? [];
+      let nextMetrics = metricRes.items ?? [];
+      let nextRecommendations = recoRes.items ?? [];
+
+      const candidateRunIds = [
+        ...nextForecasts.map((r) => Number(r.run_id)),
+        ...nextMetrics.map((r) => Number(r.run_id)),
+        ...nextRecommendations.map((r) => Number(r.run_id)),
+      ].filter((v) => Number.isFinite(v) && v > 0);
+      const canonicalRunId = candidateRunIds.length ? Math.max(...candidateRunIds) : undefined;
+
+      if (canonicalRunId) {
+        const needsRunNormalization =
+          nextForecasts.some((r) => Number(r.run_id) !== canonicalRunId) ||
+          nextMetrics.some((r) => Number(r.run_id) !== canonicalRunId) ||
+          nextRecommendations.some((r) => Number(r.run_id) !== canonicalRunId);
+        if (needsRunNormalization) {
+          const [forecastRunRes, metricRunRes, recoRunRes] = await Promise.all([
+            aiForecastApi.getForecasts({
+              dataset: binding.dataset,
+              model: binding.model,
+              sku: filters.sku,
+              warehouseId: effectiveWarehouseId,
+              runId: canonicalRunId,
+            }),
+            aiForecastApi.getForecastMetrics({
+              dataset: binding.dataset,
+              model: binding.model,
+              split: EVAL_SPLIT,
+              warehouseId: effectiveWarehouseId,
+              runId: canonicalRunId,
+            }),
+            aiForecastApi.getInventoryRecommendations({
+              dataset: binding.dataset,
+              model: binding.model,
+              sku: filters.sku,
+              warehouseId: effectiveWarehouseId,
+              runId: canonicalRunId,
+            }),
+          ]);
+          nextForecasts = forecastRunRes.items ?? [];
+          nextMetrics = metricRunRes.items ?? [];
+          nextRecommendations = recoRunRes.items ?? [];
+        }
+      }
+
       const [inferenceAlertsResult, inferenceAuditResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
@@ -228,9 +275,6 @@ export default function ForecastsPage() {
           modelName: binding.model,
         }),
       ]);
-      const nextForecasts = forecastRes.items ?? [];
-      const nextMetrics = metricRes.items ?? [];
-      const nextRecommendations = recoRes.items ?? [];
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
       const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
@@ -258,7 +302,7 @@ export default function ForecastsPage() {
       setLastLoadedAt(new Date().toISOString());
       return {
         hasRows: !gotNoRows,
-        latestRunId: nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined,
+        latestRunId: canonicalRunId ?? (nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined),
       };
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
@@ -655,21 +699,43 @@ export default function ForecastsPage() {
     }
     const primary = Math.max(totalSeries - totalFallback - totalErrors, 0);
     const denom = totalSeries || 1;
+    const primaryModelName = (
+      (items.find((it) => typeof it.model_name === "string" && it.model_name.trim())?.model_name as string | undefined) ||
+      filters.model ||
+      "Primary"
+    ).toString();
+    const fallbackMethodSet = new Set<string>();
+    for (const item of items) {
+      const methods = item.fallback_methods;
+      if (Array.isArray(methods)) {
+        methods.forEach((m) => {
+          if (typeof m === "string" && m.trim()) fallbackMethodSet.add(m.trim().toUpperCase());
+        });
+      }
+      const baseline = item.baseline_method;
+      if (typeof baseline === "string" && baseline.trim()) {
+        fallbackMethodSet.add(baseline.trim().toUpperCase());
+      }
+    }
+    const fallbackLabel =
+      fallbackMethodSet.size > 0 ? Array.from(fallbackMethodSet).sort().join(" / ") : "Fallback";
     return {
       totalSeries,
       totalFallback,
       totalErrors,
       primary,
+      primaryModelName,
+      fallbackLabel,
       fallbackRatePct: Number(((totalFallback / denom) * 100).toFixed(2)),
       errorRatePct: Number(((totalErrors / denom) * 100).toFixed(2)),
       primaryRatePct: Number(((primary / denom) * 100).toFixed(2)),
       donut: [
-        { name: "Primary Model", value: primary, color: CHART_COLORS.primaryUsage },
-        { name: "Fallback Model", value: totalFallback, color: CHART_COLORS.fallbackUsage },
+        { name: primaryModelName, value: primary, color: CHART_COLORS.primaryUsage },
+        { name: fallbackLabel, value: totalFallback, color: CHART_COLORS.fallbackUsage },
         { name: "Failed", value: totalErrors, color: CHART_COLORS.failedUsage },
       ],
     };
-  }, [inferenceAudit]);
+  }, [filters.model, inferenceAudit]);
 
   const filteredRecommendations = useMemo(() => {
     const q = inventorySearch.trim().toLowerCase();
@@ -1243,7 +1309,7 @@ export default function ForecastsPage() {
                   <div className="text-2xl font-semibold">{normalizedRmse !== null ? `${normalizedRmse.toFixed(1)}%` : "N/A"}</div>
                 </div>
                 <div className="rounded border border-base-300 p-3">
-                  <div className="text-xs text-base-content/60">Fallback Rate</div>
+                  <div className="text-xs text-base-content/60">{inferenceMix.fallbackLabel} Rate</div>
                   <div className="text-2xl font-semibold">{inferenceMix.fallbackRatePct}%</div>
                 </div>
                 <div className="rounded border border-base-300 p-3">
@@ -1256,15 +1322,17 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold">Inference Path Mix</h2>
-                <div className="text-sm text-base-content/60">Primary vs fallback vs failed</div>
+                <div className="text-sm text-base-content/60">
+                  {inferenceMix.primaryModelName} vs {inferenceMix.fallbackLabel} vs failed
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="rounded border border-base-300 p-3">
-                  <div className="text-xs text-base-content/60">Primary Rate</div>
+                  <div className="text-xs text-base-content/60">{inferenceMix.primaryModelName} Rate</div>
                   <div className="text-xl font-semibold">{inferenceMix.primaryRatePct}%</div>
                 </div>
                 <div className="rounded border border-base-300 p-3">
-                  <div className="text-xs text-base-content/60">Fallback Rate</div>
+                  <div className="text-xs text-base-content/60">{inferenceMix.fallbackLabel} Rate</div>
                   <div className="text-xl font-semibold">{inferenceMix.fallbackRatePct}%</div>
                 </div>
                 <div className="rounded border border-base-300 p-3">
