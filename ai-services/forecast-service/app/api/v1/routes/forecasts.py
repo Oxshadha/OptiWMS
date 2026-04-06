@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, Depends
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -18,21 +18,34 @@ def get_forecasts(
     warehouse_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    stmt = select(ForecastPrediction)
-    if run_id is not None:
-        stmt = stmt.where(ForecastPrediction.run_id == run_id)
+    base_stmt = select(ForecastPrediction)
     if sku:
-        stmt = stmt.where(ForecastPrediction.sku == sku)
+        base_stmt = base_stmt.where(ForecastPrediction.sku == sku)
     if horizon is not None:
-        stmt = stmt.where(ForecastPrediction.horizon == horizon)
+        base_stmt = base_stmt.where(ForecastPrediction.horizon == horizon)
     if dataset:
-        stmt = stmt.where(ForecastPrediction.dataset == dataset)
+        base_stmt = base_stmt.where(ForecastPrediction.dataset == dataset)
     if model:
-        stmt = stmt.where(ForecastPrediction.model_name == model)
+        base_stmt = base_stmt.where(ForecastPrediction.model_name == model)
     if warehouse_id:
-        stmt = stmt.where(ForecastPrediction.warehouse_id == warehouse_id)
+        base_stmt = base_stmt.where(ForecastPrediction.warehouse_id == warehouse_id)
 
-    rows = db.execute(stmt.limit(5000)).scalars().all()
+    selected_run_id = run_id
+    if selected_run_id is None:
+        run_stmt = select(func.max(ForecastPrediction.run_id))
+        if dataset:
+            run_stmt = run_stmt.where(ForecastPrediction.dataset == dataset)
+        if model:
+            run_stmt = run_stmt.where(ForecastPrediction.model_name == model)
+        if warehouse_id:
+            run_stmt = run_stmt.where(ForecastPrediction.warehouse_id == warehouse_id)
+        selected_run_id = db.execute(run_stmt).scalar_one_or_none()
+
+    stmt = base_stmt
+    if selected_run_id is not None:
+        stmt = stmt.where(ForecastPrediction.run_id == selected_run_id)
+
+    rows = db.execute(stmt.order_by(ForecastPrediction.horizon.asc(), ForecastPrediction.sku.asc()).limit(5000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,

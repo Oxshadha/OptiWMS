@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -17,19 +17,32 @@ def get_inventory_recommendations(
     warehouse_id: str | None = None,
     db: Session = Depends(get_db),
 ):
-    stmt = select(InventoryRecommendation)
-    if run_id is not None:
-        stmt = stmt.where(InventoryRecommendation.run_id == run_id)
+    base_stmt = select(InventoryRecommendation)
     if sku:
-        stmt = stmt.where(InventoryRecommendation.sku == sku)
+        base_stmt = base_stmt.where(InventoryRecommendation.sku == sku)
     if dataset:
-        stmt = stmt.where(InventoryRecommendation.dataset == dataset)
+        base_stmt = base_stmt.where(InventoryRecommendation.dataset == dataset)
     if model:
-        stmt = stmt.where(InventoryRecommendation.model_name == model)
+        base_stmt = base_stmt.where(InventoryRecommendation.model_name == model)
     if warehouse_id:
-        stmt = stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
+        base_stmt = base_stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
 
-    rows = db.execute(stmt.limit(5000)).scalars().all()
+    selected_run_id = run_id
+    if selected_run_id is None:
+        run_stmt = select(func.max(InventoryRecommendation.run_id))
+        if dataset:
+            run_stmt = run_stmt.where(InventoryRecommendation.dataset == dataset)
+        if model:
+            run_stmt = run_stmt.where(InventoryRecommendation.model_name == model)
+        if warehouse_id:
+            run_stmt = run_stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
+        selected_run_id = db.execute(run_stmt).scalar_one_or_none()
+
+    stmt = base_stmt
+    if selected_run_id is not None:
+        stmt = stmt.where(InventoryRecommendation.run_id == selected_run_id)
+
+    rows = db.execute(stmt.order_by(InventoryRecommendation.suggested_order_qty.desc(), InventoryRecommendation.sku.asc()).limit(5000)).scalars().all()
     items = [
         {
             "run_id": r.run_id,
