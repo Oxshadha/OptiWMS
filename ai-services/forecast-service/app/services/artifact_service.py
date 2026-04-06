@@ -469,13 +469,38 @@ def _fallback_value_from_history(history: list[dict[str, Any]], horizon: int, pr
     return demands[-1], "last_value"
 
 
+def _fallback_from_classical_artifact(dataset: str, series_id: str, horizon: int) -> tuple[float, str] | None:
+    model_name = (settings.fallback_classical_model or "ARIMA").strip().upper()
+    if not model_name:
+        return None
+    try:
+        out = infer_classical(dataset=dataset, model_name=model_name, series_id=series_id, steps=max(1, int(horizon)))
+        forecast = out.get("forecast") or []
+        if not forecast:
+            return None
+        pred = float(forecast[-1])
+        if not math.isfinite(pred):
+            return None
+        return max(0.0, pred), model_name.lower()
+    except Exception:
+        return None
+
+
 def _build_fallback_item(
+    dataset: str,
     series_payload: dict[str, Any],
     horizon: int,
     reason: str,
     preferred: str = "auto",
 ) -> dict[str, Any]:
-    prediction, method = _fallback_value_from_history(series_payload.get("history") or [], horizon, preferred)
+    prediction = 0.0
+    method = "last_value"
+    series_id = str(series_payload.get("series_id") or "")
+    artifact_fallback = _fallback_from_classical_artifact(dataset=dataset, series_id=series_id, horizon=horizon) if series_id else None
+    if artifact_fallback is not None:
+        prediction, method = artifact_fallback
+    else:
+        prediction, method = _fallback_value_from_history(series_payload.get("history") or [], horizon, preferred)
     return {
         "series_id": series_payload.get("series_id"),
         "fg_code": series_payload.get("fg_code"),
@@ -636,12 +661,12 @@ def infer_boosting_online(
             except Exception as ex:  # noqa: BLE001
                 reason = f"feature_build_error: {ex}"
                 errors.append({"series_id": str(payload.get("series_id")), "error": reason})
-                items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
+                items[idx] = _build_fallback_item(dataset, payload, horizon, reason=reason, preferred="auto")
     except Exception as ex:  # noqa: BLE001
         # Global model failure: fallback all series.
         reason = f"model_load_or_metadata_error: {ex}"
         for idx, payload in enumerate(payloads):
-            items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
+            items[idx] = _build_fallback_item(dataset, payload, horizon, reason=reason, preferred="auto")
         errors.append({"series_id": "*", "error": reason})
         model_queue = []
 
@@ -668,7 +693,7 @@ def infer_boosting_online(
             errors.append({"series_id": "*", "error": reason})
             for idx, _ in model_queue:
                 payload = payloads[idx]
-                items[idx] = _build_fallback_item(payload, horizon, reason=reason, preferred="auto")
+                items[idx] = _build_fallback_item(dataset, payload, horizon, reason=reason, preferred="auto")
 
     finalized_items = [it for it in items if it is not None]
     fallback_count = sum(1 for it in finalized_items if it.get("fallback_used"))

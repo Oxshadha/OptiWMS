@@ -11,7 +11,7 @@ services:
       - WMS_SERVICE_TOKEN=${WMS_SERVICE_TOKEN}
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
-      - DATABASE_URL=sqlite:///./forecast_service.db
+      - DATABASE_URL=sqlite:////data/forecast_service.db
       - REPORTS_DIR=${REPORTS_DIR}
       - ARTIFACT_DIR=/model-artifacts
       - FORECAST_REPORT_FILE=${FORECAST_REPORT_FILE}
@@ -32,6 +32,7 @@ services:
     volumes:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR}:ro
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
+      - forecast-service-data:/data
 
   orchestrator-service:
     build:
@@ -49,3 +50,6 @@ services:
       - forecast-service
     ports:
       - "${ORCHESTRATOR_SERVICE_PORT}:${ORCHESTRATOR_SERVICE_PORT}"
+
+volumes:
+  forecast-service-data:
