@@ -148,6 +148,23 @@ public class AiProxyController {
         return service.getAcceptanceGate(dataset, modelName, split, inferenceWindow);
     }
 
+    @GetMapping("/artifacts/operational-health")
+    public ResponseEntity<Object> operationalHealth() {
+        return service.getOperationalHealth();
+    }
+
+    @GetMapping("/artifacts/operational-health/history")
+    public ResponseEntity<Object> operationalHealthHistory(
+            @RequestParam(required = false) Integer limit
+    ) {
+        return service.getOperationalHealthHistory(limit);
+    }
+
+    @PostMapping("/artifacts/operational-health/refresh")
+    public ResponseEntity<Object> refreshOperationalHealth() {
+        return service.refreshOperationalHealth();
+    }
+
     @PostMapping("/artifacts/infer-classical")
     public ResponseEntity<Object> inferClassical(@RequestBody Map<String, Object> payload) {
         return service.postForecastService("/artifacts/infer-classical", payload);

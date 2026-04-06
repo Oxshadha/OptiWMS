@@ -123,3 +123,15 @@ class ModelRegistryEntry(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class OperationalHealthSnapshot(Base):
+    __tablename__ = "operational_health_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    status: Mapped[str] = mapped_column(String(16), index=True)  # ok|warn|critical
+    drift_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    freshness_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    inference_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

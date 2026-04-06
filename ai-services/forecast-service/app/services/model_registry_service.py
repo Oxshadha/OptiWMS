@@ -70,12 +70,32 @@ def resolve_champion_model(
 def promote_champion(
     db: Session,
     entry_id: int,
+    enforce_gate: bool | None = None,
+    split: str = "test",
+    inference_window: int | None = None,
 ) -> ModelRegistryEntry:
     entry = db.get(ModelRegistryEntry, entry_id)
     if not entry:
         raise ValueError("registry entry not found")
     if entry.status != "active":
         raise ValueError("only active entries can be promoted")
+
+    should_enforce = settings.gate_enforce_on_promotion if enforce_gate is None else bool(enforce_gate)
+    if should_enforce:
+        from app.services.artifact_service import evaluate_acceptance_gate
+
+        gate = evaluate_acceptance_gate(
+            dataset=entry.dataset,
+            model_name=entry.model_name,
+            split=split,
+            inference_window=int(inference_window or settings.gate_promotion_inference_window),
+        )
+        if not bool(gate.get("ready")):
+            fail_checks = [c.get("name") for c in gate.get("checks", []) if not bool(c.get("pass"))]
+            raise ValueError(
+                "promotion blocked by acceptance gate: "
+                + (", ".join(str(n) for n in fail_checks) if fail_checks else "gate_not_ready")
+            )
 
     same_scope = select(ModelRegistryEntry).where(
         ModelRegistryEntry.dataset == entry.dataset,
@@ -87,4 +107,3 @@ def promote_champion(
         row.is_champion = 1 if row.id == entry.id else 0
     db.flush()
     return entry
-

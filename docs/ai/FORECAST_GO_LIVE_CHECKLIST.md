@@ -52,7 +52,7 @@ Status legend:
    Status: `done`
 
 4. Champion/fallback release promotion policy enforced by acceptance gate  
-   Status: `open`
+   Status: `done`
 
 ## 4) UI/API Reliability
 
@@ -80,7 +80,7 @@ Status legend:
    Status: `open`
 
 4. Drift and freshness scheduled checks  
-   Status: `open`
+   Status: `done`
 
 ## 6) Required Commands Before Production Cutover
 
@@ -110,6 +110,8 @@ curl -X POST "http://localhost:8092/jobs/forecast-run?dataset=PV2&model_name=CAT
 ```bash
 curl "http://localhost:8091/forecast-metrics/run-summary?dataset=PV2&model=CATBOOST"
 curl "http://localhost:8091/artifacts/acceptance-gate?dataset=PV2&model_name=CATBOOST&split=test&inference_window=200"
+curl "http://localhost:8091/artifacts/operational-health"
+curl "http://localhost:8091/artifacts/operational-health/history?limit=10"
 ```
 
 ## 7) Production Decision Rule

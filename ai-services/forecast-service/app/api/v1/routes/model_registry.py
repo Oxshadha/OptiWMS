@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import ModelRegistryEntry
 from app.services.model_registry_service import list_registry_entries, promote_champion, resolve_champion_model
+from app.services.artifact_service import evaluate_acceptance_gate
 
 router = APIRouter(prefix="/model-registry", tags=["model-registry"])
 
@@ -28,6 +29,9 @@ class RegistryCreatePayload(BaseModel):
 
 class PromotionPayload(BaseModel):
     entry_id: int
+    split: str = "test"
+    inference_window: int = 500
+    enforce_gate: bool | None = None
 
 
 @router.get("")
@@ -108,7 +112,13 @@ def create_entry(payload: RegistryCreatePayload, db: Session = Depends(get_db)):
 @router.post("/promote")
 def promote(payload: PromotionPayload, db: Session = Depends(get_db)):
     try:
-        entry = promote_champion(db=db, entry_id=payload.entry_id)
+        entry = promote_champion(
+            db=db,
+            entry_id=payload.entry_id,
+            enforce_gate=payload.enforce_gate,
+            split=payload.split,
+            inference_window=payload.inference_window,
+        )
     except ValueError as ex:
         raise HTTPException(status_code=404, detail=str(ex))
     except Exception as ex:
@@ -124,3 +134,27 @@ def promote(payload: PromotionPayload, db: Session = Depends(get_db)):
         "model_version": entry.model_version,
     }
 
+
+@router.get("/promotion-check")
+def promotion_check(
+    entry_id: int,
+    split: str = "test",
+    inference_window: int = 500,
+    db: Session = Depends(get_db),
+):
+    entry = db.get(ModelRegistryEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="registry entry not found")
+    gate = evaluate_acceptance_gate(
+        dataset=entry.dataset,
+        model_name=entry.model_name,
+        split=split,
+        inference_window=inference_window,
+    )
+    return {
+        "entry_id": entry.id,
+        "dataset": entry.dataset,
+        "model_name": entry.model_name,
+        "model_version": entry.model_version,
+        "gate": gate,
+    }

@@ -266,6 +266,27 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    public ResponseEntity<Object> getOperationalHealth() {
+        return exchangeGet(forecastBaseUrl + "/artifacts/operational-health");
+    }
+
+    public ResponseEntity<Object> getOperationalHealthHistory(Integer limit) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/operational-health/history");
+        if (limit != null) ub.queryParam("limit", limit);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<Object> refreshOperationalHealth() {
+        HttpEntity<String> request = new HttpEntity<>(headers());
+        ResponseEntity<Map> response = restTemplate.exchange(
+                forecastBaseUrl + "/artifacts/operational-health/refresh",
+                HttpMethod.POST,
+                request,
+                Map.class
+        );
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
         UserEntity user = resolveUser(authentication);
         if (user == null) {

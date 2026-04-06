@@ -21,6 +21,8 @@ This workspace hosts Python AI services that integrate with the core WMS backend
   - minimum inventory rows,
   - required `test` metrics rows (and non-null KPI values when enabled).
   - If checks fail, run is marked `failed` with reason in run notes.
+- Champion promotion guard:
+  - Registry promotion is blocked unless acceptance gate passes (configurable by `GATE_ENFORCE_ON_PROMOTION`).
 - Duplicate concurrent runs are prevented per scope:
   - Same `(dataset, model, warehouse)` in `created/publishing` is reused (idempotent trigger behavior).
 - Run-level KPI summaries are persisted:
@@ -90,5 +92,11 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
 - Runtime schema contract validation:
   - Startup validates required WMS tables/columns for `wms_db` mode.
   - `GET /health/runtime-contract` returns contract status and missing schema details.
+- Scheduled operational health snapshots:
+  - Background worker computes combined health (`inference + drift + freshness`).
+  - Endpoints:
+    - `GET /artifacts/operational-health`
+    - `GET /artifacts/operational-health/history`
+    - `POST /artifacts/operational-health/refresh`
 - Forecast service writes only to its own forecast DB/state tables.
 - For live mode, forecast service reads WMS DB (read-only contract expected).

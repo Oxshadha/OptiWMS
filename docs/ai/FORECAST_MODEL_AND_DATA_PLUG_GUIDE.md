@@ -192,3 +192,8 @@ When DS final model is ready, execute this checklist in order:
   - old runs and dependent rows are pruned after publish based on:
     - `RETENTION_MAX_RUNS_PER_SCOPE`
     - `RETENTION_MAX_RUN_AGE_DAYS`
+- Promotion gate enforcement:
+  - Champion promotion can be blocked unless acceptance gate passes for the candidate model.
+- Scheduled operational health:
+  - Background snapshots for `inference + drift + freshness`.
+  - Endpoints: `/artifacts/operational-health`, `/artifacts/operational-health/history`.
