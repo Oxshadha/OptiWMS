@@ -64,6 +64,8 @@ export interface InferenceAuditItem {
   errors_count?: number;
   fallback_count?: number;
   fallback_used?: boolean;
+  baseline_method?: string | null;
+  fallback_methods?: string[] | null;
 }
 
 export interface InferenceAuditResponse {
