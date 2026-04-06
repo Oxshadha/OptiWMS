@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
     champion_models_json: str = "{}"
     fallback_classical_model: str = "ARIMA"
+    publish_queue_poll_interval_seconds: float = 1.0
+    retention_max_runs_per_scope: int = 30
+    retention_max_run_age_days: int = 45
+    inference_audit_max_lines: int = 10000
     alert_fallback_rate_threshold: float = 0.05
     alert_errors_threshold: int = 1
     alert_p95_latency_ms_threshold: float = 500.0

@@ -68,6 +68,45 @@ class InventoryRecommendation(Base):
     suggested_order_qty: Mapped[float] = mapped_column(Float)
 
 
+class ForecastRunSummary(Base):
+    __tablename__ = "forecast_run_summaries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True, unique=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    forecast_rows: Mapped[int] = mapped_column(Integer, default=0)
+    metric_rows: Mapped[int] = mapped_column(Integer, default=0)
+    inventory_rows: Mapped[int] = mapped_column(Integer, default=0)
+    sku_count: Mapped[int] = mapped_column(Integer, default=0)
+    horizon_count: Mapped[int] = mapped_column(Integer, default=0)
+    reorder_now_count: Mapped[int] = mapped_column(Integer, default=0)
+    overstock_risk_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_suggested_order_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    avg_wape_test: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_rmse_test: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_mase_test: Mapped[float | None] = mapped_column(Float, nullable=True)
+    avg_abs_bias_test: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rmse_vs_avg_demand_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PublishJob(Base):
+    __tablename__ = "publish_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    mode: Mapped[str] = mapped_column(String(16), default="auto")
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)  # queued|processing|succeeded|failed
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class ModelRegistryEntry(Base):
     __tablename__ = "model_registry_entries"
 

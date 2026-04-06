@@ -12,6 +12,20 @@ This workspace hosts Python AI services that integrate with the core WMS backend
 - `orchestrator-service`: triggers and publishes forecast runs (snapshot/online) and health checks.
 - `libs/wms_contracts`: shared request/response schemas and WMS API client.
 
+## Runtime Behavior (current)
+- Run publish is asynchronous:
+  - Forecast service marks run `publishing`, executes in background, then marks `published`/`failed`.
+  - Orchestrator polls run state to return final status without long blocking calls.
+- Duplicate concurrent runs are prevented per scope:
+  - Same `(dataset, model, warehouse)` in `created/publishing` is reused (idempotent trigger behavior).
+- Run-level KPI summaries are persisted:
+  - `forecast_run_summaries` table and `GET /forecast-metrics/run-summary`.
+  - Dashboards can consume precomputed KPIs instead of expensive recomputation.
+- Single-call dashboard aggregation endpoint:
+  - `GET /dashboard/summary` returns run summary + top reorder rows + forecast point payload in one response.
+- Retention controls:
+  - old runs are pruned after publish based on configurable max-runs-per-scope and max-age policy.
+
 ## Current State
 - The active data-science workflow now lives under `Ai miroservices/modeling/`.
 - Saved forecasting artifacts, cleaned datasets, and notebook-based evaluation are produced there.

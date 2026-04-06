@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import ForecastMetric, ForecastPrediction
 from app.core.config import settings
+from app.services.run_summary_service import get_latest_run_summary
 
 router = APIRouter(prefix="/forecast-metrics", tags=["metrics"])
 
@@ -64,6 +65,46 @@ def get_metrics(
         for r in rows
     ]
     return {"items": items, "count": len(items)}
+
+
+@router.get("/run-summary")
+def get_run_summary(
+    dataset: str | None = None,
+    model: str | None = None,
+    warehouse_id: str | None = None,
+    run_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    summary = get_latest_run_summary(
+        db=db,
+        dataset=dataset,
+        model=model,
+        warehouse_id=warehouse_id,
+        run_id=run_id,
+    )
+    if summary is None:
+        return {"item": None}
+    return {
+        "item": {
+            "run_id": summary.run_id,
+            "dataset": summary.dataset,
+            "model": summary.model_name,
+            "warehouse_id": summary.warehouse_id,
+            "forecast_rows": summary.forecast_rows,
+            "metric_rows": summary.metric_rows,
+            "inventory_rows": summary.inventory_rows,
+            "sku_count": summary.sku_count,
+            "horizon_count": summary.horizon_count,
+            "reorder_now_count": summary.reorder_now_count,
+            "overstock_risk_count": summary.overstock_risk_count,
+            "total_suggested_order_qty": summary.total_suggested_order_qty,
+            "avg_wape_test": summary.avg_wape_test,
+            "avg_rmse_test": summary.avg_rmse_test,
+            "avg_mase_test": summary.avg_mase_test,
+            "avg_abs_bias_test": summary.avg_abs_bias_test,
+            "rmse_vs_avg_demand_pct": summary.rmse_vs_avg_demand_pct,
+        }
+    }
 
 
 @router.get("/drift-summary")

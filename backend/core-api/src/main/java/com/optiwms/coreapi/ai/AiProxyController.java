@@ -52,6 +52,33 @@ public class AiProxyController {
         return service.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
     }
 
+    @GetMapping("/forecast-run-summary")
+    public ResponseEntity<Object> runSummary(
+            Authentication authentication,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String warehouseId
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getForecastRunSummary(dataset, model, runId, scopedWarehouse);
+    }
+
+    @GetMapping("/forecast-dashboard-summary")
+    public ResponseEntity<Object> dashboardSummary(
+            Authentication authentication,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) Integer horizon,
+            @RequestParam(required = false, name = "top_n") Integer topN
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getDashboardSummary(dataset, model, runId, scopedWarehouse, sku, horizon, topN);
+    }
+
     @GetMapping("/inventory-recommendations")
     public ResponseEntity<Object> inventory(
             Authentication authentication,
