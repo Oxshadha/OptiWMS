@@ -91,6 +91,45 @@ export interface InferenceAlertsResponse {
   model_name?: string;
 }
 
+export interface ForecastDashboardSummary {
+  item: {
+    run_id: number;
+    dataset: string;
+    model: string;
+    warehouse_id?: string | null;
+    forecast_rows: number;
+    metric_rows: number;
+    inventory_rows: number;
+    sku_count: number;
+    horizon_count: number;
+    reorder_now_count: number;
+    overstock_risk_count: number;
+    total_suggested_order_qty: number;
+    avg_wape_test?: number | null;
+    avg_rmse_test?: number | null;
+    avg_mase_test?: number | null;
+    avg_abs_bias_test?: number | null;
+    rmse_vs_avg_demand_pct?: number | null;
+  } | null;
+  top_reorder: Array<{
+    sku: string;
+    category?: string | null;
+    on_hand_inventory?: number | null;
+    reorder_point: number;
+    target_max: number;
+    suggested_order_qty: number;
+  }>;
+  forecast_points: Array<{
+    sku: string;
+    horizon: number;
+    month: string;
+    p10: number;
+    p50: number;
+    p90: number;
+    y_true?: number | null;
+  }>;
+}
+
 function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
   const s = (raw ?? {}) as Record<string, unknown>;
   const count = Number(s.count ?? 0);
@@ -264,5 +303,26 @@ export const aiForecastApi = {
         model_name: body.model_name ? String(body.model_name) : undefined,
       } as InferenceAlertsResponse;
     });
+  },
+
+  getForecastDashboardSummary(params: {
+    dataset?: string;
+    model?: string;
+    warehouseId?: string;
+    runId?: number;
+    sku?: string;
+    horizon?: number;
+    topN?: number;
+  } = {}) {
+    const query = buildQuery({
+      dataset: params.dataset,
+      model: params.model,
+      warehouseId: params.warehouseId,
+      run_id: params.runId,
+      sku: params.sku,
+      horizon: params.horizon,
+      top_n: params.topN,
+    });
+    return apiClient.get<ForecastDashboardSummary>(`/ai/forecast-dashboard-summary${query}`);
   },
 };

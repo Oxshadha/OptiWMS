@@ -38,6 +38,7 @@ if not AUDIT_LOGGER.handlers:
     file_handler = logging.FileHandler(audit_path, encoding="utf-8")
     file_handler.setFormatter(logging.Formatter("%(message)s"))
     AUDIT_LOGGER.addHandler(file_handler)
+_AUDIT_WRITE_COUNT = 0
 
 
 def _load_metadata(path: Path) -> dict[str, Any]:
@@ -182,7 +183,26 @@ def _predict_boosting_from_frame(reg, metadata: dict[str, Any], model_name: str,
 
 
 def _log_inference_audit(payload: dict[str, Any]) -> None:
+    global _AUDIT_WRITE_COUNT
     AUDIT_LOGGER.info(json.dumps(payload, default=str))
+    _AUDIT_WRITE_COUNT += 1
+    if _AUDIT_WRITE_COUNT % 100 == 0:
+        _trim_audit_file()
+
+
+def _trim_audit_file() -> None:
+    max_lines = max(1000, int(settings.inference_audit_max_lines or 10000))
+    audit_path = Path(settings.inference_audit_log_file)
+    if not audit_path.exists():
+        return
+    try:
+        lines = audit_path.read_text(encoding="utf-8").splitlines()
+        if len(lines) <= max_lines:
+            return
+        keep = lines[-max_lines:]
+        audit_path.write_text("\n".join(keep) + "\n", encoding="utf-8")
+    except Exception:
+        return
 
 
 def list_inference_audit(

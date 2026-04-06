@@ -77,6 +77,35 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    public ResponseEntity<Object> getForecastRunSummary(String dataset, String model, Integer runId, String warehouseId) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/forecast-metrics/run-summary");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model", model);
+        if (runId != null) ub.queryParam("run_id", runId);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<Object> getDashboardSummary(
+            String dataset,
+            String model,
+            Integer runId,
+            String warehouseId,
+            String sku,
+            Integer horizon,
+            Integer topN
+    ) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/dashboard/summary");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model", model);
+        if (runId != null) ub.queryParam("run_id", runId);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
+        if (sku != null && !sku.isBlank()) ub.queryParam("sku", sku);
+        if (horizon != null) ub.queryParam("horizon", horizon);
+        if (topN != null) ub.queryParam("top_n", topN);
+        return exchangeGet(ub.toUriString());
+    }
+
     public ResponseEntity<Object> getInventoryRecommendations(String sku, String dataset, String model, Integer runId, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/inventory-recommendations");
         if (sku != null && !sku.isBlank()) ub.queryParam("sku", sku);

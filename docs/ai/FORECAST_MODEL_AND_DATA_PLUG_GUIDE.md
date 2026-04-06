@@ -167,3 +167,23 @@ When DS final model is ready, execute this checklist in order:
 7. Sign-off gates
    - Check acceptance gates and alert endpoints.
    - Record final run IDs and artifact version in release notes.
+
+## 10) Runtime architecture improvements now applied
+
+- Async publish pipeline:
+  - `POST /runs/{id}/publish` now queues publish work and sets run status to `publishing`.
+  - Orchestrator polls `GET /runs/{id}` until `published` or `failed`.
+  - This removes long request blocking and reduces trigger timeout risk.
+  - Job visibility endpoint: `GET /runs/{id}/jobs`.
+- Idempotent run creation:
+  - `POST /runs` reuses active run (`created`/`publishing`) for same scope `(dataset, model, warehouse)` instead of creating duplicate concurrent runs.
+- Precomputed KPI summary:
+  - New `forecast_run_summaries` table persists run-level KPIs.
+  - New endpoint: `GET /forecast-metrics/run-summary`.
+  - Cards can use this instead of recomputing aggregates from full row scans.
+- Single-call dashboard API:
+  - `GET /dashboard/summary` returns summary cards + top reorder + forecast series in one call.
+- Retention policy:
+  - old runs and dependent rows are pruned after publish based on:
+    - `RETENTION_MAX_RUNS_PER_SCOPE`
+    - `RETENTION_MAX_RUN_AGE_DAYS`
