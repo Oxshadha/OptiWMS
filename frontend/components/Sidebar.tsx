@@ -38,7 +38,7 @@ const allNavItems = [
   {
     href: "/admin/labor-productivity",
     label: "Labor Productivity",
-    icon: "trending_up",
+    icon: "groups_3",
   },
   {
     href: "/admin/staff",
