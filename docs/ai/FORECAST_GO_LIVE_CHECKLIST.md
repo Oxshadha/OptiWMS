@@ -112,6 +112,7 @@ curl "http://localhost:8091/forecast-metrics/run-summary?dataset=PV2&model=CATBO
 curl "http://localhost:8091/artifacts/acceptance-gate?dataset=PV2&model_name=CATBOOST&split=test&inference_window=200"
 curl "http://localhost:8091/artifacts/operational-health"
 curl "http://localhost:8091/artifacts/operational-health/history?limit=10"
+curl "http://localhost:8091/artifacts/production-readiness?dataset=PV2&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24"
 ```
 
 ## 7) Production Decision Rule

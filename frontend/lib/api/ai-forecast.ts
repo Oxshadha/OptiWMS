@@ -154,6 +154,26 @@ export interface OperationalHealthHistoryResponse {
   items: OperationalHealthSnapshot[];
 }
 
+export interface ProductionReadinessCheck {
+  name: string;
+  pass: boolean;
+  value?: unknown;
+  details?: Record<string, unknown>;
+  threshold?: number;
+  window_hours?: number;
+}
+
+export interface ProductionReadinessResponse {
+  ready: boolean;
+  dataset?: string;
+  model_name?: string;
+  split: string;
+  inference_window: number;
+  soak_hours: number;
+  checks: ProductionReadinessCheck[];
+  latest_operational_health?: OperationalHealthSnapshot;
+}
+
 function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
   const s = (raw ?? {}) as Record<string, unknown>;
   const count = Number(s.count ?? 0);
@@ -366,5 +386,22 @@ export const aiForecastApi = {
   getOperationalHealthHistory(limit?: number) {
     const query = buildQuery({ limit });
     return apiClient.get<OperationalHealthHistoryResponse>(`/ai/artifacts/operational-health/history${query}`);
+  },
+
+  getProductionReadiness(params: {
+    dataset?: string;
+    modelName?: string;
+    split?: string;
+    inferenceWindow?: number;
+    soakHours?: number;
+  } = {}) {
+    const query = buildQuery({
+      dataset: params.dataset,
+      model_name: params.modelName,
+      split: params.split ?? "test",
+      inference_window: params.inferenceWindow ?? 500,
+      soak_hours: params.soakHours ?? 24,
+    });
+    return apiClient.get<ProductionReadinessResponse>(`/ai/artifacts/production-readiness${query}`);
   },
 };

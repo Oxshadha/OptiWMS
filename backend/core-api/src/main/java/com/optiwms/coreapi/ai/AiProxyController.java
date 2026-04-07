@@ -148,6 +148,17 @@ public class AiProxyController {
         return service.getAcceptanceGate(dataset, modelName, split, inferenceWindow);
     }
 
+    @GetMapping("/artifacts/production-readiness")
+    public ResponseEntity<Object> productionReadiness(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow,
+            @RequestParam(required = false, name = "soak_hours") Integer soakHours
+    ) {
+        return service.getProductionReadiness(dataset, modelName, split, inferenceWindow, soakHours);
+    }
+
     @GetMapping("/artifacts/operational-health")
     public ResponseEntity<Object> operationalHealth() {
         return service.getOperationalHealth();

@@ -98,5 +98,8 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
     - `GET /artifacts/operational-health`
     - `GET /artifacts/operational-health/history`
     - `POST /artifacts/operational-health/refresh`
+- Production readiness gate endpoint:
+  - `GET /artifacts/production-readiness`
+  - Aggregates runtime contract, latest published run, acceptance gate, inference criticality, and soak-window critical count.
 - Forecast service writes only to its own forecast DB/state tables.
 - For live mode, forecast service reads WMS DB (read-only contract expected).

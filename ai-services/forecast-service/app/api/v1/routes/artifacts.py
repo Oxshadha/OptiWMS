@@ -21,6 +21,7 @@ from app.services.health_monitor_service import (
     latest_operational_health,
     list_operational_health_history,
 )
+from app.services.production_readiness_service import evaluate_production_readiness
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -100,6 +101,28 @@ def get_operational_health_history(limit: int = 50):
     db = SessionLocal()
     try:
         return list_operational_health_history(db, limit=limit)
+    finally:
+        db.close()
+
+
+@router.get("/production-readiness")
+def get_production_readiness(
+    dataset: str | None = None,
+    model_name: str | None = None,
+    split: str = "test",
+    inference_window: int = 500,
+    soak_hours: int = 24,
+):
+    db = SessionLocal()
+    try:
+        return evaluate_production_readiness(
+            db=db,
+            dataset=dataset,
+            model_name=model_name,
+            split=split,
+            inference_window=inference_window,
+            soak_hours=soak_hours,
+        )
     finally:
         db.close()
 

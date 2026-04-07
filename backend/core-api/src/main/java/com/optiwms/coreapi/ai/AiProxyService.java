@@ -266,6 +266,22 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    public ResponseEntity<Object> getProductionReadiness(
+            String dataset,
+            String modelName,
+            String split,
+            Integer inferenceWindow,
+            Integer soakHours
+    ) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/production-readiness");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (modelName != null && !modelName.isBlank()) ub.queryParam("model_name", modelName);
+        if (split != null && !split.isBlank()) ub.queryParam("split", split);
+        if (inferenceWindow != null) ub.queryParam("inference_window", inferenceWindow);
+        if (soakHours != null) ub.queryParam("soak_hours", soakHours);
+        return exchangeGet(ub.toUriString());
+    }
+
     public ResponseEntity<Object> getOperationalHealth() {
         return exchangeGet(forecastBaseUrl + "/artifacts/operational-health");
     }

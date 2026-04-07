@@ -9,6 +9,7 @@ import {
   type InferenceAlertsResponse,
   type InventoryRecommendation,
   type OperationalHealthSnapshot,
+  type ProductionReadinessResponse,
   type RuntimeContractHealth,
 } from "@/lib/api/ai-forecast";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -105,6 +106,7 @@ export default function ForecastsPage() {
   const [inferenceAudit, setInferenceAudit] = useState<InferenceAuditResponse | null>(null);
   const [operationalHealth, setOperationalHealth] = useState<OperationalHealthSnapshot | null>(null);
   const [runtimeContractHealth, setRuntimeContractHealth] = useState<RuntimeContractHealth | null>(null);
+  const [productionReadiness, setProductionReadiness] = useState<ProductionReadinessResponse | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
@@ -195,6 +197,7 @@ export default function ForecastsPage() {
         setInferenceAudit(null);
         setOperationalHealth(null);
         setRuntimeContractHealth(null);
+        setProductionReadiness(null);
         setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
         return { hasRows: false, latestRunId: undefined };
       }
@@ -270,7 +273,13 @@ export default function ForecastsPage() {
         }
       }
 
-      const [inferenceAlertsResult, inferenceAuditResult, operationalHealthResult, runtimeContractResult] = await Promise.allSettled([
+      const [
+        inferenceAlertsResult,
+        inferenceAuditResult,
+        operationalHealthResult,
+        runtimeContractResult,
+        productionReadinessResult,
+      ] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
           dataset: binding.dataset,
@@ -283,6 +292,13 @@ export default function ForecastsPage() {
         }),
         aiForecastApi.getOperationalHealth(),
         aiForecastApi.getRuntimeContractHealth(false),
+        aiForecastApi.getProductionReadiness({
+          dataset: binding.dataset,
+          modelName: binding.model,
+          split: EVAL_SPLIT,
+          inferenceWindow: 200,
+          soakHours: 24,
+        }),
       ]);
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
@@ -319,6 +335,12 @@ export default function ForecastsPage() {
       } else {
         logger.warn("[ForecastsPage] Runtime contract endpoint unavailable:", runtimeContractResult.reason);
         setRuntimeContractHealth(null);
+      }
+      if (productionReadinessResult.status === "fulfilled") {
+        setProductionReadiness(productionReadinessResult.value ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Production readiness endpoint unavailable:", productionReadinessResult.reason);
+        setProductionReadiness(null);
       }
       setLastLoadedAt(new Date().toISOString());
       return {
@@ -897,6 +919,14 @@ export default function ForecastsPage() {
       setOperationalHealth(snap ?? null);
       const contract = await aiForecastApi.getRuntimeContractHealth(true);
       setRuntimeContractHealth(contract ?? null);
+      const readiness = await aiForecastApi.getProductionReadiness({
+        dataset: filters.dataset || undefined,
+        modelName: filters.model || undefined,
+        split: EVAL_SPLIT,
+        inferenceWindow: 200,
+        soakHours: 24,
+      });
+      setProductionReadiness(readiness ?? null);
     } catch (ex) {
       logger.error("[ForecastsPage] Failed to refresh operational health:", ex);
       setError(ex instanceof Error ? ex.message : "Failed to refresh operational health");
@@ -1008,6 +1038,25 @@ export default function ForecastsPage() {
               <span className={`badge ${statusBadgeClass(runtimeContractHealth?.status)}`}>
                 {String(runtimeContractHealth?.status ?? "unknown").toUpperCase()}
               </span>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded border border-base-300 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold">Production Readiness Gate</div>
+              <span className={`badge ${statusBadgeClass(productionReadiness?.ready ? "ok" : "warn")}`}>
+                {productionReadiness?.ready ? "READY" : "NOT READY"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {(productionReadiness?.checks ?? []).map((c) => (
+                <div key={c.name} className="rounded border border-base-300 p-2">
+                  <div className="text-xs text-base-content/60">{c.name}</div>
+                  <span className={`badge badge-sm mt-1 ${c.pass ? "badge-success" : "badge-error"}`}>
+                    {c.pass ? "PASS" : "FAIL"}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 
