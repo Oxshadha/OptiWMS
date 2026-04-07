@@ -8,6 +8,8 @@ import {
   type InferenceAuditResponse,
   type InferenceAlertsResponse,
   type InventoryRecommendation,
+  type OperationalHealthSnapshot,
+  type RuntimeContractHealth,
 } from "@/lib/api/ai-forecast";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -101,6 +103,8 @@ export default function ForecastsPage() {
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
   const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
   const [inferenceAudit, setInferenceAudit] = useState<InferenceAuditResponse | null>(null);
+  const [operationalHealth, setOperationalHealth] = useState<OperationalHealthSnapshot | null>(null);
+  const [runtimeContractHealth, setRuntimeContractHealth] = useState<RuntimeContractHealth | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
@@ -110,6 +114,7 @@ export default function ForecastsPage() {
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
+  const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [runStatus, setRunStatus] = useState<ForecastRunUiStatus>({
     phase: "idle",
     message: "No run triggered in this session.",
@@ -188,6 +193,8 @@ export default function ForecastsPage() {
         setRecommendations([]);
         setInferenceAlerts(null);
         setInferenceAudit(null);
+        setOperationalHealth(null);
+        setRuntimeContractHealth(null);
         setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
         return { hasRows: false, latestRunId: undefined };
       }
@@ -263,7 +270,7 @@ export default function ForecastsPage() {
         }
       }
 
-      const [inferenceAlertsResult, inferenceAuditResult] = await Promise.allSettled([
+      const [inferenceAlertsResult, inferenceAuditResult, operationalHealthResult, runtimeContractResult] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
           dataset: binding.dataset,
@@ -274,6 +281,8 @@ export default function ForecastsPage() {
           dataset: binding.dataset,
           modelName: binding.model,
         }),
+        aiForecastApi.getOperationalHealth(),
+        aiForecastApi.getRuntimeContractHealth(false),
       ]);
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
@@ -298,6 +307,18 @@ export default function ForecastsPage() {
       } else {
         logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
         setInferenceAudit(null);
+      }
+      if (operationalHealthResult.status === "fulfilled") {
+        setOperationalHealth(operationalHealthResult.value ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Operational health endpoint unavailable:", operationalHealthResult.reason);
+        setOperationalHealth(null);
+      }
+      if (runtimeContractResult.status === "fulfilled") {
+        setRuntimeContractHealth(runtimeContractResult.value ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Runtime contract endpoint unavailable:", runtimeContractResult.reason);
+        setRuntimeContractHealth(null);
       }
       setLastLoadedAt(new Date().toISOString());
       return {
@@ -818,6 +839,14 @@ export default function ForecastsPage() {
     return "badge-ghost";
   }, [runStatus.phase]);
 
+  const statusBadgeClass = (status?: string | null) => {
+    const norm = String(status ?? "").toLowerCase();
+    if (norm === "ok") return "badge-success";
+    if (norm === "warn") return "badge-warning";
+    if (norm === "critical" || norm === "error") return "badge-error";
+    return "badge-ghost";
+  };
+
   const isDecisionView = !showModelPerformance;
 
   const applySkuSearch = () => {
@@ -858,6 +887,22 @@ export default function ForecastsPage() {
     setSelectedSku(sku);
     setSkuSearchInput(sku);
     setSkuSearchOpen(false);
+  };
+
+  const refreshOperationalHealthNow = async () => {
+    try {
+      setHealthRefreshing(true);
+      setError(null);
+      const snap = await aiForecastApi.refreshOperationalHealth();
+      setOperationalHealth(snap ?? null);
+      const contract = await aiForecastApi.getRuntimeContractHealth(true);
+      setRuntimeContractHealth(contract ?? null);
+    } catch (ex) {
+      logger.error("[ForecastsPage] Failed to refresh operational health:", ex);
+      setError(ex instanceof Error ? ex.message : "Failed to refresh operational health");
+    } finally {
+      setHealthRefreshing(false);
+    }
   };
 
   return (
@@ -912,6 +957,69 @@ export default function ForecastsPage() {
           </div>
           <div className="mt-2 text-sm">{runStatus.message}</div>
           <div className="mt-1 text-xs text-base-content/60">Updated: {new Date(runStatus.updatedAt).toLocaleString()}</div>
+        </div>
+      )}
+
+      {isAdmin && showModelPerformance && (
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Operational Health</div>
+              <div className="text-xs text-base-content/70">
+                Automated checks: inference reliability, drift trend, data freshness, runtime DB contract.
+              </div>
+            </div>
+            <button
+              className="btn btn-xs btn-outline"
+              onClick={() => void refreshOperationalHealthNow()}
+              disabled={healthRefreshing}
+            >
+              {healthRefreshing ? "Refreshing..." : "Refresh Health"}
+            </button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60 mb-1">Overall</div>
+              <span className={`badge ${statusBadgeClass(operationalHealth?.status)}`}>
+                {String(operationalHealth?.status ?? "unknown").toUpperCase()}
+              </span>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60 mb-1">Inference</div>
+              <span className={`badge ${statusBadgeClass(operationalHealth?.inference_status)}`}>
+                {String(operationalHealth?.inference_status ?? "unknown").toUpperCase()}
+              </span>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60 mb-1">Drift</div>
+              <span className={`badge ${statusBadgeClass(operationalHealth?.drift_status)}`}>
+                {String(operationalHealth?.drift_status ?? "unknown").toUpperCase()}
+              </span>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60 mb-1">Freshness</div>
+              <span className={`badge ${statusBadgeClass(operationalHealth?.freshness_status)}`}>
+                {String(operationalHealth?.freshness_status ?? "unknown").toUpperCase()}
+              </span>
+            </div>
+            <div className="rounded border border-base-300 p-3">
+              <div className="text-xs text-base-content/60 mb-1">Runtime Contract</div>
+              <span className={`badge ${statusBadgeClass(runtimeContractHealth?.status)}`}>
+                {String(runtimeContractHealth?.status ?? "unknown").toUpperCase()}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-3 text-xs text-base-content/70">
+            {runtimeContractHealth?.reason ? `Contract reason: ${runtimeContractHealth.reason}. ` : ""}
+            {runtimeContractHealth?.missing_tables?.length
+              ? `Missing tables: ${runtimeContractHealth.missing_tables.join(", ")}. `
+              : ""}
+            {runtimeContractHealth?.missing_columns && Object.keys(runtimeContractHealth.missing_columns).length
+              ? `Missing columns detected in schema ${runtimeContractHealth.schema ?? "public"}.`
+              : ""}
+          </div>
         </div>
       )}
 
