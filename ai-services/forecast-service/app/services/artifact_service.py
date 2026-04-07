@@ -406,6 +406,16 @@ def evaluate_acceptance_gate(
 
     checks.append(
         {
+            "name": "serving_window_count",
+            "value": count,
+            "threshold": 1,
+            "comparator": ">=",
+            "pass": count >= 1,
+        }
+    )
+
+    checks.append(
+        {
             "name": "fallback_rate",
             "value": fallback_rate,
             "threshold": settings.gate_max_fallback_rate,
@@ -432,8 +442,15 @@ def evaluate_acceptance_gate(
         }
     )
 
-    required_checks = [c for c in checks if c["value"] is not None]
-    gate_passed = bool(required_checks) and all(bool(c["pass"]) for c in required_checks)
+    required_quality_checks = {"wape", "bias_abs", "under_forecast_rate", "mase_mean"}
+    quality_checks = [c for c in checks if c.get("name") in required_quality_checks]
+    quality_present = all(c.get("value") is not None for c in quality_checks)
+    quality_pass = all(bool(c.get("pass")) for c in quality_checks)
+
+    serving_checks = [c for c in checks if c.get("name") not in required_quality_checks]
+    serving_pass = all(bool(c.get("pass")) for c in serving_checks)
+
+    gate_passed = bool(quality_checks) and quality_present and quality_pass and serving_pass
 
     return {
         "ready": gate_passed,
