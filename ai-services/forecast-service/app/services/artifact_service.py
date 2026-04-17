@@ -331,6 +331,7 @@ def evaluate_acceptance_gate(
     quality_summary: dict[str, float | None] = {
         "WAPE": None,
         "Bias_abs": None,
+        "Bias_abs_pct": None,
         "under_forecast_rate": None,
         "MASE_mean": None,
     }
@@ -359,6 +360,28 @@ def evaluate_acceptance_gate(
         quality_summary["under_forecast_rate"] = _mean_col(metric_df, "under_forecast_rate")
         quality_summary["MASE_mean"] = _mean_col(metric_df, "MASE_mean")
 
+        # Normalize bias by average demand to keep gate in percentage space.
+        avg_demand: float | None = None
+        forecast_path = Path(f"{settings.reports_dir}/{settings.forecast_report_file}")
+        if forecast_path.exists():
+            try:
+                fdf = pd.read_csv(forecast_path)
+                if "dataset" in fdf.columns and dataset:
+                    fdf = fdf[fdf["dataset"].astype(str).str.upper() == dataset.upper()]
+                if "model" in fdf.columns and model_name:
+                    fdf = fdf[fdf["model"].astype(str).str.upper() == model_name.upper()]
+                if "split" in fdf.columns:
+                    fdf = fdf[fdf["split"].astype(str).str.lower() == split.lower()]
+                demand_col = "y_true" if "y_true" in fdf.columns else ("forecast_p50" if "forecast_p50" in fdf.columns else None)
+                if demand_col:
+                    d = pd.to_numeric(fdf[demand_col], errors="coerce").abs().dropna()
+                    if not d.empty:
+                        avg_demand = float(d.mean())
+            except Exception:
+                avg_demand = None
+        if quality_summary["Bias_abs"] is not None and avg_demand and avg_demand > 0:
+            quality_summary["Bias_abs_pct"] = float(quality_summary["Bias_abs"] / avg_demand)
+
     checks.append(
         {
             "name": "wape",
@@ -371,10 +394,11 @@ def evaluate_acceptance_gate(
     checks.append(
         {
             "name": "bias_abs",
-            "value": quality_summary["Bias_abs"],
+            "value": quality_summary["Bias_abs_pct"],
             "threshold": settings.gate_max_abs_bias,
             "comparator": "<=",
-            "pass": quality_summary["Bias_abs"] is not None and quality_summary["Bias_abs"] <= settings.gate_max_abs_bias,
+            "pass": quality_summary["Bias_abs_pct"] is not None
+            and quality_summary["Bias_abs_pct"] <= settings.gate_max_abs_bias,
         }
     )
     checks.append(

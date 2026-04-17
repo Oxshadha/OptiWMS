@@ -1,10 +1,11 @@
 import pandas as pd
 from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from pathlib import Path
 
 from app.core.config import settings
 from app.db.models import ForecastRun, ForecastPrediction, ForecastMetric, InventoryRecommendation
-from app.services.runtime_data_source import resolve_online_history_series, resolve_inventory_snapshot
+from app.services.runtime_data_source import resolve_online_history_series, resolve_inventory_snapshot, InventorySnapshotRow
 
 REPORT_PATH = f"{settings.reports_dir}/{settings.forecast_report_file}"
 INV_PATH = f"{settings.reports_dir}/{settings.inventory_report_file}"
@@ -274,8 +275,49 @@ def _persist_online_inventory_recommendations(
     db: Session,
     run: ForecastRun,
     h1_predictions: dict[str, float],
+    series_meta: dict[str, dict[str, str | None]],
 ) -> int:
     snapshot_rows, _source = resolve_inventory_snapshot(run.warehouse_id)
+    if not snapshot_rows:
+        # Fallback 1: use latest persisted inventory recommendations for same dataset/model.
+        latest_run_id = db.execute(
+            select(func.max(InventoryRecommendation.run_id)).where(
+                InventoryRecommendation.dataset == run.dataset,
+                InventoryRecommendation.model_name == run.model_name,
+            )
+        ).scalar_one_or_none()
+        if latest_run_id:
+            prev_rows = db.execute(
+                select(InventoryRecommendation).where(InventoryRecommendation.run_id == latest_run_id)
+            ).scalars().all()
+            snapshot_rows = [
+                InventorySnapshotRow(
+                    sku=str(r.sku),
+                    category=str(r.category) if r.category else None,
+                    on_hand_inventory=float(r.on_hand_inventory or 0.0),
+                    reorder_point=float(r.reorder_point or 0.0),
+                    target_max=float(r.target_max or 0.0),
+                    safety_stock=float(r.safety_stock or 0.0),
+                )
+                for r in prev_rows
+            ]
+
+    if not snapshot_rows and h1_predictions:
+        # Fallback 2: build minimal operational inventory profile directly from forecasted H+1.
+        snapshot_rows = []
+        for sku, pred_h1 in h1_predictions.items():
+            category = series_meta.get(sku, {}).get("fg_category")
+            snapshot_rows.append(
+                InventorySnapshotRow(
+                    sku=sku,
+                    category=str(category) if category is not None else None,
+                    on_hand_inventory=0.0,
+                    reorder_point=float(max(pred_h1 * 0.8, 0.0)),
+                    target_max=float(max(pred_h1 * 2.0, 0.0)),
+                    safety_stock=float(max(pred_h1 * 0.15, 0.0)),
+                )
+            )
+
     if not snapshot_rows:
         return 0
 
@@ -318,6 +360,7 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
     total_fallback = 0
     total_errors = 0
     h1_predictions: dict[str, float] = {}
+    series_meta: dict[str, dict[str, str | None]] = {}
     for h in horizons:
         res = infer_boosting_online(
             dataset=run.dataset,
@@ -337,10 +380,12 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
                 pred = float(it.get("prediction") or 0.0)
                 if pred > 0:
                     h1_predictions[sku] = pred
+                if sku not in series_meta:
+                    series_meta[sku] = {"fg_category": it.get("fg_category")}
         total_fallback += int(res.get("fallback_count", 0) or 0)
         total_errors += len(res.get("errors") or [])
 
-    inventory_rows = _persist_online_inventory_recommendations(db, run, h1_predictions)
+    inventory_rows = _persist_online_inventory_recommendations(db, run, h1_predictions, series_meta)
 
     # Minimal online metric record for audit visibility.
     db.add(

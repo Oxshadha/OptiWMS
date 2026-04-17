@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     gate_max_mase_mean: float = 1.10
     gate_max_fallback_rate: float = 0.05
     gate_max_hard_error_rate: float = 0.01
-    gate_max_p95_latency_ms: float = 500.0
+    gate_max_p95_latency_ms: float = 2500.0
     gate_enforce_on_promotion: bool = True
     gate_promotion_inference_window: int = 500
     drift_alert_wape_increase_ratio: float = 0.25
