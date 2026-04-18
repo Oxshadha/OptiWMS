@@ -22,6 +22,23 @@ def _mode() -> str:
     return (settings.runtime_data_source_mode or "csv").strip().lower()
 
 
+def _normalize_warehouse_id(warehouse_id: str | None) -> str | None:
+    if warehouse_id is None:
+        return None
+    raw = str(warehouse_id).strip()
+    if not raw:
+        return None
+    if raw.lower() in {"all", "all warehouses", "all_warehouses", "*"}:
+        return None
+    return raw
+
+
+def _outbound_statuses() -> list[str]:
+    raw = settings.wms_runtime_outbound_statuses or "shipped,delivered,completed"
+    vals = [s.strip().lower() for s in raw.split(",") if s.strip()]
+    return vals or ["shipped", "delivered", "completed"]
+
+
 def _empty_ok_result(reason: str) -> dict[str, Any]:
     return {
         "status": "ok",
@@ -148,3 +165,113 @@ def assert_runtime_contract_on_startup() -> dict[str, Any]:
     if _mode() == "wms_db" and result.get("status") != "ok":
         raise RuntimeError(f"WMS runtime contract check failed: {result}")
     return result
+
+
+def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str, Any]:
+    mode = _mode()
+    wh = _normalize_warehouse_id(warehouse_id)
+    statuses = _outbound_statuses()
+
+    if mode == "csv":
+        return {
+            "status": "warn",
+            "mode": mode,
+            "reason": "csv_mode_not_live_wms",
+            "warehouse_id": wh,
+            "checks": {
+                "history_rows": 0,
+                "inventory_skus": 0,
+                "inventory_nonzero_on_hand_skus": 0,
+                "inventory_distinct_warehouses": 0,
+            },
+        }
+
+    if not settings.wms_runtime_database_url:
+        status = "error" if mode == "wms_db" else "warn"
+        return {
+            "status": status,
+            "mode": mode,
+            "reason": "missing_wms_runtime_database_url",
+            "warehouse_id": wh,
+            "checks": {
+                "history_rows": 0,
+                "inventory_skus": 0,
+                "inventory_nonzero_on_hand_skus": 0,
+                "inventory_distinct_warehouses": 0,
+            },
+        }
+
+    try:
+        with get_wms_engine().connect() as conn:
+            sales_stmt = (
+                text(
+                    """
+                    SELECT COUNT(*)::bigint
+                    FROM order_items oi
+                    JOIN orders o ON o.id = oi.order_id
+                    JOIN materials m ON m.id = oi.material_id
+                    WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
+                      AND LOWER(COALESCE(o.status, '')) IN :statuses
+                      AND LOWER(COALESCE(m.material_type, '')) = 'product'
+                      AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
+                    """
+                )
+                .bindparams(bindparam("statuses", expanding=True))
+            )
+            history_rows = int(
+                conn.execute(sales_stmt, {"statuses": statuses, "warehouse_id": wh}).scalar_one() or 0
+            )
+
+            inv_stmt = text(
+                """
+                SELECT
+                    COUNT(DISTINCT m.material_code)::bigint AS inventory_skus,
+                    COUNT(DISTINCT CASE WHEN COALESCE(i.quantity, 0) > 0 THEN m.material_code END)::bigint AS inventory_nonzero_on_hand_skus,
+                    COUNT(DISTINCT i.warehouse_id)::bigint AS inventory_distinct_warehouses
+                FROM inventory i
+                JOIN materials m ON m.id = i.material_id
+                WHERE LOWER(COALESCE(m.material_type, '')) = 'product'
+                  AND (:warehouse_id IS NULL OR i.warehouse_id::text = :warehouse_id)
+                """
+            )
+            inv_row = conn.execute(inv_stmt, {"warehouse_id": wh}).mappings().first()
+            inventory_skus = int((inv_row or {}).get("inventory_skus") or 0)
+            inventory_nonzero_on_hand_skus = int((inv_row or {}).get("inventory_nonzero_on_hand_skus") or 0)
+            inventory_distinct_warehouses = int((inv_row or {}).get("inventory_distinct_warehouses") or 0)
+
+        checks = {
+            "history_rows": history_rows,
+            "inventory_skus": inventory_skus,
+            "inventory_nonzero_on_hand_skus": inventory_nonzero_on_hand_skus,
+            "inventory_distinct_warehouses": inventory_distinct_warehouses,
+        }
+
+        healthy = history_rows > 0 and inventory_skus > 0 and inventory_nonzero_on_hand_skus > 0
+        if healthy:
+            status = "ok"
+            reason = "live_runtime_data_verified"
+        else:
+            status = "error" if mode == "wms_db" else "warn"
+            reason = "live_runtime_data_incomplete"
+
+        return {
+            "status": status,
+            "mode": mode,
+            "reason": reason,
+            "warehouse_id": wh,
+            "checks": checks,
+        }
+    except Exception as ex:
+        status = "error" if mode == "wms_db" else "warn"
+        return {
+            "status": status,
+            "mode": mode,
+            "reason": f"runtime_data_check_error:{ex}",
+            "warehouse_id": wh,
+            "checks": {
+                "history_rows": 0,
+                "inventory_skus": 0,
+                "inventory_nonzero_on_hand_skus": 0,
+                "inventory_distinct_warehouses": 0,
+            },
+        }
