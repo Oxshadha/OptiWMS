@@ -203,6 +203,20 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
 
     try:
         with get_wms_engine().connect() as conn:
+            has_backfill = bool(
+                conn.execute(
+                    text(
+                        """
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = :schema
+                          AND table_name = 'forecast_outbound_history_backfill'
+                        LIMIT 1
+                        """
+                    ),
+                    {"schema": settings.wms_runtime_schema},
+                ).first()
+            )
             base_counts_stmt = text(
                 """
                 SELECT
@@ -214,23 +228,49 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
             )
             base_counts = conn.execute(base_counts_stmt).mappings().first() or {}
 
-            sales_stmt = (
-                text(
-                    """
-                    SELECT COUNT(*)::bigint
-                    FROM order_items oi
-                    JOIN orders o ON o.id = oi.order_id
-                    JOIN materials m ON m.id = oi.material_id
-                    WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
-                      AND LOWER(COALESCE(o.status, '')) IN :statuses
-                      AND LOWER(COALESCE(m.material_type, '')) = 'product'
-                      AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
-                    """
+            if has_backfill:
+                sales_stmt = (
+                    text(
+                        """
+                        WITH order_history AS (
+                            SELECT COUNT(*)::bigint AS cnt
+                            FROM order_items oi
+                            JOIN orders o ON o.id = oi.order_id
+                            JOIN materials m ON m.id = oi.material_id
+                            WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
+                              AND LOWER(COALESCE(o.status, '')) IN :statuses
+                              AND LOWER(COALESCE(m.material_type, '')) = 'product'
+                              AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
+                        ),
+                        backfill_history AS (
+                            SELECT COUNT(*)::bigint AS cnt
+                            FROM forecast_outbound_history_backfill b
+                            WHERE (:warehouse_id IS NULL OR b.warehouse_id::text = :warehouse_id)
+                        )
+                        SELECT ((SELECT cnt FROM order_history) + (SELECT cnt FROM backfill_history))::bigint
+                        """
+                    )
+                    .bindparams(bindparam("statuses", expanding=True))
                 )
-                .bindparams(bindparam("statuses", expanding=True))
-            )
+            else:
+                sales_stmt = (
+                    text(
+                        """
+                        SELECT COUNT(*)::bigint
+                        FROM order_items oi
+                        JOIN orders o ON o.id = oi.order_id
+                        JOIN materials m ON m.id = oi.material_id
+                        WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
+                          AND LOWER(COALESCE(o.status, '')) IN :statuses
+                          AND LOWER(COALESCE(m.material_type, '')) = 'product'
+                          AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
+                        """
+                    )
+                    .bindparams(bindparam("statuses", expanding=True))
+                )
             history_rows = int(
-                conn.execute(sales_stmt, {"statuses": statuses, "warehouse_id": wh}).scalar_one() or 0
+                conn.execute(sales_stmt, {"statuses": statuses, "warehouse_id": wh}).scalar_one()
+                or 0
             )
 
             inv_stmt = text(

@@ -66,33 +66,72 @@ def _normalize_warehouse_id(warehouse_id: str | None) -> str | None:
     return raw
 
 
+@lru_cache(maxsize=32)
+def _table_exists(table_name: str, schema: str | None = None) -> bool:
+    if not _should_try_wms_db():
+        return False
+    schema_name = (schema or settings.wms_runtime_schema or "public").strip()
+    sql = text(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = :schema
+          AND table_name = :table_name
+        LIMIT 1
+        """
+    )
+    with get_wms_engine().connect() as conn:
+        row = conn.execute(sql, {"schema": schema_name, "table_name": table_name}).first()
+    return row is not None
+
+
 def fetch_online_history_series_from_wms_db(dataset: str, warehouse_id: str | None, max_series: int = 500) -> list[dict[str, Any]]:
     statuses = _outbound_statuses()
     wh = _normalize_warehouse_id(warehouse_id)
+    has_backfill = _table_exists("forecast_outbound_history_backfill")
     sql = (
         text(
-        """
-        WITH monthly_sales AS (
-            SELECT
-                m.material_code AS fg_code,
-                COALESCE(NULLIF(m.description, ''), 'UNKNOWN') AS fg_category,
-                DATE_TRUNC('month', o.order_date)::date AS month,
-                SUM(COALESCE(oi.quantity, 0))::double precision AS demand_units
-            FROM order_items oi
-            JOIN orders o ON o.id = oi.order_id
-            JOIN materials m ON m.id = oi.material_id
-            WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
-              AND LOWER(COALESCE(o.status, '')) IN :statuses
-              AND LOWER(COALESCE(m.material_type, '')) = 'product'
-              AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
-            GROUP BY m.material_code, m.description, DATE_TRUNC('month', o.order_date)::date
-        )
-        SELECT fg_code, fg_category, month, demand_units
-        FROM monthly_sales
-        ORDER BY fg_code, month
-        """
-    )
-        .bindparams(bindparam("statuses", expanding=True))
+            f"""
+            WITH sales_from_orders AS (
+                SELECT
+                    m.material_code AS fg_code,
+                    COALESCE(NULLIF(m.description, ''), 'UNKNOWN') AS fg_category,
+                    DATE_TRUNC('month', o.order_date)::date AS month,
+                    SUM(COALESCE(oi.quantity, 0))::double precision AS demand_units
+                FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id
+                JOIN materials m ON m.id = oi.material_id
+                WHERE LOWER(COALESCE(o.order_type, '')) = 'outbound'
+                  AND LOWER(COALESCE(o.status, '')) IN :statuses
+                  AND LOWER(COALESCE(m.material_type, '')) = 'product'
+                  AND (:warehouse_id IS NULL OR o.warehouse_id::text = :warehouse_id)
+                GROUP BY m.material_code, m.description, DATE_TRUNC('month', o.order_date)::date
+            ),
+            sales_from_backfill AS (
+                SELECT
+                    b.sku::text AS fg_code,
+                    COALESCE(NULLIF(b.category, ''), 'UNKNOWN') AS fg_category,
+                    DATE_TRUNC('month', b.demand_date)::date AS month,
+                    SUM(COALESCE(b.demand_units, 0))::double precision AS demand_units
+                FROM {(settings.wms_runtime_schema or "public")}.forecast_outbound_history_backfill b
+                WHERE {('TRUE' if has_backfill else 'FALSE')}
+                  AND (:warehouse_id IS NULL OR b.warehouse_id::text = :warehouse_id)
+                GROUP BY b.sku, b.category, DATE_TRUNC('month', b.demand_date)::date
+            ),
+            monthly_sales AS (
+                SELECT fg_code, fg_category, month, SUM(demand_units)::double precision AS demand_units
+                FROM (
+                    SELECT * FROM sales_from_orders
+                    UNION ALL
+                    SELECT * FROM sales_from_backfill
+                ) s
+                GROUP BY fg_code, fg_category, month
+            )
+            SELECT fg_code, fg_category, month, demand_units
+            FROM monthly_sales
+            ORDER BY fg_code, month
+            """
+        ).bindparams(bindparam("statuses", expanding=True))
     )
     with get_wms_engine().connect() as conn:
         frame = pd.read_sql(sql, conn, params={"warehouse_id": wh, "statuses": statuses})
