@@ -1647,17 +1647,17 @@ export default function ForecastsPage() {
           </div>
           <div className="join">
             <button
-              className="btn btn-xs join-item"
+              className="btn btn-xs join-item disabled:bg-base-200 disabled:text-base-content/50 disabled:border-base-300"
               disabled={inventoryPage <= 1}
               onClick={() => setInventoryPage((p) => Math.max(1, p - 1))}
             >
               Prev
             </button>
-            <button className="btn btn-xs join-item" disabled>
+            <span className="join-item inline-flex h-7 items-center border border-base-300 bg-base-100 px-3 text-xs font-medium text-base-content/80">
               Page {inventoryPage} / {totalInventoryPages}
-            </button>
+            </span>
             <button
-              className="btn btn-xs join-item"
+              className="btn btn-xs join-item disabled:bg-base-200 disabled:text-base-content/50 disabled:border-base-300"
               disabled={inventoryPage >= totalInventoryPages}
               onClick={() => setInventoryPage((p) => Math.min(totalInventoryPages, p + 1))}
             >
