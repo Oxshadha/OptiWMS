@@ -3,7 +3,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import InventoryRecommendation
+from app.db.models import InventoryRecommendation, ForecastRunSummary
 
 router = APIRouter(prefix="/inventory-recommendations", tags=["inventory"])
 
@@ -28,6 +28,17 @@ def get_inventory_recommendations(
         base_stmt = base_stmt.where(InventoryRecommendation.warehouse_id == warehouse_id)
 
     selected_run_id = run_id
+    if selected_run_id is None:
+        # Prefer latest summarized run so inventory and forecast views stay aligned.
+        summary_stmt = select(func.max(ForecastRunSummary.run_id))
+        if dataset:
+            summary_stmt = summary_stmt.where(ForecastRunSummary.dataset == dataset)
+        if model:
+            summary_stmt = summary_stmt.where(func.lower(ForecastRunSummary.model_name) == model.lower())
+        if warehouse_id:
+            summary_stmt = summary_stmt.where(ForecastRunSummary.warehouse_id == warehouse_id)
+        selected_run_id = db.execute(summary_stmt).scalar_one_or_none()
+
     if selected_run_id is None:
         run_stmt = select(func.max(InventoryRecommendation.run_id))
         if dataset:
