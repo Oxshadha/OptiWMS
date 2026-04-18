@@ -166,6 +166,7 @@ backend/.gradle-local/
 VIVA_FOLDER_MAP_AND_GRADLE.md
 *.md
 !README.md
+!docs/ai/*.md
 
 *.csv
 
