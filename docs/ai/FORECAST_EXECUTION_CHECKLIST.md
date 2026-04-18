@@ -8,6 +8,9 @@ How to use:
 - Change to `[x]` only when fully verified.
 - Add evidence (PR, command output, screenshot) under each item when completed.
 
+Master plan reference:
+- `docs/ai/FORECAST_MLOPS_AND_DATA_SCIENCE_MASTER_PLAN.md`
+
 ## 1) Serving Foundation (Current State)
 - [x] Forecast trigger pipeline supports `snapshot` and `online` modes.
 - [x] Publish completeness checks are enforced before run is marked `published`.
@@ -21,7 +24,7 @@ How to use:
 - [x] Two-layer planning pipeline implemented: FG demand forecast -> BOM explosion -> raw-material requirements (`/raw-material-requirements`).
 
 ## 2) Runtime Data Contract (WMS DB)
-- [ ] Finalize canonical DB contract for runtime inference:
+- [x] Finalize canonical DB contract for runtime inference:
   - outbound demand source table(s)
   - inventory snapshot table(s)
   - SKU/category master
@@ -31,22 +34,29 @@ How to use:
 - [x] Add machine-readable readiness audit CLI for pipeline/ops use: `ai-services/forecast-service/scripts/runtime_data_readiness_check.py`.
 - [x] Verify runtime mode is `wms_db` in non-local environments.
 - [x] Validate non-zero on-hand inventory for sample SKUs from WMS DB.
-- [ ] Validate warehouse filter returns warehouse-specific inventory/demand.
+- [x] Validate warehouse filter returns warehouse-specific inventory/demand.
 
 Evidence (2026-04-18 local run, after bootstrap):
 - `/health/runtime-contract?force=true` -> `status=ok`, `mode=wms_db`.
 - `/health/runtime-data-readiness` -> `status=ok`, `reason=live_runtime_data_verified`.
+- `/health/runtime-data-readiness?warehouse_id=7262019d-9bf4-4824-997c-d7b5c9158ef3` -> `status=ok`, `history_rows=24`, `inventory_skus=120`.
 - `python ai-services/forecast-service/scripts/runtime_data_readiness_check.py --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms --schema public --outbound-statuses delivered,packed,picking` -> `status=ok`.
+- `python ai-services/forecast-service/scripts/runtime_data_readiness_check.py --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms --strict` -> `status=ok`.
 - DB checks:
   - `orders`: 83
   - `order_items`: 102
   - `materials(material_type='product')`: 120
   - `inventory rows`: 291
   - `product inventory with quantity > 0`: 120
+- Warehouse filter verification:
+  - `POST /jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=snapshot&warehouse_id=7262019d-9bf4-4824-997c-d7b5c9158ef3` -> `status=published`, `run_id=27`.
+  - `GET /forecasts?dataset=B&model=CATBOOST&warehouse_id=7262019d-9bf4-4824-997c-d7b5c9158ef3` -> `count=22248`.
+  - `GET /inventory-recommendations?dataset=B&model=CATBOOST&warehouse_id=7262019d-9bf4-4824-997c-d7b5c9158ef3` -> `count=103`.
+  - `GET /forecasts?dataset=B&model=CATBOOST&warehouse_id=3ed1692b-e09c-4e27-9a07-a966cc4a343d` -> `count=0` (expected for non-mapped warehouse scope).
 - Gate status after online run:
   - acceptance gate = `ready:false` (blocked by `fallback_rate`, `hard_error_rate`)
   - production readiness = `ready:false` (blocked by acceptance + inference critical window)
-- Conclusion: runtime data contract is now live and valid; remaining blockers are model-serving fallback/error behavior, not DB availability.
+- Conclusion: runtime data contract is live and warehouse scoping is validated for snapshot-published runs; remaining blockers are online per-warehouse history sufficiency and model-serving quality gates.
 - Operational runbook: `docs/ai/WMS_FORECAST_DATA_ONBOARDING_RUNBOOK.md`
 
 ## 3) Historical Backfill + Data Quality
@@ -56,8 +66,18 @@ Evidence (2026-04-18 local run, after bootstrap):
   - negative demand
   - duplicate SKU-month rows
   - broken SKU IDs / remapped SKUs
-- [ ] Create data quality report artifact per load.
+- [x] Create data quality report artifact per load.
 - [ ] Add idempotent load process (safe reruns without duplicate rows).
+
+Evidence (2026-04-18):
+- Added script: `ai-services/forecast-service/scripts/export_outbound_history_and_dq.py`
+- Generated artifacts:
+  - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/outbound_demand_daily.csv`
+  - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/outbound_demand_monthly.csv`
+  - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/dq_report.json`
+  - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/lineage.json`
+- DQ summary:
+  - `base_rows=48`, `distinct_skus=28`, `negative_qty_rows=0`, `missing_months_rate=0.0`
 
 ## 4) Training Dataset Pipeline (Data Science Handoff-Ready)
 - [ ] Build one canonical feature pipeline:
@@ -112,8 +132,15 @@ Evidence (2026-04-18 local run, after bootstrap):
 
 ## 9) Immediate Next Actions (This Week)
 - [ ] Move runtime source to real WMS DB (`wms_db`) and validate row-level outputs.
-- [ ] Build and run first historical backfill job.
+- [x] Build and run first historical backfill job.
 - [ ] Add DQ report generation for every load.
 - [ ] Retrain CATBOOST/XGBOOST on backfilled real history and re-evaluate.
 - [ ] Re-promote champion only via acceptance gate.
 - [ ] Replace starter manual BOM mappings with validated production BOM master from ERP/WMS.
+
+## 10) Plan Alignment Decision (2026-04-18)
+- [x] Adopt enterprise two-layer planning as default:
+  - independent demand forecast (FG/decoupling point) first
+  - dependent demand for RM/pack via BOM + lead-time logic
+- [ ] Do not ship production with starter/demo BOM mappings.
+- [ ] Complete Phase 0 exit gate from master plan before further model promotion.

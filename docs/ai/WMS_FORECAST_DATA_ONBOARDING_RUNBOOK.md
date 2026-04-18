@@ -59,6 +59,15 @@ python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/
   --strict
 ```
 
+Historical export + DQ artifact generation:
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/export_outbound_history_and_dq.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --outbound-statuses delivered,packed,picking \
+  --out-dir /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill
+```
+
 Trigger online publish:
 ```bash
 curl -X POST "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
