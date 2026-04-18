@@ -279,6 +279,7 @@ def _persist_online_inventory_recommendations(
     run: ForecastRun,
     h1_predictions: dict[str, float],
     series_meta: dict[str, dict[str, str | None]],
+    forecast_skus: set[str] | None = None,
 ) -> int:
     snapshot_rows, _source = resolve_inventory_snapshot(run.warehouse_id)
     if not snapshot_rows:
@@ -323,6 +324,11 @@ def _persist_online_inventory_recommendations(
 
     if not snapshot_rows:
         return 0
+
+    if forecast_skus is not None:
+        snapshot_rows = [row for row in snapshot_rows if row.sku in forecast_skus]
+        if not snapshot_rows:
+            return 0
 
     inserted = 0
     for row in snapshot_rows:
@@ -395,7 +401,14 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
         total_fallback += int(res.get("fallback_count", 0) or 0)
         total_errors += len(res.get("errors") or [])
 
-    inventory_rows = _persist_online_inventory_recommendations(db, run, h1_predictions, series_meta)
+    forecast_skus = set(series_meta.keys())
+    inventory_rows = _persist_online_inventory_recommendations(
+        db,
+        run,
+        h1_predictions,
+        series_meta,
+        forecast_skus=forecast_skus if forecast_skus else None,
+    )
     raw_material_result = persist_raw_material_requirements(db, run, fg_demand_by_sku=total_fg_demand)
 
     # Minimal online metric record for audit visibility.
