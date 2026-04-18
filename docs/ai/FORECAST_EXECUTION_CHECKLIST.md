@@ -27,19 +27,26 @@ How to use:
   - warehouse mapping
 - [x] Enforce contract in runtime validator (missing tables/columns should fail clearly).
 - [x] Add runtime data-readiness endpoint (`/health/runtime-data-readiness`) for live WMS checks (history rows, inventory SKUs, non-zero on-hand SKUs, warehouse coverage).
+- [x] Add machine-readable readiness audit CLI for pipeline/ops use: `ai-services/forecast-service/scripts/runtime_data_readiness_check.py`.
 - [x] Verify runtime mode is `wms_db` in non-local environments.
-- [ ] Validate non-zero on-hand inventory for sample SKUs from WMS DB.
+- [x] Validate non-zero on-hand inventory for sample SKUs from WMS DB.
 - [ ] Validate warehouse filter returns warehouse-specific inventory/demand.
 
-Evidence (2026-04-18 local run):
+Evidence (2026-04-18 local run, after bootstrap):
 - `/health/runtime-contract?force=true` -> `status=ok`, `mode=wms_db`.
-- `/health/runtime-data-readiness` -> `status=error`, `live_runtime_data_incomplete`.
-- DB profiling:
+- `/health/runtime-data-readiness` -> `status=ok`, `reason=live_runtime_data_verified`.
+- `python ai-services/forecast-service/scripts/runtime_data_readiness_check.py --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms --schema public --outbound-statuses delivered,packed,picking` -> `status=ok`.
+- DB checks:
   - `orders`: 83
-  - `order_items`: 0
-  - `materials`: 299 (all `material_type=raw_material`)
-  - `inventory`: 291
-- Conclusion: runtime filters for finished-good demand cannot return rows until product-level sales history is loaded into WMS schema.
+  - `order_items`: 102
+  - `materials(material_type='product')`: 120
+  - `inventory rows`: 291
+  - `product inventory with quantity > 0`: 120
+- Gate status after online run:
+  - acceptance gate = `ready:false` (blocked by `fallback_rate`, `hard_error_rate`)
+  - production readiness = `ready:false` (blocked by acceptance + inference critical window)
+- Conclusion: runtime data contract is now live and valid; remaining blockers are model-serving fallback/error behavior, not DB availability.
+- Operational runbook: `docs/ai/WMS_FORECAST_DATA_ONBOARDING_RUNBOOK.md`
 
 ## 3) Historical Backfill + Data Quality
 - [ ] Backfill historical sales/outbound data into WMS DB (minimum monthly, preferred weekly/daily).
