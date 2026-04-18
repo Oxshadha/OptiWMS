@@ -18,6 +18,7 @@ How to use:
 - [x] Online publish no longer fails when inventory snapshot is missing (fallback path added).
 - [x] Acceptance gate bias is normalized (relative bias check).
 - [x] End-to-end promotion for `dataset=B`, `model=CATBOOST` verified after online run.
+- [x] Two-layer planning pipeline implemented: FG demand forecast -> BOM explosion -> raw-material requirements (`/raw-material-requirements`).
 
 ## 2) Runtime Data Contract (WMS DB)
 - [ ] Finalize canonical DB contract for runtime inference:
@@ -115,3 +116,4 @@ Evidence (2026-04-18 local run, after bootstrap):
 - [ ] Add DQ report generation for every load.
 - [ ] Retrain CATBOOST/XGBOOST on backfilled real history and re-evaluate.
 - [ ] Re-promote champion only via acceptance gate.
+- [ ] Replace starter manual BOM mappings with validated production BOM master from ERP/WMS.

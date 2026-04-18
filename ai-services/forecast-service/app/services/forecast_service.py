@@ -6,6 +6,7 @@ from pathlib import Path
 from app.core.config import settings
 from app.db.models import ForecastRun, ForecastPrediction, ForecastMetric, InventoryRecommendation
 from app.services.runtime_data_source import resolve_online_history_series, resolve_inventory_snapshot, InventorySnapshotRow
+from app.services.raw_material_service import persist_raw_material_requirements
 
 REPORT_PATH = f"{settings.reports_dir}/{settings.forecast_report_file}"
 INV_PATH = f"{settings.reports_dir}/{settings.inventory_report_file}"
@@ -121,6 +122,8 @@ def ingest_snapshot(db: Session, run: ForecastRun) -> dict:
             inserted["inventory"] += 1
 
     db.flush()
+    rm_result = persist_raw_material_requirements(db, run)
+    inserted["raw_materials"] = int(rm_result.get("rows", 0) or 0)
     return inserted
 
 
@@ -360,6 +363,7 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
     total_fallback = 0
     total_errors = 0
     h1_predictions: dict[str, float] = {}
+    total_fg_demand: dict[str, float] = {}
     series_meta: dict[str, dict[str, str | None]] = {}
     for h in horizons:
         res = infer_boosting_online(
@@ -382,10 +386,17 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
                     h1_predictions[sku] = pred
                 if sku not in series_meta:
                     series_meta[sku] = {"fg_category": it.get("fg_category")}
+        for it in items:
+            sku = str(it.get("fg_code") or it.get("series_id") or "").strip()
+            if not sku:
+                continue
+            pred = float(it.get("prediction") or 0.0)
+            total_fg_demand[sku] = float(total_fg_demand.get(sku, 0.0) + max(pred, 0.0))
         total_fallback += int(res.get("fallback_count", 0) or 0)
         total_errors += len(res.get("errors") or [])
 
     inventory_rows = _persist_online_inventory_recommendations(db, run, h1_predictions, series_meta)
+    raw_material_result = persist_raw_material_requirements(db, run, fg_demand_by_sku=total_fg_demand)
 
     # Minimal online metric record for audit visibility.
     db.add(
@@ -412,4 +423,6 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
         "errors_count": total_errors,
         "mode": "online",
         "history_source": history_source,
+        "raw_materials": int(raw_material_result.get("rows", 0) or 0),
+        "raw_material_snapshot_source": raw_material_result.get("snapshot_source"),
     }

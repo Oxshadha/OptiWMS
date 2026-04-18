@@ -20,6 +20,15 @@ class InventorySnapshotRow:
     safety_stock: float
 
 
+@dataclass
+class RawMaterialSnapshotRow:
+    rm_sku: str
+    rm_category: str | None
+    on_hand_inventory: float
+    reorder_point: float
+    safety_stock: float
+
+
 def _mode() -> str:
     return (settings.runtime_data_source_mode or "csv").strip().lower()
 
@@ -145,6 +154,40 @@ def fetch_inventory_snapshot_from_wms_db(warehouse_id: str | None) -> list[Inven
     return out
 
 
+def fetch_raw_material_snapshot_from_wms_db(warehouse_id: str | None) -> list[RawMaterialSnapshotRow]:
+    wh = _normalize_warehouse_id(warehouse_id)
+    sql = text(
+        """
+        SELECT
+            m.material_code AS rm_sku,
+            COALESCE(NULLIF(m.description, ''), 'UNKNOWN') AS rm_category,
+            SUM(COALESCE(i.quantity, 0))::double precision AS on_hand_inventory,
+            AVG(COALESCE(i.reorder_point, 0))::double precision AS reorder_point,
+            AVG(COALESCE(i.buffer_stock, 0))::double precision AS safety_stock
+        FROM inventory i
+        JOIN materials m ON m.id = i.material_id
+        WHERE LOWER(COALESCE(m.material_type, '')) = 'raw_material'
+          AND (:warehouse_id IS NULL OR i.warehouse_id::text = :warehouse_id)
+        GROUP BY m.material_code, m.description
+        ORDER BY m.material_code
+        """
+    )
+    with get_wms_engine().connect() as conn:
+        frame = pd.read_sql(sql, conn, params={"warehouse_id": wh})
+    out: list[RawMaterialSnapshotRow] = []
+    for r in frame.itertuples(index=False):
+        out.append(
+            RawMaterialSnapshotRow(
+                rm_sku=str(r.rm_sku),
+                rm_category=str(r.rm_category) if r.rm_category is not None else None,
+                on_hand_inventory=float(r.on_hand_inventory or 0.0),
+                reorder_point=float(r.reorder_point or 0.0),
+                safety_stock=float(r.safety_stock or 0.0),
+            )
+        )
+    return out
+
+
 def resolve_online_history_series(
     dataset: str,
     warehouse_id: str | None,
@@ -165,6 +208,18 @@ def resolve_inventory_snapshot(
 ) -> tuple[list[InventorySnapshotRow], str]:
     if _should_try_wms_db():
         rows = fetch_inventory_snapshot_from_wms_db(warehouse_id=warehouse_id)
+        if rows:
+            return rows, "wms_db"
+        if _mode() == "wms_db":
+            return [], "wms_db"
+    return [], "none"
+
+
+def resolve_raw_material_snapshot(
+    warehouse_id: str | None,
+) -> tuple[list[RawMaterialSnapshotRow], str]:
+    if _should_try_wms_db():
+        rows = fetch_raw_material_snapshot_from_wms_db(warehouse_id=warehouse_id)
         if rows:
             return rows, "wms_db"
         if _mode() == "wms_db":

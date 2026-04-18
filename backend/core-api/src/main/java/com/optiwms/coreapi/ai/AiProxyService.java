@@ -123,6 +123,30 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    public ResponseEntity<Object> getRawMaterialRequirements(Integer runId, String dataset, String model, String warehouseId, String rmSku) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/raw-material-requirements");
+        if (runId != null) ub.queryParam("run_id", runId);
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (model != null && !model.isBlank()) ub.queryParam("model", model);
+        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
+        if (rmSku != null && !rmSku.isBlank()) ub.queryParam("rm_sku", rmSku);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<Object> getBomMappings(String fgSku, String rmSku, Boolean activeOnly) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/bom-mappings");
+        if (fgSku != null && !fgSku.isBlank()) ub.queryParam("fg_sku", fgSku);
+        if (rmSku != null && !rmSku.isBlank()) ub.queryParam("rm_sku", rmSku);
+        if (activeOnly != null) ub.queryParam("active_only", activeOnly);
+        return exchangeGet(ub.toUriString());
+    }
+
+    public ResponseEntity<Object> putBomMappings(Object payload) {
+        HttpEntity<Object> request = new HttpEntity<>(payload, headers());
+        ResponseEntity<Map> response = restTemplate.exchange(forecastBaseUrl + "/bom-mappings", HttpMethod.PUT, request, Map.class);
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
     public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String mode, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
