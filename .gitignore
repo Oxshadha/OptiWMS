@@ -198,3 +198,6 @@ Ai miroservices/modeling/outputs/artifacts/**/*.json
 **/.ipynb_checkpoints/
 **/._*.ipynb
 Ai miroservices/modeling/notebooks/.jupyter_cache/
+
+# Forecast service generated runtime artifacts (backfill exports, dq reports, lineage dumps)
+ai-services/forecast-service/artifacts/
