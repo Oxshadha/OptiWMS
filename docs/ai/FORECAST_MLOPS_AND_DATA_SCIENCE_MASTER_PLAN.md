@@ -21,9 +21,9 @@ Do not use raw-material-only direct forecasting as the primary enterprise design
 ## Phase Plan
 
 ### Phase 0 - Data Contract and Runtime Reliability
-- [ ] Freeze canonical runtime schema contract for WMS tables and semantics.
-- [ ] Enforce contract checks in CI/local smoke (`runtime-contract`, `runtime-data-readiness`).
-- [ ] Ensure product inventory has realistic non-zero on-hand coverage.
+- [x] Freeze canonical runtime schema contract for WMS tables and semantics.
+- [x] Enforce contract checks in CI/local smoke (`runtime-contract`, `runtime-data-readiness`).
+- [x] Ensure product inventory has realistic non-zero on-hand coverage.
 - [ ] Ensure outbound line history coverage is sufficient for all target SKUs.
 
 Exit gate:
@@ -32,21 +32,21 @@ Exit gate:
 - Online run publishes with non-empty forecast + inventory outputs
 
 ### Phase 1 - Historical Backbone and Data Quality
-- [ ] Build deterministic historical loader (idempotent reruns).
+- [x] Build deterministic historical loader (idempotent reruns).
 - [ ] Backfill at least 24-36 months daily/weekly history for FG demand.
 - [ ] Store current snapshot state from real company workbook as present-state anchor.
-- [ ] Add DQ suite:
+- [x] Add DQ suite:
   - missingness
   - duplicates
   - negative/invalid quantities
   - SKU remap integrity
   - warehouse coverage
-- [ ] Publish DQ report artifact per load.
+- [x] Publish DQ report artifact per load.
 
 Exit gate:
 - DQ pass rate meets threshold
-- Backfill version stamped (`dataset_version`)
-- Lineage artifact generated
+- [x] Backfill version stamped (`dataset_version`)
+- [x] Lineage artifact generated
 
 ### Phase 2 - Synthetic Augmentation (Controlled)
 - [ ] Use synthetic generation only to fill real-data gaps; never replace real signal entirely.
@@ -101,4 +101,3 @@ System must support:
 2. Build historical loader + DQ report (Phase 1).
 3. Add controlled synthetic augmentation with validation (Phase 2).
 4. Run fair benchmark and gate-driven promotion (Phase 3-4).
-

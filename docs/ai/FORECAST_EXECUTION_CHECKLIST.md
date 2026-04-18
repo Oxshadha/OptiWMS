@@ -67,10 +67,11 @@ Evidence (2026-04-18 local run, after bootstrap):
   - duplicate SKU-month rows
   - broken SKU IDs / remapped SKUs
 - [x] Create data quality report artifact per load.
-- [ ] Add idempotent load process (safe reruns without duplicate rows).
+- [x] Add idempotent load process (safe reruns without duplicate rows).
 
 Evidence (2026-04-18):
 - Added script: `ai-services/forecast-service/scripts/export_outbound_history_and_dq.py`
+- Added script: `ai-services/forecast-service/scripts/load_outbound_history_backfill.py`
 - Generated artifacts:
   - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/outbound_demand_daily.csv`
   - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/outbound_demand_monthly.csv`
@@ -78,6 +79,19 @@ Evidence (2026-04-18):
   - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T165423Z_20f258f6b84ece23/lineage.json`
 - DQ summary:
   - `base_rows=48`, `distinct_skus=28`, `negative_qty_rows=0`, `missing_months_rate=0.0`
+- Idempotent load summary:
+  - first load: `rows_inserted=48`, `rows_updated=0`
+  - rerun: `rows_inserted=0`, `rows_updated=48`
+  - `forecast_outbound_history_backfill` row count: `48`
+  - `forecast_backfill_load_audit` includes both runs with `status=ok`
+- Runtime readiness after backfill:
+  - `/health/runtime-data-readiness` -> `history_rows=96` (orders + backfill), status `ok`
+- Current blocker:
+  - Online run publishes, but inference alert is `critical` for `dataset=B, model=CATBOOST` with `fallback_rate=1.0`, `errors_count>0` (series count currently too small and all requests falling back).
+  - History depth check: product SKU month coverage is `min=1`, `p50=1`, `max=2` months across 28 SKUs, while current CATBOOST artifacts require lag/rolling windows up to 12 months (`lag_12`, `roll_mean_12`, `roll_std_12`), so online feature build fails and fallback is expected.
+  - Gate snapshot after online run `run_id=28`:
+    - acceptance gate: `ready=false` (`fallback_rate=1.0`, `hard_error_rate=2.0`)
+    - production readiness: `ready=false` (`inference_status=critical`, soak window critical count > 0)
 
 ## 4) Training Dataset Pipeline (Data Science Handoff-Ready)
 - [ ] Build one canonical feature pipeline:
@@ -133,10 +147,19 @@ Evidence (2026-04-18):
 ## 9) Immediate Next Actions (This Week)
 - [ ] Move runtime source to real WMS DB (`wms_db`) and validate row-level outputs.
 - [x] Build and run first historical backfill job.
-- [ ] Add DQ report generation for every load.
-- [ ] Retrain CATBOOST/XGBOOST on backfilled real history and re-evaluate.
+- [x] Add DQ report generation for every load.
+- [ ] Retrain CATBOOST/XGBOOST on expanded backfilled real history and re-evaluate.
 - [ ] Re-promote champion only via acceptance gate.
 - [ ] Replace starter manual BOM mappings with validated production BOM master from ERP/WMS.
+- [ ] Fix online inference to reduce fallback from 100% to gate threshold (`<=5%`) before promotion.
+
+Pipeline evidence (2026-04-18):
+- Added one-command pipeline: `ai-services/forecast-service/scripts/run_outbound_backfill_pipeline.py`
+- Run output:
+  - `dataset_version=d4cd9fd2a63b2bb0`
+  - `output_dir=/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T180258Z_d4cd9fd2a63b2bb0`
+  - DQ `status=ok`
+  - load `rows_inserted=0`, `rows_updated=48` (idempotent rerun)
 
 ## 10) Plan Alignment Decision (2026-04-18)
 - [x] Adopt enterprise two-layer planning as default:

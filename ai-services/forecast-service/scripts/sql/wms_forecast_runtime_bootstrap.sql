@@ -8,6 +8,44 @@
 
 BEGIN;
 
+-- Historical demand backfill tables (idempotent load target + audit trail).
+CREATE TABLE IF NOT EXISTS forecast_outbound_history_backfill (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    warehouse_id uuid NULL REFERENCES warehouses(id),
+    sku varchar(64) NOT NULL,
+    category varchar(255) NULL,
+    demand_date date NOT NULL,
+    demand_units numeric(18,4) NOT NULL CHECK (demand_units >= 0),
+    dataset_version varchar(64) NOT NULL,
+    source_tag varchar(64) NOT NULL DEFAULT 'manual_backfill',
+    source_file_sha256 varchar(64) NULL,
+    loaded_at timestamp without time zone NOT NULL DEFAULT now(),
+    updated_at timestamp without time zone NOT NULL DEFAULT now(),
+    UNIQUE (warehouse_id, sku, demand_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_forecast_backfill_date ON forecast_outbound_history_backfill (demand_date);
+CREATE INDEX IF NOT EXISTS idx_forecast_backfill_sku ON forecast_outbound_history_backfill (sku);
+CREATE INDEX IF NOT EXISTS idx_forecast_backfill_wh ON forecast_outbound_history_backfill (warehouse_id);
+
+CREATE TABLE IF NOT EXISTS forecast_backfill_load_audit (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    dataset_version varchar(64) NOT NULL,
+    source_file varchar(1024) NOT NULL,
+    source_file_sha256 varchar(64) NULL,
+    warehouse_id uuid NULL REFERENCES warehouses(id),
+    row_count integer NOT NULL DEFAULT 0,
+    inserted_rows integer NOT NULL DEFAULT 0,
+    updated_rows integer NOT NULL DEFAULT 0,
+    status varchar(32) NOT NULL,
+    notes text NULL,
+    started_at timestamp without time zone NOT NULL DEFAULT now(),
+    finished_at timestamp without time zone NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_backfill_audit_version ON forecast_backfill_load_audit (dataset_version);
+CREATE INDEX IF NOT EXISTS idx_backfill_audit_started ON forecast_backfill_load_audit (started_at DESC);
+
 -- Select candidate finished goods from inventory-backed materials.
 WITH candidate_products AS (
     SELECT

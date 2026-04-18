@@ -68,6 +68,34 @@ python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/
   --out-dir /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill
 ```
 
+Load exported history into idempotent backfill table:
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/load_outbound_history_backfill.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --input-csv /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/<STAMP>_<DATASET_VERSION>/outbound_demand_daily.csv \
+  --dataset-version <DATASET_VERSION> \
+  --source-tag initial_backfill
+```
+
+One-command pipeline (recommended for operations):
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/run_outbound_backfill_pipeline.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --outbound-statuses delivered,packed,picking \
+  --out-dir /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill \
+  --source-tag pipeline_backfill
+```
+
+Verify load/audit:
+```bash
+psql postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  -c "select count(*) as backfill_rows from forecast_outbound_history_backfill;"
+
+psql postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  -c "select id,status,row_count,inserted_rows,updated_rows,dataset_version,started_at from forecast_backfill_load_audit order by id desc limit 5;"
+```
+
 Trigger online publish:
 ```bash
 curl -X POST "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
