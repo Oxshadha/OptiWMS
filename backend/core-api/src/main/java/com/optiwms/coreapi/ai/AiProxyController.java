@@ -99,6 +99,33 @@ public class AiProxyController {
         return service.getInventoryRecommendations(sku, dataset, model, runId, scopedWarehouse);
     }
 
+    @GetMapping("/raw-material-requirements")
+    public ResponseEntity<Object> rawMaterialRequirements(
+            Authentication authentication,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false, name = "rm_sku") String rmSku
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getRawMaterialRequirements(runId, dataset, model, scopedWarehouse, rmSku);
+    }
+
+    @GetMapping("/bom-mappings")
+    public ResponseEntity<Object> bomMappings(
+            @RequestParam(required = false, name = "fg_sku") String fgSku,
+            @RequestParam(required = false, name = "rm_sku") String rmSku,
+            @RequestParam(required = false, defaultValue = "true", name = "active_only") Boolean activeOnly
+    ) {
+        return service.getBomMappings(fgSku, rmSku, activeOnly);
+    }
+
+    @PutMapping("/bom-mappings")
+    public ResponseEntity<Object> upsertBomMappings(@RequestBody Map<String, Object> payload) {
+        return service.putBomMappings(payload);
+    }
+
     @PostMapping("/jobs/forecast-run")
     public ResponseEntity<Object> trigger(
             Authentication authentication,

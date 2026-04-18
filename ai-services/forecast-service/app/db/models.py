@@ -68,6 +68,42 @@ class InventoryRecommendation(Base):
     suggested_order_qty: Mapped[float] = mapped_column(Float)
 
 
+class BomComponentMapping(Base):
+    __tablename__ = "bom_component_mappings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fg_sku: Mapped[str] = mapped_column(String(64), index=True)
+    rm_sku: Mapped[str] = mapped_column(String(64), index=True)
+    qty_per_fg_unit: Mapped[float] = mapped_column(Float, default=1.0)
+    scrap_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    lead_time_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    source: Mapped[str] = mapped_column(String(32), default="manual")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class RawMaterialRequirement(Base):
+    __tablename__ = "raw_material_requirements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    warehouse_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    rm_sku: Mapped[str] = mapped_column(String(64), index=True)
+    rm_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fg_sku_count: Mapped[int] = mapped_column(Integer, default=0)
+    gross_requirement_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    on_hand_inventory: Mapped[float | None] = mapped_column(Float, nullable=True)
+    safety_stock: Mapped[float] = mapped_column(Float, default=0.0)
+    reorder_point: Mapped[float] = mapped_column(Float, default=0.0)
+    net_requirement_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    suggested_procure_qty: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
 class ForecastRunSummary(Base):
     __tablename__ = "forecast_run_summaries"
 
