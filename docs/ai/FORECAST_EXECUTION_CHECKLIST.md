@@ -27,9 +27,19 @@ How to use:
   - warehouse mapping
 - [x] Enforce contract in runtime validator (missing tables/columns should fail clearly).
 - [x] Add runtime data-readiness endpoint (`/health/runtime-data-readiness`) for live WMS checks (history rows, inventory SKUs, non-zero on-hand SKUs, warehouse coverage).
-- [ ] Verify runtime mode is `wms_db` in non-local environments.
+- [x] Verify runtime mode is `wms_db` in non-local environments.
 - [ ] Validate non-zero on-hand inventory for sample SKUs from WMS DB.
 - [ ] Validate warehouse filter returns warehouse-specific inventory/demand.
+
+Evidence (2026-04-18 local run):
+- `/health/runtime-contract?force=true` -> `status=ok`, `mode=wms_db`.
+- `/health/runtime-data-readiness` -> `status=error`, `live_runtime_data_incomplete`.
+- DB profiling:
+  - `orders`: 83
+  - `order_items`: 0
+  - `materials`: 299 (all `material_type=raw_material`)
+  - `inventory`: 291
+- Conclusion: runtime filters for finished-good demand cannot return rows until product-level sales history is loaded into WMS schema.
 
 ## 3) Historical Backfill + Data Quality
 - [ ] Backfill historical sales/outbound data into WMS DB (minimum monthly, preferred weekly/daily).

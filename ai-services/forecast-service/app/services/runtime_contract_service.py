@@ -203,6 +203,17 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
 
     try:
         with get_wms_engine().connect() as conn:
+            base_counts_stmt = text(
+                """
+                SELECT
+                    (SELECT COUNT(*)::bigint FROM orders) AS orders_count,
+                    (SELECT COUNT(*)::bigint FROM order_items) AS order_items_count,
+                    (SELECT COUNT(*)::bigint FROM materials WHERE LOWER(COALESCE(material_type,'')) = 'product') AS product_materials_count,
+                    (SELECT COUNT(*)::bigint FROM inventory) AS inventory_rows_count
+                """
+            )
+            base_counts = conn.execute(base_counts_stmt).mappings().first() or {}
+
             sales_stmt = (
                 text(
                     """
@@ -244,6 +255,10 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
             "inventory_skus": inventory_skus,
             "inventory_nonzero_on_hand_skus": inventory_nonzero_on_hand_skus,
             "inventory_distinct_warehouses": inventory_distinct_warehouses,
+            "orders_count": int(base_counts.get("orders_count") or 0),
+            "order_items_count": int(base_counts.get("order_items_count") or 0),
+            "product_materials_count": int(base_counts.get("product_materials_count") or 0),
+            "inventory_rows_count": int(base_counts.get("inventory_rows_count") or 0),
         }
 
         healthy = history_rows > 0 and inventory_skus > 0 and inventory_nonzero_on_hand_skus > 0
@@ -252,7 +267,18 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
             reason = "live_runtime_data_verified"
         else:
             status = "error" if mode == "wms_db" else "warn"
-            reason = "live_runtime_data_incomplete"
+            if checks["order_items_count"] == 0:
+                reason = "no_order_items_rows"
+            elif checks["product_materials_count"] == 0:
+                reason = "no_product_materials"
+            elif inventory_skus == 0:
+                reason = "no_product_inventory_rows"
+            elif inventory_nonzero_on_hand_skus == 0:
+                reason = "no_nonzero_on_hand_product_inventory"
+            elif history_rows == 0:
+                reason = "no_outbound_product_history_rows"
+            else:
+                reason = "live_runtime_data_incomplete"
 
         return {
             "status": status,
@@ -273,5 +299,9 @@ def validate_runtime_data_readiness(warehouse_id: str | None = None) -> dict[str
                 "inventory_skus": 0,
                 "inventory_nonzero_on_hand_skus": 0,
                 "inventory_distinct_warehouses": 0,
+                "orders_count": 0,
+                "order_items_count": 0,
+                "product_materials_count": 0,
+                "inventory_rows_count": 0,
             },
         }
