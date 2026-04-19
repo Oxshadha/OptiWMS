@@ -215,6 +215,9 @@ Pipeline evidence (2026-04-18):
 ## 12) Final Production Signoff Blockers (Must Close)
 - [ ] 24h soak gate must pass with zero critical health entries in window.
 - [ ] Replace starter/demo BOM mapping with real BOM master (validated by planning/operations).
+- [ ] Add WMS-native BOM master tables + versioning/effective-dating (not only forecast-service local table).
+- [ ] Add admin BOM CRUD UI panel for controlled edits and auditability.
+- [ ] Add canonical `packing_material` classification and backfill existing material types accordingly.
 - [ ] Ensure inventory recommendations are run-consistent and traceable by run_id/model_version/dataset_version.
 - [ ] Ensure ongoing WMS movement history accumulation is active and auditable.
 - [ ] Complete one full retrain cycle from newly accumulated real data and re-verify gates.
@@ -231,3 +234,6 @@ Pipeline evidence (2026-04-18):
   - hard_error_rate
   - latency p95
 - [ ] Re-rank candidate models only after feature/data revision, not ad-hoc one-off runs.
+
+Reference:
+- `docs/ai/FORECAST_DATA_REQUIREMENTS_AND_SYNTHETIC_GENERATION_STANDARD.md`
