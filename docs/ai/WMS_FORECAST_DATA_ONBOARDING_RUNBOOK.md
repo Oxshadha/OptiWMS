@@ -87,6 +87,15 @@ python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/
   --source-tag pipeline_backfill
 ```
 
+If history depth is too short for deployed lag features, generate controlled synthetic history coverage:
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/generate_synthetic_history_for_runtime.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --months 36 \
+  --out-csv /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/synthetic_runtime_history.csv
+```
+
 Verify load/audit:
 ```bash
 psql postgresql://optiwms:optiwms@localhost:5434/optiwms \
@@ -105,6 +114,11 @@ Gate checks:
 ```bash
 curl "http://localhost:8091/artifacts/acceptance-gate?dataset=B&model_name=CATBOOST&split=test&inference_window=200"
 curl "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24"
+```
+
+Optional non-soak validation (local/proving only):
+```bash
+curl "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=0"
 ```
 
 ## Go/No-Go Rules
