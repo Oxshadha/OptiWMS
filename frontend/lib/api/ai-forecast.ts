@@ -174,6 +174,43 @@ export interface ProductionReadinessResponse {
   latest_operational_health?: OperationalHealthSnapshot;
 }
 
+export interface GovernanceStatus {
+  enabled: boolean;
+  interval_seconds: number;
+  dataset: string;
+  model_name: string;
+  split: string;
+  inference_window: number;
+  soak_hours: number;
+  auto_promote: boolean;
+  auto_rollback: boolean;
+  rollback_model_name: string;
+  last_action?: {
+    ts?: string | null;
+    action?: string;
+    status?: string;
+    message?: string;
+    entry_id?: number;
+    [key: string]: unknown;
+  };
+}
+
+export interface ReleaseEvidenceBundle {
+  dataset?: string;
+  model_name?: string;
+  split: string;
+  inference_window: number;
+  soak_hours: number;
+  runtime_contract: Record<string, unknown>;
+  acceptance_gate: Record<string, unknown>;
+  production_readiness: Record<string, unknown>;
+  inference_alerts: Record<string, unknown>;
+  latest_operational_health: Record<string, unknown>;
+  operational_health_history: Record<string, unknown>;
+  latest_published_run?: Record<string, unknown> | null;
+  registry_entries: Array<Record<string, unknown>>;
+}
+
 function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
   const s = (raw ?? {}) as Record<string, unknown>;
   const count = Number(s.count ?? 0);
@@ -403,5 +440,32 @@ export const aiForecastApi = {
       soak_hours: params.soakHours ?? 24,
     });
     return apiClient.get<ProductionReadinessResponse>(`/ai/artifacts/production-readiness${query}`);
+  },
+
+  getGovernanceStatus() {
+    return apiClient.get<GovernanceStatus>('/ai/artifacts/governance/status');
+  },
+
+  runGovernanceTick() {
+    return apiClient.post<GovernanceStatus>('/ai/artifacts/governance/tick');
+  },
+
+  getReleaseEvidence(params: {
+    dataset?: string;
+    modelName?: string;
+    split?: string;
+    inferenceWindow?: number;
+    soakHours?: number;
+    historyLimit?: number;
+  } = {}) {
+    const query = buildQuery({
+      dataset: params.dataset,
+      model_name: params.modelName,
+      split: params.split ?? "test",
+      inference_window: params.inferenceWindow ?? 200,
+      soak_hours: params.soakHours ?? 24,
+      history_limit: params.historyLimit ?? 100,
+    });
+    return apiClient.get<ReleaseEvidenceBundle>(`/ai/artifacts/release-evidence${query}`);
   },
 };

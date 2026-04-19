@@ -22,6 +22,8 @@ from app.services.health_monitor_service import (
     list_operational_health_history,
 )
 from app.services.production_readiness_service import evaluate_production_readiness
+from app.services.release_evidence_service import build_release_evidence_bundle
+from app.services.governance_service import governance_worker
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 
@@ -123,6 +125,49 @@ def get_production_readiness(
             inference_window=inference_window,
             soak_hours=soak_hours,
         )
+    finally:
+        db.close()
+
+
+@router.get("/release-evidence")
+def get_release_evidence(
+    dataset: str | None = None,
+    model_name: str | None = None,
+    split: str = "test",
+    inference_window: int = 200,
+    soak_hours: int = 24,
+    history_limit: int = 100,
+):
+    db = SessionLocal()
+    try:
+        return build_release_evidence_bundle(
+            db=db,
+            dataset=dataset,
+            model_name=model_name,
+            split=split,
+            inference_window=inference_window,
+            soak_hours=soak_hours,
+            history_limit=history_limit,
+        )
+    finally:
+        db.close()
+
+
+@router.get("/governance/status")
+def get_governance_status():
+    return governance_worker.status()
+
+
+@router.post("/governance/tick")
+def governance_tick_now():
+    db = SessionLocal()
+    try:
+        governance_worker.tick_once(db)
+        db.commit()
+        return governance_worker.status()
+    except Exception as ex:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"governance tick failed: {ex}")
     finally:
         db.close()
 

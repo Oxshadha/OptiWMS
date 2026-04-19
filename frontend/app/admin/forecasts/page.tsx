@@ -5,11 +5,13 @@ import {
   aiForecastApi,
   type ForecastMetric,
   type ForecastPoint,
+  type GovernanceStatus,
   type InferenceAuditResponse,
   type InferenceAlertsResponse,
   type InventoryRecommendation,
   type OperationalHealthSnapshot,
   type ProductionReadinessResponse,
+  type ReleaseEvidenceBundle,
   type RuntimeContractHealth,
 } from "@/lib/api/ai-forecast";
 import { warehousesApi } from "@/lib/api/warehouses";
@@ -85,6 +87,16 @@ function downloadCsv<T extends object>(filename: string, rows: T[]) {
   URL.revokeObjectURL(url);
 }
 
+function downloadJson(filename: string, obj: unknown) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ForecastsPage() {
   const { role, admin } = useAdmin();
   const isAdmin = role === "admin";
@@ -107,6 +119,7 @@ export default function ForecastsPage() {
   const [operationalHealth, setOperationalHealth] = useState<OperationalHealthSnapshot | null>(null);
   const [runtimeContractHealth, setRuntimeContractHealth] = useState<RuntimeContractHealth | null>(null);
   const [productionReadiness, setProductionReadiness] = useState<ProductionReadinessResponse | null>(null);
+  const [governanceStatus, setGovernanceStatus] = useState<GovernanceStatus | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [showModelPerformance, setShowModelPerformance] = useState(false);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
@@ -117,6 +130,7 @@ export default function ForecastsPage() {
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
   const [healthRefreshing, setHealthRefreshing] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [runStatus, setRunStatus] = useState<ForecastRunUiStatus>({
     phase: "idle",
     message: "No run triggered in this session.",
@@ -279,6 +293,7 @@ export default function ForecastsPage() {
         operationalHealthResult,
         runtimeContractResult,
         productionReadinessResult,
+        governanceStatusResult,
       ] = await Promise.allSettled([
         aiForecastApi.getInferenceAlerts({
           limit: 200,
@@ -299,6 +314,7 @@ export default function ForecastsPage() {
           inferenceWindow: 200,
           soakHours: 24,
         }),
+        isAdmin ? aiForecastApi.getGovernanceStatus() : Promise.resolve(null),
       ]);
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
@@ -341,6 +357,12 @@ export default function ForecastsPage() {
       } else {
         logger.warn("[ForecastsPage] Production readiness endpoint unavailable:", productionReadinessResult.reason);
         setProductionReadiness(null);
+      }
+      if (governanceStatusResult.status === "fulfilled") {
+        setGovernanceStatus((governanceStatusResult.value as GovernanceStatus | null) ?? null);
+      } else {
+        logger.warn("[ForecastsPage] Governance status endpoint unavailable:", governanceStatusResult.reason);
+        setGovernanceStatus(null);
       }
       setLastLoadedAt(new Date().toISOString());
       return {
@@ -927,11 +949,50 @@ export default function ForecastsPage() {
         soakHours: 24,
       });
       setProductionReadiness(readiness ?? null);
+      if (isAdmin) {
+        const governance = await aiForecastApi.getGovernanceStatus();
+        setGovernanceStatus(governance ?? null);
+      }
     } catch (ex) {
       logger.error("[ForecastsPage] Failed to refresh operational health:", ex);
       setError(ex instanceof Error ? ex.message : "Failed to refresh operational health");
     } finally {
       setHealthRefreshing(false);
+    }
+  };
+
+  const runGovernanceTickNow = async () => {
+    try {
+      setHealthRefreshing(true);
+      const status = await aiForecastApi.runGovernanceTick();
+      setGovernanceStatus(status ?? null);
+      await refreshOperationalHealthNow();
+    } catch (ex) {
+      logger.error("[ForecastsPage] Failed to run governance tick:", ex);
+      setError(ex instanceof Error ? ex.message : "Failed to run governance tick");
+    } finally {
+      setHealthRefreshing(false);
+    }
+  };
+
+  const exportReleaseEvidence = async () => {
+    try {
+      setEvidenceLoading(true);
+      const evidence: ReleaseEvidenceBundle = await aiForecastApi.getReleaseEvidence({
+        dataset: filters.dataset || undefined,
+        modelName: filters.model || undefined,
+        split: EVAL_SPLIT,
+        inferenceWindow: 200,
+        soakHours: 24,
+        historyLimit: 200,
+      });
+      const stamp = new Date().toISOString().replaceAll(":", "-");
+      downloadJson(`forecast_release_evidence_${stamp}.json`, evidence);
+    } catch (ex) {
+      logger.error("[ForecastsPage] Failed to export release evidence:", ex);
+      setError(ex instanceof Error ? ex.message : "Failed to export release evidence");
+    } finally {
+      setEvidenceLoading(false);
     }
   };
 
@@ -999,13 +1060,29 @@ export default function ForecastsPage() {
                 Automated checks: inference reliability, drift trend, data freshness, runtime DB contract.
               </div>
             </div>
-            <button
-              className="btn btn-xs btn-outline"
-              onClick={() => void refreshOperationalHealthNow()}
-              disabled={healthRefreshing}
-            >
-              {healthRefreshing ? "Refreshing..." : "Refresh Health"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={() => void exportReleaseEvidence()}
+                disabled={evidenceLoading}
+              >
+                {evidenceLoading ? "Preparing..." : "Export Evidence JSON"}
+              </button>
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={() => void runGovernanceTickNow()}
+                disabled={healthRefreshing}
+              >
+                {healthRefreshing ? "Running..." : "Governance Tick"}
+              </button>
+              <button
+                className="btn btn-xs btn-outline"
+                onClick={() => void refreshOperationalHealthNow()}
+                disabled={healthRefreshing}
+              >
+                {healthRefreshing ? "Refreshing..." : "Refresh Health"}
+              </button>
+            </div>
           </div>
 
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -1057,6 +1134,42 @@ export default function ForecastsPage() {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="mt-3 rounded border border-base-300 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold">Auto Governance</div>
+              <span className={`badge ${governanceStatus?.enabled ? "badge-info" : "badge-ghost"}`}>
+                {governanceStatus?.enabled ? "ENABLED" : "DISABLED"}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
+              <div className="rounded border border-base-300 p-2">
+                <div className="text-xs text-base-content/60">Target Dataset/Model</div>
+                <div className="text-sm font-medium">
+                  {(governanceStatus?.dataset || filters.dataset || "-")} / {(governanceStatus?.model_name || filters.model || "-")}
+                </div>
+              </div>
+              <div className="rounded border border-base-300 p-2">
+                <div className="text-xs text-base-content/60">Auto Promote</div>
+                <div className="text-sm font-medium">{governanceStatus?.auto_promote ? "ON" : "OFF"}</div>
+              </div>
+              <div className="rounded border border-base-300 p-2">
+                <div className="text-xs text-base-content/60">Auto Rollback</div>
+                <div className="text-sm font-medium">
+                  {governanceStatus?.auto_rollback ? `ON (${governanceStatus?.rollback_model_name || "fallback"})` : "OFF"}
+                </div>
+              </div>
+              <div className="rounded border border-base-300 p-2">
+                <div className="text-xs text-base-content/60">Last Governance Action</div>
+                <div className="text-sm font-medium">
+                  {governanceStatus?.last_action?.action || "none"} / {governanceStatus?.last_action?.status || "idle"}
+                </div>
+              </div>
+            </div>
+            <div className="mt-2 text-xs text-base-content/70">
+              {governanceStatus?.last_action?.message || "No governance action message available."}
             </div>
           </div>
 

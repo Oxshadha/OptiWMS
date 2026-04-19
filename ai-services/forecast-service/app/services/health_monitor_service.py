@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.db.database import SessionLocal
 from app.db.models import ForecastRun, ForecastRunSummary, OperationalHealthSnapshot
 from app.services.artifact_service import evaluate_acceptance_gate, evaluate_inference_alerts
+from app.services.alerting_service import dispatch_operational_alert
 
 
 def _now_utc() -> datetime:
@@ -160,6 +161,7 @@ class OperationalHealthWorker:
     def __init__(self) -> None:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._last_alert_status: str | None = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -178,7 +180,7 @@ class OperationalHealthWorker:
         while not self._stop.is_set():
             db = SessionLocal()
             try:
-                compute_operational_health_snapshot(db)
+                snapshot = compute_operational_health_snapshot(db)
                 cutoff = _now_utc() - timedelta(days=7)
                 old = db.execute(
                     select(OperationalHealthSnapshot).where(OperationalHealthSnapshot.created_at < cutoff)
@@ -186,6 +188,10 @@ class OperationalHealthWorker:
                 for row in old:
                     db.delete(row)
                 db.commit()
+                status = str(snapshot.get("status", "")).lower()
+                if status and status != self._last_alert_status:
+                    dispatch_operational_alert(snapshot)
+                self._last_alert_status = status
             except Exception:
                 db.rollback()
             finally:

@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.security import verify_service_auth
 from app.db.database import Base, engine
 from app.services.health_monitor_service import OperationalHealthWorker
+from app.services.governance_service import governance_worker
 from app.services.run_publish_service import PublishQueueWorker
 from app.services.runtime_contract_service import assert_runtime_contract_on_startup
 
@@ -36,12 +37,14 @@ def on_startup() -> None:
     assert_runtime_contract_on_startup()
     publish_queue_worker.start()
     operational_health_worker.start()
+    governance_worker.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     publish_queue_worker.stop()
     operational_health_worker.stop()
+    governance_worker.stop()
 
 
 @app.get("/")

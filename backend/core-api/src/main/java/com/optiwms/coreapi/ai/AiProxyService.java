@@ -306,6 +306,24 @@ public class AiProxyService {
         return exchangeGet(ub.toUriString());
     }
 
+    public ResponseEntity<Object> getReleaseEvidence(
+            String dataset,
+            String modelName,
+            String split,
+            Integer inferenceWindow,
+            Integer soakHours,
+            Integer historyLimit
+    ) {
+        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/artifacts/release-evidence");
+        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
+        if (modelName != null && !modelName.isBlank()) ub.queryParam("model_name", modelName);
+        if (split != null && !split.isBlank()) ub.queryParam("split", split);
+        if (inferenceWindow != null) ub.queryParam("inference_window", inferenceWindow);
+        if (soakHours != null) ub.queryParam("soak_hours", soakHours);
+        if (historyLimit != null) ub.queryParam("history_limit", historyLimit);
+        return exchangeGet(ub.toUriString());
+    }
+
     public ResponseEntity<Object> getOperationalHealth() {
         return exchangeGet(forecastBaseUrl + "/artifacts/operational-health");
     }
@@ -320,6 +338,21 @@ public class AiProxyService {
         HttpEntity<String> request = new HttpEntity<>(headers());
         ResponseEntity<Map> response = restTemplate.exchange(
                 forecastBaseUrl + "/artifacts/operational-health/refresh",
+                HttpMethod.POST,
+                request,
+                Map.class
+        );
+        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
+    public ResponseEntity<Object> getGovernanceStatus() {
+        return exchangeGet(forecastBaseUrl + "/artifacts/governance/status");
+    }
+
+    public ResponseEntity<Object> runGovernanceTick() {
+        HttpEntity<String> request = new HttpEntity<>(headers());
+        ResponseEntity<Map> response = restTemplate.exchange(
+                forecastBaseUrl + "/artifacts/governance/tick",
                 HttpMethod.POST,
                 request,
                 Map.class

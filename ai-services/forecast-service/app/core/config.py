@@ -51,6 +51,20 @@ class Settings(BaseSettings):
     health_monitor_interval_seconds: float = 120.0
     freshness_max_age_minutes: float = 180.0
     runtime_contract_check_cache_seconds: float = 60.0
+    ops_alert_webhook_url: str | None = None
+    ops_alert_min_status: str = "warn"  # warn|critical
+    ops_alert_include_details: bool = True
+    governance_enabled: bool = False
+    governance_interval_seconds: float = 180.0
+    governance_dataset: str = "B"
+    governance_model_name: str = "CATBOOST"
+    governance_split: str = "test"
+    governance_inference_window: int = 200
+    governance_soak_hours: int = 24
+    governance_auto_promote: bool = True
+    governance_auto_rollback: bool = True
+    governance_rollback_model_name: str = "ARIMA"
+    governance_enforce_gate_on_autopromote: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
