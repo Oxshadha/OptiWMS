@@ -29,6 +29,18 @@ class RawMaterialSnapshotRow:
     safety_stock: float
 
 
+@dataclass
+class BomMappingSnapshotRow:
+    fg_sku: str
+    rm_sku: str
+    component_type: str | None
+    qty_per_fg_unit: float
+    scrap_rate: float
+    lead_time_days: int | None
+    source: str
+    notes: str | None
+
+
 def _mode() -> str:
     return (settings.runtime_data_source_mode or "csv").strip().lower()
 
@@ -205,7 +217,7 @@ def fetch_raw_material_snapshot_from_wms_db(warehouse_id: str | None) -> list[Ra
             AVG(COALESCE(i.buffer_stock, 0))::double precision AS safety_stock
         FROM inventory i
         JOIN materials m ON m.id = i.material_id
-        WHERE LOWER(COALESCE(m.material_type, '')) = 'raw_material'
+        WHERE LOWER(COALESCE(m.material_type, '')) IN ('raw_material', 'packaging_material', 'packaging')
           AND (:warehouse_id IS NULL OR i.warehouse_id::text = :warehouse_id)
         GROUP BY m.material_code, m.description
         ORDER BY m.material_code
@@ -259,6 +271,100 @@ def resolve_raw_material_snapshot(
 ) -> tuple[list[RawMaterialSnapshotRow], str]:
     if _should_try_wms_db():
         rows = fetch_raw_material_snapshot_from_wms_db(warehouse_id=warehouse_id)
+        if rows:
+            return rows, "wms_db"
+        if _mode() == "wms_db":
+            return [], "wms_db"
+    return [], "none"
+
+
+def fetch_bom_mappings_from_wms_db(warehouse_id: str | None) -> list[BomMappingSnapshotRow]:
+    if not _table_exists("bom_headers") or not _table_exists("bom_components") or not _table_exists("materials"):
+        return []
+
+    wh = _normalize_warehouse_id(warehouse_id)
+    sql = text(
+        """
+        WITH candidate_headers AS (
+            SELECT
+                h.id,
+                h.parent_material_id,
+                h.warehouse_id,
+                h.version,
+                h.effective_from,
+                h.updated_at,
+                CASE
+                    WHEN :warehouse_id IS NOT NULL AND h.warehouse_id::text = :warehouse_id THEN 0
+                    WHEN h.warehouse_id IS NULL THEN 1
+                    ELSE 2
+                END AS scope_rank
+            FROM bom_headers h
+            WHERE LOWER(COALESCE(h.status, '')) = 'active'
+              AND (h.effective_from IS NULL OR h.effective_from <= CURRENT_DATE)
+              AND (h.effective_to IS NULL OR h.effective_to >= CURRENT_DATE)
+              AND (:warehouse_id IS NULL OR h.warehouse_id::text = :warehouse_id OR h.warehouse_id IS NULL)
+        ),
+        selected_headers AS (
+            SELECT id, parent_material_id, version
+            FROM (
+                SELECT
+                    c.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY c.parent_material_id
+                        ORDER BY c.scope_rank ASC, c.effective_from DESC NULLS LAST, c.updated_at DESC NULLS LAST
+                    ) AS rn
+                FROM candidate_headers c
+                WHERE c.scope_rank < 2
+            ) ranked
+            WHERE rn = 1
+        )
+        SELECT
+            pm.material_code AS fg_sku,
+            cm.material_code AS rm_sku,
+            LOWER(COALESCE(NULLIF(c.component_type, ''), COALESCE(cm.material_type, 'raw_material'))) AS component_type,
+            COALESCE(c.qty_per_parent, 0)::double precision AS qty_per_fg_unit,
+            COALESCE(c.scrap_rate, 0)::double precision AS scrap_rate,
+            c.lead_time_days AS lead_time_days,
+            sh.version AS version
+        FROM selected_headers sh
+        JOIN bom_components c ON c.bom_header_id = sh.id
+        JOIN materials pm ON pm.id = sh.parent_material_id
+        JOIN materials cm ON cm.id = c.component_material_id
+        WHERE COALESCE(c.qty_per_parent, 0) > 0
+          AND LOWER(COALESCE(NULLIF(c.component_type, ''), COALESCE(cm.material_type, 'raw_material'))) IN (
+              'raw_material', 'packaging_material', 'packaging'
+          )
+        ORDER BY pm.material_code, cm.material_code
+        """
+    )
+    with get_wms_engine().connect() as conn:
+        frame = pd.read_sql(sql, conn, params={"warehouse_id": wh})
+
+    out: list[BomMappingSnapshotRow] = []
+    for r in frame.itertuples(index=False):
+        lead_days = None
+        if getattr(r, "lead_time_days", None) is not None and pd.notna(r.lead_time_days):
+            lead_days = int(r.lead_time_days)
+        out.append(
+            BomMappingSnapshotRow(
+                fg_sku=str(r.fg_sku),
+                rm_sku=str(r.rm_sku),
+                component_type=str(r.component_type) if r.component_type is not None else None,
+                qty_per_fg_unit=float(r.qty_per_fg_unit or 0.0),
+                scrap_rate=float(r.scrap_rate or 0.0),
+                lead_time_days=lead_days,
+                source="wms_bom_master",
+                notes=f"version={r.version}" if getattr(r, "version", None) else None,
+            )
+        )
+    return out
+
+
+def resolve_bom_mappings(
+    warehouse_id: str | None,
+) -> tuple[list[BomMappingSnapshotRow], str]:
+    if _should_try_wms_db():
+        rows = fetch_bom_mappings_from_wms_db(warehouse_id=warehouse_id)
         if rows:
             return rows, "wms_db"
         if _mode() == "wms_db":

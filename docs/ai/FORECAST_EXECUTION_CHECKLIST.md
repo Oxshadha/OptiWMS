@@ -255,3 +255,14 @@ Reference:
   - `DELETE /api/planning/bom/components/{id}` (admin)
   - `GET /api/planning/bom/audit` (admin)
 - [x] Core API compile verified: `./gradlew :core-api:compileJava` -> `BUILD SUCCESSFUL`.
+
+## 15) Forecast-Service BOM Source Integration (Implemented 2026-04-19)
+- [x] Raw-material requirement generation now prefers WMS BOM master (`bom_headers` + `bom_components`) in runtime mode.
+- [x] Warehouse-aware BOM resolution added:
+  - picks active/effective header per parent SKU
+  - prefers warehouse-specific BOM over global BOM
+- [x] Component scope expanded for RM planning to include both `raw_material` and `packaging_material`.
+- [x] Local `bom_component_mappings` path retained only as controlled fallback when no active WMS BOM mapping is found.
+- [x] BOM endpoint behavior updated:
+  - `GET /api/v1/bom-mappings?source=auto|wms|local`
+  - default `auto` returns WMS BOM if available, otherwise local fallback with source tag.
