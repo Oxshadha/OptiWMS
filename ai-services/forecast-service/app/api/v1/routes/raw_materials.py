@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import ForecastRun, RawMaterialRequirement
 from app.services.raw_material_service import BomInputRow, list_bom_mappings, upsert_bom_mappings
+from app.services.runtime_data_source import resolve_bom_mappings
 
 router = APIRouter(tags=["raw-materials"])
 
@@ -30,8 +31,43 @@ def get_bom_mappings(
     fg_sku: str | None = None,
     rm_sku: str | None = None,
     active_only: bool = True,
+    source: str = "auto",  # auto | wms | local
+    warehouse_id: str | None = None,
     db: Session = Depends(get_db),
 ):
+    mode = (source or "auto").strip().lower()
+    wms_rows = []
+    wms_source = "none"
+    if mode in {"auto", "wms"}:
+        wms_rows, wms_source = resolve_bom_mappings(warehouse_id=warehouse_id)
+    if wms_rows:
+        filtered = []
+        for r in wms_rows:
+            if fg_sku and str(r.fg_sku) != fg_sku:
+                continue
+            if rm_sku and str(r.rm_sku) != rm_sku:
+                continue
+            filtered.append(r)
+        return {
+            "items": [
+                {
+                    "id": None,
+                    "fg_sku": r.fg_sku,
+                    "rm_sku": r.rm_sku,
+                    "qty_per_fg_unit": r.qty_per_fg_unit,
+                    "scrap_rate": r.scrap_rate,
+                    "lead_time_days": r.lead_time_days,
+                    "is_active": True,
+                    "source": r.source,
+                    "notes": r.notes,
+                    "updated_at": None,
+                }
+                for r in filtered
+            ],
+            "count": len(filtered),
+            "source": wms_source,
+        }
+
     rows = list_bom_mappings(db, fg_sku=fg_sku, rm_sku=rm_sku, active_only=active_only)
     return {
         "items": [
@@ -50,6 +86,8 @@ def get_bom_mappings(
             for r in rows
         ],
         "count": len(rows),
+        "source": "local_manual",
+        "fallback_reason": "wms_bom_not_found" if mode == "auto" else None,
     }
 
 

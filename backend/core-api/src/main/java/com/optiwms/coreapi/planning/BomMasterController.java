@@ -2,6 +2,8 @@ package com.optiwms.coreapi.planning;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.optiwms.infra.master.MaterialEntity;
+import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.planning.BomAuditLogEntity;
 import com.optiwms.infra.planning.BomAuditLogRepository;
 import com.optiwms.infra.planning.BomComponentEntity;
@@ -15,6 +17,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -35,17 +38,20 @@ public class BomMasterController {
     private final BomHeaderRepository bomHeaderRepository;
     private final BomComponentRepository bomComponentRepository;
     private final BomAuditLogRepository bomAuditLogRepository;
+    private final MaterialRepository materialRepository;
     private final ObjectMapper objectMapper;
 
     public BomMasterController(
             BomHeaderRepository bomHeaderRepository,
             BomComponentRepository bomComponentRepository,
             BomAuditLogRepository bomAuditLogRepository,
+            MaterialRepository materialRepository,
             ObjectMapper objectMapper
     ) {
         this.bomHeaderRepository = bomHeaderRepository;
         this.bomComponentRepository = bomComponentRepository;
         this.bomAuditLogRepository = bomAuditLogRepository;
+        this.materialRepository = materialRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -85,6 +91,8 @@ public class BomMasterController {
             @RequestBody CreateBomHeaderRequest request,
             Authentication authentication
     ) {
+        validateEffectiveDateRange(request.effectiveFrom(), request.effectiveTo());
+        validateParentMaterialIsProduct(request.parentMaterialId());
         BomHeaderEntity entity = new BomHeaderEntity();
         entity.setParentMaterialId(request.parentMaterialId());
         entity.setWarehouseId(request.warehouseId());
@@ -114,6 +122,9 @@ public class BomMasterController {
     ) {
         return bomHeaderRepository.findById(id)
                 .map(entity -> {
+                    LocalDate nextFrom = request.effectiveFrom() != null ? request.effectiveFrom() : entity.getEffectiveFrom();
+                    LocalDate nextTo = request.effectiveTo() != null ? request.effectiveTo() : entity.getEffectiveTo();
+                    validateEffectiveDateRange(nextFrom, nextTo);
                     if (request.status() != null) {
                         entity.setStatus(request.status().trim().toLowerCase());
                     }
@@ -175,10 +186,12 @@ public class BomMasterController {
         if (!bomHeaderRepository.existsById(headerId)) {
             return ResponseEntity.notFound().build();
         }
+        validateComponentMaterialType(request.componentMaterialId());
+        String resolvedType = normalizeAndValidateComponentType(request.componentType());
         BomComponentEntity entity = new BomComponentEntity();
         entity.setBomHeaderId(headerId);
         entity.setComponentMaterialId(request.componentMaterialId());
-        entity.setComponentType(defaultIfBlank(request.componentType(), "raw_material").toLowerCase());
+        entity.setComponentType(resolvedType);
         entity.setQtyPerParent(request.qtyPerParent());
         entity.setScrapRate(request.scrapRate() == null ? BigDecimal.ZERO : request.scrapRate());
         entity.setLeadTimeDays(request.leadTimeDays());
@@ -204,7 +217,7 @@ public class BomMasterController {
         return bomComponentRepository.findById(id)
                 .map(entity -> {
                     if (request.componentType() != null && !request.componentType().isBlank()) {
-                        entity.setComponentType(request.componentType().trim().toLowerCase());
+                        entity.setComponentType(normalizeAndValidateComponentType(request.componentType()));
                     }
                     if (request.qtyPerParent() != null) {
                         entity.setQtyPerParent(request.qtyPerParent());
@@ -330,6 +343,50 @@ public class BomMasterController {
             return fallback;
         }
         return value.trim();
+    }
+
+    private void validateEffectiveDateRange(LocalDate effectiveFrom, LocalDate effectiveTo) {
+        if (effectiveFrom != null && effectiveTo != null && effectiveTo.isBefore(effectiveFrom)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "effectiveTo cannot be earlier than effectiveFrom"
+            );
+        }
+    }
+
+    private void validateParentMaterialIsProduct(UUID materialId) {
+        MaterialEntity material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "parent material not found"));
+        String materialType = material.getMaterialType() == null ? "" : material.getMaterialType().trim().toLowerCase();
+        if (!"product".equals(materialType)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "parent material must be material_type='product'"
+            );
+        }
+    }
+
+    private void validateComponentMaterialType(UUID materialId) {
+        MaterialEntity material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "component material not found"));
+        String materialType = material.getMaterialType() == null ? "" : material.getMaterialType().trim().toLowerCase();
+        if (!materialType.equals("raw_material") && !materialType.equals("packaging_material") && !materialType.equals("packaging")) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "component material must be raw_material or packaging_material"
+            );
+        }
+    }
+
+    private String normalizeAndValidateComponentType(String input) {
+        String type = defaultIfBlank(input, "raw_material").toLowerCase();
+        if (!type.equals("raw_material") && !type.equals("packaging_material") && !type.equals("packaging")) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "component_type must be raw_material or packaging_material"
+            );
+        }
+        return type;
     }
 
     public record BomHeaderDto(

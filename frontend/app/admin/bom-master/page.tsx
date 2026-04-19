@@ -7,7 +7,6 @@ import { materialsApi, type Material } from "@/lib/api/materials";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import {
   bomMasterApi,
-  type BomAuditRow,
   type BomComponent,
   type BomHeader,
 } from "@/lib/api/bom-master";
@@ -40,7 +39,6 @@ export default function BomMasterPage() {
   const [headers, setHeaders] = useState<BomHeader[]>([]);
   const [selectedHeaderId, setSelectedHeaderId] = useState<string>("");
   const [components, setComponents] = useState<BomComponent[]>([]);
-  const [auditRows, setAuditRows] = useState<BomAuditRow[]>([]);
   const [headerStatusEdit, setHeaderStatusEdit] = useState("active");
   const [headerNotesEdit, setHeaderNotesEdit] = useState("");
   const [newHeader, setNewHeader] = useState({
@@ -73,20 +71,27 @@ export default function BomMasterPage() {
     return map;
   }, [warehouses]);
 
+  const childMaterialOptions = useMemo(
+    () =>
+      materials.filter((m) => {
+        const t = (m.materialType || "").toLowerCase();
+        return t === "raw_material" || t === "packaging_material" || t === "packaging";
+      }),
+    [materials],
+  );
+
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [materialsData, warehousesData, headersData, auditData] = await Promise.all([
+      const [materialsData, warehousesData, headersData] = await Promise.all([
         materialsApi.getAll(),
         warehousesApi.getAll(),
         bomMasterApi.listHeaders(),
-        bomMasterApi.listAudit(50),
       ]);
       setMaterials(materialsData);
       setWarehouses(warehousesData);
       const nextHeaders = headersData.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
       setHeaders(nextHeaders);
-      setAuditRows(auditData);
 
       const nextSelected = selectedHeaderId || nextHeaders[0]?.id || "";
       setSelectedHeaderId(nextSelected);
@@ -142,6 +147,14 @@ export default function BomMasterPage() {
   const createHeader = async () => {
     if (!newHeader.parentMaterialId) {
       showToast.error("Select parent material");
+      return;
+    }
+    if (
+      newHeader.effectiveFrom &&
+      newHeader.effectiveTo &&
+      new Date(newHeader.effectiveTo) < new Date(newHeader.effectiveFrom)
+    ) {
+      showToast.error("Effective To cannot be earlier than Effective From.");
       return;
     }
     try {
@@ -223,8 +236,6 @@ export default function BomMasterPage() {
       setComponentMaterialId("");
       setNewComponent(EMPTY_COMPONENT_DRAFT);
       await loadComponents(selectedHeaderId);
-      const auditData = await bomMasterApi.listAudit(50);
-      setAuditRows(auditData);
     } catch (error) {
       logger.error("[BomMasterPage] Failed to add component", error);
       showToast.error("Failed to add component");
@@ -246,8 +257,6 @@ export default function BomMasterPage() {
       if (selectedHeaderId) {
         await loadComponents(selectedHeaderId);
       }
-      const auditData = await bomMasterApi.listAudit(50);
-      setAuditRows(auditData);
     } catch (error) {
       logger.error("[BomMasterPage] Failed to update component", error);
       showToast.error("Failed to update component");
@@ -262,8 +271,6 @@ export default function BomMasterPage() {
       if (selectedHeaderId) {
         await loadComponents(selectedHeaderId);
       }
-      const auditData = await bomMasterApi.listAudit(50);
-      setAuditRows(auditData);
     } catch (error) {
       logger.error("[BomMasterPage] Failed to delete component", error);
       showToast.error("Failed to delete component");
@@ -275,7 +282,17 @@ export default function BomMasterPage() {
       <div>
         <h1 className="text-3xl font-bold text-base-content">BOM Master</h1>
         <p className="text-sm text-base-content/60 mt-1">
-          Maintain versioned BOM headers and components used for dependent demand planning.
+          Manage finished-good BOM records and component lines used for raw/packaging demand planning.
+        </p>
+      </div>
+
+      <div className="card bg-base-100 border border-base-300 rounded-xl p-4">
+        <p className="text-sm text-base-content/70">
+          <span className="font-semibold">BOM Record:</span> one finished-good SKU definition (version/date range).
+          {" "}
+          <span className="font-semibold">Component Line:</span> one raw or packaging material inside that BOM.
+          {" "}
+          <span className="font-semibold">Scrap Rate:</span> expected process loss ratio for that component.
         </p>
       </div>
 
@@ -294,7 +311,7 @@ export default function BomMasterPage() {
         <>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 rounded-xl p-4 space-y-4">
-              <h2 className="text-lg font-semibold">Create BOM Header</h2>
+              <h2 className="text-lg font-semibold">Create BOM Record</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <label className="form-control">
                   <span className="label-text text-xs mb-1">Parent Material</span>
@@ -363,6 +380,7 @@ export default function BomMasterPage() {
                   <input
                     type="date"
                     className="input input-bordered"
+                    min={newHeader.effectiveFrom || undefined}
                     value={newHeader.effectiveTo}
                     onChange={(e) => setNewHeader((p) => ({ ...p, effectiveTo: e.target.value }))}
                   />
@@ -379,13 +397,13 @@ export default function BomMasterPage() {
               </label>
               <div>
                 <button className="btn btn-primary" onClick={createHeader} disabled={!canWrite}>
-                  Create Header
+                  Create BOM Record
                 </button>
               </div>
             </div>
 
             <div className="card bg-base-100 border border-base-300 rounded-xl p-4">
-              <h2 className="text-lg font-semibold mb-3">BOM Headers</h2>
+              <h2 className="text-lg font-semibold mb-3">BOM Records</h2>
               <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
                 <table className="table table-sm">
                   <thead>
@@ -421,7 +439,7 @@ export default function BomMasterPage() {
                     {!headers.length && (
                       <tr>
                         <td colSpan={5} className="text-center text-base-content/60">
-                          No BOM headers
+                          No BOM records
                         </td>
                       </tr>
                     )}
@@ -432,7 +450,7 @@ export default function BomMasterPage() {
           </div>
 
           <div className="card bg-base-100 border border-base-300 rounded-xl p-4 space-y-4">
-            <h2 className="text-lg font-semibold">Selected Header Details</h2>
+            <h2 className="text-lg font-semibold">Selected BOM Record</h2>
             {selectedHeader ? (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -475,11 +493,11 @@ export default function BomMasterPage() {
                   </label>
                 </div>
                 <button className="btn btn-outline btn-primary w-fit" onClick={saveHeader} disabled={!canWrite}>
-                  Save Header
+                  Save BOM Record
                 </button>
               </>
             ) : (
-              <p className="text-base-content/60">Select a header to manage components.</p>
+              <p className="text-base-content/60">Select a BOM record to manage components.</p>
             )}
           </div>
 
@@ -496,7 +514,7 @@ export default function BomMasterPage() {
                       onChange={(e) => setComponentMaterialId(e.target.value)}
                     >
                       <option value="">Select component</option>
-                      {materials
+                      {childMaterialOptions
                         .filter((m) => m.id !== selectedHeader.parentMaterialId)
                         .map((m) => (
                           <option key={m.id} value={m.id}>
@@ -547,6 +565,9 @@ export default function BomMasterPage() {
                     />
                   </label>
                 </div>
+                <p className="text-xs text-base-content/60">
+                  Lead Time Days = procurement lead time for this component line. UOM = unit of measure (kg, liters, pcs, etc).
+                </p>
                 <button className="btn btn-primary w-fit" onClick={addComponent} disabled={!canWrite}>
                   Add Component
                 </button>
@@ -661,45 +682,8 @@ export default function BomMasterPage() {
                 </div>
               </>
             ) : (
-              <p className="text-base-content/60">Select a header to add components.</p>
+              <p className="text-base-content/60">Select a BOM record to add components.</p>
             )}
-          </div>
-
-          <div className="card bg-base-100 border border-base-300 rounded-xl p-4">
-            <h2 className="text-lg font-semibold mb-3">BOM Audit Log</h2>
-            <div className="overflow-x-auto max-h-[300px] overflow-y-auto">
-              <table className="table table-sm">
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>Entity</th>
-                    <th>Actor</th>
-                    <th>Payload</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditRows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.createdAt || "N/A"}</td>
-                      <td>{row.action}</td>
-                      <td>{row.entityType}</td>
-                      <td>{row.actor || "system"}</td>
-                      <td className="max-w-[520px] truncate" title={row.payloadJson || ""}>
-                        {row.payloadJson || "—"}
-                      </td>
-                    </tr>
-                  ))}
-                  {!auditRows.length && (
-                    <tr>
-                      <td colSpan={5} className="text-center text-base-content/60">
-                        No audit rows
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
         </>
       )}

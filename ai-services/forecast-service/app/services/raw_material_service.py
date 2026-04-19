@@ -7,7 +7,7 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.orm import Session
 
 from app.db.models import BomComponentMapping, ForecastPrediction, ForecastRun, RawMaterialRequirement
-from app.services.runtime_data_source import resolve_raw_material_snapshot
+from app.services.runtime_data_source import resolve_bom_mappings, resolve_raw_material_snapshot
 
 
 @dataclass
@@ -105,7 +105,39 @@ def persist_raw_material_requirements(
     fg_demand_by_sku: dict[str, float] | None = None,
 ) -> dict:
     fg_demand = fg_demand_by_sku or _build_fg_demand_from_predictions(db, run.id)
-    mappings = list_bom_mappings(db, active_only=True)
+    wms_mappings, wms_bom_source = resolve_bom_mappings(run.warehouse_id)
+    mappings: list[BomInputRow] = []
+    mapping_source = "local_manual"
+    if wms_mappings:
+        mappings = [
+            BomInputRow(
+                fg_sku=r.fg_sku,
+                rm_sku=r.rm_sku,
+                qty_per_fg_unit=r.qty_per_fg_unit,
+                scrap_rate=r.scrap_rate,
+                lead_time_days=r.lead_time_days,
+                source=r.source,
+                notes=r.notes,
+                is_active=True,
+            )
+            for r in wms_mappings
+        ]
+        mapping_source = wms_bom_source
+    else:
+        local_rows = list_bom_mappings(db, active_only=True)
+        mappings = [
+            BomInputRow(
+                fg_sku=str(r.fg_sku),
+                rm_sku=str(r.rm_sku),
+                qty_per_fg_unit=float(r.qty_per_fg_unit or 0.0),
+                scrap_rate=float(r.scrap_rate or 0.0),
+                lead_time_days=r.lead_time_days,
+                source=r.source or "manual",
+                notes=r.notes,
+                is_active=bool(r.is_active),
+            )
+            for r in local_rows
+        ]
     clear_raw_material_requirements_for_run(db, run.id)
 
     if not fg_demand:
@@ -160,4 +192,9 @@ def persist_raw_material_requirements(
         inserted += 1
 
     db.flush()
-    return {"rows": inserted, "snapshot_source": rm_source}
+    return {
+        "rows": inserted,
+        "snapshot_source": rm_source,
+        "bom_source": mapping_source,
+        "used_local_fallback": bool(not wms_mappings and mappings),
+    }
