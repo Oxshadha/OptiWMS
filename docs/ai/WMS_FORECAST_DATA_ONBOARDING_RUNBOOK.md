@@ -181,6 +181,24 @@ Optional non-soak validation (local/proving only):
 curl "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=0"
 ```
 
+One-command post-load validation + evidence bundle (recommended):
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/post_load_validation_and_evidence.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --dataset B \
+  --model-name CATBOOST \
+  --split test \
+  --inference-window 200 \
+  --soak-hours 24 \
+  --warmup-online-runs 8
+```
+This command performs:
+- runtime contract/data validation
+- acceptance gate + production readiness evidence capture
+- release evidence snapshot export
+- business plausibility checks on forecast and inventory recommendation outputs
+
 ## Go/No-Go Rules
 Go only if all true:
 - Runtime contract status = `ok`
