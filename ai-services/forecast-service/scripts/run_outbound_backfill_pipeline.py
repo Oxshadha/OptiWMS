@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from export_outbound_history_and_dq import _statuses, run as export_run
+from generate_synthetic_history_for_runtime import run as synth_run
 from load_outbound_history_backfill import run as load_run
 
 
@@ -25,6 +26,22 @@ def main() -> int:
         help="Output root for generated artifacts",
     )
     parser.add_argument("--source-tag", default="pipeline_backfill")
+    parser.add_argument(
+        "--augment-runtime-history",
+        action="store_true",
+        help="After export+load, generate and load synthetic monthly history to ensure lag depth coverage.",
+    )
+    parser.add_argument(
+        "--augment-months",
+        type=int,
+        default=36,
+        help="Months per SKU for synthetic runtime augmentation when --augment-runtime-history is enabled.",
+    )
+    parser.add_argument(
+        "--augment-out-csv",
+        default="ai-services/forecast-service/artifacts/backfill/synthetic_runtime_history.csv",
+        help="Output CSV path used by synthetic runtime augmentation stage.",
+    )
     args = parser.parse_args()
 
     export_result = export_run(
@@ -71,6 +88,15 @@ def main() -> int:
         "export_result": export_result,
         "load_result": load_result,
     }
+    if args.augment_runtime_history:
+        augment_result = synth_run(
+            db_url=args.db_url,
+            out_csv=Path(args.augment_out_csv),
+            schema=args.schema,
+            warehouse_id=args.warehouse_id,
+            months=max(13, int(args.augment_months)),
+        )
+        combined["augmentation_result"] = augment_result
     print(json.dumps(combined, indent=2, sort_keys=True))
     return 0
 

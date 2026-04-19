@@ -144,6 +144,10 @@ Evidence (2026-04-18):
   - Backend
   - Product/Operations
 
+Strict promotion guard:
+- [ ] Promotion executed only after `production-readiness?soak_hours=24` returns `ready=true`.
+- [ ] No use of `soak_hours=0` as final promotion evidence (debug/proving only).
+
 ## 9) Immediate Next Actions (This Week)
 - [ ] Move runtime source to real WMS DB (`wms_db`) and validate row-level outputs.
 - [x] Build and run first historical backfill job.
@@ -171,6 +175,8 @@ Pipeline evidence (2026-04-18):
   - production readiness (`soak_hours=0`) -> `ready=true` (manual non-soak validation mode)
 - Bug fix:
   - `soak_hours=0` override handling fixed in `app/services/production_readiness_service.py` (previously ignored due `soak_hours or 24` behavior)
+- Pipeline enhancement:
+  - `run_outbound_backfill_pipeline.py` now supports `--augment-runtime-history --augment-months <N>` to run synthetic depth augmentation in the same command.
 
 ## 10) Plan Alignment Decision (2026-04-18)
 - [x] Adopt enterprise two-layer planning as default:
