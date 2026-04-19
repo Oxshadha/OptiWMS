@@ -34,6 +34,7 @@ const allNavItems = [
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
   { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
+  { href: "/admin/bom-master", label: "BOM Master", icon: "account_tree" },
   { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
   {
     href: "/admin/labor-productivity",
