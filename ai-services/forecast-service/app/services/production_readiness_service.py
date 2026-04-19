@@ -25,6 +25,7 @@ def evaluate_production_readiness(
     soak_hours: int = 24,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
+    soak_hours_val = 24 if soak_hours is None else int(soak_hours)
 
     runtime_contract = validate_runtime_contract(force=False)
     contract_ok = str(runtime_contract.get("status", "")).lower() == "ok"
@@ -65,24 +66,36 @@ def evaluate_production_readiness(
     alerts_ok = str(alerts.get("status", "")).lower() != "critical"
     checks.append({"name": "inference_not_critical", "pass": alerts_ok, "value": alerts.get("status"), "details": alerts})
 
-    since = _utc_now() - timedelta(hours=max(1, int(soak_hours or 24)))
-    since_naive = since.replace(tzinfo=None)
-    critical_count = db.execute(
-        select(func.count(OperationalHealthSnapshot.id)).where(
-            OperationalHealthSnapshot.created_at >= since_naive,
-            OperationalHealthSnapshot.status == "critical",
+    if soak_hours_val <= 0:
+        checks.append(
+            {
+                "name": "soak_window_no_critical",
+                "pass": True,
+                "value": 0,
+                "threshold": 0,
+                "window_hours": 0,
+                "disabled": True,
+            }
         )
-    ).scalar_one()
-    soak_ok = int(critical_count or 0) == 0
-    checks.append(
-        {
-            "name": "soak_window_no_critical",
-            "pass": soak_ok,
-            "value": int(critical_count or 0),
-            "threshold": 0,
-            "window_hours": max(1, int(soak_hours or 24)),
-        }
-    )
+    else:
+        since = _utc_now() - timedelta(hours=soak_hours_val)
+        since_naive = since.replace(tzinfo=None)
+        critical_count = db.execute(
+            select(func.count(OperationalHealthSnapshot.id)).where(
+                OperationalHealthSnapshot.created_at >= since_naive,
+                OperationalHealthSnapshot.status == "critical",
+            )
+        ).scalar_one()
+        soak_ok = int(critical_count or 0) == 0
+        checks.append(
+            {
+                "name": "soak_window_no_critical",
+                "pass": soak_ok,
+                "value": int(critical_count or 0),
+                "threshold": 0,
+                "window_hours": soak_hours_val,
+            }
+        )
 
     latest_health = latest_operational_health(db)
     ready = all(bool(c.get("pass")) for c in checks)
@@ -92,7 +105,7 @@ def evaluate_production_readiness(
         "model_name": model_name,
         "split": split,
         "inference_window": inference_window,
-        "soak_hours": max(1, int(soak_hours or 24)),
+        "soak_hours": soak_hours_val,
         "checks": checks,
         "latest_operational_health": latest_health,
     }

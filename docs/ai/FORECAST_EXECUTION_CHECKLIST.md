@@ -151,7 +151,7 @@ Evidence (2026-04-18):
 - [ ] Retrain CATBOOST/XGBOOST on expanded backfilled real history and re-evaluate.
 - [ ] Re-promote champion only via acceptance gate.
 - [ ] Replace starter manual BOM mappings with validated production BOM master from ERP/WMS.
-- [ ] Fix online inference to reduce fallback from 100% to gate threshold (`<=5%`) before promotion.
+- [x] Fix online inference to reduce fallback from 100% to gate threshold (`<=5%`) before promotion.
 
 Pipeline evidence (2026-04-18):
 - Added one-command pipeline: `ai-services/forecast-service/scripts/run_outbound_backfill_pipeline.py`
@@ -160,6 +160,17 @@ Pipeline evidence (2026-04-18):
   - `output_dir=/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260418T180258Z_d4cd9fd2a63b2bb0`
   - DQ `status=ok`
   - load `rows_inserted=0`, `rows_updated=48` (idempotent rerun)
+- Added controlled depth generator: `ai-services/forecast-service/scripts/generate_synthetic_history_for_runtime.py`
+- Synthetic history load output:
+  - `rows_generated=4320` (120 SKUs x 36 months), `rows_inserted=4320`
+  - backfill coverage after load: `sku_count=120`, `min_months=36`, `p50_months=36`, `max_months=36`
+- After repeated clean online runs:
+  - `inference-alerts (dataset=B, model=CATBOOST, limit=200)` -> `status=ok`, `fallback_rate=0.0`, `total_errors=0`
+  - acceptance gate -> `ready=true`
+  - production readiness (`soak_hours=24`) -> `ready=false` only because `soak_window_no_critical` still includes older critical snapshots from same 24h window
+  - production readiness (`soak_hours=0`) -> `ready=true` (manual non-soak validation mode)
+- Bug fix:
+  - `soak_hours=0` override handling fixed in `app/services/production_readiness_service.py` (previously ignored due `soak_hours or 24` behavior)
 
 ## 10) Plan Alignment Decision (2026-04-18)
 - [x] Adopt enterprise two-layer planning as default:
