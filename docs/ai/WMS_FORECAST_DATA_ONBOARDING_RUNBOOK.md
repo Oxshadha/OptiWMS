@@ -87,6 +87,18 @@ python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/
   --source-tag pipeline_backfill
 ```
 
+One-command pipeline with runtime depth augmentation (recommended when lag features require deeper history):
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/run_outbound_backfill_pipeline.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --outbound-statuses delivered,packed,picking \
+  --out-dir /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill \
+  --source-tag pipeline_backfill \
+  --augment-runtime-history \
+  --augment-months 36
+```
+
 If history depth is too short for deployed lag features, generate controlled synthetic history coverage:
 ```bash
 python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/generate_synthetic_history_for_runtime.py \
@@ -128,6 +140,10 @@ Go only if all true:
 - Online run publishes successfully
 - Acceptance gate `ready=true`
 - Production readiness `ready=true`
+
+Strict promotion rule:
+- Champion promotion is allowed only when `production-readiness` with `soak_hours=24` returns `ready=true`.
+- `soak_hours=0` checks are allowed only for local proving/debug and must not be used for final promotion decisions.
 
 No-go examples:
 - `reason=no_order_items_rows`
