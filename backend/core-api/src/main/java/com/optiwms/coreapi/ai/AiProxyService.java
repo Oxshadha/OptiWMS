@@ -321,7 +321,7 @@ public class AiProxyService {
         if (inferenceWindow != null) ub.queryParam("inference_window", inferenceWindow);
         if (soakHours != null) ub.queryParam("soak_hours", soakHours);
         if (historyLimit != null) ub.queryParam("history_limit", historyLimit);
-        return exchangeGet(ub.toUriString());
+        return exchangeGetSafe(ub.toUriString(), "forecast");
     }
 
     public ResponseEntity<Object> getOperationalHealth() {
@@ -346,18 +346,11 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> getGovernanceStatus() {
-        return exchangeGet(forecastBaseUrl + "/artifacts/governance/status");
+        return exchangeGetSafe(forecastBaseUrl + "/artifacts/governance/status", "forecast");
     }
 
     public ResponseEntity<Object> runGovernanceTick() {
-        HttpEntity<String> request = new HttpEntity<>(headers());
-        ResponseEntity<Map> response = restTemplate.exchange(
-                forecastBaseUrl + "/artifacts/governance/tick",
-                HttpMethod.POST,
-                request,
-                Map.class
-        );
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        return exchangePostSafe(forecastBaseUrl + "/artifacts/governance/tick", null, "forecast");
     }
 
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
@@ -395,6 +388,70 @@ public class AiProxyService {
         HttpEntity<String> request = new HttpEntity<>(headers());
         ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, request, Map.class);
         return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    }
+
+    private ResponseEntity<Object> exchangeGetSafe(String url, String upstream) {
+        try {
+            return exchangeGet(url);
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_timeout",
+                    "message", "Upstream service timed out.",
+                    "url", url,
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_http_error",
+                    "message", "Upstream service returned HTTP error.",
+                    "url", url,
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_proxy_error",
+                    "message", "Unexpected error while proxying upstream response.",
+                    "url", url,
+                    "error", ex.getMessage()
+            ));
+        }
+    }
+
+    private ResponseEntity<Object> exchangePostSafe(String url, Object payload, String upstream) {
+        try {
+            HttpEntity<Object> request = new HttpEntity<>(payload, headers());
+            ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.POST, request, Map.class);
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_timeout",
+                    "message", "Upstream service timed out.",
+                    "url", url,
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_http_error",
+                    "message", "Upstream service returned HTTP error.",
+                    "url", url,
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                    "ok", false,
+                    "reason", upstream + "_proxy_error",
+                    "message", "Unexpected error while proxying upstream response.",
+                    "url", url,
+                    "error", ex.getMessage()
+            ));
+        }
     }
 
     private HttpHeaders headers() {
