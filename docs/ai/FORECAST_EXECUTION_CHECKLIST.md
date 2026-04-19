@@ -1,6 +1,6 @@
 # Forecast Production Execution Checklist
 
-Last updated: 2026-04-18  
+Last updated: 2026-04-19  
 Project: OptiWMS Forecasting (FastAPI + Spring + Frontend)
 
 How to use:
@@ -10,6 +10,10 @@ How to use:
 
 Master plan reference:
 - `docs/ai/FORECAST_MLOPS_AND_DATA_SCIENCE_MASTER_PLAN.md`
+
+Checklist policy:
+- This file is the single source of truth for production tracking.
+- Other docs are supporting references, not parallel trackers.
 
 ## 1) Serving Foundation (Current State)
 - [x] Forecast trigger pipeline supports `snapshot` and `online` modes.
@@ -184,3 +188,46 @@ Pipeline evidence (2026-04-18):
   - dependent demand for RM/pack via BOM + lead-time logic
 - [ ] Do not ship production with starter/demo BOM mappings.
 - [ ] Complete Phase 0 exit gate from master plan before further model promotion.
+
+## 11) New Historical Dataset -> Model -> WMS Runtime (Standard Operating Flow)
+- [ ] Stage and validate newly received historical dataset.
+  - schema checks
+  - key checks (SKU, warehouse, date continuity)
+  - DQ checks (null/negative/duplicates/outlier bands)
+- [ ] Produce dataset lineage package for each onboarded dataset.
+  - dataset_version/hash
+  - extraction window
+  - transformation notes
+- [ ] Run notebook DS cycle on that dataset with fair protocol.
+  - EDA first
+  - leak-safe time splits
+  - same feature policy across candidates
+- [ ] Train and compare candidate models on same ground:
+  - CATBOOST
+  - XGBOOST
+  - baseline/fallback model
+- [ ] Select best two models (champion + fallback) based on gate criteria, not a single metric.
+- [ ] Package and publish selected two into forecast artifact/runtime paths.
+- [ ] Execute snapshot + online run validations on WMS-backed runtime data.
+- [ ] Pass acceptance gate and production readiness gate before champion promotion.
+- [ ] Keep rollback-ready previous champion version.
+
+## 12) Final Production Signoff Blockers (Must Close)
+- [ ] 24h soak gate must pass with zero critical health entries in window.
+- [ ] Replace starter/demo BOM mapping with real BOM master (validated by planning/operations).
+- [ ] Ensure inventory recommendations are run-consistent and traceable by run_id/model_version/dataset_version.
+- [ ] Ensure ongoing WMS movement history accumulation is active and auditable.
+- [ ] Complete one full retrain cycle from newly accumulated real data and re-verify gates.
+
+## 13) Data Science Focus (What to optimize next)
+- [ ] Prioritize data realism and coverage before model complexity.
+- [ ] Expand exogenous signals where available (promo/season/calendar/stockout flags).
+- [ ] Track model quality and serving reliability together:
+  - WAPE
+  - MASE
+  - Bias%
+  - under_forecast_rate
+  - fallback_rate
+  - hard_error_rate
+  - latency p95
+- [ ] Re-rank candidate models only after feature/data revision, not ad-hoc one-off runs.
