@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     gate_max_p95_latency_ms: float = 2500.0
     gate_enforce_on_promotion: bool = True
     gate_promotion_inference_window: int = 500
+    gate_enforce_readiness_on_promotion: bool = True
+    gate_promotion_soak_hours: int = 24
     drift_alert_wape_increase_ratio: float = 0.25
     drift_eval_min_rows: int = 200
     health_monitor_interval_seconds: float = 120.0
