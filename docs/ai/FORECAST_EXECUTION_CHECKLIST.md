@@ -15,6 +15,16 @@ Checklist policy:
 - This file is the single source of truth for production tracking.
 - Other docs are supporting references, not parallel trackers.
 
+## Current Go-Live Status Snapshot (2026-04-19)
+- Overall decision: `NO-GO` (not yet cleared for final production release).
+- Blocking reasons:
+  - [ ] 24h soak readiness gate not yet passing with zero criticals in window.
+  - [ ] Real production BOM master replacement not completed (demo/starter mappings still referenced in checklist).
+  - [ ] DS final training/benchmark/promotion evidence package not fully closed.
+  - [ ] Final cross-functional sign-off pack (DS + Backend + Product/Ops) not complete.
+- Reference blocker doc:
+  - `docs/ai/FORECAST_GO_LIVE_PUNCHLIST.md`
+
 ## 1) Serving Foundation (Current State)
 - [x] Forecast trigger pipeline supports `snapshot` and `online` modes.
 - [x] Publish completeness checks are enforced before run is marked `published`.
