@@ -81,6 +81,8 @@ def promote_champion(
         raise ValueError("only active entries can be promoted")
 
     should_enforce = settings.gate_enforce_on_promotion if enforce_gate is None else bool(enforce_gate)
+    promotion_window = int(inference_window or settings.gate_promotion_inference_window)
+
     if should_enforce:
         from app.services.artifact_service import evaluate_acceptance_gate
 
@@ -88,13 +90,32 @@ def promote_champion(
             dataset=entry.dataset,
             model_name=entry.model_name,
             split=split,
-            inference_window=int(inference_window or settings.gate_promotion_inference_window),
+            inference_window=promotion_window,
         )
         if not bool(gate.get("ready")):
             fail_checks = [c.get("name") for c in gate.get("checks", []) if not bool(c.get("pass"))]
             raise ValueError(
                 "promotion blocked by acceptance gate: "
                 + (", ".join(str(n) for n in fail_checks) if fail_checks else "gate_not_ready")
+            )
+
+    # Enterprise default: promotion must also pass production-readiness, including soak policy.
+    if bool(settings.gate_enforce_readiness_on_promotion):
+        from app.services.production_readiness_service import evaluate_production_readiness
+
+        readiness = evaluate_production_readiness(
+            db=db,
+            dataset=entry.dataset,
+            model_name=entry.model_name,
+            split=split,
+            inference_window=promotion_window,
+            soak_hours=int(settings.gate_promotion_soak_hours),
+        )
+        if not bool(readiness.get("ready")):
+            fail_checks = [c.get("name") for c in readiness.get("checks", []) if not bool(c.get("pass"))]
+            raise ValueError(
+                "promotion blocked by production readiness: "
+                + (", ".join(str(n) for n in fail_checks) if fail_checks else "readiness_not_ready")
             )
 
     same_scope = select(ModelRegistryEntry).where(

@@ -10,6 +10,7 @@ from app.db.database import get_db
 from app.db.models import ModelRegistryEntry
 from app.services.model_registry_service import list_registry_entries, promote_champion, resolve_champion_model
 from app.services.artifact_service import evaluate_acceptance_gate
+from app.services.production_readiness_service import evaluate_production_readiness
 
 router = APIRouter(prefix="/model-registry", tags=["model-registry"])
 
@@ -140,6 +141,8 @@ def promotion_check(
     entry_id: int,
     split: str = "test",
     inference_window: int = 500,
+    include_readiness: bool = True,
+    soak_hours: int = 24,
     db: Session = Depends(get_db),
 ):
     entry = db.get(ModelRegistryEntry, entry_id)
@@ -151,10 +154,20 @@ def promotion_check(
         split=split,
         inference_window=inference_window,
     )
-    return {
+    out = {
         "entry_id": entry.id,
         "dataset": entry.dataset,
         "model_name": entry.model_name,
         "model_version": entry.model_version,
         "gate": gate,
     }
+    if include_readiness:
+        out["readiness"] = evaluate_production_readiness(
+            db=db,
+            dataset=entry.dataset,
+            model_name=entry.model_name,
+            split=split,
+            inference_window=inference_window,
+            soak_hours=soak_hours,
+        )
+    return out
