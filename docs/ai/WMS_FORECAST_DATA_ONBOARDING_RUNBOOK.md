@@ -9,6 +9,47 @@ Provide production-grade runtime data for forecast inference from WMS DB, with s
 - Runtime source: `orders`, `order_items`, `materials`, `inventory` (schema `public` unless configured otherwise).
 - Serving requirement: outbound finished-good demand history + finished-good inventory snapshot with non-zero on-hand coverage.
 
+## Model and Data Plug Contract
+Model artifact root:
+- Host path: `Ai miroservices/modeling/outputs/artifacts`
+- Container path: `/model-artifacts`
+
+Folder contract (per dataset/model/horizon):
+- `<ARTIFACT_ROOT>/<DATASET>/<model>_h<horizon>/production/`
+
+Required files:
+- XGBOOST: `model.json` + `metadata.json`
+- CATBOOST: `model.cbm` + `metadata.json`
+- LIGHTGBM/RANDOM_FOREST: `model.pkl` + `metadata.json`
+
+`metadata.json` minimum:
+- `model_cols` (required)
+- feature metadata required by online inference
+
+Runtime source switching (env-only):
+- `RUNTIME_DATA_SOURCE_MODE=csv|wms_db|auto`
+- `WMS_RUNTIME_DATABASE_URL=<postgres-url>`
+- `WMS_RUNTIME_OUTBOUND_STATUSES=shipped,delivered,completed`
+
+Mode behavior:
+- `snapshot` mode: best for complete dashboard rows (forecast + inventory + metrics)
+- `online` mode: best for live inference path validation and serving health
+- `auto` mode: online first, then snapshot fallback
+
+Fallback inference behavior:
+- primary boosting model first
+- classical fallback model next
+- final naive fallback (`snaive12` or `last_value`) if needed
+
+UI deployment binding:
+- `NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET` (example: `B` or `PV2`)
+- `NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL` (example: `CATBOOST`)
+
+Terminology:
+- `A/B/C` are dataset tags
+- `train/cv/test` are evaluation split labels
+- They are not warehouse partitions
+
 ## Required Data Contract
 Tables and required columns:
 - `orders`: `id`, `order_date`, `order_type`, `status`, `warehouse_id`
