@@ -215,7 +215,7 @@ Pipeline evidence (2026-04-18):
 ## 12) Final Production Signoff Blockers (Must Close)
 - [ ] 24h soak gate must pass with zero critical health entries in window.
 - [ ] Replace starter/demo BOM mapping with real BOM master (validated by planning/operations).
-- [ ] Add WMS-native BOM master tables + versioning/effective-dating (not only forecast-service local table).
+- [x] Add WMS-native BOM master tables + versioning/effective-dating (not only forecast-service local table).
 - [ ] Add admin BOM CRUD UI panel for controlled edits and auditability.
 - [ ] Add canonical `packing_material` classification and backfill existing material types accordingly.
 - [ ] Ensure inventory recommendations are run-consistent and traceable by run_id/model_version/dataset_version.
@@ -237,3 +237,21 @@ Pipeline evidence (2026-04-18):
 
 Reference:
 - `docs/ai/FORECAST_DATA_REQUIREMENTS_AND_SYNTHETIC_GENERATION_STANDARD.md`
+
+## 14) BOM Master Backend (Implemented 2026-04-19)
+- [x] WMS BOM schema migration added:
+  - `backend/infra/src/main/resources/db/migration/V55__create_bom_master_tables.sql`
+  - tables: `bom_headers`, `bom_components`, `bom_audit_log`
+- [x] Spring infra entities/repositories added for BOM master and audit.
+- [x] Spring core-api CRUD endpoints added:
+  - `GET /api/planning/bom/headers`
+  - `GET /api/planning/bom/headers/{id}`
+  - `POST /api/planning/bom/headers` (admin)
+  - `PUT /api/planning/bom/headers/{id}` (admin)
+  - `DELETE /api/planning/bom/headers/{id}` (admin)
+  - `GET /api/planning/bom/headers/{headerId}/components`
+  - `POST /api/planning/bom/headers/{headerId}/components` (admin)
+  - `PUT /api/planning/bom/components/{id}` (admin)
+  - `DELETE /api/planning/bom/components/{id}` (admin)
+  - `GET /api/planning/bom/audit` (admin)
+- [x] Core API compile verified: `./gradlew :core-api:compileJava` -> `BUILD SUCCESSFUL`.
