@@ -13,6 +13,8 @@ Use this folder as the single forecast documentation set.
   - End-to-end enterprise plan for DS + MLOps lifecycle.
 - `TWO_LAYER_FORECAST_TO_RM_REQUIREMENTS.md`
   - Two-layer logic: forecast independent demand, then explode to RM/packing via BOM.
+- `FORECAST_DATA_REQUIREMENTS_AND_SYNTHETIC_GENERATION_STANDARD.md`
+  - Canonical requirements for real-data requests, synthetic-data generation standards, required columns, and BOM/data-model architecture.
 
 ## Operational runbooks
 - `WMS_FORECAST_DATA_ONBOARDING_RUNBOOK.md`
