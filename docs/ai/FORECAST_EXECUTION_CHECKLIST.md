@@ -127,11 +127,28 @@ Evidence (2026-04-18):
 - [ ] Ensure fallback model metrics are separately tracked and visible.
 
 ## 6) Inference Reliability + MLOps Ops Loop
-- [ ] Add scheduled online inference health checks with alerting destinations.
-- [ ] Add scheduled freshness checks against latest demand load.
-- [ ] Add drift checks using stable baseline run references.
-- [ ] Define auto-block/auto-degrade behavior when health is `critical`.
+- [x] Add scheduled online inference health checks with alerting destinations.
+- [x] Add scheduled freshness checks against latest demand load.
+- [x] Add drift checks using stable baseline run references.
+- [x] Define auto-block/auto-degrade behavior when health is `critical`.
 - [ ] Define retraining trigger criteria (drift/freshness/performance decay).
+
+Evidence (2026-04-19):
+- Governance + evidence endpoints are live:
+  - `GET /artifacts/governance/status`
+  - `POST /artifacts/governance/tick`
+  - `GET /artifacts/release-evidence`
+- Health scheduler is active via:
+  - `POST /artifacts/operational-health/refresh` (manual tick)
+  - Spring monitor job (`AiInferenceMonitorJob`) periodic refresh + readiness logging
+- Alert dispatch hook implemented:
+  - `OPS_ALERT_WEBHOOK_URL` (+ `OPS_ALERT_MIN_STATUS`) in forecast-service config/env.
+- Auto-governance controls implemented (env-driven):
+  - `GOVERNANCE_ENABLED`
+  - `GOVERNANCE_AUTO_PROMOTE`
+  - `GOVERNANCE_AUTO_ROLLBACK`
+  - `GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE`
+  - `GOVERNANCE_ROLLBACK_MODEL_NAME`
 
 ## 7) UI/Operational Readiness
 - [ ] Decision View:

@@ -20,6 +20,15 @@ public class AiInferenceMonitorJob {
     @Value("${ai.monitoring.limit:200}")
     private int monitoringWindowSize;
 
+    @Value("${ai.monitoring.dataset:B}")
+    private String monitoringDataset;
+
+    @Value("${ai.monitoring.model:CATBOOST}")
+    private String monitoringModel;
+
+    @Value("${ai.monitoring.soak-hours:24}")
+    private int monitoringSoakHours;
+
     public AiInferenceMonitorJob(AiProxyService aiProxyService) {
         this.aiProxyService = aiProxyService;
     }
@@ -31,10 +40,12 @@ public class AiInferenceMonitorJob {
         }
 
         try {
+            aiProxyService.refreshOperationalHealth();
+
             ResponseEntity<AiInferenceAlertsResponse> response = aiProxyService.getInferenceAlerts(
                     monitoringWindowSize,
-                    null,
-                    null
+                    monitoringDataset,
+                    monitoringModel
             );
             AiInferenceAlertsResponse body = response.getBody();
             if (body == null) {
@@ -59,9 +70,17 @@ public class AiInferenceMonitorJob {
             } else {
                 log.info("ai_monitor ok {}", summary);
             }
+
+            ResponseEntity<Object> readiness = aiProxyService.getProductionReadiness(
+                    monitoringDataset,
+                    monitoringModel,
+                    "test",
+                    monitoringWindowSize,
+                    monitoringSoakHours
+            );
+            log.info("ai_monitor readiness status={} body={}", readiness.getStatusCode().value(), readiness.getBody());
         } catch (Exception ex) {
             log.error("ai_monitor check failed: {}", ex.getMessage(), ex);
         }
     }
 }
-

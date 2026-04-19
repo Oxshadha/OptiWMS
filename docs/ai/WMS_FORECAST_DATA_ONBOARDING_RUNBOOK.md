@@ -169,6 +169,13 @@ curl "http://localhost:8091/artifacts/acceptance-gate?dataset=B&model_name=CATBO
 curl "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24"
 ```
 
+Governance + evidence checks:
+```bash
+curl "http://localhost:8091/artifacts/governance/status"
+curl -X POST "http://localhost:8091/artifacts/governance/tick"
+curl "http://localhost:8091/artifacts/release-evidence?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24&history_limit=50"
+```
+
 Optional non-soak validation (local/proving only):
 ```bash
 curl "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=0"
@@ -202,6 +209,37 @@ Minimum fix to unblock forecasting:
 2. Ensure finished goods used in outbound orders are present in `materials` with `material_type='product'`.
 3. Ensure product inventory rows exist and at least some SKUs have `quantity > 0`.
 4. Re-run readiness audit and store output JSON as release evidence.
+
+## Troubleshooting (Common Runtime Stops)
+### Symptom: new endpoints return `{"detail":"Not Found"}`
+Example:
+- `/artifacts/governance/status`
+- `/artifacts/release-evidence`
+
+Root cause:
+- forecast-service container is running an older image, not current source.
+
+Fix:
+```bash
+cd /Users/k.e.oshada/Documents/OptiWMS/ai-services
+docker compose -f docker-compose.ai.yml down
+docker compose -f docker-compose.ai.yml up -d --build
+curl "http://localhost:8091/health"
+curl "http://localhost:8091/artifacts/governance/status"
+```
+
+### Symptom: acceptance gate fails with `serving_window_count=0`
+Root cause:
+- service restarted and inference audit window is empty.
+
+Fix:
+```bash
+for i in {1..8}; do
+  curl -sS -X POST "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online" >/dev/null
+done
+curl -sS -X POST "http://localhost:8091/artifacts/operational-health/refresh"
+curl -sS "http://localhost:8091/artifacts/acceptance-gate?dataset=B&model_name=CATBOOST&split=test&inference_window=200"
+```
 
 ## Evidence to Attach per Release
 - Contract check response JSON.

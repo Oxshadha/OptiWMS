@@ -186,6 +186,18 @@ public class AiProxyController {
         return service.getProductionReadiness(dataset, modelName, split, inferenceWindow, soakHours);
     }
 
+    @GetMapping("/artifacts/release-evidence")
+    public ResponseEntity<Object> releaseEvidence(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow,
+            @RequestParam(required = false, name = "soak_hours") Integer soakHours,
+            @RequestParam(required = false, name = "history_limit") Integer historyLimit
+    ) {
+        return service.getReleaseEvidence(dataset, modelName, split, inferenceWindow, soakHours, historyLimit);
+    }
+
     @GetMapping("/artifacts/operational-health")
     public ResponseEntity<Object> operationalHealth() {
         return service.getOperationalHealth();
@@ -201,6 +213,16 @@ public class AiProxyController {
     @PostMapping("/artifacts/operational-health/refresh")
     public ResponseEntity<Object> refreshOperationalHealth() {
         return service.refreshOperationalHealth();
+    }
+
+    @GetMapping("/artifacts/governance/status")
+    public ResponseEntity<Object> governanceStatus() {
+        return service.getGovernanceStatus();
+    }
+
+    @PostMapping("/artifacts/governance/tick")
+    public ResponseEntity<Object> governanceTick() {
+        return service.runGovernanceTick();
     }
 
     @PostMapping("/artifacts/infer-classical")
