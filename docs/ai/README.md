@@ -27,6 +27,8 @@ Use this folder as the single forecast documentation set.
   - Controlled release/promotion/rollback procedure.
 - `EXTERNAL_SIGNALS_INGESTION_RUNBOOK.md`
   - Add external/context signals to portable datasets and retrain via fair-play protocol.
+- `FORECAST_SHADOW_MODE_RUNBOOK.md`
+  - Production-candidate shadow execution and realized-feedback evaluation procedure.
 
 ## Gate definition
 - `INDUSTRY_SUBMISSION_ACCEPTANCE_GATE.md`
