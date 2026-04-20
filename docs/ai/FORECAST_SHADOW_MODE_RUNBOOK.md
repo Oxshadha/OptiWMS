@@ -39,15 +39,20 @@ Script:
 Command:
 ```bash
 python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/shadow_feedback_evaluator.py \
-  --forecast-db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --forecast-db-url sqlite:////Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence/forecast_service_live_snapshot.db \
   --wms-db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
   --schema public \
   --dataset B \
   --model-name CATBOOST \
-  --outbound-statuses shipped,delivered,completed \
+  --outbound-statuses delivered,packed,picking,shipped,completed \
   --forecast-base-url http://localhost:8091 \
   --inference-window 200 \
   --out-dir /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence
+```
+
+If forecast-service runs in Docker with `/data/forecast_service.db`, create the snapshot first:
+```bash
+docker cp ai-services-forecast-service-1:/data/forecast_service.db /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence/forecast_service_live_snapshot.db
 ```
 
 Outputs:
