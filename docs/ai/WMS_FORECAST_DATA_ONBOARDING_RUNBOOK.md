@@ -149,6 +149,38 @@ python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/
   --out-csv /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/synthetic_runtime_history.csv
 ```
 
+If you need enterprise-style RM/packing history (Excel constrained + BOM dependent-demand), use:
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/generate_excel_constrained_bom_dependent_history.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --excel-path "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/RM ROP and Pallet requirement  4- SEP.xlsx" \
+  --months 36 \
+  --source-tag excel_bom_dependent_synth \
+  --out-csv /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/synthetic_bom_dependent_history.csv
+```
+
+Recommended strict realism mode (fail fast if generation quality is weak):
+```bash
+python /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/scripts/generate_excel_constrained_bom_dependent_history.py \
+  --db-url postgresql://optiwms:optiwms@localhost:5434/optiwms \
+  --schema public \
+  --excel-path "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/RM ROP and Pallet requirement  4- SEP.xlsx" \
+  --months 36 \
+  --source-tag excel_bom_dependent_synth \
+  --strict-realism \
+  --min-anchor-coverage 0.70 \
+  --max-weighted-anchor-ape 0.40 \
+  --min-matched-skus 40 \
+  --independent-tail-top-n 260 \
+  --out-csv /Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/synthetic_bom_dependent_history.csv
+```
+
+Notes:
+- The script generates finished-good monthly demand, explodes it through active BOM mappings (`bom_headers` + `bom_components`) with scrap and lead-time shift, then applies Excel-based realism constraints on component demand.
+- Output is written as demand-date rows and loaded idempotently into `forecast_outbound_history_backfill` unless `--no-load` is provided.
+- A quality report is emitted next to the CSV (`*.report.json`) with checks for anchor match coverage, month depth, non-negative demand, range-clamp events, and realism-gate pass/fail.
+
 Verify load/audit:
 ```bash
 psql postgresql://optiwms:optiwms@localhost:5434/optiwms \
