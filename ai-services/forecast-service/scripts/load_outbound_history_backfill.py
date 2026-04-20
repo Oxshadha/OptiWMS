@@ -56,6 +56,20 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def normalize_warehouse_id(value: object) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    text_val = str(value).strip()
+    if text_val.lower() in {"", "nan", "none", "null"}:
+        return None
+    return text_val
+
+
 def normalize_input(frame: pd.DataFrame, warehouse_id_override: str | None) -> pd.DataFrame:
     aliases = {
         "date": "demand_date",
@@ -87,15 +101,15 @@ def normalize_input(frame: pd.DataFrame, warehouse_id_override: str | None) -> p
     if warehouse_id_override:
         frame["warehouse_id"] = warehouse_id_override
     else:
-        frame["warehouse_id"] = frame["warehouse_id"].where(frame["warehouse_id"].notna(), None)
-        frame["warehouse_id"] = frame["warehouse_id"].map(lambda v: str(v).strip() if v is not None else None)
-        frame["warehouse_id"] = frame["warehouse_id"].map(lambda v: None if v in {"", "nan", "None"} else v)
+        frame["warehouse_id"] = frame["warehouse_id"].map(normalize_warehouse_id)
 
     frame = (
         frame.groupby(["warehouse_id", "sku", "category", "demand_date"], dropna=False, as_index=False)["demand_units"]
         .sum()
         .sort_values(["warehouse_id", "sku", "demand_date"])
     )
+    # Groupby can reintroduce NaN for null groups; force UUID-compatible nulls.
+    frame["warehouse_id"] = frame["warehouse_id"].map(normalize_warehouse_id)
     return frame
 
 
@@ -182,7 +196,7 @@ def run(
         )
 
         for r in frame.itertuples(index=False):
-            wh = getattr(r, "warehouse_id")
+            wh = normalize_warehouse_id(getattr(r, "warehouse_id"))
             row = conn.execute(
                 upsert_sql,
                 {
@@ -253,4 +267,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
