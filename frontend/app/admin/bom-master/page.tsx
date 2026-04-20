@@ -10,6 +10,10 @@ import {
   type BomComponent,
   type BomHeader,
 } from "@/lib/api/bom-master";
+import {
+  forecastSkuMappingApi,
+  type ForecastSkuMapping,
+} from "@/lib/api/forecast-sku-mapping";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -29,6 +33,24 @@ const EMPTY_COMPONENT_DRAFT: ComponentDraft = {
   uom: "",
 };
 
+type MappingDraft = {
+  dataset: string;
+  forecastSku: string;
+  wmsMaterialId: string;
+  warehouseId: string;
+  isActive: boolean;
+  notes: string;
+};
+
+const EMPTY_MAPPING_DRAFT: MappingDraft = {
+  dataset: "",
+  forecastSku: "",
+  wmsMaterialId: "",
+  warehouseId: "",
+  isActive: true,
+  notes: "",
+};
+
 export default function BomMasterPage() {
   const { hasPermission } = useAdmin();
   const canWrite = hasPermission(ADMIN_ROUTES.BOM_MASTER, "edit");
@@ -37,6 +59,7 @@ export default function BomMasterPage() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [headers, setHeaders] = useState<BomHeader[]>([]);
+  const [skuMappings, setSkuMappings] = useState<ForecastSkuMapping[]>([]);
   const [selectedHeaderId, setSelectedHeaderId] = useState<string>("");
   const [components, setComponents] = useState<BomComponent[]>([]);
   const [headerStatusEdit, setHeaderStatusEdit] = useState("active");
@@ -53,6 +76,8 @@ export default function BomMasterPage() {
   const [newComponent, setNewComponent] = useState<ComponentDraft>(EMPTY_COMPONENT_DRAFT);
   const [componentMaterialId, setComponentMaterialId] = useState("");
   const [componentEdits, setComponentEdits] = useState<Record<string, ComponentDraft>>({});
+  const [newMapping, setNewMapping] = useState<MappingDraft>(EMPTY_MAPPING_DRAFT);
+  const [mappingEdits, setMappingEdits] = useState<Record<string, MappingDraft>>({});
 
   const selectedHeader = useMemo(
     () => headers.find((h) => h.id === selectedHeaderId),
@@ -83,15 +108,30 @@ export default function BomMasterPage() {
   const loadAll = async () => {
     try {
       setLoading(true);
-      const [materialsData, warehousesData, headersData] = await Promise.all([
+      const [materialsData, warehousesData, headersData, mappings] = await Promise.all([
         materialsApi.getAll(),
         warehousesApi.getAll(),
         bomMasterApi.listHeaders(),
+        forecastSkuMappingApi.list(),
       ]);
       setMaterials(materialsData);
       setWarehouses(warehousesData);
       const nextHeaders = headersData.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
       setHeaders(nextHeaders);
+      const nextMappings = mappings.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+      setSkuMappings(nextMappings);
+      const nextEdits: Record<string, MappingDraft> = {};
+      nextMappings.forEach((row) => {
+        nextEdits[row.id] = {
+          dataset: row.dataset || "",
+          forecastSku: row.forecastSku || "",
+          wmsMaterialId: row.wmsMaterialId || "",
+          warehouseId: row.warehouseId || "",
+          isActive: row.isActive,
+          notes: row.notes || "",
+        };
+      });
+      setMappingEdits(nextEdits);
 
       const nextSelected = selectedHeaderId || nextHeaders[0]?.id || "";
       setSelectedHeaderId(nextSelected);
@@ -105,6 +145,65 @@ export default function BomMasterPage() {
       showToast.error("Failed to load BOM master data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createSkuMapping = async () => {
+    if (!newMapping.forecastSku.trim()) {
+      showToast.error("Forecast SKU is required");
+      return;
+    }
+    if (!newMapping.wmsMaterialId) {
+      showToast.error("WMS material is required");
+      return;
+    }
+    try {
+      await forecastSkuMappingApi.create({
+        dataset: newMapping.dataset || null,
+        forecastSku: newMapping.forecastSku.trim().toUpperCase(),
+        wmsMaterialId: newMapping.wmsMaterialId,
+        warehouseId: newMapping.warehouseId || null,
+        isActive: newMapping.isActive,
+        notes: newMapping.notes || null,
+      });
+      showToast.success("Forecast SKU mapping created");
+      setNewMapping(EMPTY_MAPPING_DRAFT);
+      await loadAll();
+    } catch (error) {
+      logger.error("[BomMasterPage] Failed to create forecast SKU mapping", error);
+      showToast.error("Failed to create forecast SKU mapping");
+    }
+  };
+
+  const saveSkuMapping = async (id: string) => {
+    const draft = mappingEdits[id];
+    if (!draft) return;
+    try {
+      await forecastSkuMappingApi.update(id, {
+        dataset: draft.dataset || null,
+        forecastSku: draft.forecastSku.trim().toUpperCase(),
+        wmsMaterialId: draft.wmsMaterialId,
+        warehouseId: draft.warehouseId || null,
+        isActive: draft.isActive,
+        notes: draft.notes || null,
+      });
+      showToast.success("Forecast SKU mapping updated");
+      await loadAll();
+    } catch (error) {
+      logger.error("[BomMasterPage] Failed to update forecast SKU mapping", error);
+      showToast.error("Failed to update forecast SKU mapping");
+    }
+  };
+
+  const deleteSkuMapping = async (id: string) => {
+    if (!window.confirm("Delete this forecast SKU mapping?")) return;
+    try {
+      await forecastSkuMappingApi.delete(id);
+      showToast.success("Forecast SKU mapping deleted");
+      await loadAll();
+    } catch (error) {
+      logger.error("[BomMasterPage] Failed to delete forecast SKU mapping", error);
+      showToast.error("Failed to delete forecast SKU mapping");
     }
   };
 
@@ -446,6 +545,190 @@ export default function BomMasterPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 rounded-xl p-4 space-y-4">
+            <h2 className="text-lg font-semibold">Forecast SKU Mapping (Explicit)</h2>
+            <p className="text-sm text-base-content/70">
+              Use explicit map rows for forecast SKU namespace to WMS product SKU namespace.
+              This is the enterprise-safe path for shadow evaluation and model governance.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+              <label className="form-control">
+                <span className="label-text text-xs mb-1">Dataset</span>
+                <input
+                  className="input input-bordered"
+                  placeholder="B"
+                  value={newMapping.dataset}
+                  onChange={(e) => setNewMapping((p) => ({ ...p, dataset: e.target.value }))}
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs mb-1">Forecast SKU</span>
+                <input
+                  className="input input-bordered"
+                  placeholder="FG001"
+                  value={newMapping.forecastSku}
+                  onChange={(e) => setNewMapping((p) => ({ ...p, forecastSku: e.target.value }))}
+                />
+              </label>
+              <label className="form-control md:col-span-2">
+                <span className="label-text text-xs mb-1">WMS Product Material</span>
+                <select
+                  className="select select-bordered"
+                  value={newMapping.wmsMaterialId}
+                  onChange={(e) => setNewMapping((p) => ({ ...p, wmsMaterialId: e.target.value }))}
+                >
+                  <option value="">Select material</option>
+                  {materials
+                    .filter((m) => (m.materialType || "").toLowerCase() === "product")
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.materialCode} - {m.description}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs mb-1">Warehouse (optional)</span>
+                <select
+                  className="select select-bordered"
+                  value={newMapping.warehouseId}
+                  onChange={(e) => setNewMapping((p) => ({ ...p, warehouseId: e.target.value }))}
+                >
+                  <option value="">Global</option>
+                  {warehouses.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs mb-1">Status</span>
+                <select
+                  className="select select-bordered"
+                  value={newMapping.isActive ? "active" : "inactive"}
+                  onChange={(e) => setNewMapping((p) => ({ ...p, isActive: e.target.value === "active" }))}
+                >
+                  <option value="active">active</option>
+                  <option value="inactive">inactive</option>
+                </select>
+              </label>
+            </div>
+            <label className="form-control">
+              <span className="label-text text-xs mb-1">Notes</span>
+              <input
+                className="input input-bordered"
+                value={newMapping.notes}
+                onChange={(e) => setNewMapping((p) => ({ ...p, notes: e.target.value }))}
+              />
+            </label>
+            <div>
+              <button className="btn btn-primary" onClick={createSkuMapping} disabled={!canWrite}>
+                Add SKU Mapping
+              </button>
+            </div>
+            <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Dataset</th>
+                    <th>Forecast SKU</th>
+                    <th>WMS SKU</th>
+                    <th>Warehouse</th>
+                    <th>Status</th>
+                    <th>Notes</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {skuMappings.map((row) => {
+                    const draft = mappingEdits[row.id] || EMPTY_MAPPING_DRAFT;
+                    return (
+                      <tr key={row.id}>
+                        <td>
+                          <input
+                            className="input input-bordered input-xs w-20"
+                            value={draft.dataset}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, dataset: e.target.value } }))}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="input input-bordered input-xs w-24"
+                            value={draft.forecastSku}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, forecastSku: e.target.value } }))}
+                          />
+                        </td>
+                        <td>
+                          <select
+                            className="select select-bordered select-xs w-56"
+                            value={draft.wmsMaterialId}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, wmsMaterialId: e.target.value } }))}
+                          >
+                            <option value="">Select material</option>
+                            {materials
+                              .filter((m) => (m.materialType || "").toLowerCase() === "product")
+                              .map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.materialCode} - {m.description}
+                                </option>
+                              ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            className="select select-bordered select-xs w-36"
+                            value={draft.warehouseId}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, warehouseId: e.target.value } }))}
+                          >
+                            <option value="">Global</option>
+                            {warehouses.map((w) => (
+                              <option key={w.id} value={w.id}>
+                                {w.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            className="select select-bordered select-xs w-24"
+                            value={draft.isActive ? "active" : "inactive"}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, isActive: e.target.value === "active" } }))}
+                          >
+                            <option value="active">active</option>
+                            <option value="inactive">inactive</option>
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            className="input input-bordered input-xs w-48"
+                            value={draft.notes}
+                            onChange={(e) => setMappingEdits((p) => ({ ...p, [row.id]: { ...draft, notes: e.target.value } }))}
+                          />
+                        </td>
+                        <td className="text-right space-x-2">
+                          <button className="btn btn-xs btn-outline btn-primary" onClick={() => void saveSkuMapping(row.id)} disabled={!canWrite}>
+                            Save
+                          </button>
+                          <button className="btn btn-xs btn-outline btn-error" onClick={() => void deleteSkuMapping(row.id)} disabled={!canWrite}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!skuMappings.length && (
+                    <tr>
+                      <td colSpan={7} className="text-center text-base-content/60">
+                        No forecast SKU mappings yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 

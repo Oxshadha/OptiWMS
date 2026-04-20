@@ -10,6 +10,8 @@ import com.optiwms.infra.planning.BomComponentEntity;
 import com.optiwms.infra.planning.BomComponentRepository;
 import com.optiwms.infra.planning.BomHeaderEntity;
 import com.optiwms.infra.planning.BomHeaderRepository;
+import com.optiwms.infra.planning.ForecastSkuMappingEntity;
+import com.optiwms.infra.planning.ForecastSkuMappingRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -34,10 +36,12 @@ public class BomMasterController {
 
     private static final String ENTITY_TYPE_HEADER = "bom_header";
     private static final String ENTITY_TYPE_COMPONENT = "bom_component";
+    private static final String ENTITY_TYPE_SKU_MAPPING = "forecast_sku_mapping";
 
     private final BomHeaderRepository bomHeaderRepository;
     private final BomComponentRepository bomComponentRepository;
     private final BomAuditLogRepository bomAuditLogRepository;
+    private final ForecastSkuMappingRepository forecastSkuMappingRepository;
     private final MaterialRepository materialRepository;
     private final ObjectMapper objectMapper;
 
@@ -45,12 +49,14 @@ public class BomMasterController {
             BomHeaderRepository bomHeaderRepository,
             BomComponentRepository bomComponentRepository,
             BomAuditLogRepository bomAuditLogRepository,
+            ForecastSkuMappingRepository forecastSkuMappingRepository,
             MaterialRepository materialRepository,
             ObjectMapper objectMapper
     ) {
         this.bomHeaderRepository = bomHeaderRepository;
         this.bomComponentRepository = bomComponentRepository;
         this.bomAuditLogRepository = bomAuditLogRepository;
+        this.forecastSkuMappingRepository = forecastSkuMappingRepository;
         this.materialRepository = materialRepository;
         this.objectMapper = objectMapper;
     }
@@ -284,6 +290,107 @@ public class BomMasterController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/forecast-sku-mappings")
+    public ResponseEntity<List<ForecastSkuMappingDto>> listForecastSkuMappings(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) Boolean activeOnly
+    ) {
+        List<ForecastSkuMappingEntity> rows;
+        if (dataset != null && !dataset.isBlank()) {
+            rows = forecastSkuMappingRepository.findByDatasetOrderByUpdatedAtDesc(dataset.trim().toUpperCase());
+        } else if (warehouseId != null) {
+            rows = forecastSkuMappingRepository.findByWarehouseIdOrderByUpdatedAtDesc(warehouseId);
+        } else if (activeOnly != null && activeOnly) {
+            rows = forecastSkuMappingRepository.findByIsActiveOrderByUpdatedAtDesc(Boolean.TRUE);
+        } else {
+            rows = forecastSkuMappingRepository.findAllByOrderByUpdatedAtDesc();
+        }
+        List<ForecastSkuMappingDto> response = rows.stream().map(this::toForecastSkuMappingDto).collect(Collectors.toList());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/forecast-sku-mappings")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ForecastSkuMappingDto> createForecastSkuMapping(
+            @RequestBody CreateForecastSkuMappingRequest request,
+            Authentication authentication
+    ) {
+        if (request.forecastSku() == null || request.forecastSku().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "forecastSku is required");
+        }
+        MaterialEntity material = materialRepository.findById(request.wmsMaterialId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "wms material not found"));
+        ForecastSkuMappingEntity row = new ForecastSkuMappingEntity();
+        row.setDataset(request.dataset() == null || request.dataset().isBlank() ? null : request.dataset().trim().toUpperCase());
+        row.setForecastSku(request.forecastSku().trim().toUpperCase());
+        row.setWmsMaterialId(request.wmsMaterialId());
+        row.setWarehouseId(request.warehouseId());
+        row.setIsActive(request.isActive() == null || request.isActive());
+        row.setNotes(request.notes());
+        ForecastSkuMappingEntity saved = forecastSkuMappingRepository.save(row);
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("dataset", saved.getDataset());
+        payload.put("forecast_sku", saved.getForecastSku());
+        payload.put("wms_material_id", saved.getWmsMaterialId());
+        payload.put("wms_material_code", material.getMaterialCode());
+        payload.put("warehouse_id", saved.getWarehouseId());
+        payload.put("is_active", saved.getIsActive());
+        writeAudit("create", ENTITY_TYPE_SKU_MAPPING, saved.getId(), actor(authentication), payload);
+        return ResponseEntity.status(HttpStatus.CREATED).body(toForecastSkuMappingDto(saved));
+    }
+
+    @PutMapping("/forecast-sku-mappings/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ForecastSkuMappingDto> updateForecastSkuMapping(
+            @PathVariable UUID id,
+            @RequestBody UpdateForecastSkuMappingRequest request,
+            Authentication authentication
+    ) {
+        return forecastSkuMappingRepository.findById(id)
+                .map(row -> {
+                    if (request.dataset() != null) {
+                        row.setDataset(request.dataset().isBlank() ? null : request.dataset().trim().toUpperCase());
+                    }
+                    if (request.forecastSku() != null && !request.forecastSku().isBlank()) {
+                        row.setForecastSku(request.forecastSku().trim().toUpperCase());
+                    }
+                    if (request.wmsMaterialId() != null) {
+                        materialRepository.findById(request.wmsMaterialId())
+                                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "wms material not found"));
+                        row.setWmsMaterialId(request.wmsMaterialId());
+                    }
+                    row.setWarehouseId(request.warehouseId());
+                    if (request.isActive() != null) {
+                        row.setIsActive(request.isActive());
+                    }
+                    if (request.notes() != null) {
+                        row.setNotes(request.notes());
+                    }
+                    ForecastSkuMappingEntity saved = forecastSkuMappingRepository.save(row);
+                    Map<String, Object> payload = new HashMap<>();
+                    payload.put("dataset", saved.getDataset());
+                    payload.put("forecast_sku", saved.getForecastSku());
+                    payload.put("wms_material_id", saved.getWmsMaterialId());
+                    payload.put("warehouse_id", saved.getWarehouseId());
+                    payload.put("is_active", saved.getIsActive());
+                    writeAudit("update", ENTITY_TYPE_SKU_MAPPING, saved.getId(), actor(authentication), payload);
+                    return ResponseEntity.ok(toForecastSkuMappingDto(saved));
+                })
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/forecast-sku-mappings/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteForecastSkuMapping(@PathVariable UUID id, Authentication authentication) {
+        if (!forecastSkuMappingRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        forecastSkuMappingRepository.deleteById(id);
+        writeAudit("delete", ENTITY_TYPE_SKU_MAPPING, id, actor(authentication), Map.of("deleted", true));
+        return ResponseEntity.noContent().build();
+    }
+
     private BomHeaderDto toHeaderDto(BomHeaderEntity entity) {
         return new BomHeaderDto(
                 entity.getId(),
@@ -309,6 +416,23 @@ public class BomMasterController {
                 entity.getScrapRate(),
                 entity.getLeadTimeDays(),
                 entity.getUom(),
+                entity.getCreatedAt() != null ? entity.getCreatedAt().toString() : null,
+                entity.getUpdatedAt() != null ? entity.getUpdatedAt().toString() : null
+        );
+    }
+
+    private ForecastSkuMappingDto toForecastSkuMappingDto(ForecastSkuMappingEntity entity) {
+        MaterialEntity material = materialRepository.findById(entity.getWmsMaterialId()).orElse(null);
+        return new ForecastSkuMappingDto(
+                entity.getId(),
+                entity.getDataset(),
+                entity.getForecastSku(),
+                entity.getWmsMaterialId(),
+                material != null ? material.getMaterialCode() : null,
+                material != null ? material.getDescription() : null,
+                entity.getWarehouseId(),
+                Boolean.TRUE.equals(entity.getIsActive()),
+                entity.getNotes(),
                 entity.getCreatedAt() != null ? entity.getCreatedAt().toString() : null,
                 entity.getUpdatedAt() != null ? entity.getUpdatedAt().toString() : null
         );
@@ -428,6 +552,21 @@ public class BomMasterController {
     ) {
     }
 
+    public record ForecastSkuMappingDto(
+            UUID id,
+            String dataset,
+            String forecastSku,
+            UUID wmsMaterialId,
+            String wmsSku,
+            String wmsDescription,
+            UUID warehouseId,
+            boolean isActive,
+            String notes,
+            String createdAt,
+            String updatedAt
+    ) {
+    }
+
     public record CreateBomHeaderRequest(
             UUID parentMaterialId,
             UUID warehouseId,
@@ -464,6 +603,26 @@ public class BomMasterController {
             BigDecimal scrapRate,
             Integer leadTimeDays,
             String uom
+    ) {
+    }
+
+    public record CreateForecastSkuMappingRequest(
+            String dataset,
+            String forecastSku,
+            UUID wmsMaterialId,
+            UUID warehouseId,
+            Boolean isActive,
+            String notes
+    ) {
+    }
+
+    public record UpdateForecastSkuMappingRequest(
+            String dataset,
+            String forecastSku,
+            UUID wmsMaterialId,
+            UUID warehouseId,
+            Boolean isActive,
+            String notes
     ) {
     }
 }

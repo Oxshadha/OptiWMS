@@ -60,6 +60,10 @@ Outputs:
 - `shadow_feedback_<STAMP>_by_horizon.csv` (horizon-level KPI summary)
 - `shadow_feedback_<STAMP>_summary.json` (overall KPI + coverage + inference summary)
 
+Prerequisite:
+- Maintain explicit rows in `forecast_sku_mapping` (admin BOM Master page, "Forecast SKU Mapping (Explicit)").
+- Heuristic `FG -> numeric` conversion is intentionally disabled.
+
 ## Key KPIs to Track During Shadow
 - `coverage_pct_matured` (how many matured forecasts have actuals)
 - `WAPE`
@@ -78,7 +82,10 @@ Outputs:
 4. No critical operational-health incidents in observed window.
 
 ## Notes
-- If `rows_matched_actuals=0`, shadow window is too early or actual outbound data is missing for matured horizons.
+- If `rows_matched_actuals=0`, either:
+  - shadow window is too early, or
+  - explicit SKU mappings are missing/inactive, or
+  - actual outbound statuses used for evaluator do not match your runtime flow.
 - Keep immutable evidence snapshots in:
   - `/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence`
   - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/history/leaderboards`
