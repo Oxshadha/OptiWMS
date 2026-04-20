@@ -22,7 +22,8 @@ def _now_stamp() -> str:
 
 def _parse_statuses(raw: str) -> list[str]:
     out = [s.strip() for s in str(raw or "").split(",") if s.strip()]
-    return out or ["shipped", "delivered", "completed"]
+    # Use runtime-realistic defaults for WMS outbound flows.
+    return out or ["delivered", "packed", "picking", "shipped", "completed"]
 
 
 def _wape(actual: np.ndarray, pred: np.ndarray) -> float | None:
@@ -59,6 +60,68 @@ def _http_json(base_url: str, path: str, query: dict[str, Any]) -> dict[str, Any
             return json.loads(raw) if raw else {}
     except Exception:
         return None
+
+
+def _norm_sku(s: Any) -> str:
+    return str(s or "").strip().upper()
+
+
+def _fg_to_numeric_sku(s: str) -> str:
+    # Demo/system fallback namespace bridge:
+    # FG001 -> 100001, FG103 -> 100103
+    # Keep unknown codes unchanged.
+    if not s.startswith("FG"):
+        return s
+    digits = s[2:]
+    if not digits.isdigit():
+        return s
+    return f"{100000 + int(digits)}"
+
+
+def _load_optional_sku_map(wms_db_url: str, schema: str) -> dict[str, str]:
+    """
+    Optional explicit SKU bridge table support.
+    Expected table (if present): <schema>.forecast_sku_mapping
+    Columns:
+      - forecast_sku
+      - wms_sku
+      - is_active (optional, defaults true when absent)
+    """
+    engine = create_engine(wms_db_url, future=True, pool_pre_ping=True)
+    exists_sql = text(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = :schema
+              AND table_name = 'forecast_sku_mapping'
+        ) AS exists
+        """
+    )
+    with engine.connect() as conn:
+        exists = bool(conn.execute(exists_sql, {"schema": schema}).scalar() or False)
+        if not exists:
+            return {}
+        rows = conn.execute(
+            text(
+                f"""
+                SELECT
+                    forecast_sku::text AS forecast_sku,
+                    wms_sku::text AS wms_sku
+                FROM {schema}.forecast_sku_mapping
+                WHERE COALESCE(is_active, TRUE)
+                """
+            )
+        ).mappings().all()
+    out: dict[str, str] = {}
+    for r in rows:
+        fk = _norm_sku(r.get("forecast_sku"))
+        wk = _norm_sku(r.get("wms_sku"))
+        if fk and wk:
+            out[fk] = wk
+            # Also allow already-runtime namespace lookups to be stable.
+            out[wk] = wk
+    return out
 
 
 @dataclass
@@ -185,7 +248,11 @@ def _load_actual_monthly(
     return out
 
 
-def _evaluate_join(pred: pd.DataFrame, act: pd.DataFrame) -> pd.DataFrame:
+def _evaluate_join(
+    pred: pd.DataFrame,
+    act: pd.DataFrame,
+    sku_map: dict[str, str] | None = None,
+) -> pd.DataFrame:
     if pred.empty or act.empty:
         return pd.DataFrame()
 
@@ -199,10 +266,14 @@ def _evaluate_join(pred: pd.DataFrame, act: pd.DataFrame) -> pd.DataFrame:
     ]
 
     out = pred.copy()
+    map_dict = sku_map or {}
     out["sku"] = out["sku"].astype(str).str.strip()
+    out["sku_key"] = out["sku"].map(lambda x: map_dict.get(_norm_sku(x), _fg_to_numeric_sku(_norm_sku(x))))
     out["warehouse_id"] = out["warehouse_id"].fillna("").astype(str)
-    out = out.merge(actual_all, on=["sku", "target_month"], how="left")
-    out = out.merge(actual_wh, on=["warehouse_id", "sku", "target_month"], how="left")
+    actual_all["sku_key"] = actual_all["sku"].map(lambda x: map_dict.get(_norm_sku(x), _norm_sku(x)))
+    actual_wh["sku_key"] = actual_wh["sku"].map(lambda x: map_dict.get(_norm_sku(x), _norm_sku(x)))
+    out = out.merge(actual_all.drop(columns=["sku"]), on=["sku_key", "target_month"], how="left")
+    out = out.merge(actual_wh.drop(columns=["sku"]), on=["warehouse_id", "sku_key", "target_month"], how="left")
 
     # If prediction row has explicit warehouse, prefer warehouse-level actuals; otherwise use all-warehouse aggregate.
     use_wh = out["warehouse_id"].astype(str).str.len() > 0
@@ -277,7 +348,8 @@ def run(
         outbound_statuses=outbound_statuses,
         warehouse_id=warehouse_id,
     )
-    joined = _evaluate_join(matured, actual)
+    sku_map = _load_optional_sku_map(wms_db_url=wms_db_url, schema=schema)
+    joined = _evaluate_join(matured, actual, sku_map=sku_map)
     matched = joined[joined["actual_units"].notna() & joined["p50"].notna()].copy()
 
     wape = _wape(matched["actual_units"].to_numpy(), matched["p50"].to_numpy()) if not matched.empty else None
