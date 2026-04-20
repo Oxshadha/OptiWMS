@@ -1,10 +1,12 @@
-const CACHE_VERSION = "optiwms-worker-shell-v1";
+// Bump to invalidate old caches when changing offline navigation behavior.
+const CACHE_VERSION = "optiwms-worker-shell-v2";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 
 const APP_SHELL_URLS = [
   "/manifest.json",
   "/favicon.ico",
+  "/worker",
   "/worker/login",
 ];
 const CRITICAL_WORKER_ROUTES = [
@@ -76,11 +78,26 @@ self.addEventListener("fetch", (event) => {
           if (cachedResponse) {
             return cachedResponse;
           }
-          const loginFallback = await caches.match("/worker/login");
-          if (loginFallback) {
-            return loginFallback;
+
+          // Offline fallback: do NOT show login for arbitrary worker routes.
+          // Returning the login page here looks like an auth failure when the tab reloads offline.
+          const homeFallback = await caches.match("/worker");
+          if (homeFallback) {
+            return homeFallback;
           }
-          return Response.error();
+
+          // If the user is explicitly navigating to login, it's safe to return it offline.
+          if (url.pathname === "/worker/login") {
+            const loginFallback = await caches.match("/worker/login");
+            if (loginFallback) {
+              return loginFallback;
+            }
+          }
+
+          return new Response("Offline", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
         })
     );
     return;

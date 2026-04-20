@@ -58,6 +58,8 @@ export function CreateOutboundOrderModal({
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [warehouses, setWarehouses] = useState<Array<{ id: string; name: string }>>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
+  const [inventoryTotalsByMaterialId, setInventoryTotalsByMaterialId] = useState<Map<string, number>>(new Map());
+  const [isInventoryLoading, setIsInventoryLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
@@ -76,6 +78,13 @@ export function CreateOutboundOrderModal({
       })
       .slice(0, 20);
   }, [customers, customerSearch]);
+
+  const selectableMaterials = useMemo(() => {
+    if (!formData.warehouseId) return materials;
+    if (isInventoryLoading) return [];
+    if (inventoryTotalsByMaterialId.size === 0) return [];
+    return materials.filter((m) => inventoryTotalsByMaterialId.has(m.id));
+  }, [formData.warehouseId, inventoryTotalsByMaterialId, isInventoryLoading, materials]);
 
   const applyCustomerToForm = (customer: Customer) => {
     const addressParts = (customer.address || "").split("\n");
@@ -118,6 +127,46 @@ export function CreateOutboundOrderModal({
     };
     loadData();
   }, []);
+
+  // When a warehouse is selected, load inventory for that warehouse so the item dropdown can be filtered.
+  useEffect(() => {
+    const warehouseId = formData.warehouseId;
+    if (!warehouseId) {
+      setInventoryTotalsByMaterialId(new Map());
+      setIsInventoryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsInventoryLoading(true);
+
+    (async () => {
+      try {
+        const items = await inventoryApi.getByWarehouse(warehouseId);
+        const totals = new Map<string, number>();
+        for (const item of items) {
+          const current = totals.get(item.materialId) || 0;
+          const add = parseInt(item.availableQuantity) || 0;
+          totals.set(item.materialId, current + add);
+        }
+        if (!cancelled) setInventoryTotalsByMaterialId(totals);
+      } catch (err) {
+        if (process.env.NODE_ENV === "development") {
+          logger.error(
+            "[Outbound Order] Failed to load warehouse inventory:",
+            err instanceof Error ? err.message : "Unknown error"
+          );
+        }
+        if (!cancelled) setInventoryTotalsByMaterialId(new Map());
+      } finally {
+        if (!cancelled) setIsInventoryLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [formData.warehouseId]);
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -989,53 +1038,21 @@ export function CreateOutboundOrderModal({
                         newItems[idx].productId = e.target.value;
                         newItems[idx].orderQuantity = 0; // Reset quantity when product changes
                         
-                        // Fetch available quantity from inventory API
+                        // Fetch available quantity from preloaded warehouse totals.
                         if (e.target.value && formData.warehouseId) {
-                          try {
-                            const isDev = process.env.NODE_ENV === 'development';
-                            
-                            // Use combined endpoint to get inventory for material + warehouse
-                            const inventoryItem = await inventoryApi.getByMaterialAndWarehouse(
-                              e.target.value,
-                              formData.warehouseId
-                            );
-                            
-                            if (inventoryItem) {
-                              const availableQty = parseInt(inventoryItem.availableQuantity) || 0;
-                              newItems[idx].availableQuantity = availableQty;
-                              
-                              if (availableQty === 0) {
-                                try {
-                                  showToast.warning(`No available stock for this product in selected warehouse`);
-                                } catch (toastErr) {
-                                  if (isDev) logger.error("[Outbound Order] Toast error");
-                                }
-                              }
-                            } else {
-                              newItems[idx].availableQuantity = 0;
-                              try {
-                                showToast.warning(`No inventory found for this product in selected warehouse`);
-                              } catch (toastErr) {
-                                if (isDev) logger.error("[Outbound Order] Toast error");
-                              }
-                            }
-                          } catch (err: any) {
-                            const isDev = process.env.NODE_ENV === 'development';
-                            if (isDev) {
-                              logger.error("[Outbound Order] Failed to fetch available quantity:", err?.message || 'Unknown error');
-                            }
-                            newItems[idx].availableQuantity = 0;
+                          const availableQty = inventoryTotalsByMaterialId.get(e.target.value) ?? 0;
+                          newItems[idx].availableQuantity = availableQty;
+
+                          if (availableQty === 0) {
                             try {
-                              showToast.error(`Failed to fetch available quantity. Please try again.`);
-                            } catch (toastErr) {
-                              if (isDev) logger.error("[Outbound Order] Toast error");
-                            }
+                              showToast.warning(`No available stock for this product in selected warehouse`);
+                            } catch {}
                           }
-                        } else if (e.target.value && !formData.warehouseId) {
-                          // Warehouse not selected yet
-                          newItems[idx].availableQuantity = 0;
-                          try {
-                            showToast.warning("Please select a warehouse first to see available quantity");
+                        } else if (e.target.value && !formData.warehouseId) { 
+                          // Warehouse not selected yet 
+                          newItems[idx].availableQuantity = 0; 
+                          try { 
+                            showToast.warning("Please select a warehouse first to see available quantity"); 
                           } catch (toastErr) {
                             const isDev = process.env.NODE_ENV === 'development';
                             if (isDev) logger.error("[Outbound Order] Toast error");
@@ -1049,7 +1066,17 @@ export function CreateOutboundOrderModal({
                       required
                     >
                       <option value="">Select material</option>
-                      {materials.map((m) => (
+                      {formData.warehouseId && isInventoryLoading && (
+                        <option value="" disabled>
+                          Loading warehouse inventory...
+                        </option>
+                      )}
+                      {formData.warehouseId && !isInventoryLoading && selectableMaterials.length === 0 && (
+                        <option value="" disabled>
+                          No inventory items in selected warehouse
+                        </option>
+                      )}
+                      {(formData.warehouseId ? selectableMaterials : materials).map((m) => (
                         <option key={m.id} value={m.id}>
                           {m.description}
                         </option>
