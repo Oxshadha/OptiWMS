@@ -66,25 +66,13 @@ def _norm_sku(s: Any) -> str:
     return str(s or "").strip().upper()
 
 
-def _fg_to_numeric_sku(s: str) -> str:
-    # Demo/system fallback namespace bridge:
-    # FG001 -> 100001, FG103 -> 100103
-    # Keep unknown codes unchanged.
-    if not s.startswith("FG"):
-        return s
-    digits = s[2:]
-    if not digits.isdigit():
-        return s
-    return f"{100000 + int(digits)}"
-
-
 def _load_optional_sku_map(wms_db_url: str, schema: str) -> dict[str, str]:
     """
     Optional explicit SKU bridge table support.
     Expected table (if present): <schema>.forecast_sku_mapping
     Columns:
       - forecast_sku
-      - wms_sku
+      - wms_material_id
       - is_active (optional, defaults true when absent)
     """
     engine = create_engine(wms_db_url, future=True, pool_pre_ping=True)
@@ -106,9 +94,10 @@ def _load_optional_sku_map(wms_db_url: str, schema: str) -> dict[str, str]:
             text(
                 f"""
                 SELECT
-                    forecast_sku::text AS forecast_sku,
-                    wms_sku::text AS wms_sku
-                FROM {schema}.forecast_sku_mapping
+                    fsm.forecast_sku::text AS forecast_sku,
+                    m.material_code::text AS wms_sku
+                FROM {schema}.forecast_sku_mapping fsm
+                JOIN {schema}.materials m ON m.id = fsm.wms_material_id
                 WHERE COALESCE(is_active, TRUE)
                 """
             )
@@ -268,7 +257,7 @@ def _evaluate_join(
     out = pred.copy()
     map_dict = sku_map or {}
     out["sku"] = out["sku"].astype(str).str.strip()
-    out["sku_key"] = out["sku"].map(lambda x: map_dict.get(_norm_sku(x), _fg_to_numeric_sku(_norm_sku(x))))
+    out["sku_key"] = out["sku"].map(lambda x: map_dict.get(_norm_sku(x), _norm_sku(x)))
     out["warehouse_id"] = out["warehouse_id"].fillna("").astype(str)
     actual_all["sku_key"] = actual_all["sku"].map(lambda x: map_dict.get(_norm_sku(x), _norm_sku(x)))
     actual_wh["sku_key"] = actual_wh["sku"].map(lambda x: map_dict.get(_norm_sku(x), _norm_sku(x)))
