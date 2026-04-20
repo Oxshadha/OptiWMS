@@ -165,3 +165,4 @@ backend/.gradle-local/
 *.csv
 
 *.sh
+reference-data.sql

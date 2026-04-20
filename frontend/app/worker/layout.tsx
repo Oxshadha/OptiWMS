@@ -425,17 +425,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
         // If we have a token but no worker state, wait a bit more (API call might be in progress)
         if (!worker && !role && currentHasToken) {
-          logger.debug("[WorkerLayout] Has token but no worker - waiting for API call...");
-          const retryTimeout = setTimeout(() => {
-            if (!worker && !role) {
-              logger.debug("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
-              // Token might be invalid, clear it
-              localStorage.removeItem('accessToken');
-              localStorage.removeItem('refreshToken');
-              router.replace("/worker/login");
-            }
-          }, 3000); // Increased timeout to allow API call
-          return () => clearTimeout(retryTimeout);
+          logger.debug("[WorkerLayout] Has token but no worker - waiting for session restore");
+          return;
         }
 
         // Check if worker has permission for this operation
@@ -483,7 +474,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   const [loadingTimeout, setLoadingTimeout] = React.useState(false);
   
   React.useEffect(() => {
-    if (isLoading && hasToken && !worker) {
+    if (isLoading && !hasToken && !worker) {
       // Set a timeout - if still loading after 5 seconds, force stop
       const timeout = setTimeout(() => {
         logger.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
@@ -498,11 +489,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   
   // If timeout occurred, redirect to login
   React.useEffect(() => {
-    if (loadingTimeout && !worker && !role) {
+    if (loadingTimeout && !worker && !role && !hasToken) {
       logger.debug("[WorkerLayout] Loading timeout - redirecting to login");
       router.replace("/worker/login");
     }
-  }, [loadingTimeout, worker, role, router]);
+  }, [loadingTimeout, worker, role, hasToken, router]);
   
   // Show loading while checking auth, but with timeout
   if (!mounted) {
