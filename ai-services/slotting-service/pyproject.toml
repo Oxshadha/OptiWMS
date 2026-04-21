@@ -1,0 +1,10 @@
+[project]
+name = "slotting-service"
+version = "0.1.0"
+description = "OptiWMS slotting recommendation service"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.29.0",
+]

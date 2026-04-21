@@ -31,6 +31,7 @@ export const ADMIN_ROUTES = {
   PRODUCTS: '/admin/products',
   RAW_MATERIALS: '/admin/raw-materials',
   SUPPLIERS: '/admin/suppliers',
+  BOM_MASTER: '/admin/bom-master',
   WORKERS: '/admin/workers',
   ADMINS: '/admin/admins',
   TASKS: '/admin/tasks',
@@ -71,6 +72,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.BOM_MASTER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.WORKERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.ADMINS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -105,6 +107,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']), // Operational product management
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']), // Raw materials management
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO, cannot delete (no delete permission)
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only - cannot modify user accounts
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access - cannot modify user permissions
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']), // Assign tasks to staff
@@ -138,6 +141,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),

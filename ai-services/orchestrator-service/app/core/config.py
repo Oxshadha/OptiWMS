@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     wms_api_base_url: str = "http://localhost:8080/api"
     forecast_api_base_url: str = "http://forecast-service:8091"
+    run_create_timeout_seconds: float = 20.0
+    run_publish_timeout_seconds: float = 300.0
+    run_publish_poll_interval_seconds: float = 1.5
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
