@@ -51,6 +51,12 @@ services:
       - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
     ports:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR:-/reports}:ro
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
@@ -69,9 +75,39 @@ services:
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
     depends_on:
-      - forecast-service
+      forecast-service:
+        condition: service_healthy
     ports:
       - "${ORCHESTRATOR_SERVICE_PORT}:${ORCHESTRATOR_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  slotting-service:
+    build:
+      context: ./slotting-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=slotting-service
+      - SERVICE_PORT=${SLOTTING_SERVICE_PORT:-8093}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      forecast-service:
+        condition: service_healthy
+    ports:
+      - "${SLOTTING_SERVICE_PORT:-8093}:${SLOTTING_SERVICE_PORT:-8093}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   forecast-service-data:

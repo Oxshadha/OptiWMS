@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     inference_audit_max_lines: int = 10000
     alert_fallback_rate_threshold: float = 0.05
     alert_errors_threshold: int = 1
-    alert_p95_latency_ms_threshold: float = 500.0
+    alert_p95_latency_ms_threshold: float = 1000.0
     api_auth_required: bool = False
     api_auth_token: str | None = None
     inference_rate_limit_per_minute: int = 600
