@@ -17,6 +17,43 @@ This project is a **modular layered monolith**:
 
 It is not a microservice architecture today. AI services are optional and additive.
 
+## AI Services (Forecast Feature)
+
+OptiWMS includes optional AI-powered forecasting capabilities:
+- **Forecast Service**: Machine learning models for demand forecasting
+- **Orchestrator Service**: Job scheduling and coordination
+- **Shadow Mode**: Safe testing with automatic governance
+- **Production Ready**: Quality gates and automatic model management
+
+### Quick Start (AI Services)
+
+1. **Prerequisites**
+   ```bash
+   # Ensure core services are running
+   docker-compose -f infra/docker-compose.yml up -d
+   ```
+
+2. **Setup AI Services**
+   ```bash
+   cd ai-services
+   cp .env.example .env
+   # Edit .env with your configuration
+   docker-compose -f docker-compose.ai.yml up -d
+   ```
+
+3. **Verify Installation**
+   ```bash
+   curl http://localhost:8091/health
+   curl http://localhost:8092/health
+   ```
+
+### AI Service Architecture
+- `ai-services/forecast-service/`: ML inference engine
+- `ai-services/orchestrator-service/`: Job orchestration
+- `ai-services/slotting-service/`: Inventory optimization (planned)
+
+See [TEAM_COLLABORATION_GUIDE.md](TEAM_COLLABORATION_GUIDE.md) for team setup and [DEPLOYMENT_CHANGELOG.md](DEPLOYMENT_CHANGELOG.md) for implementation details.
+
 ## Tech Stack
 
 - Backend: Java 21, Spring Boot 3.3, Spring Security, Spring Data JPA, Flyway

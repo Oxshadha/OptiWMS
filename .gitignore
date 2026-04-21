@@ -41,13 +41,36 @@ build/
 target/
 *.iml
 
-# Backend specific
-backend/core-api/logs/
+# AI Service specific
+ai-services/forecast-service/forecast_service.db
+ai-services/forecast-service/artifacts/evidence/*.db
+forecast_service.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Model artifacts (large files - consider separate storage)
+# Ai miroservices/modeling/outputs/artifacts/**/*.pkl  # Uncomment if too large
+
+# Logs and temporary files
+logs/
+*.log
+backend_log.txt
+shadow_forecast.log
+collect_feedback.log
+
+# Build artifacts
 backend/core-api/build/
+backend/core-api/target/
 backend/*/build/
-backend/*/bin/
 backend/*/target/
-backend/.gradle/
+
+# Test coverage
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
 
 # Frontend specific
 frontend/.next/
