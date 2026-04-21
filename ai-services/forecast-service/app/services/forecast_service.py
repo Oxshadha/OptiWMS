@@ -16,19 +16,37 @@ METRIC_PATH = f"{settings.reports_dir}/{settings.metrics_report_file}"
 def _resolve_report_path(kind: str, configured_path: str, dataset: str, model_name: str) -> Path | None:
     configured = Path(configured_path)
     if configured.exists():
-        return configured
+        try:
+            sample = pd.read_csv(configured, nrows=2000)
+            if "dataset" in sample.columns and "model" in sample.columns:
+                matched = sample[
+                    sample["dataset"].astype(str).eq(str(dataset))
+                    & sample["model"].astype(str).eq(str(model_name))
+                ]
+                if not matched.empty:
+                    return configured
+            else:
+                # If the configured file is not dataset/model keyed, keep legacy behavior.
+                return configured
+        except Exception:
+            # Keep legacy behavior for unreadable but explicitly configured paths.
+            return configured
 
     reports_dir = Path(settings.reports_dir)
     if not reports_dir.exists():
         return None
 
-    patterns = {
-        "forecasts": "*_forecasts.csv",
-        "metrics": "*_metrics.csv",
-        "inventory": "*inventory*.csv",
+    patterns_by_kind: dict[str, list[str]] = {
+        "forecasts": ["*_forecasts.csv"],
+        # Support both strict metrics exports and leaderboard-style files.
+        "metrics": ["*_metrics.csv", "*leaderboard*.csv"],
+        "inventory": ["*inventory*.csv"],
     }
-    pattern = patterns.get(kind, "*.csv")
-    candidates = sorted(reports_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    patterns = patterns_by_kind.get(kind, ["*.csv"])
+    candidates: list[Path] = []
+    for pattern in patterns:
+        candidates.extend(list(reports_dir.glob(pattern)))
+    candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
     for candidate in candidates:
         try:
             sample = pd.read_csv(candidate, nrows=2000)

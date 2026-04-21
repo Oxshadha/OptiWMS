@@ -336,7 +336,40 @@ def evaluate_acceptance_gate(
         "MASE_mean": None,
     }
 
-    metric_path = Path(f"{settings.reports_dir}/{settings.metrics_report_file}")
+    def _resolve_gate_metrics_path(ds: str | None, model: str | None) -> Path | None:
+        configured = Path(f"{settings.reports_dir}/{settings.metrics_report_file}")
+        reports_dir = Path(settings.reports_dir)
+
+        def _matches(path: Path) -> bool:
+            try:
+                frame = pd.read_csv(path, nrows=4000)
+            except Exception:
+                return False
+            if "dataset" in frame.columns and ds:
+                frame = frame[frame["dataset"].astype(str).str.upper() == ds.upper()]
+            if "model" in frame.columns and model:
+                frame = frame[frame["model"].astype(str).str.upper() == model.upper()]
+            if "split" in frame.columns:
+                frame = frame[frame["split"].astype(str).str.lower() == split.lower()]
+            return not frame.empty
+
+        if configured.exists() and _matches(configured):
+            return configured
+
+        if not reports_dir.exists():
+            return configured if configured.exists() else None
+
+        candidates: list[Path] = []
+        for pattern in ("*_metrics.csv", "*leaderboard*.csv"):
+            candidates.extend(list(reports_dir.glob(pattern)))
+        candidates = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)
+        for candidate in candidates:
+            if _matches(candidate):
+                return candidate
+
+        return configured if configured.exists() else None
+
+    metric_path = _resolve_gate_metrics_path(dataset, model_name)
     if metric_path.exists():
         metric_df = pd.read_csv(metric_path)
         if "dataset" in metric_df.columns and dataset:
@@ -362,8 +395,37 @@ def evaluate_acceptance_gate(
 
         # Normalize bias by average demand to keep gate in percentage space.
         avg_demand: float | None = None
-        forecast_path = Path(f"{settings.reports_dir}/{settings.forecast_report_file}")
-        if forecast_path.exists():
+
+        def _resolve_gate_forecast_path(ds: str | None, model: str | None) -> Path | None:
+            configured = Path(f"{settings.reports_dir}/{settings.forecast_report_file}")
+            reports_dir = Path(settings.reports_dir)
+
+            def _matches(path: Path) -> bool:
+                try:
+                    frame = pd.read_csv(path, nrows=4000)
+                except Exception:
+                    return False
+                if "dataset" in frame.columns and ds:
+                    frame = frame[frame["dataset"].astype(str).str.upper() == ds.upper()]
+                if "model" in frame.columns and model:
+                    frame = frame[frame["model"].astype(str).str.upper() == model.upper()]
+                if "split" in frame.columns:
+                    frame = frame[frame["split"].astype(str).str.lower() == split.lower()]
+                return not frame.empty
+
+            if configured.exists() and _matches(configured):
+                return configured
+            if not reports_dir.exists():
+                return configured if configured.exists() else None
+
+            candidates = sorted(reports_dir.glob("*_forecasts.csv"), key=lambda p: p.stat().st_mtime, reverse=True)
+            for candidate in candidates:
+                if _matches(candidate):
+                    return candidate
+            return configured if configured.exists() else None
+
+        forecast_path = _resolve_gate_forecast_path(dataset, model_name)
+        if forecast_path and forecast_path.exists():
             try:
                 fdf = pd.read_csv(forecast_path)
                 if "dataset" in fdf.columns and dataset:
