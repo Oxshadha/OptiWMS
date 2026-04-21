@@ -204,6 +204,40 @@ cd backend
 
 This does not block normal API development; it only skips synthetic rack generation at startup.
 
+### 4) Backend startup fails with Flyway migration validation/version errors
+
+Common local causes:
+- Duplicate migration version in `backend/infra/src/main/resources/db/migration`.
+- Checksum mismatch in `flyway_schema_history` after editing an already-applied migration.
+
+Quick checks:
+
+```bash
+cd backend/infra/src/main/resources/db/migration
+ls V*.sql | sed 's/__.*//' | sort | uniq -d
+```
+
+If duplicates are found, keep historical versions stable and renumber only the new migration file.
+
+If startup fails with checksum mismatch in local dev, repair the local DB history to match the current file checksum:
+
+```bash
+docker exec -i optiwms-db psql -U optiwms -d optiwms -c "SELECT version, description, checksum, success FROM flyway_schema_history ORDER BY installed_rank;"
+```
+
+Then update only the affected version checksum reported by Flyway:
+
+```bash
+docker exec -i optiwms-db psql -U optiwms -d optiwms -c "UPDATE flyway_schema_history SET checksum = <resolved_locally_checksum> WHERE version = '<version>';"
+```
+
+Re-run backend:
+
+```bash
+cd backend
+./gradlew :core-api:bootRun
+```
+
 ## Default Bootstrap Credentials (Dev Only)
 
 Created by `backend/integration/src/main/java/com/optiwms/integration/UserSeederService.java`:
