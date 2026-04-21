@@ -41,13 +41,36 @@ build/
 target/
 *.iml
 
-# Backend specific
-backend/core-api/logs/
+# AI Service specific
+ai-services/forecast-service/forecast_service.db
+ai-services/forecast-service/artifacts/evidence/*.db
+forecast_service.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Model artifacts (large files - consider separate storage)
+# Ai miroservices/modeling/outputs/artifacts/**/*.pkl  # Uncomment if too large
+
+# Logs and temporary files
+logs/
+*.log
+backend_log.txt
+shadow_forecast.log
+collect_feedback.log
+
+# Build artifacts
 backend/core-api/build/
+backend/core-api/target/
 backend/*/build/
-backend/*/bin/
 backend/*/target/
-backend/.gradle/
+
+# Test coverage
+coverage/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
 
 # Frontend specific
 frontend/.next/
@@ -106,6 +129,7 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
 venv/
 env/
 ENV/
@@ -163,12 +187,37 @@ backend/.gradle-local/
 *.pdf
 # Local viva notes
 VIVA_FOLDER_MAP_AND_GRADLE.md
-*.md
-!README.md
+
+# Keep markdown and shell scripts trackable; ignore only specific local notes.
 
 *.csv
 
-*.sh
-
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
+Ai miroservices/modeling/catboost_info/
+catboost_info/
+
+# Local external benchmark data and notebook outputs
+Ai miroservices/external-data/
+ai-services/m5-forecasting-accuracy/
+# Modeling generated outputs
+Ai miroservices/modeling/outputs/artifacts/
+Ai miroservices/modeling/outputs/reports/
+Ai miroservices/modeling/outputs/audit/
+Ai miroservices/modeling/outputs/cleaned/
+Ai miroservices/modeling/logs/
+Ai miroservices/modeling/scripts/__pycache__/
+Ai miroservices/modeling/notebooks/__pycache__/
+Ai miroservices/modeling/notebooks/catboost_info/
+Ai miroservices/modeling/scripts/catboost_info/
+Ai miroservices/modeling/outputs/artifacts/**/*.pkl
+Ai miroservices/modeling/outputs/artifacts/**/*.cbm
+Ai miroservices/modeling/outputs/artifacts/**/*.json
+
+# Jupyter / notebook runtime junk
+**/.ipynb_checkpoints/
+**/._*.ipynb
+Ai miroservices/modeling/notebooks/.jupyter_cache/
+
+# Forecast service generated runtime artifacts (backfill exports, dq reports, lineage dumps)
+ai-services/forecast-service/artifacts/

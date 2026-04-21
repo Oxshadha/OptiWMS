@@ -1,12 +1,21 @@
-## Slotting Service (AI Microservice Stub)
+## Slotting Service
 
-This folder is reserved for an AI microservice that will provide slotting recommendations.
+This service provides the slotting microservice runtime shell for OptiWMS AI stack.
 
-Expected responsibilities:
-- Read warehouse layout and historical movement data via events or APIs.
-- Expose an internal HTTP API such as `/internal/ai/recommendations/slotting` that returns suggested storage locations.
-- Remain independent from the core WMS so it can be replaced or scaled separately.
+Current endpoints:
+- `GET /health` -> health check
+- `POST /recommendations/slotting` -> stubbed response until recommendation logic is implemented
 
-Implementation is intentionally minimal at this stage; fill in with your preferred stack (e.g. Python/FastAPI or Spring Boot) when ready.
+Run with compose from `ai-services`:
+
+```bash
+docker compose -f docker-compose.ai.yml up -d --build slotting-service
+curl http://localhost:8093/health
+```
+
+Design intent:
+- Keep slotting logic independent from core WMS implementation details.
+- Consume WMS signals via stable contracts.
+- Evolve toward model-based location recommendations without breaking API compatibility.
 
 
