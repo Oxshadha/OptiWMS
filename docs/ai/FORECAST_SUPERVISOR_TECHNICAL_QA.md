@@ -628,3 +628,60 @@ This section is the technical trail for the recent PV2 troubleshooting cycle, fo
 - Keep targeted contributor-driven correction + capped calibration path.
 - Re-run full gate checks and release evidence bundle with calibrated configuration.
 - In parallel, improve synthetic realism constraints and rerun bakeoff to close the remaining WAPE gap.
+
+## 17) Gap-Closure Plan (Non-Data, Immediate)
+
+Even before dataset realism is upgraded, we can close a major set of statistical and process gaps now.
+
+### A) Immediate controls to keep
+
+- Enforce fair-play A/B discipline (single-change, baseline restore, same search space).
+- Keep contributor-targeted correction path (top-N SKU focus based on contribution decomposition).
+- Keep capped validation-based bias calibration enabled for PV2 tuning runs.
+
+### B) Statistical sign-off checks (must pass together)
+
+- `WAPE <= threshold` (current experimental target remains strict).
+- `abs(Bias_pct_of_mean_demand) <= threshold`.
+- `RMSE_over_mean_demand <= threshold`.
+- `horizon_wape_cv <= threshold` (stability across horizons).
+
+### C) Automation added
+
+New script:
+- `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/statistical_readiness_check.py`
+
+Purpose:
+- computes normalized forecast quality metrics from forecast outputs
+- evaluates pass/fail checks for statistician sign-off
+- writes both machine-readable JSON and reviewer-friendly Markdown
+
+### D) Run commands (example)
+
+```bash
+/Users/k.e.oshada/Documents/OptiWMS/.venv/bin/python \
+  "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/tune_pv2_catboost.py" \
+  --dataset PV2 \
+  --feature-profile full \
+  --max-trials 12 \
+  --horizons 1,2,3,4,5,6,7,8,9,10,11,12 \
+  --tune-horizons 1,3,6,12 \
+  --tag pv2_control_ab_top15_sku_winsor_calibrated \
+  --bias-calibration fg_code \
+  --bias-calibration-max-offset-pct 0.25
+```
+
+```bash
+/Users/k.e.oshada/Documents/OptiWMS/.venv/bin/python \
+  "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/statistical_readiness_check.py" \
+  --forecasts-csv "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_control_ab_top15_sku_winsor_calibrated_pv2_forecasts.csv" \
+  --pred-col y_pred \
+  --output-json "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_statistical_readiness_top15_calibrated.json" \
+  --output-md "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_statistical_readiness_top15_calibrated.md"
+```
+
+### E) Current status from automated check
+
+- Statistical readiness automation is in place and running.
+- Latest calibrated PV2 check output exists, but `overall_pass=false` under current strict thresholds.
+- Interpretation: process quality and statistical governance are now stronger, while primary remaining blocker is still data realism/coverage.
