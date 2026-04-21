@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
-import { analyticsApi, WorkerProductivityMetrics, LeaderboardEntry } from "@/lib/api/analytics";
+import {
+  analyticsApi,
+  WorkerProductivityMetrics,
+  LeaderboardEntry,
+} from "@/lib/api/analytics";
 import { SummaryCards } from "@/components/SummaryCards";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ProductivityChart } from "@/components/ProductivityChart";
@@ -15,14 +19,22 @@ export default function LaborProductivityPage() {
   const { hasPermission } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
-  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">("monthly");
+  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">(
+    "monthly",
+  );
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
+
   const productivityQuery = useQuery({
     queryKey: ["admin-labor-productivity", selectedPeriod],
     queryFn: async () => {
       const [productivityData, leaderboardData] = await Promise.all([
-        analyticsApi.getWorkerProductivity(undefined, undefined, undefined, selectedPeriod),
+        analyticsApi.getWorkerProductivity(
+          undefined,
+          undefined,
+          undefined,
+          selectedPeriod,
+        ),
         analyticsApi.getWorkerLeaderboard(selectedPeriod),
       ]);
 
@@ -41,11 +53,68 @@ export default function LaborProductivityPage() {
     setCurrentPage(1);
   }, [selectedPeriod]);
 
+  // Extract data with defaults
+  const productivityMetrics: WorkerProductivityMetrics[] =
+    productivityQuery.data?.productivityMetrics || [];
+  const leaderboard: LeaderboardEntry[] =
+    productivityQuery.data?.leaderboard || [];
+  const error =
+    productivityQuery.error instanceof Error
+      ? productivityQuery.error.message
+      : productivityQuery.error
+        ? "Failed to load labor productivity data"
+        : null;
+
+  // Compute summary - must be before any conditional returns
+  const summary = useMemo(
+    () => ({
+      averagePPH:
+        productivityMetrics.length > 0
+          ? productivityMetrics.reduce(
+              (sum, m) => sum + (m.picksPerHour ?? 0),
+              0,
+            ) / productivityMetrics.length
+          : 0,
+      averageDwellTime:
+        productivityMetrics.length > 0
+          ? productivityMetrics.reduce(
+              (sum, m) => sum + (m.averageDwellTime ?? 0),
+              0,
+            ) / productivityMetrics.length
+          : 0,
+      averageErrorRate:
+        productivityMetrics.length > 0
+          ? productivityMetrics.reduce(
+              (sum, m) => sum + (m.errorRate ?? 0),
+              0,
+            ) / productivityMetrics.length
+          : 0,
+      totalTasksCompleted: productivityMetrics.reduce(
+        (sum, m) => sum + (m.tasksCompleted ?? 0),
+        0,
+      ),
+      topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
+    }),
+    [leaderboard, productivityMetrics],
+  );
+
+  const pagedMetrics = productivityMetrics.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage,
+  );
+  const totalPages = Math.max(
+    Math.ceil(productivityMetrics.length / itemsPerPage),
+    1,
+  );
+
+  // Early returns after all hooks
   if (!canView) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
-          <p className="text-lg text-base-content/60">You don't have permission to view this page.</p>
+          <p className="text-lg text-base-content/60">
+            You don't have permission to view this page.
+          </p>
         </div>
       </div>
     );
@@ -59,22 +128,15 @@ export default function LaborProductivityPage() {
     );
   }
 
-  const productivityMetrics: WorkerProductivityMetrics[] =
-    productivityQuery.data?.productivityMetrics || [];
-  const leaderboard: LeaderboardEntry[] = productivityQuery.data?.leaderboard || [];
-  const error =
-    productivityQuery.error instanceof Error
-      ? productivityQuery.error.message
-      : productivityQuery.error
-        ? "Failed to load labor productivity data"
-        : null;
-
   if (error && productivityMetrics.length === 0 && leaderboard.length === 0) {
     return (
       <div className="alert alert-error">
         <span className="material-symbols-outlined">error</span>
         <span>Error loading labor productivity data: {error}</span>
-        <button className="btn btn-sm" onClick={() => void productivityQuery.refetch()}>
+        <button
+          className="btn btn-sm"
+          onClick={() => void productivityQuery.refetch()}
+        >
           Retry
         </button>
       </div>
@@ -105,16 +167,21 @@ export default function LaborProductivityPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Labor Productivity</h1>
+          <h1 className="text-3xl font-bold text-base-content">
+            Labor Productivity
+          </h1>
           <p className="text-sm text-base-content/60 mt-1">
-            Track worker performance, productivity metrics, and identify improvement opportunities
+            Track worker performance, productivity metrics, and identify
+            improvement opportunities
           </p>
         </div>
         <div className="flex gap-2">
           <select
             className="select select-bordered select-sm"
             value={selectedPeriod}
-            onChange={(e) => setSelectedPeriod(e.target.value as "weekly" | "monthly")}
+            onChange={(e) =>
+              setSelectedPeriod(e.target.value as "weekly" | "monthly")
+            }
             disabled={productivityQuery.isFetching && !productivityQuery.data}
           >
             <option value="weekly">Weekly</option>
@@ -198,7 +265,9 @@ export default function LaborProductivityPage() {
                   <tr key={metric.workerId}>
                     <td className="font-semibold">{metric.workerName}</td>
                     <td>
-                      <span className="font-bold text-primary">{(metric.picksPerHour ?? 0).toFixed(1)}</span>
+                      <span className="font-bold text-primary">
+                        {(metric.picksPerHour ?? 0).toFixed(1)}
+                      </span>
                     </td>
                     <td>{metric.tasksCompleted ?? 0}</td>
                     <td>{(metric.totalPicks ?? 0).toLocaleString()}</td>
@@ -206,7 +275,13 @@ export default function LaborProductivityPage() {
                     <td>
                       <StatusChip
                         label={`${(metric.errorRate ?? 0).toFixed(2)}%`}
-                        tone={(metric.errorRate ?? 0) < 1 ? "success" : (metric.errorRate ?? 0) < 3 ? "warning" : "danger"}
+                        tone={
+                          (metric.errorRate ?? 0) < 1
+                            ? "success"
+                            : (metric.errorRate ?? 0) < 3
+                              ? "warning"
+                              : "danger"
+                        }
                         showDot
                       />
                     </td>
@@ -220,7 +295,10 @@ export default function LaborProductivityPage() {
                 ))}
                 {pagedMetrics.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-base-content/60">
+                    <td
+                      colSpan={7}
+                      className="text-center py-8 text-base-content/60"
+                    >
                       No productivity data found for the selected period.
                     </td>
                   </tr>
