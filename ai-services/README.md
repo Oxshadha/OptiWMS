@@ -10,6 +10,7 @@ This workspace hosts Python AI services that integrate with the core WMS backend
 ## Services
 - `forecast-service`: serves forecast outputs for UI and supports artifact-based online inference with configurable runtime data source (`csv` or live `wms_db`).
 - `orchestrator-service`: triggers and publishes forecast runs (snapshot/online) and health checks.
+- `slotting-service`: slotting recommendation service scaffold with health check and stable endpoint contract.
 - `libs/wms_contracts`: shared request/response schemas and WMS API client.
 
 ## Runtime Behavior (current)
@@ -53,7 +54,8 @@ This workspace hosts Python AI services that integrate with the core WMS backend
   - MASE_mean: `<= 1.10`
 - Serving reliability:
   - Endpoint `2xx` success rate: `>= 99.5%`
-  - P95 latency for online inference: `<= 500 ms` for normal batch sizes
+  - P95 latency for online inference gate: `<= 2500 ms`
+  - P95 latency early warning threshold: `<= 1000 ms`
   - Fallback usage rate (`fallback_used=true`): `<= 5%` steady state
   - Hard-failure rate (non-fallbackable requests): `<= 1%`
 - Monitoring/governance:
@@ -83,6 +85,11 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
 3. Open docs:
 - Forecast API: `http://localhost:8091/docs`
 - Orchestrator API: `http://localhost:8092/docs`
+
+## Team Handoff
+- Enterprise sharing and governance guide: `ai-services/docs/TEAM_HANDOFF_ENTERPRISE.md`
+- Production gap plan: `ai-services/docs/AI_MICROSERVICE_PROD_GAP_PLAN.md`
+- Integration plan: `ai-services/docs/INTEGRATION_PLAN.md`
 
 ## Integration Contract
 - Core WMS base URL from env (`WMS_API_BASE_URL`, default `http://localhost:8080/api`).

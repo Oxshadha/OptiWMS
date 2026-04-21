@@ -187,13 +187,10 @@ backend/.gradle-local/
 *.pdf
 # Local viva notes
 VIVA_FOLDER_MAP_AND_GRADLE.md
-*.md
-!README.md
-!docs/ai/*.md
+
+# Keep markdown and shell scripts trackable; ignore only specific local notes.
 
 *.csv
-
-*.sh
 
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
