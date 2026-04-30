@@ -64,18 +64,3 @@ def ask(chain, question: str):
         for doc in result["source_documents"]
     ]))
     return answer, sources
-
-
-
-# def ask_with_retry(chain, question, max_retries=3):
-#     for i in range(max_retries):
-#         try:
-#             return ask(chain, question)
-#         except Exception as e:
-#             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-#                 wait_time = (i + 1) * 5  # Wait 5s, then 10s...
-#                 print(f"Rate limit hit. Retrying in {wait_time}s...")
-#                 time.sleep(wait_time)
-#             else:
-#                 raise e
-#     return "I'm sorry, the AI is currently overwhelmed. Please try again in a minute.", []
