@@ -1,10 +1,50 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 import pandas as pd
 
 from common import OUT_DIR
+
+DEFAULT_HORIZONS = list(range(1, 13))
+
+
+def _load_horizon_weights(reports_dir: Path, horizons: list[int]) -> dict[int, float]:
+    env = os.getenv("FORECAST_HORIZON_WEIGHTS", "").strip()
+    if env:
+        parsed: dict[int, float] = {}
+        for chunk in env.split(","):
+            if not chunk.strip():
+                continue
+            k, v = chunk.split(":", 1)
+            parsed[int(k.strip())] = float(v.strip())
+        return parsed
+
+    weights_path = reports_dir / "horizon_weights.json"
+    if weights_path.exists():
+        try:
+            payload = json.loads(weights_path.read_text(encoding="utf-8"))
+            return {int(k): float(v) for k, v in payload.items()}
+        except Exception:
+            return {h: 1.0 for h in horizons}
+
+    return {h: 1.0 for h in horizons}
+
+
+def _weighted_wape(metrics: pd.DataFrame, horizons: list[int], weights: dict[int, float]) -> pd.DataFrame:
+    subset = metrics[(metrics["split"] == "test") & (metrics["horizon"].isin(horizons))].copy()
+    if subset.empty:
+        return pd.DataFrame(columns=["dataset", "model", "weighted_wape", "weight_sum"])
+
+    subset["weight"] = subset["horizon"].map(weights).fillna(1.0)
+    grouped = subset.groupby(["dataset", "model"], as_index=False)
+    out = grouped.apply(lambda g: pd.Series({
+        "weighted_wape": float((g["WAPE"] * g["weight"]).sum() / g["weight"].sum()),
+        "weight_sum": float(g["weight"].sum()),
+    }))
+    return out.reset_index(drop=True)
 
 
 def load_concat(folder: Path, prefix: str) -> pd.DataFrame:
@@ -50,10 +90,14 @@ def main() -> None:
     coverage = expected_rows.merge(test_available.assign(status='available'), on=['dataset', 'model'], how='left')
     coverage['status'] = coverage['status'].fillna('missing')
 
-    # Keep best (lowest WAPE) per dataset on test overall horizon=0.
+    weights = _load_horizon_weights(reports_dir, DEFAULT_HORIZONS)
+    weighted = _weighted_wape(metrics, DEFAULT_HORIZONS, weights)
+
+    # Keep best (lowest weighted WAPE) per dataset on test horizon 1..12.
     test_overall = metrics[(metrics['split'] == 'test') & (metrics['horizon'] == 0)].copy()
+    test_overall = test_overall.merge(weighted, on=['dataset', 'model'], how='left')
     leaderboard = (
-        test_overall.sort_values(['dataset', 'WAPE', 'MASE_mean', 'RMSE'])
+        test_overall.sort_values(['dataset', 'weighted_wape', 'WAPE', 'MASE_mean', 'RMSE'])
         .groupby('dataset', as_index=False)
         .head(5)
     )
