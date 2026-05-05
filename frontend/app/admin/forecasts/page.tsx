@@ -379,7 +379,7 @@ export default function ForecastsPage() {
   };
 
   const waitForPublishedRows = async (runId: number) => {
-    const attempts = 18;
+    const attempts = 40;
     const delayMs = 1500;
     for (let i = 0; i < attempts; i += 1) {
       try {
@@ -1614,7 +1614,7 @@ export default function ForecastsPage() {
                   <div className="text-xl font-semibold">{inferenceMix.errorRatePct}%</div>
                 </div>
               </div>
-              <div className="h-64">
+              <div className="h-80">
                 {inferenceMix.totalSeries > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1624,20 +1624,25 @@ export default function ForecastsPage() {
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                        outerRadius={86}
+                        innerRadius={80}
+                        outerRadius={120}
                         label={(entry) => `${entry.name}: ${entry.value}`}
                       >
                         {inferenceMix.donut.map((slice, idx) => (
                           <Cell key={`slice-${idx}`} fill={slice.color} />
                         ))}
                       </Pie>
+                      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle">
+                        <tspan x="50%" dy="-0.5em" fontSize="28" fontWeight="bold" fill="currentColor">{inferenceMix.primaryRatePct}%</tspan>
+                        <tspan x="50%" dy="1.5em" fontSize="14" fill="#64748b">Success Rate</tspan>
+                      </text>
                       <Tooltip />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                    No inference audit data yet
+                    No inference audit data yet (Timeout or pending)
                   </div>
                 )}
               </div>
