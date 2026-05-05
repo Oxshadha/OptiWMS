@@ -10,5 +10,5 @@ if ! command -v python >/dev/null 2>&1; then
   exit 0
 fi
 
-find "Ai miroservices/modeling/notebooks" -name '*.ipynb' -print0 | xargs -0 python tools/clean_notebook_outputs.py
-git add -- "Ai miroservices/modeling/notebooks"
+find "Ai miroservices/modeling/v1_legacy/notebooks" -name '*.ipynb' -print0 2>/dev/null | xargs -0 python tools/clean_notebook_outputs.py 2>/dev/null || true
+git add -- "Ai miroservices/modeling/v1_legacy/notebooks" 2>/dev/null || true

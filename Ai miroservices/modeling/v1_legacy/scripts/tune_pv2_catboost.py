@@ -22,6 +22,71 @@ class SplitBundle:
     model_cols: list[str]
 
 
+def apply_bias_calibration(
+    pred_df: pd.DataFrame,
+    group_col: str = "fg_code",
+    max_offset_pct: float = 0.25,
+) -> tuple[pd.DataFrame, dict]:
+    out = pred_df.copy()
+    summary = {
+        "enabled": False,
+        "group_col": group_col,
+        "n_groups": 0,
+        "avg_abs_offset": 0.0,
+        "max_offset_pct": float(max_offset_pct),
+    }
+
+    if out.empty or group_col not in out.columns:
+        return out, summary
+
+    val = out[out["split"] == "val"].copy()
+    if val.empty:
+        return out, summary
+
+    val["signed_err"] = pd.to_numeric(val["y_pred"], errors="coerce") - pd.to_numeric(val["y_true"], errors="coerce")
+    offsets = val.groupby(group_col, as_index=False)["signed_err"].mean().rename(columns={"signed_err": "bias_offset"})
+    if offsets.empty:
+        return out, summary
+
+    out = out.merge(offsets, on=group_col, how="left")
+    out["bias_offset"] = pd.to_numeric(out["bias_offset"], errors="coerce").fillna(0.0)
+
+    # Cap offsets relative to mean absolute validation target per group for stability.
+    mean_abs_target = (
+        val.groupby(group_col, as_index=False)
+        .agg(mean_abs_target=("y_true", lambda s: float(np.mean(np.abs(pd.to_numeric(s, errors="coerce"))))))
+    )
+    out = out.merge(mean_abs_target, on=group_col, how="left")
+    out["mean_abs_target"] = pd.to_numeric(out["mean_abs_target"], errors="coerce").fillna(0.0)
+    cap = np.abs(out["mean_abs_target"]) * float(max_offset_pct)
+    out["bias_offset_capped"] = np.clip(out["bias_offset"], -cap, cap)
+
+    # Apply calibration to non-train splits only; keep train untouched.
+    is_train = out["split"] == "train"
+    y_raw = pd.to_numeric(out["y_pred"], errors="coerce").fillna(0.0)
+    y_cal = (y_raw - out["bias_offset_capped"]).clip(lower=0.0)
+    out["y_pred_raw"] = y_raw
+    out.loc[~is_train, "y_pred"] = y_cal[~is_train]
+
+    # Keep quantiles centered around calibrated median while preserving spread.
+    if "p10" in out.columns and "p90" in out.columns:
+        p10_raw = pd.to_numeric(out["p10"], errors="coerce").fillna(0.0)
+        p90_raw = pd.to_numeric(out["p90"], errors="coerce").fillna(0.0)
+        spread_lo = (y_raw - p10_raw).clip(lower=0.0)
+        spread_hi = (p90_raw - y_raw).clip(lower=0.0)
+        out.loc[~is_train, "p10"] = (out.loc[~is_train, "y_pred"] - spread_lo[~is_train]).clip(lower=0.0)
+        out.loc[~is_train, "p90"] = (out.loc[~is_train, "y_pred"] + spread_hi[~is_train]).clip(lower=0.0)
+
+    summary.update(
+        {
+            "enabled": True,
+            "n_groups": int(offsets[group_col].nunique()),
+            "avg_abs_offset": float(np.mean(np.abs(offsets["bias_offset"]))),
+        }
+    )
+    return out, summary
+
+
 def prepare_train_lookup(df: pd.DataFrame, split_dates) -> dict[str, np.ndarray]:
     tmp = df.copy()
     tmp["split"] = assign_time_split(tmp, split_dates)
@@ -151,6 +216,8 @@ def train_full_and_save(
     feature_profile: str,
     params: dict,
     tag: str,
+    bias_calibration: str = "none",
+    bias_calibration_max_offset_pct: float = 0.25,
 ) -> tuple[pd.DataFrame, pd.DataFrame, Path]:
     rows = []
     y_train_lookup = prepare_train_lookup(df, split_dates)
@@ -194,6 +261,15 @@ def train_full_and_save(
         artifact_rows.append({"dataset": dataset, "model": "CATBOOST", "series_id": f"h{h}", "artifact_path": str(artifact_path)})
 
     pred_df = pd.DataFrame(rows)
+
+    calibration_summary: dict | None = None
+    if bias_calibration != "none":
+        pred_df, calibration_summary = apply_bias_calibration(
+            pred_df,
+            group_col=bias_calibration,
+            max_offset_pct=bias_calibration_max_offset_pct,
+        )
+
     metrics_df = pd.concat(
         [
             summarize_metrics(pred_df, "val", "CATBOOST", dataset, y_train_lookup),
@@ -228,6 +304,9 @@ def train_full_and_save(
             "feature_profile": feature_profile,
             "params": params,
             "horizons": horizons,
+            "bias_calibration": bias_calibration,
+            "bias_calibration_max_offset_pct": float(bias_calibration_max_offset_pct),
+            "bias_calibration_summary": calibration_summary,
             "metrics_path": str(metrics_path),
             "forecasts_path": str(forecasts_path),
             "leaderboard_path": str(leaderboard_path),
@@ -244,6 +323,18 @@ def main() -> None:
     parser.add_argument("--tune-horizons", default="1,3,6,12")
     parser.add_argument("--max-trials", type=int, default=8)
     parser.add_argument("--tag", default="pv2_enterprise_tuned")
+    parser.add_argument(
+        "--bias-calibration",
+        choices=["none", "fg_code", "series_id"],
+        default="none",
+        help="Apply validation-based additive bias calibration on predictions grouped by this key.",
+    )
+    parser.add_argument(
+        "--bias-calibration-max-offset-pct",
+        type=float,
+        default=0.25,
+        help="Cap absolute bias offset to this fraction of group mean absolute validation target.",
+    )
     args = parser.parse_args()
 
     dataset = str(args.dataset).upper()
@@ -285,6 +376,8 @@ def main() -> None:
         feature_profile=args.feature_profile,
         params=best_params,
         tag=args.tag,
+        bias_calibration=args.bias_calibration,
+        bias_calibration_max_offset_pct=float(args.bias_calibration_max_offset_pct),
     )
 
     test0 = metrics_df[(metrics_df["split"] == "test") & (metrics_df["horizon"] == 0)]
