@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -202,13 +202,13 @@ def run(
     warehouse_id: str | None = None,
     months: int = 36,
 ) -> dict:
-    now = datetime.now(UTC).date()
+    now = datetime.now(timezone.utc).date()
     end_month = _month_start(now.replace(day=1))
     months_list = _month_range(end_month=end_month, months=months)
 
     seed_frame = _build_seed_frame(db_url=db_url, schema=schema, warehouse_id=warehouse_id)
     dataset_fingerprint = {
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "warehouse_id": warehouse_id,
         "months": months,
         "sku_count": int(seed_frame["sku"].nunique()),
