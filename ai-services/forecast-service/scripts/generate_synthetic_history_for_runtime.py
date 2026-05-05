@@ -49,18 +49,22 @@ def _month_range(end_month: date, months: int) -> list[date]:
     return out
 
 
-def _season_multiplier(category: str, month: int) -> float:
+def _season_multiplier(category: str, month: int, phase_shift: float = 0.0) -> float:
     c = (category or "").strip().lower()
-    # Mild seasonality profile with Sri Lanka festive peaks.
-    base = 1.0 + 0.08 * math.sin((month - 1) * (2.0 * math.pi / 12.0))
+    # Seasonality with per-product phase shift to prevent parallel curves.
+    base = 1.0 + 0.15 * math.sin((month - 1 + phase_shift) * (2.0 * math.pi / 12.0))
     festive = 0.0
     if month in {4, 12}:  # Sinhala/Tamil new year + December demand spike
-        festive += 0.10
+        festive += 0.15
+    if month == 8:  # Back-to-school / mid-year restocking
+        festive += 0.06
     if "soap" in c or "shampoo" in c or "detergent" in c:
-        festive += 0.03
+        festive += 0.05
     if "diaper" in c or "sanitary" in c:
-        festive += 0.02
-    return max(0.75, min(1.35, base + festive))
+        festive += 0.04
+    if "food" in c or "beverage" in c:
+        festive += 0.08 if month in {4, 12} else 0.0
+    return max(0.60, min(1.50, base + festive))
 
 
 def _build_seed_frame(db_url: str, schema: str, warehouse_id: str | None) -> pd.DataFrame:
@@ -115,16 +119,68 @@ def _generate_rows(seed: SkuSeed, months: list[date], dataset_version: str) -> l
     rows: list[dict] = []
     base_from_inventory = max(seed.reorder_point * 0.42, seed.target_max * 0.20, 25.0)
     base = seed.observed_mean_demand if seed.observed_mean_demand > 0 else base_from_inventory
-    trend_anchor = 1.0 + (_stable_rng_01(f"{seed.sku}|trend") - 0.5) * 0.16
+    trend_anchor = 1.0 + (_stable_rng_01(f"{seed.sku}|trend") - 0.5) * 0.25
     jitter_anchor = _stable_rng_01(f"{seed.sku}|jitter")
     n = len(months)
+
+    # Per-product volatility class: high/medium/low based on hash
+    vol_class = _stable_rng_01(f"{seed.sku}|volatility")
+    if vol_class < 0.20:
+        noise_amplitude = 0.35  # High volatility product (20% of products)
+    elif vol_class < 0.60:
+        noise_amplitude = 0.22  # Medium volatility (40%)
+    else:
+        noise_amplitude = 0.12  # Low/stable volatility (40%)
+
+    # Per-product seasonality phase shift (0 to 6 months) to prevent parallel curves
+    phase_shift = _stable_rng_01(f"{seed.sku}|phase") * 6.0
+
+    # Is this a slow mover? (bottom 25% by base demand → intermittent)
+    is_slow_mover = base < 50.0 or _stable_rng_01(f"{seed.sku}|slow") < 0.20
+
+    # Promotional spike schedule: 1-3 spikes per year, deterministic per SKU
+    spike_months_per_year = int(1 + _stable_rng_01(f"{seed.sku}|spikes") * 3)
+    spike_month_offsets = set()
+    for s in range(spike_months_per_year):
+        offset = int(_stable_rng_01(f"{seed.sku}|spike_{s}") * 12)
+        spike_month_offsets.add(offset)
+
+    # Stockout months: ~5-8% of months, deterministic per SKU
+    stockout_rate = 0.05 + _stable_rng_01(f"{seed.sku}|stockout_rate") * 0.03
+
+    # Regime change: some products have a demand level shift mid-history
+    regime_change_idx = int(_stable_rng_01(f"{seed.sku}|regime_pos") * n) if _stable_rng_01(f"{seed.sku}|has_regime") < 0.25 else -1
+    regime_multiplier = 0.6 + _stable_rng_01(f"{seed.sku}|regime_mult") * 0.8  # 0.6x to 1.4x
 
     for i, m in enumerate(months):
         progress = (i / max(n - 1, 1)) - 0.5
         trend = 1.0 + progress * (trend_anchor - 1.0)
-        season = _season_multiplier(seed.category, m.month)
-        noise = 1.0 + (((jitter_anchor * (i + 3) * 7.0) % 1.0) - 0.5) * 0.10
-        demand = max(1.0, base * trend * season * noise)
+        season = _season_multiplier(seed.category, m.month, phase_shift)
+
+        # Noise with per-product amplitude
+        noise_val = (((jitter_anchor * (i + 3) * 7.0) % 1.0) - 0.5) * 2.0
+        noise = 1.0 + noise_val * noise_amplitude
+
+        demand = base * trend * season * noise
+
+        # Regime change
+        if 0 <= regime_change_idx <= i:
+            demand *= regime_multiplier
+
+        # Promotional spike (1.4x to 2.2x demand)
+        if (m.month - 1) in spike_month_offsets and _stable_rng_01(f"{seed.sku}|spike_fire_{i}") < 0.7:
+            spike_mult = 1.4 + _stable_rng_01(f"{seed.sku}|spike_size_{i}") * 0.8
+            demand *= spike_mult
+
+        # Intermittent demand for slow movers (random zero months)
+        if is_slow_mover and _stable_rng_01(f"{seed.sku}|zero_{i}") < 0.25:
+            demand = 0.0
+
+        # Stockout censoring (demand drops to near zero)
+        if _stable_rng_01(f"{seed.sku}|stockout_{i}") < stockout_rate:
+            demand = max(0.0, demand * 0.05)  # ~95% suppression
+
+        demand = max(0.0, demand)
         rows.append(
             {
                 "warehouse_id": seed.warehouse_id,
