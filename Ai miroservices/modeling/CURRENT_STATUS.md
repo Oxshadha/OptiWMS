@@ -80,7 +80,13 @@ due to forecast horizon length — this is expected and consistent with forecast
 
 ```
 Ai miroservices/modeling/
-├── v2_m5_clean/          ← Current: clean M5 pipeline (4 scripts + config)
+├── v2_m5_clean/          ← Current: clean M5 pipeline (4 scripts + config + 1 notebook)
+│   ├── 00_m5_eda_and_analysis.ipynb ← NEW: Descriptive Stats & EDA (Before Modeling)
+│   ├── 01_prepare_m5.py             ← Data Preparation
+│   ├── 02_train_global_model.py     ← Model Training
+│   ├── 03_evaluate.py               ← Model Evaluation
+│   ├── 04_fine_tune.py              ← Future WMS fine-tuning
+│   └── config.yaml
 ├── v1_legacy/            ← Previous: synthetic data approach (23 notebooks + 23 scripts)
 ├── outputs/              ← Shared: artifacts + reports (docker volume mount target)
 │   ├── artifacts/P/      ← Model files (XGBoost/CatBoost/LightGBM × H1-H12)

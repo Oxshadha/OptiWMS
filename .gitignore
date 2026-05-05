@@ -226,3 +226,4 @@ Ai miroservices/modeling/v2_m5_clean/__pycache__/
 # Forecast service generated runtime artifacts (backfill exports, dq reports, lineage dumps)
 ai-services/forecast-service/artifacts/
 
+Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
