@@ -251,7 +251,7 @@ def main():
                 naive_wape = None
                 naive_rmse = None
 
-            # Compute metrics
+            # Compute test metrics
             y_train_all = train_df["demand"].values
             wape = compute_wape(y_test, preds)
             rmse = compute_rmse(y_test, preds)
@@ -259,9 +259,15 @@ def main():
             mase = compute_mase(y_test, preds, y_train_all)
             ufr = compute_under_forecast_rate(y_test, preds)
 
+            # Compute train metrics (for bias-variance diagnostic)
+            X_train = train_df[feature_cols].values
+            train_preds = np.clip(reg.predict(X_train), 0, None)
+            train_wape = compute_wape(y_train_all, train_preds)
+            train_rmse = compute_rmse(y_train_all, train_preds)
+
             naive_str = f"{naive_wape:.4f}" if naive_wape is not None else "N/A"
             print(f"[03] H{h}: WAPE={wape:.4f} (naive={naive_str}) | "
-                  f"RMSE={rmse:.1f} | Bias={bias:.1f} | MASE={mase:.4f} | UFR={ufr:.3f}")
+                  f"TrainWAPE={train_wape:.4f} | RMSE={rmse:.1f} | Bias={bias:.1f}")
 
             # Collect metrics
             metric_row = {
@@ -271,7 +277,9 @@ def main():
                 "split": "test",
                 "horizon": h,
                 "WAPE": round(wape, 6),
+                "Train_WAPE": round(train_wape, 6),
                 "RMSE": round(rmse, 4),
+                "Train_RMSE": round(train_rmse, 4),
                 "Bias": round(bias, 4),
                 "MASE_mean": round(mase, 6),
                 "under_forecast_rate": round(ufr, 6),
@@ -318,13 +326,15 @@ def main():
         if model_metrics.empty:
             continue
         avg_wape = model_metrics["WAPE"].mean()
+        avg_train_wape = model_metrics["Train_WAPE"].mean()
         avg_rmse = model_metrics["RMSE"].mean()
         avg_bias = model_metrics["Bias"].mean()
         avg_mase = model_metrics["MASE_mean"].mean()
         beats_count = model_metrics["beats_naive"].sum()
         total_horizons = len(model_metrics)
         print(f"\n  {model_name.upper()}")
-        print(f"    Avg WAPE: {avg_wape:.4f}")
+        print(f"    Avg Test WAPE : {avg_wape:.4f}")
+        print(f"    Avg Train WAPE: {avg_train_wape:.4f}")
         print(f"    Avg RMSE: {avg_rmse:.1f}")
         print(f"    Avg Bias: {avg_bias:.1f}")
         print(f"    Avg MASE: {avg_mase:.4f}")
