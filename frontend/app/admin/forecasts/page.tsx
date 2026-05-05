@@ -36,7 +36,7 @@ import { logger } from "@/lib/utils/logger";
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
 const EVAL_SPLIT = "test";
-const RUN_MODE: "snapshot" = "snapshot";
+const RUN_MODE: "online" = "online";
 const CHART_COLORS = {
   lower: "#94a3b8",
   expected: "#0ea5e9",
