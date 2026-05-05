@@ -1,6 +1,6 @@
 # Forecast Platform: Supervisor Technical Q&A
 
-Last updated: 2026-04-20 (Asia/Colombo)
+Last updated: 2026-04-21 (Asia/Colombo)
 
 This document answers the common technical review questions for the current OptiWMS forecasting platform.
 
@@ -548,3 +548,140 @@ Answer:
   - contract checks, quality gates, readiness gates, soak checks, promotion guardrails, rollback path, evidence bundle, UI observability.
 - Still data-science maturity work remains:
   - stronger real-history depth, real BOM curation, retraining cadence and challenger cycles with business sign-off.
+
+## 16) What techniques/process were used to diagnose forecast issues? What did we find?
+
+This section is the technical trail for the recent PV2 troubleshooting cycle, focused on why WAPE/RMSE/Bias were not meeting gate expectations.
+
+### A) Techniques applied
+
+- Fair-play controlled A/B protocol:
+  - always restore baseline dataset first
+  - apply one change only per run
+  - retrain with identical model/search settings
+  - compare against baseline on `test,horizon=0` and horizon-wise diagnostics
+- Data diagnostics:
+  - duplicate/null/coverage checks
+  - volatility/outlier profiling per SKU
+  - contribution decomposition of WAPE by SKU/category/horizon
+- Progressive targeted interventions:
+  - localized winsorization on top error-contributing SKUs
+  - sequence tested: top-2 -> top-5 -> top-10 -> top-15 contributors
+- Bias calibration diagnostics:
+  - learned additive offsets from validation split
+  - applied to non-train predictions
+  - evaluated with offset caps for stability
+- Pipeline hardening:
+  - implemented script-level calibration support in tuning pipeline:
+    - file: `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/tune_pv2_catboost.py`
+    - args: `--bias-calibration {none|fg_code|series_id}` and `--bias-calibration-max-offset-pct`
+
+### B) Process followed (repeatable)
+
+1. Establish baseline and archive metrics.
+2. Decompose error (SKU/category/horizon) to identify concentration.
+3. Run one targeted change; retrain; compare.
+4. Expand scope only if previous step improves.
+5. Add calibration layer and re-evaluate normalized metrics.
+6. Export evidence artifacts for reviewer/statistician validation.
+
+### C) Main findings
+
+- Error concentration is real: a small SKU subset drives a large share of total error.
+- Global preprocessing changes were weaker or harmful; targeted interventions were consistently beneficial.
+- Progressive targeted winsorization improved WAPE monotonically in this cycle:
+  - baseline: `0.223448`
+  - top-2: `0.217112`
+  - top-5: `0.213674`
+  - top-10: `0.211121`
+  - top-15: `0.208943`
+- Built-in script calibration further improved RMSE/Bias while keeping WAPE near best:
+  - calibrated top-15 run: `WAPE=0.208842`, `RMSE=2404.254`, `Bias=+20.393`
+  - baseline reference: `WAPE=0.223448`, `RMSE=2833.195`, `Bias=-178.227`
+- Relative stability also improved:
+  - baseline `RMSE/mean_demand` ~ `1.31`
+  - top-15 raw ~ `1.17`
+  - top-15 calibrated ~ `1.11`
+
+### D) What issues remain
+
+- Acceptance quality gate still fails on WAPE threshold (`<= 0.135`) in this experimental PV2 track.
+- Synthetic data appears only partially realistic:
+  - some demand dynamics are too smooth/regular for robust stress behavior
+  - this likely limits generalization and inflates horizon-tail errors
+- Bias is materially improved but needs controlled promotion path validation before production adoption.
+
+### E) Evidence artifacts (recent)
+
+- Main experiment notebook:
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/notebooks/04_fair_play_model_comparison.ipynb`
+- Calibrated run outputs:
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_control_ab_top15_sku_winsor_calibrated_leaderboard.csv`
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_control_ab_top15_sku_winsor_calibrated_pv2_metrics.csv`
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_control_ab_top15_sku_winsor_calibrated_pv2_forecasts.csv`
+- Statistician summary exports:
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_statistician_pack_top15_bias_calibration.csv`
+  - `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_horizon_stability_top15_bias_calibration.csv`
+
+### F) Recommended next technical step
+
+- Keep targeted contributor-driven correction + capped calibration path.
+- Re-run full gate checks and release evidence bundle with calibrated configuration.
+- In parallel, improve synthetic realism constraints and rerun bakeoff to close the remaining WAPE gap.
+
+## 17) Gap-Closure Plan (Non-Data, Immediate)
+
+Even before dataset realism is upgraded, we can close a major set of statistical and process gaps now.
+
+### A) Immediate controls to keep
+
+- Enforce fair-play A/B discipline (single-change, baseline restore, same search space).
+- Keep contributor-targeted correction path (top-N SKU focus based on contribution decomposition).
+- Keep capped validation-based bias calibration enabled for PV2 tuning runs.
+
+### B) Statistical sign-off checks (must pass together)
+
+- `WAPE <= threshold` (current experimental target remains strict).
+- `abs(Bias_pct_of_mean_demand) <= threshold`.
+- `RMSE_over_mean_demand <= threshold`.
+- `horizon_wape_cv <= threshold` (stability across horizons).
+
+### C) Automation added
+
+New script:
+- `/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/statistical_readiness_check.py`
+
+Purpose:
+- computes normalized forecast quality metrics from forecast outputs
+- evaluates pass/fail checks for statistician sign-off
+- writes both machine-readable JSON and reviewer-friendly Markdown
+
+### D) Run commands (example)
+
+```bash
+/Users/k.e.oshada/Documents/OptiWMS/.venv/bin/python \
+  "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/tune_pv2_catboost.py" \
+  --dataset PV2 \
+  --feature-profile full \
+  --max-trials 12 \
+  --horizons 1,2,3,4,5,6,7,8,9,10,11,12 \
+  --tune-horizons 1,3,6,12 \
+  --tag pv2_control_ab_top15_sku_winsor_calibrated \
+  --bias-calibration fg_code \
+  --bias-calibration-max-offset-pct 0.25
+```
+
+```bash
+/Users/k.e.oshada/Documents/OptiWMS/.venv/bin/python \
+  "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/scripts/statistical_readiness_check.py" \
+  --forecasts-csv "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_control_ab_top15_sku_winsor_calibrated_pv2_forecasts.csv" \
+  --pred-col y_pred \
+  --output-json "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_statistical_readiness_top15_calibrated.json" \
+  --output-md "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports/pv2_statistical_readiness_top15_calibrated.md"
+```
+
+### E) Current status from automated check
+
+- Statistical readiness automation is in place and running.
+- Latest calibrated PV2 check output exists, but `overall_pass=false` under current strict thresholds.
+- Interpretation: process quality and statistical governance are now stronger, while primary remaining blocker is still data realism/coverage.

@@ -7,6 +7,7 @@
 - Audit summaries and split summaries under `Ai miroservices/modeling/outputs/audit/`.
 - Training-and-save workflow for forecasting models with artifact output under `Ai miroservices/modeling/outputs/artifacts/`.
 - Leaderboard and deployment-registry-style report generation under `Ai miroservices/modeling/outputs/reports/`.
+- Weighted horizon WAPE selection (H+1..H+12) with baseline weights stored in `Ai miroservices/modeling/outputs/reports/horizon_weights.json`.
 
 ## Key gaps still present in the repo
 

@@ -36,7 +36,7 @@ import { logger } from "@/lib/utils/logger";
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
 const EVAL_SPLIT = "test";
-const RUN_MODE: "snapshot" = "snapshot";
+const RUN_MODE: "online" = "online";
 const CHART_COLORS = {
   lower: "#94a3b8",
   expected: "#0ea5e9",
@@ -379,7 +379,7 @@ export default function ForecastsPage() {
   };
 
   const waitForPublishedRows = async (runId: number) => {
-    const attempts = 18;
+    const attempts = 40;
     const delayMs = 1500;
     for (let i = 0; i < attempts; i += 1) {
       try {
@@ -606,14 +606,17 @@ export default function ForecastsPage() {
     const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
     let out = Array.from(grouped.values())
       .sort((a, b) => a.horizon - b.horizon)
-      .map((g) => ({
-        month: `H+${g.horizon}`,
-        horizon: g.horizon,
-        p10: Math.round(mean(g.p10)),
-        p50: Math.round(mean(g.p50)),
-        p90: Math.round(mean(g.p90)),
-        actual: g.actual.length ? Math.round(mean(g.actual)) : null,
-      }));
+      .map((g) => {
+        const label = g.horizon === 1 ? "1 Month" : g.horizon === 12 ? "1 Year" : `${g.horizon} Months`;
+        return {
+          month: label,
+          horizon: g.horizon,
+          p10: Math.round(mean(g.p10)),
+          p50: Math.round(mean(g.p50)),
+          p90: Math.round(mean(g.p90)),
+          actual: g.actual.length ? Math.round(mean(g.actual)) : null,
+        };
+      });
 
     if (filters.horizon && Number.isFinite(filters.horizon) && filters.horizon > 0) {
       out = out.filter((r) => r.horizon <= filters.horizon!);
@@ -1205,31 +1208,24 @@ export default function ForecastsPage() {
                 }
               >
                 <option value="">All</option>
-                {Array.from({ length: 12 }).map((_, idx) => (
-                  <option key={idx + 1} value={idx + 1}>
-                    {idx + 1}
-                  </option>
-                ))}
+                {Array.from({ length: 12 }).map((_, idx) => {
+                  const m = idx + 1;
+                  const label = m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
+                  return (
+                    <option key={m} value={m}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label className="form-control">
               <span className="label-text text-xs">Warehouse ID</span>
-              {isAdmin ? (
-                <select
-                  className="select select-bordered select-sm"
-                  value={filters.warehouseId ?? ""}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
-                >
-                  <option value="">All warehouses</option>
-                  {warehouseOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input input-bordered input-sm" value={admin?.warehouseName ?? admin?.warehouseId ?? "N/A"} disabled />
-              )}
+              <input 
+                className="input input-bordered input-sm bg-base-200 cursor-not-allowed text-base-content/70 font-medium" 
+                value="Colombo Main Warehouse" 
+                disabled 
+              />
             </label>
             <label className="form-control">
               <span className="label-text text-xs">Evaluation Split</span>
@@ -1251,31 +1247,24 @@ export default function ForecastsPage() {
                 }
               >
                 <option value="">All</option>
-                {Array.from({ length: 12 }).map((_, idx) => (
-                  <option key={idx + 1} value={idx + 1}>
-                    {idx + 1}
-                  </option>
-                ))}
+                {Array.from({ length: 12 }).map((_, idx) => {
+                  const m = idx + 1;
+                  const label = m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
+                  return (
+                    <option key={m} value={m}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <label className="form-control">
               <span className="label-text text-xs">Warehouse ID</span>
-              {isAdmin ? (
-                <select
-                  className="select select-bordered select-sm"
-                  value={filters.warehouseId ?? ""}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, warehouseId: e.target.value }))}
-                >
-                  <option value="">All warehouses</option>
-                  {warehouseOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input input-bordered input-sm" value={admin?.warehouseName ?? admin?.warehouseId ?? "N/A"} disabled />
-              )}
+              <input 
+                className="input input-bordered input-sm bg-base-200 cursor-not-allowed text-base-content/70 font-medium" 
+                value="Colombo Main Warehouse" 
+                disabled 
+              />
             </label>
           </div>
         )}
@@ -1614,7 +1603,7 @@ export default function ForecastsPage() {
                   <div className="text-xl font-semibold">{inferenceMix.errorRatePct}%</div>
                 </div>
               </div>
-              <div className="h-64">
+              <div className="h-80">
                 {inferenceMix.totalSeries > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1624,20 +1613,25 @@ export default function ForecastsPage() {
                         nameKey="name"
                         cx="50%"
                         cy="50%"
-                        outerRadius={86}
+                        innerRadius={80}
+                        outerRadius={120}
                         label={(entry) => `${entry.name}: ${entry.value}`}
                       >
                         {inferenceMix.donut.map((slice, idx) => (
                           <Cell key={`slice-${idx}`} fill={slice.color} />
                         ))}
                       </Pie>
+                      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle">
+                        <tspan x="50%" dy="-0.5em" fontSize="28" fontWeight="bold" fill="currentColor">{inferenceMix.primaryRatePct}%</tspan>
+                        <tspan x="50%" dy="1.5em" fontSize="14" fill="#64748b">Success Rate</tspan>
+                      </text>
                       <Tooltip />
                       <Legend />
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">
-                    No inference audit data yet
+                    No inference audit data yet (Timeout or pending)
                   </div>
                 )}
               </div>

@@ -37,6 +37,7 @@ Move from report-snapshot bridge to a robust online forecasting microservice sta
 - Fair comparison notebooks and strict equal-ground evaluation.
 - Transfer evaluation on unseen M5.
 - New PV2/WV2 generation and EDA with FG→RM lag signals.
+- Weighted horizon WAPE selection for champion/fallback registry (H+1..H+12).
 
 ---
 

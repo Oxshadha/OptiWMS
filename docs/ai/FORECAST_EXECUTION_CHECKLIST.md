@@ -126,6 +126,13 @@ Evidence (2026-04-18):
 - [ ] Select champion by gate + business criteria (not single metric only).
 - [ ] Ensure fallback model metrics are separately tracked and visible.
 
+Evidence (2026-05-04):
+- Weighted horizon WAPE baseline configured in `Ai miroservices/modeling/outputs/reports/horizon_weights.json`.
+- Leaderboard and deployment registry regenerated using weighted WAPE across H+1..H+12.
+- Commands:
+  - `python "Ai miroservices/modeling/scripts/compare_models.py"`
+  - `python "Ai miroservices/modeling/scripts/build_deployment_registry.py"`
+
 ## 6) Inference Reliability + MLOps Ops Loop
 - [x] Add scheduled online inference health checks with alerting destinations.
 - [x] Add scheduled freshness checks against latest demand load.
