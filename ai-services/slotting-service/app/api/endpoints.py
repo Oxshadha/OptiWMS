@@ -23,11 +23,26 @@ def optimize_warehouse_slotting(
         if not db_locations:
             raise HTTPException(status_code=404, detail=f"No locations found for warehouse {request.warehouse_id}")
 
-        # 2. Fetch Materials (SKUs). In a real app, this might join with Inventory to only get items in the warehouse
-        db_materials = db.query(MaterialDB).limit(500).all() # Limit for safety in this PoC
+        # 2. Fetch Materials (SKUs) scoped to the requested warehouse
+        if not hasattr(MaterialDB, "warehouse_id"):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Warehouse-scoped material optimization is not supported by the current "
+                    "material model. Update the query to load materials through a "
+                    "warehouse-scoped source such as inventory or material planning."
+                )
+            )
+
+        db_materials = (
+            db.query(MaterialDB)
+            .filter(MaterialDB.warehouse_id == warehouse_uuid)
+            .limit(500)
+            .all()
+        )  # Limit for safety in this PoC
         
         if not db_materials:
-            raise HTTPException(status_code=404, detail="No materials found in the database")
+            raise HTTPException(status_code=404, detail=f"No materials found for warehouse {request.warehouse_id}")
 
         # 3. Convert DB Models to GA Domain Models
         locations = []
