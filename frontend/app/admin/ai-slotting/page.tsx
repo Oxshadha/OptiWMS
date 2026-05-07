@@ -112,6 +112,7 @@ export default function AISlottingOptimizationPage() {
               <button 
                 className={`btn btn-primary w-full shadow-lg ${isLoading ? 'btn-disabled' : ''}`}
                 onClick={handleOptimize}
+                disabled={isLoading}
               >
                 {isLoading ? (
                   <>
