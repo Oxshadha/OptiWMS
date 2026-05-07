@@ -1,6 +1,6 @@
 # OptiWMS Forecast — Current Status
 
-> **Last updated**: 2026-05-05 (v2 M5 clean pipeline)
+> **Last updated**: 2026-05-05 (Production Deployment Ready)
 
 ## Architecture
 
@@ -73,8 +73,29 @@ due to forecast horizon length — this is expected and consistent with forecast
 | Phase | Data Source | Model | Status |
 |-------|-----------|-------|--------|
 | Phase 1: Pre-training | M5 dataset | XGBoost/CatBoost/LightGBM | ✅ Complete |
-| Phase 2: Cold-start deploy | Synthetic backfill + growing real data | Pre-trained model | ✅ Ready |
+| Phase 2: Live Deployment | **WMS PostgreSQL (Online)** | **LightGBM (Champion)** | ✅ **ACTIVE** |
 | Phase 3: Fine-tuning | ≥12 months real WMS data | Warm-start from pre-trained | ⬜ Future |
+
+## System Integration & Live Deployment
+
+The system is now fully professionalized for enterprise demonstration:
+
+### 1. Online Inference Engine
+- **Mode**: Switched from `snapshot` (offline CSV) to **`online`** mode.
+- **Database**: Connects directly to `optiwms` PostgreSQL (port 5434).
+- **Execution**: Triggers live inference using the LightGBM global model across all SKUs in the WMS inventory.
+- **Backfill**: 36 months of realistic demand history (seasonal + noise) successfully seeded into the database for all 120 demonstration SKUs.
+
+### 2. Dashboard Professionalization (UI/UX)
+- **Visual Excellence**: Upgraded "Inference Path Mix" to a modern **Donut Chart** with centered Success Rate metrics.
+- **User-Friendly Labels**: Replaced technical "H+1" labels with **"1 Month"**, **"2 Months"**, and **"1 Year"** in all charts and filters.
+- **Localized Context**: Fixed deployment scope to **"Colombo Main Warehouse"** to align with the primary demonstration site.
+- **Reliability**: Increased UI timeout tolerances to 60 seconds to ensure complex online inference runs complete successfully.
+
+### 3. Automated Governance
+- **Champion**: `LIGHTGBM` (WAPE: 0.1521).
+- **Fallback**: `SEASONAL_NAIVE` (replaces hardcoded ARIMA for academic consistency).
+- **Automation**: Governance service monitors performance against the "P" (Primary) dataset.
 
 ## Repository Structure
 
