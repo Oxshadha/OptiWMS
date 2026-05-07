@@ -1,7 +1,18 @@
+import os
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import router as slotting_router
+
+
+def _get_allowed_origins():
+    configured_origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost,http://localhost:3000")
+    return [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+
+
+def _get_allow_credentials():
+    return os.getenv("CORS_ALLOW_CREDENTIALS", "false").strip().lower() == "true"
+
 
 app = FastAPI(
     title="OptiWMS - AI Slotting Service",
@@ -9,11 +20,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS (Allows all for development, restrict in production)
+# Configure CORS using an explicit allowlist from environment/config.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_get_allowed_origins(),
+    allow_credentials=_get_allow_credentials(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
