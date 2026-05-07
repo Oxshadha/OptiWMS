@@ -3,10 +3,10 @@ from typing import List, Optional
 from uuid import UUID
 
 class SlottingOptimizationRequest(BaseModel):
-    warehouse_id: str = Field(..., description="The UUID of the warehouse to optimize")
-    population_size: int = Field(20, description="Size of the GA population")
-    generations: int = Field(50, description="Number of generations to evolve")
-    mutation_rate: float = Field(0.05, description="Probability of mutation")
+    warehouse_id: UUID = Field(..., description="The UUID of the warehouse to optimize")
+    population_size: int = Field(20, ge=1, description="Size of the GA population")
+    generations: int = Field(50, ge=1, description="Number of generations to evolve")
+    mutation_rate: float = Field(0.05, ge=0.0, le=1.0, description="Probability of mutation")
 
 class SlottingAssignmentResponse(BaseModel):
     material_id: str
