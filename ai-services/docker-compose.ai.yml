@@ -1,0 +1,113 @@
+services:
+  forecast-service:
+    build:
+      context: ./forecast-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=forecast-service
+      - SERVICE_PORT=${FORECAST_SERVICE_PORT}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - WMS_SERVICE_TOKEN=${WMS_SERVICE_TOKEN}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - DATABASE_URL=sqlite:////data/forecast_service.db
+      - REPORTS_DIR=${REPORTS_DIR:-/reports}
+      - RUNTIME_DATA_SOURCE_MODE=${RUNTIME_DATA_SOURCE_MODE:-csv}
+      - WMS_RUNTIME_DATABASE_URL=${WMS_RUNTIME_DATABASE_URL:-}
+      - WMS_RUNTIME_OUTBOUND_STATUSES=${WMS_RUNTIME_OUTBOUND_STATUSES:-shipped,delivered,completed}
+      - PUBLISH_QUEUE_POLL_INTERVAL_SECONDS=${PUBLISH_QUEUE_POLL_INTERVAL_SECONDS:-1.0}
+      - RETENTION_MAX_RUNS_PER_SCOPE=${RETENTION_MAX_RUNS_PER_SCOPE:-30}
+      - RETENTION_MAX_RUN_AGE_DAYS=${RETENTION_MAX_RUN_AGE_DAYS:-45}
+      - INFERENCE_AUDIT_MAX_LINES=${INFERENCE_AUDIT_MAX_LINES:-10000}
+      - ALERT_P95_LATENCY_MS_THRESHOLD=${ALERT_P95_LATENCY_MS_THRESHOLD:-1000.0}
+      - ARTIFACT_DIR=/model-artifacts
+      - FORECAST_REPORT_FILE=${FORECAST_REPORT_FILE:-dashboard_forecast_output.csv}
+      - INVENTORY_REPORT_FILE=${INVENTORY_REPORT_FILE:-dashboard_inventory_recommendations.csv}
+      - METRICS_REPORT_FILE=${METRICS_REPORT_FILE:-test_metrics_by_horizon.csv}
+      - API_AUTH_REQUIRED=${API_AUTH_REQUIRED:-false}
+      - API_AUTH_TOKEN=${API_AUTH_TOKEN:-}
+      - INFERENCE_RATE_LIMIT_PER_MINUTE=${INFERENCE_RATE_LIMIT_PER_MINUTE:-600}
+      - GATE_MAX_WAPE=${GATE_MAX_WAPE:-0.135}
+      - GATE_MAX_ABS_BIAS=${GATE_MAX_ABS_BIAS:-0.10}
+      - GATE_MAX_UNDER_FORECAST_RATE=${GATE_MAX_UNDER_FORECAST_RATE:-0.60}
+      - GATE_MAX_MASE_MEAN=${GATE_MAX_MASE_MEAN:-1.10}
+      - GATE_MAX_FALLBACK_RATE=${GATE_MAX_FALLBACK_RATE:-0.05}
+      - GATE_MAX_HARD_ERROR_RATE=${GATE_MAX_HARD_ERROR_RATE:-0.01}
+      - GATE_MAX_P95_LATENCY_MS=${GATE_MAX_P95_LATENCY_MS:-2500.0}
+      - OPS_ALERT_WEBHOOK_URL=${OPS_ALERT_WEBHOOK_URL:-}
+      - OPS_ALERT_MIN_STATUS=${OPS_ALERT_MIN_STATUS:-warn}
+      - OPS_ALERT_INCLUDE_DETAILS=${OPS_ALERT_INCLUDE_DETAILS:-true}
+      - GOVERNANCE_ENABLED=${GOVERNANCE_ENABLED:-true}
+      - GOVERNANCE_INTERVAL_SECONDS=${GOVERNANCE_INTERVAL_SECONDS:-180}
+      - GOVERNANCE_DATASET=${GOVERNANCE_DATASET:-B}
+      - GOVERNANCE_MODEL_NAME=${GOVERNANCE_MODEL_NAME:-CATBOOST}
+      - GOVERNANCE_SPLIT=${GOVERNANCE_SPLIT:-test}
+      - GOVERNANCE_INFERENCE_WINDOW=${GOVERNANCE_INFERENCE_WINDOW:-200}
+      - GOVERNANCE_SOAK_HOURS=${GOVERNANCE_SOAK_HOURS:-24}
+      - GOVERNANCE_AUTO_PROMOTE=${GOVERNANCE_AUTO_PROMOTE:-true}
+      - GOVERNANCE_AUTO_ROLLBACK=${GOVERNANCE_AUTO_ROLLBACK:-true}
+      - GOVERNANCE_ROLLBACK_MODEL_NAME=${GOVERNANCE_ROLLBACK_MODEL_NAME:-ARIMA}
+      - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
+    ports:
+      - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    volumes:
+      - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR:-/reports}:ro
+      - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
+      - forecast-service-data:/data
+
+  orchestrator-service:
+    build:
+      context: ./orchestrator-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=orchestrator-service
+      - SERVICE_PORT=${ORCHESTRATOR_SERVICE_PORT}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - FORECAST_API_BASE_URL=http://forecast-service:${FORECAST_SERVICE_PORT}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      forecast-service:
+        condition: service_healthy
+    ports:
+      - "${ORCHESTRATOR_SERVICE_PORT}:${ORCHESTRATOR_SERVICE_PORT}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  slotting-service:
+    build:
+      context: ./slotting-service
+    env_file:
+      - .env
+    environment:
+      - SERVICE_NAME=slotting-service
+      - SERVICE_PORT=${SLOTTING_SERVICE_PORT:-8093}
+      - WMS_API_BASE_URL=${WMS_API_BASE_URL}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+    depends_on:
+      forecast-service:
+        condition: service_healthy
+    ports:
+      - "${SLOTTING_SERVICE_PORT:-8093}:${SLOTTING_SERVICE_PORT:-8093}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  forecast-service-data:

@@ -13,7 +13,7 @@ export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
       row,
       bay,
       rowCode: String(row).padStart(2, "0"),
-      bayCode: String(bay).padStart(2, "0"),
+      bayCode: String(bay).padStart(3, "0"),
     };
   };
 

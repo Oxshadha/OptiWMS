@@ -1,0 +1,17 @@
+name: OptiWMS-Local
+values:
+  - key: baseUrl
+    value: 'http://localhost:8080'
+    enabled: true
+  - key: accessToken
+    value: ''
+    enabled: true
+  - key: refreshToken
+    value: ''
+    enabled: true
+  - key: taskId
+    value: ''
+    enabled: true
+  - key: workerId
+    value: ''
+    enabled: true

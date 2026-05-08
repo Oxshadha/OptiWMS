@@ -1,0 +1,100 @@
+{
+  "portable": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1890.4462770061727,
+    "demand_median": 50.0,
+    "demand_p95": 5595.299999999999,
+    "zero_demand_rate": 0.14988425925925927
+  },
+  "wms": {
+    "rows": 10368,
+    "n_series": 288,
+    "month_min": "2023-02-01",
+    "month_max": "2026-01-01",
+    "n_months": 36,
+    "demand_mean": 1890.4462770061727,
+    "demand_median": 50.0,
+    "demand_p95": 5595.299999999999,
+    "zero_demand_rate": 0.14988425925925927
+  },
+  "wms_feature_ranges": {
+    "on_hand_inventory": {
+      "min": 0.0,
+      "max": 570733.0
+    },
+    "stockout_days": {
+      "min": 0.0,
+      "max": 6.0
+    },
+    "promotion_flag": {
+      "min": 0.0,
+      "max": 1.0
+    },
+    "price_or_discount": {
+      "min": 0.0,
+      "max": 0.2798
+    },
+    "lead_time_days": {
+      "min": 8.65,
+      "max": 137.58
+    },
+    "supplier_otif": {
+      "min": 0.55,
+      "max": 0.995
+    },
+    "inbound_po_qty": {
+      "min": 1.0,
+      "max": 253000.0
+    },
+    "open_sales_orders": {
+      "min": 0.0,
+      "max": 41675.0
+    },
+    "returns_qty": {
+      "min": 0.0,
+      "max": 2971.0
+    },
+    "holiday_flag": {
+      "min": 0.0,
+      "max": 1.0
+    }
+  },
+  "category_counts": {
+    "GENERAL_SLOW": 1872,
+    "GENERAL_STANDARD": 1728,
+    "GENERAL_INTERMITTENT": 1332,
+    "GENERAL_CORE": 1260,
+    "GENERAL_BULK_FAST": 1188,
+    "OIL_WAX_INTERMITTENT": 504,
+    "COLORANT_SLOW": 324,
+    "COLORANT_STANDARD": 252,
+    "OIL_WAX_SLOW": 180,
+    "FRAGRANCE_COOLANT_SLOW": 144,
+    "SOLVENT_CORE": 144,
+    "ACID_BASE_CORE": 144,
+    "COLORANT_INTERMITTENT": 144,
+    "ACTIVE_SLOW": 144,
+    "SOLVENT_BULK_FAST": 108,
+    "ACTIVE_STANDARD": 108,
+    "SURFACTANT_BULK_FAST": 108,
+    "COLORANT_CORE": 72,
+    "ACID_BASE_STANDARD": 72,
+    "ACTIVE_INTERMITTENT": 72,
+    "OIL_WAX_STANDARD": 72,
+    "SOLVENT_STANDARD": 36,
+    "STARCH_GUM_SLOW": 36,
+    "STARCH_GUM_STANDARD": 36,
+    "FRAGRANCE_COOLANT_STANDARD": 36,
+    "OIL_WAX_BULK_FAST": 36,
+    "ACID_BASE_INTERMITTENT": 36,
+    "SURFACTANT_CORE": 36,
+    "ACID_BASE_BULK_FAST": 36,
+    "SURFACTANT_STANDARD": 36,
+    "STARCH_GUM_CORE": 36,
+    "SOLVENT_SLOW": 36
+  }
+}

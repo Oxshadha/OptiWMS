@@ -1,0 +1,166 @@
+{
+  "rows": 288,
+  "columns": [
+    "material_code",
+    "description",
+    "supply_plan_jul",
+    "supply_plan_aug",
+    "supply_plan_sep",
+    "supply_plan_oct",
+    "supply_plan_nov",
+    "buffer_days",
+    "future_average",
+    "lead_time_days",
+    "lead_time_months",
+    "expected_consumption",
+    "demand_variance",
+    "lead_time_demand_variance",
+    "rop_units",
+    "rop_days",
+    "buffer_stock",
+    "maximum_stock",
+    "stacking_quantity",
+    "moq",
+    "difference",
+    "order_delivery",
+    "order_quantity",
+    "moq_minus_order_quantity",
+    "pallet_requirement",
+    "pallet_requirement_round",
+    "source_file",
+    "source_sheet"
+  ],
+  "n_materials": 288,
+  "null_counts": {
+    "material_code": 0,
+    "description": 0,
+    "supply_plan_jul": 0,
+    "supply_plan_aug": 0,
+    "supply_plan_sep": 0,
+    "supply_plan_oct": 0,
+    "supply_plan_nov": 0,
+    "buffer_days": 0,
+    "future_average": 0,
+    "lead_time_days": 0,
+    "lead_time_months": 0,
+    "expected_consumption": 0,
+    "demand_variance": 0,
+    "lead_time_demand_variance": 0,
+    "rop_units": 0,
+    "rop_days": 0,
+    "buffer_stock": 0,
+    "maximum_stock": 0,
+    "stacking_quantity": 0,
+    "moq": 0,
+    "difference": 0,
+    "order_delivery": 3,
+    "order_quantity": 2,
+    "moq_minus_order_quantity": 0,
+    "pallet_requirement": 1,
+    "pallet_requirement_round": 1,
+    "source_file": 0,
+    "source_sheet": 0
+  },
+  "numeric_ranges": {
+    "material_code": {
+      "min": 100005.0,
+      "max": 101862.0
+    },
+    "supply_plan_jul": {
+      "min": 6.596135e-07,
+      "max": 116865.440888026
+    },
+    "supply_plan_aug": {
+      "min": 0.0,
+      "max": 73708.0206951393
+    },
+    "supply_plan_sep": {
+      "min": 1.11475e-06,
+      "max": 83043.7003547194
+    },
+    "supply_plan_oct": {
+      "min": 0.0,
+      "max": 77736.8265714298
+    },
+    "supply_plan_nov": {
+      "min": 0.0,
+      "max": 69301.9680427201
+    },
+    "buffer_days": {
+      "min": 30.0,
+      "max": 30.0
+    },
+    "future_average": {
+      "min": 7.510867e-07,
+      "max": 88715.0943853548
+    },
+    "lead_time_days": {
+      "min": 15.0,
+      "max": 120.0
+    },
+    "lead_time_months": {
+      "min": 0.5,
+      "max": 4.0
+    },
+    "expected_consumption": {
+      "min": 1.502173e-06,
+      "max": 198819.511688843
+    },
+    "demand_variance": {
+      "min": 0.0,
+      "max": 417860294.428349
+    },
+    "lead_time_demand_variance": {
+      "min": 0.0,
+      "max": 38338.7220842428
+    },
+    "rop_units": {
+      "min": 1.97425329949893e-06,
+      "max": 228264.920715758
+    },
+    "rop_days": {
+      "min": 15.0,
+      "max": 318.985155889015
+    },
+    "buffer_stock": {
+      "min": 0.0,
+      "max": 48157.1753009391
+    },
+    "maximum_stock": {
+      "min": 0.010186920445037,
+      "max": 76456.9632505803
+    },
+    "stacking_quantity": {
+      "min": 0.05,
+      "max": 1314.0
+    },
+    "moq": {
+      "min": 0.01,
+      "max": 24000.0
+    },
+    "difference": {
+      "min": -78715.0943853548,
+      "max": 12195.6823228354
+    },
+    "order_delivery": {
+      "min": 3.0,
+      "max": 90.0
+    },
+    "order_quantity": {
+      "min": 0.0,
+      "max": 31509.0220427121
+    },
+    "moq_minus_order_quantity": {
+      "min": -8509.0220427121,
+      "max": 6000.0
+    },
+    "pallet_requirement": {
+      "min": 0.00914501741500147,
+      "max": 72.1717677557843
+    },
+    "pallet_requirement_round": {
+      "min": 0.0,
+      "max": 73.0
+    }
+  }
+}
