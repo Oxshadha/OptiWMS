@@ -18,8 +18,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
             staleTime: 5 * 60 * 1000,
             // Keep unused data in cache for 10 minutes
             gcTime: 10 * 60 * 1000,
-            // Refetch on window focus (user comes back to tab)
-            refetchOnWindowFocus: true,
+            // Keep page state stable when switching tabs
+            refetchOnWindowFocus: false,
             // Refetch when network reconnects
             refetchOnReconnect: true,
             // Retry failed requests once

@@ -51,7 +51,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
           
           if (refreshResponse.success && refreshResponse.accessToken) {
             // Token refreshed successfully - user should retry the request
-            throw new Error('Session refreshed. Please try again.');
+            throw new Error('__TOKEN_REFRESHED_RETRY__');
           } else {
             // Refresh failed - clear tokens and redirect
             logger.error("[API Client] Token refresh failed");
@@ -60,6 +60,14 @@ async function handleResponse<T>(response: Response): Promise<T> {
             throw new Error('Session expired. Please login again.');
           }
         } catch (refreshError) {
+          // Refresh succeeded and token is updated; caller should retry.
+          if (
+            refreshError instanceof Error &&
+            refreshError.message === '__TOKEN_REFRESHED_RETRY__'
+          ) {
+            throw new Error('Session refreshed. Please try again.');
+          }
+
           // Refresh failed - clear tokens and redirect
           logger.error("[API Client] Token refresh error:", refreshError);
           const { authApi } = await import('./auth');
