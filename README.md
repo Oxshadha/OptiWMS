@@ -146,6 +146,31 @@ npm install
 npm run dev
 ```
 
+Helper scripts from repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-db.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-backend.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-frontend.ps1
+```
+
+Optional AI agent:
+
+```powershell
+cd ai-services\ai-agent
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+If you want the frontend warehouse assistant to call the AI agent, copy
+`frontend/.env.example` to `frontend/.env.local` and set:
+
+```env
+NEXT_PUBLIC_WAREHOUSE_AI_URL=http://localhost:8000/ask
+```
+
 ## First-Run Troubleshooting
 
 ### 1) Frontend build error: `Module not found: Can't resolve '@tanstack/react-query'`
@@ -314,7 +339,7 @@ Services:
 
 ## Useful Documents
 
-- `QUICK_START.md`
+- `QUICK_START.txt`
 - `WMS_FLOW_DOCUMENTATION.md`
 - `START_HERE_SECURITY.md`
 - `START_HERE_TESTING.md`
