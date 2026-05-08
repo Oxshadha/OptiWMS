@@ -1,0 +1,48 @@
+project: hemas_wms_forecasting
+version: 1.0
+
+datasets:
+  A:
+    description: Original synthetic monthly panel
+    file: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/hemas_synthetic_forecasting_dataset_monthly_36m.xlsx
+    sheet: FG_Demand_Long
+  B:
+    description: Augmented WMS feature panel
+    file: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/hemas_monthly_augmented_wms_features.xlsx
+    sheet: FG_Demand_Long_Augmented
+  C:
+    description: Scenario stress-test dataset (cleaned)
+    file: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/hemas_scenario_c_dataset_cleaned.csv
+
+split_protocol:
+  time_based:
+    train_end: last_minus_18_month
+    validation_window_months: 6
+    test_window_months: 12
+  scenario_based_for_C:
+    train_scenarios: scenario_split == train
+    test_scenarios: scenario_split == test
+
+models:
+  classical:
+    - ETS
+    - ARIMA(1,1,1)
+    - SARIMA(1,1,1)(1,1,0,12)
+  boosting:
+    - XGBoost
+    - CatBoost
+  horizons: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+metrics:
+  - WAPE
+  - MASE
+  - RMSE
+  - Bias
+  - wQL50
+  - under_forecast_rate
+
+outputs:
+  forecasts: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/forecasts
+  metrics: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/metrics
+  inventory: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/inventory
+  reports: /Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/reports

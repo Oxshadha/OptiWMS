@@ -7,6 +7,12 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { AIDashboardPanel } from "@/components/AIDashboardPanel";
 import { AIServiceStatus } from "@/components/AIServiceStatus";
 import { AI_SERVICES } from "@/lib/ai-services/registry";
+import {
+  aiForecastApi,
+  type ForecastMetric,
+  type ForecastPoint,
+  type InventoryRecommendation,
+} from "@/lib/api/ai-forecast";
 import { useDashboardData } from "./useDashboardData";
 import { usersApi } from "@/lib/api/users";
 import { getScopedSettings } from "@/lib/user-preferences";
@@ -21,6 +27,10 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  CartesianGrid,
+  Legend,
 } from "recharts";
 
 const COLORS = ["#CF0F47", "#E5E7EB"];
@@ -67,6 +77,13 @@ export default function DashboardPage() {
   const [dashboardSettings, setDashboardSettings] = useState(defaultDashboardSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [forecastPoints, setForecastPoints] = useState<ForecastPoint[]>([]);
+  const [forecastMetrics, setForecastMetrics] = useState<ForecastMetric[]>([]);
+  const [inventoryRecommendations, setInventoryRecommendations] = useState<InventoryRecommendation[]>([]);
+  const [aiLastUpdated, setAiLastUpdated] = useState<string | null>(null);
+  const [isTriggeringRun, setIsTriggeringRun] = useState(false);
 
   const topProductsLimit = Math.min(
     Math.max(Number.parseInt(dashboardSettings.itemsPerPage, 10) || 4, 1),
@@ -87,6 +104,7 @@ export default function DashboardPage() {
   const isInboundCoordinator = role === "inbound_coordinator";
   const isAdmin = role === "admin";
   const locale = "en-US";
+  const activeWarehouseId = !isAdmin ? admin?.warehouseId : undefined;
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -174,6 +192,54 @@ export default function DashboardPage() {
     settingsLoading,
   ]);
 
+  useEffect(() => {
+    if (!admin?.id || !(isWarehouseManager || isInboundCoordinator || isAdmin)) {
+      setForecastPoints([]);
+      setForecastMetrics([]);
+      setInventoryRecommendations([]);
+      setAiError(null);
+      return;
+    }
+
+    const loadAiInsights = async () => {
+      try {
+        setAiLoading(true);
+        setAiError(null);
+
+        const [forecasts, metrics, inventory] = await Promise.all([
+          aiForecastApi.getForecasts({
+            dataset: "B",
+            model: "CATBOOST",
+            warehouseId: activeWarehouseId,
+          }),
+          aiForecastApi.getForecastMetrics({
+            split: "test",
+            dataset: "B",
+            model: "CATBOOST",
+            warehouseId: activeWarehouseId,
+          }),
+          aiForecastApi.getInventoryRecommendations({
+            dataset: "B",
+            model: "CATBOOST",
+            warehouseId: activeWarehouseId,
+          }),
+        ]);
+
+        setForecastPoints(forecasts.items ?? []);
+        setForecastMetrics(metrics.items ?? []);
+        setInventoryRecommendations(inventory.items ?? []);
+        setAiLastUpdated(new Date().toISOString());
+      } catch (loadAiError) {
+        logger.error("[Dashboard] Failed to load AI insights:", loadAiError);
+        setAiError(loadAiError instanceof Error ? loadAiError.message : "Failed to load AI insights");
+      } finally {
+        setAiLoading(false);
+      }
+    };
+
+    void loadAiInsights();
+  }, [admin?.id, activeWarehouseId, isAdmin, isInboundCoordinator, isWarehouseManager]);
+
   const gridClass = useMemo(() => {
     if (dashboardSettings.defaultView === "list") {
       return "grid grid-cols-1 gap-6";
@@ -205,6 +271,88 @@ export default function DashboardPage() {
     totalOrdersInPeriod > 0
       ? Math.round((completedOrdersInPeriod / totalOrdersInPeriod) * 100)
       : 0;
+
+  const latestRunId = useMemo(() => {
+    if (!forecastPoints.length) {
+      return undefined;
+    }
+    return Math.max(...forecastPoints.map((point) => point.run_id));
+  }, [forecastPoints]);
+
+  const latestForecastPoints = useMemo(
+    () => forecastPoints.filter((point) => !latestRunId || point.run_id === latestRunId),
+    [forecastPoints, latestRunId]
+  );
+
+  const horizonChartData = useMemo(() => {
+    const grouped = new Map<number, { horizon: number; meanP50: number; meanP90: number; n: number }>();
+    for (const row of latestForecastPoints) {
+      const current = grouped.get(row.horizon) ?? {
+        horizon: row.horizon,
+        meanP50: 0,
+        meanP90: 0,
+        n: 0,
+      };
+      current.meanP50 += row.p50;
+      current.meanP90 += row.p90;
+      current.n += 1;
+      grouped.set(row.horizon, current);
+    }
+
+    return Array.from(grouped.values())
+      .sort((a, b) => a.horizon - b.horizon)
+      .map((item) => ({
+        horizon: `M+${item.horizon}`,
+        p50: item.n > 0 ? Math.round(item.meanP50 / item.n) : 0,
+        p90: item.n > 0 ? Math.round(item.meanP90 / item.n) : 0,
+      }));
+  }, [latestForecastPoints]);
+
+  const topRecommendations = useMemo(
+    () =>
+      [...inventoryRecommendations]
+        .sort((a, b) => b.suggested_order_qty - a.suggested_order_qty)
+        .slice(0, 8),
+    [inventoryRecommendations]
+  );
+
+  const avgWape = useMemo(() => {
+    const valid = forecastMetrics
+      .map((m) => m.WAPE)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!valid.length) {
+      return null;
+    }
+    return valid.reduce((sum, v) => sum + v, 0) / valid.length;
+  }, [forecastMetrics]);
+
+  const avgBias = useMemo(() => {
+    const valid = forecastMetrics
+      .map((m) => m.Bias)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!valid.length) {
+      return null;
+    }
+    return valid.reduce((sum, v) => sum + v, 0) / valid.length;
+  }, [forecastMetrics]);
+
+  const handleTriggerRun = async () => {
+    try {
+      setIsTriggeringRun(true);
+      await aiForecastApi.triggerForecastRun({
+        dataset: "B",
+        modelName: "CATBOOST",
+        warehouseId: activeWarehouseId,
+      });
+      setAiLastUpdated(new Date().toISOString());
+      setAiError(null);
+    } catch (triggerError) {
+      logger.error("[Dashboard] Failed to trigger forecast run:", triggerError);
+      setAiError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
+    } finally {
+      setIsTriggeringRun(false);
+    }
+  };
 
   if (loading || settingsLoading) {
     return (
@@ -548,8 +696,31 @@ export default function DashboardPage() {
                 title="Demand Forecast (View Only)"
                 description="Future demand predictions for capacity planning"
               >
-                <div className="text-sm text-base-content/60">
-                  Demand forecasts will appear here when the service is available.
+                <div className="space-y-3">
+                  {aiError && <div className="alert alert-warning text-sm">{aiError}</div>}
+                  <div className="text-sm text-base-content/60">
+                    {aiLoading
+                      ? "Loading scoped demand forecasts..."
+                      : `${latestForecastPoints.length} forecast points available for your warehouse`}
+                  </div>
+                  <div className="h-56">
+                    {horizonChartData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={horizonChartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="horizon" tick={{ fontSize: 12 }} />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="p50" name="P50 Demand" stroke="#0ea5e9" strokeWidth={2} />
+                          <Line type="monotone" dataKey="p90" name="P90 Demand" stroke="#ef4444" strokeWidth={2} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                        No forecast rows found for current scope
+                      </div>
+                    )}
+                  </div>
                 </div>
               </AIDashboardPanel>
 
@@ -558,8 +729,35 @@ export default function DashboardPage() {
                 title="Inventory Levels (View Only)"
                 description="Suggested min-max inventory levels for space planning"
               >
-                <div className="text-sm text-base-content/60">
-                  Inventory level suggestions will appear here when the service is available.
+                <div className="space-y-3">
+                  {topRecommendations.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="table table-sm">
+                        <thead>
+                          <tr>
+                            <th>SKU</th>
+                            <th className="text-right">Safety</th>
+                            <th className="text-right">ROP</th>
+                            <th className="text-right">Order Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {topRecommendations.map((row) => (
+                            <tr key={`${row.run_id}-${row.sku}`}>
+                              <td>{row.sku}</td>
+                              <td className="text-right">{Math.round(row.safety_stock)}</td>
+                              <td className="text-right">{Math.round(row.reorder_point)}</td>
+                              <td className="text-right font-semibold">{Math.round(row.suggested_order_qty)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-base-content/60">
+                      No inventory recommendations available for this scope.
+                    </div>
+                  )}
                 </div>
               </AIDashboardPanel>
             </div>
@@ -591,8 +789,27 @@ export default function DashboardPage() {
                 title="Demand Forecasting"
                 description="90-day demand predictions with confidence intervals"
               >
-                <div className="text-sm text-base-content/60">
-                  Demand forecasts will appear here when the service is available.
+                <div className="space-y-3">
+                  {aiError && <div className="alert alert-warning text-sm">{aiError}</div>}
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Avg Test WAPE</div>
+                      <div className="text-lg font-semibold">
+                        {avgWape !== null ? avgWape.toFixed(3) : "N/A"}
+                      </div>
+                    </div>
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Avg Bias</div>
+                      <div className="text-lg font-semibold">
+                        {avgBias !== null ? avgBias.toFixed(3) : "N/A"}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-sm text-base-content/60">
+                    {horizonChartData.length > 0
+                      ? `Latest run #${latestRunId ?? "-"} with ${horizonChartData.length} horizons`
+                      : "No forecast run data available yet"}
+                  </div>
                 </div>
               </AIDashboardPanel>
 
@@ -625,8 +842,40 @@ export default function DashboardPage() {
                 title="Demand Forecasting Service"
                 description="Configure model parameters and view forecasts"
               >
-                <div className="text-sm text-base-content/60">
-                  Service configuration and metrics will appear here when the service is available.
+                <div className="space-y-4">
+                  {aiError && <div className="alert alert-warning text-sm">{aiError}</div>}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Latest Run</div>
+                      <div className="text-lg font-semibold">{latestRunId ?? "N/A"}</div>
+                    </div>
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Forecast Rows</div>
+                      <div className="text-lg font-semibold">{latestForecastPoints.length}</div>
+                    </div>
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Metrics Rows</div>
+                      <div className="text-lg font-semibold">{forecastMetrics.length}</div>
+                    </div>
+                    <div className="p-3 bg-base-200 rounded-lg">
+                      <div className="text-xs text-base-content/60">Inventory Recos</div>
+                      <div className="text-lg font-semibold">{inventoryRecommendations.length}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className={isTriggeringRun ? "btn btn-sm btn-disabled" : "btn btn-sm btn-primary"}
+                      onClick={() => void handleTriggerRun()}
+                      disabled={isTriggeringRun}
+                    >
+                      {isTriggeringRun ? "Triggering..." : "Trigger Forecast Run"}
+                    </button>
+                    <span className="text-xs text-base-content/60">
+                      {aiLastUpdated
+                        ? `Last sync ${new Date(aiLastUpdated).toLocaleString()}`
+                        : "No successful sync yet"}
+                    </span>
+                  </div>
                 </div>
               </AIDashboardPanel>
 
@@ -645,8 +894,19 @@ export default function DashboardPage() {
                 title="Min-Max Inventory Service"
                 description="Service configuration and performance metrics"
               >
-                <div className="text-sm text-base-content/60">
-                  Service metrics will appear here when the service is available.
+                <div className="space-y-2 text-sm">
+                  <div className="text-base-content/60">
+                    Suggested order quantity (top 8 SKUs):{" "}
+                    <span className="font-semibold text-base-content">
+                      {Math.round(
+                        topRecommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0)
+                      )}
+                    </span>
+                  </div>
+                  <div className="text-base-content/60">
+                    Recommendation coverage:{" "}
+                    <span className="font-semibold text-base-content">{inventoryRecommendations.length} SKUs</span>
+                  </div>
                 </div>
               </AIDashboardPanel>
 
