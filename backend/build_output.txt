@@ -1,0 +1,21 @@
+> Task :clean UP-TO-DATE
+> Task :core-api:clean UP-TO-DATE
+> Task :core-app:clean FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core-app:clean'.
+> java.io.IOException: Unable to delete directory 'C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-app\build'
+    Failed to delete some children. This might happen because a process has files open or has its working directory set in the target directory.
+    - C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-app\build\libs\core-app-0.1.0-SNAPSHOT.jar
+3 actionable tasks: 1 executed, 2 up-to-date
+    - C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-app\build\libs
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 3s

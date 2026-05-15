@@ -1,0 +1,197 @@
+> Task :compileJava NO-SOURCE
+> Task :processResources NO-SOURCE
+> Task :classes UP-TO-DATE
+> Task :jar UP-TO-DATE
+> Task :assemble UP-TO-DATE
+> Task :check
+> Task :build
+> Task :core-domain:compileJava UP-TO-DATE
+> Task :core-domain:processResources NO-SOURCE
+> Task :core-domain:classes UP-TO-DATE
+> Task :core-domain:jar UP-TO-DATE
+> Task :infra:compileJava UP-TO-DATE
+> Task :infra:processResources UP-TO-DATE
+> Task :infra:classes UP-TO-DATE
+> Task :infra:jar UP-TO-DATE
+> Task :core-app:compileJava UP-TO-DATE
+> Task :core-app:processResources NO-SOURCE
+> Task :core-app:classes UP-TO-DATE
+> Task :core-app:jar UP-TO-DATE
+> Task :integration:compileJava UP-TO-DATE
+> Task :integration:processResources NO-SOURCE
+> Task :integration:classes UP-TO-DATE
+> Task :integration:jar UP-TO-DATE
+
+> Task :core-api:compileJava
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:3: error: package lombok does not exist
+import lombok.AllArgsConstructor;
+             ^
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:4: error: package lombok does not exist
+import lombok.Data;
+             ^
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:5: error: package lombok does not exist
+import lombok.NoArgsConstructor;
+             ^
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:12: error: cannot find symbol
+@Data
+ ^
+  symbol: class Data
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:13: error: cannot find symbol
+@NoArgsConstructor
+ ^
+  symbol: class NoArgsConstructor
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:14: error: cannot find symbol
+@AllArgsConstructor
+ ^
+  symbol: class AllArgsConstructor
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:17: error: cannot find symbol
+    @Data
+     ^
+  symbol:   class Data
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:18: error: cannot find symbol
+    @NoArgsConstructor
+     ^
+  symbol:   class NoArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:19: error: cannot find symbol
+    @AllArgsConstructor
+     ^
+  symbol:   class AllArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:49: error: cannot find symbol
+    @Data
+     ^
+  symbol:   class Data
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:50: error: cannot find symbol
+    @NoArgsConstructor
+     ^
+  symbol:   class NoArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:51: error: cannot find symbol
+    @AllArgsConstructor
+     ^
+  symbol:   class AllArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:38: error: cannot find symbol
+    @Data
+     ^
+  symbol:   class Data
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:39: error: cannot find symbol
+    @NoArgsConstructor
+     ^
+  symbol:   class NoArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:40: error: cannot find symbol
+    @AllArgsConstructor
+     ^
+  symbol:   class AllArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:30: error: cannot find symbol
+    @Data
+     ^
+  symbol:   class Data
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:31: error: cannot find symbol
+    @NoArgsConstructor
+     ^
+  symbol:   class NoArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\dto\PathfindingDTO.java:32: error: cannot find symbol
+    @AllArgsConstructor
+     ^
+  symbol:   class AllArgsConstructor
+  location: class PathfindingDTO
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:25: error: cannot find symbol
+            AStarPathfinder pathfinder = new AStarPathfinder(request.getGridRows(), request.getGridCols());
+                                                                    ^
+  symbol:   method getGridRows()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:25: error: cannot find symbol
+            AStarPathfinder pathfinder = new AStarPathfinder(request.getGridRows(), request.getGridCols());
+                                                                                           ^
+  symbol:   method getGridCols()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:28: error: cannot find symbol
+            if (request.getBlockedLocations() != null) {
+                       ^
+  symbol:   method getBlockedLocations()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:29: error: cannot find symbol
+                for (PathfindingDTO.BlockedLocation blocked : request.getBlockedLocations()) {
+                                                                     ^
+  symbol:   method getBlockedLocations()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:30: error: cannot find symbol
+                    pathfinder.setBlocked(blocked.getRow(), blocked.getCol(), true);
+                                                 ^
+  symbol:   method getRow()
+  location: variable blocked of type BlockedLocation
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:30: error: cannot find symbol
+                    pathfinder.setBlocked(blocked.getRow(), blocked.getCol(), true);
+                                                                   ^
+  symbol:   method getCol()
+  location: variable blocked of type BlockedLocation
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:36: error: cannot find symbol
+                request.getStartRow(), 
+                       ^
+  symbol:   method getStartRow()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:37: error: cannot find symbol
+                request.getStartCol(),
+                       ^
+  symbol:   method getStartCol()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:38: error: cannot find symbol
+                request.getEndRow(), 
+                       ^
+  symbol:   method getEndRow()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:39: error: cannot find symbol
+                request.getEndCol()
+                       ^
+  symbol:   method getEndCol()
+  location: variable request of type PathRequest
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:46: error: constructor PathNode in class PathNode cannot be applied to given types;
+                .map(node -> new PathfindingDTO.PathNode(
+                             ^
+  required: no arguments
+  found:    int,int,double,double,double
+  reason: actual and formal argument lists differ in length
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:53: error: incompatible types: inference variable T has incompatible bounds
+                .collect(Collectors.toList());
+                        ^
+    equality constraints: PathNode
+    lower bounds: Object
+  where T is a type-variable:
+    T extends Object declared in method <T>toList()
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:55: error: constructor PathResponse in class PathResponse cannot be applied to given types;
+            return new PathfindingDTO.PathResponse(
+                   ^
+  required: no arguments
+  found:    boolean,List<PathNode>,int,long,path.isEmp[...]ully"
+  reason: actual and formal argument lists differ in length
+C:\Users\VICTUS\OneDrive\Desktop\New folder\OptiWMS\backend\core-api\src\main\java\com\optiwms\coreapi\service\PathfindingService.java:65: error: constructor PathResponse in class PathResponse cannot be applied to given types;
+            return new PathfindingDTO.PathResponse(
+                   ^
+  required: no arguments
+  found:    boolean,ArrayList<Object>,int,long,String
+  reason: actual and formal argument lists differ in length
+32 errors
+
+> Task :core-api:compileJava FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':core-api:compileJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+> Run with --info option to get more log output.
+> Run with --scan to get full insights.
+
+BUILD FAILED in 9s
+11 actionable tasks: 1 executed, 10 up-to-date
