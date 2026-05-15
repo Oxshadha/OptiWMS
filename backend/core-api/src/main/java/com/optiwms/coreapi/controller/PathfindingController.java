@@ -4,6 +4,8 @@ import com.optiwms.coreapi.dto.PathfindingDTO;
 import com.optiwms.coreapi.service.PathfindingService;
 import com.optiwms.coreapp.master.LocationService;
 import com.optiwms.domain.master.Location;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +19,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/pathfinding")
 @CrossOrigin(origins = "*", allowedHeaders = "*")
 public class PathfindingController {
+    private static final Logger log = LoggerFactory.getLogger(PathfindingController.class);
     
     @Autowired
     private PathfindingService pathfindingService;
@@ -35,6 +38,7 @@ public class PathfindingController {
             PathfindingDTO.PathResponse response = pathfindingService.findPath(request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
+            log.error("Error while computing path", e);
             return ResponseEntity.badRequest().build();
         }
     }
@@ -182,8 +186,8 @@ public class PathfindingController {
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to load warehouse graph: " + e.getMessage()));
+            log.error("Failed to load warehouse graph for pathfinding", e);
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to load warehouse graph"));
         }
     }
 }
