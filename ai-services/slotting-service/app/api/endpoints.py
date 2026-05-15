@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
-import uuid
 
 from app.db.database import get_db
 from app.models.schemas import SlottingOptimizationRequest, SlottingOptimizationResponse, SlottingAssignmentResponse
@@ -17,26 +15,15 @@ def optimize_warehouse_slotting(
 ):
     try:
         # 1. Fetch Locations for the specific warehouse
-        warehouse_uuid = uuid.UUID(request.warehouse_id)
-        db_locations = db.query(LocationDB).filter(LocationDB.warehouse_id == warehouse_uuid).all()
+        warehouse_id = str(request.warehouse_id)
+        db_locations = db.query(LocationDB).filter(LocationDB.warehouse_id == warehouse_id).all()
         
         if not db_locations:
             raise HTTPException(status_code=404, detail=f"No locations found for warehouse {request.warehouse_id}")
 
         # 2. Fetch Materials (SKUs) scoped to the requested warehouse
-        if not hasattr(MaterialDB, "warehouse_id"):
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    "Warehouse-scoped material optimization is not supported by the current "
-                    "material model. Update the query to load materials through a "
-                    "warehouse-scoped source such as inventory or material planning."
-                )
-            )
-
         db_materials = (
             db.query(MaterialDB)
-            .filter(MaterialDB.warehouse_id == warehouse_uuid)
             .limit(500)
             .all()
         )  # Limit for safety in this PoC
@@ -103,5 +90,7 @@ def optimize_warehouse_slotting(
 
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred during optimization: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred during optimization.")
