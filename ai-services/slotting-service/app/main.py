@@ -40,3 +40,12 @@ def root():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "service": "slotting-service"}
+
+@app.post("/recommendations/slotting")
+def recommend_slotting(payload: dict | None = None) -> dict:
+    # Stub endpoint to keep integration contracts stable while slotting logic is implemented.
+    return {
+        "status": "not_implemented",
+        "message": "slotting recommendation engine is scaffolded but not implemented yet",
+        "input": payload or {},
+    }

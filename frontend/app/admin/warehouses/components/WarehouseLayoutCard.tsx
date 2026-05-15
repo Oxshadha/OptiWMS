@@ -39,18 +39,22 @@ export function WarehouseLayoutCard({
         <div className="bg-base-100 rounded-lg shadow-lg border border-base-300 p-2 min-w-[140px]">
           <label className="label cursor-pointer gap-2 py-1">
             <span className="label-text text-xs font-semibold whitespace-nowrap">Velocity Heat Map</span>
-            <input
-              type="checkbox"
-              className="toggle toggle-primary toggle-sm"
-              checked={showVelocity}
-              onChange={(event) => onToggleVelocity(event.target.checked)}
-            />
+            <div 
+              onClick={() => onToggleVelocity(!showVelocity)}
+              className={`w-10 h-5 rounded-full relative transition-colors cursor-pointer border border-gray-300 ${showVelocity ? "bg-primary" : "bg-gray-400"}`}
+              role="switch"
+              aria-checked={showVelocity}
+            >
+              <div 
+                className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full bg-white transition-transform shadow-sm ${showVelocity ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </div>
           </label>
           {showVelocity && (
             <div className="mt-2 text-xs text-base-content/60 space-y-1 pt-2 border-t border-base-300">
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#22C55E] flex-shrink-0"></div><span className="text-xs">Low (0-20%)</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#F59E0B] flex-shrink-0"></div><span className="text-xs">Medium (20-50%)</span></div>
-              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#DC2626] flex-shrink-0"></div><span className="text-xs">High (50-100%)</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#38BDF8] flex-shrink-0"></div><span className="text-xs">Low (0-20%)</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#FBBF24] flex-shrink-0"></div><span className="text-xs">Medium (20-50%)</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-[#F43F5E] flex-shrink-0"></div><span className="text-xs">High (50-100%)</span></div>
             </div>
           )}
         </div>

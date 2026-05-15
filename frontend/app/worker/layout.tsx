@@ -19,6 +19,7 @@ import {
 } from "@/lib/worker-roles";
 import { WorkerProvider } from "@/contexts/WorkerContext";
 import { logger } from "@/lib/utils/logger";
+import { WarehouseAssistant } from "@/components/WarehouseAssistant";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -425,17 +426,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
         // If we have a token but no worker state, wait a bit more (API call might be in progress)
         if (!worker && !role && currentHasToken) {
-          logger.debug("[WorkerLayout] Has token but no worker - waiting for API call...");
-          const retryTimeout = setTimeout(() => {
-            if (!worker && !role) {
-              logger.debug("[WorkerLayout] Token exists but no worker after timeout - token might be invalid");
-              // Token might be invalid, clear it
-              localStorage.removeItem('accessToken');
-              localStorage.removeItem('refreshToken');
-              router.replace("/worker/login");
-            }
-          }, 3000); // Increased timeout to allow API call
-          return () => clearTimeout(retryTimeout);
+          logger.debug("[WorkerLayout] Has token but no worker - waiting for session restore");
+          return;
         }
 
         // Check if worker has permission for this operation
@@ -483,7 +475,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   const [loadingTimeout, setLoadingTimeout] = React.useState(false);
   
   React.useEffect(() => {
-    if (isLoading && hasToken && !worker) {
+    if (isLoading && !hasToken && !worker) {
       // Set a timeout - if still loading after 5 seconds, force stop
       const timeout = setTimeout(() => {
         logger.warn("[WorkerLayout] Loading timeout after 5 seconds - forcing stop");
@@ -498,11 +490,11 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   
   // If timeout occurred, redirect to login
   React.useEffect(() => {
-    if (loadingTimeout && !worker && !role) {
+    if (loadingTimeout && !worker && !role && !hasToken) {
       logger.debug("[WorkerLayout] Loading timeout - redirecting to login");
       router.replace("/worker/login");
     }
-  }, [loadingTimeout, worker, role, router]);
+  }, [loadingTimeout, worker, role, hasToken, router]);
   
   // Show loading while checking auth, but with timeout
   if (!mounted) {
@@ -772,6 +764,8 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       >
         {children}
       </main>
+
+      <WarehouseAssistant userRole="worker" />
 
       {/* Bottom Navigation - Always visible on mobile */}
       <nav className="bg-base-100 border-t border-base-300 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">

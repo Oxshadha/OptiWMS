@@ -13,6 +13,9 @@ export type WorkerRole =
   | 'stacker_operator'
   | 'powered_pallet_truck_operator'
   | 'unloading_worker'
+  | 'receiver'
+  | 'putaway'
+  | 'quality_checker'
   | 'cycle_count_worker'
   | 'picker'
   | 'packer'
@@ -61,6 +64,16 @@ const PERMISSION_MATRIX: Record<WorkerRole, Set<Operation>> = {
     OPERATIONS.RECEIVING,
     OPERATIONS.PUTAWAY,
   ]),
+  receiver: new Set([
+    OPERATIONS.RECEIVING,
+    OPERATIONS.PUTAWAY,
+  ]),
+  putaway: new Set([
+    OPERATIONS.PUTAWAY,
+  ]),
+  quality_checker: new Set([
+    OPERATIONS.CYCLE_COUNT,
+  ]),
   cycle_count_worker: new Set([
     OPERATIONS.CYCLE_COUNT,
   ]),
@@ -92,6 +105,9 @@ export const ROLE_DISPLAY_NAMES: Record<WorkerRole, string> = {
   stacker_operator: 'Stacker Operator',
   powered_pallet_truck_operator: 'Powered Pallet Truck Operator',
   unloading_worker: 'Unloading Worker',
+  receiver: 'Receiver',
+  putaway: 'Putaway Worker',
+  quality_checker: 'Quality Checker',
   cycle_count_worker: 'Cycle Count Worker',
   picker: 'Picker',
   packer: 'Packer',

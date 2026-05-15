@@ -35,6 +35,23 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
+ai:
+  http:
+    connect-timeout-seconds: 3
+    read-timeout-seconds: 300
+  services:
+    forecast-base-url: ${AI_FORECAST_BASE_URL:http://forecast-service:8091}
+    orchestrator-base-url: ${AI_ORCHESTRATOR_BASE_URL:http://orchestrator-service:8092}
+    auth-token: ${AI_SERVICES_AUTH_TOKEN:}
+  monitoring:
+    enabled: false
+    fixed-delay-ms: 300000
+    limit: 200
+    trigger-block-on-critical: false
+    trigger-guard-window: 200
+    allow-critical-override: false
+    trigger-fail-open-on-guard-error: true
+
 # -----------------------------------------------------------------------------
 # PRODUCTION NOTES
 # -----------------------------------------------------------------------------

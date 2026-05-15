@@ -12,6 +12,7 @@ import { AI_SERVICES } from "@/lib/ai-services/registry";
 import { notificationsApi, Notification } from "@/lib/api/notifications";
 import { useTheme } from "@/lib/hooks/useTheme";
 import { logger } from "@/lib/utils/logger";
+import { WarehouseAssistant } from "@/components/WarehouseAssistant";
 
 type SearchItem = {
   type: "Warehouse" | "Order" | "Customer";
@@ -508,6 +509,10 @@ export function Topbar() {
             </span>
           </button>
         )}
+
+        <WarehouseAssistant
+          userRole="manager"
+        />
 
         <div className="relative profile-dropdown">
           <button
