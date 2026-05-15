@@ -151,7 +151,8 @@ public class AiProxyService {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
                 .queryParam("model_name", modelName)
-                .queryParam("mode", mode);
+                ;
+        if (mode != null && !mode.isBlank()) ub.queryParam("mode", mode);
         if (warehouseId != null && !warehouseId.isBlank()) {
             ub.queryParam("warehouse_id", warehouseId);
         }
@@ -231,6 +232,17 @@ public class AiProxyService {
                     "error", ex.getMessage()
             ));
         }
+    }
+
+    // Backwards-compatible overload for callers/tests that pass the older five-arg signature
+    public ResponseEntity<Object> triggerForecastRunWithGuard(
+            Authentication authentication,
+            String dataset,
+            String modelName,
+            String warehouseId,
+            boolean criticalOverrideRequested
+    ) {
+        return triggerForecastRunWithGuard(authentication, dataset, modelName, null, warehouseId, criticalOverrideRequested);
     }
 
     public ResponseEntity<Object> getArtifacts(String dataset, String model) {
