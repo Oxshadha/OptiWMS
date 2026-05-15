@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
@@ -142,26 +142,6 @@ export default function LaborProductivityPage() {
       </div>
     );
   }
-
-  const summary = {
-    averagePPH: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.picksPerHour ?? 0), 0) / productivityMetrics.length
-      : 0,
-    averageDwellTime: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.averageDwellTime ?? 0), 0) / productivityMetrics.length
-      : 0,
-    averageErrorRate: productivityMetrics.length > 0
-      ? productivityMetrics.reduce((sum, m) => sum + (m.errorRate ?? 0), 0) / productivityMetrics.length
-      : 0,
-    totalTasksCompleted: productivityMetrics.reduce((sum, m) => sum + (m.tasksCompleted ?? 0), 0),
-    topPerformer: leaderboard.length > 0 ? leaderboard[0].workerName : "N/A",
-  };
-  const pagedMetrics = productivityMetrics.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-  const totalPages = Math.max(Math.ceil(productivityMetrics.length / itemsPerPage), 1);
-
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -189,39 +169,38 @@ export default function LaborProductivityPage() {
           </select>
         </div>
       </div>
+        {/* Summary Cards */}
+        <SummaryCards
+          cards={[
+            {
+              label: "Average PPH",
+              value: summary.averagePPH.toFixed(1),
+              icon: "trending_up",
+            },
+            {
+              label: "Avg Dwell Time",
+              value: `${summary.averageDwellTime.toFixed(1)} min`,
+              icon: "schedule",
+            },
+            {
+              label: "Avg Error Rate",
+              value: `${summary.averageErrorRate.toFixed(2)}%`,
+              icon: "error_outline",
+            },
+            {
+              label: "Total Tasks",
+              value: summary.totalTasksCompleted.toString(),
+              icon: "task",
+            },
+            {
+              label: "Top Performer",
+              value: summary.topPerformer,
+              icon: "emoji_events",
+            },
+          ]}
+        />
 
-      {/* Summary Cards */}
-      <SummaryCards
-        cards={[
-          {
-            label: "Average PPH",
-            value: summary.averagePPH.toFixed(1),
-            icon: "trending_up",
-          },
-          {
-            label: "Avg Dwell Time",
-            value: `${summary.averageDwellTime.toFixed(1)} min`,
-            icon: "schedule",
-          },
-          {
-            label: "Avg Error Rate",
-            value: `${summary.averageErrorRate.toFixed(2)}%`,
-            icon: "error_outline",
-          },
-          {
-            label: "Total Tasks",
-            value: summary.totalTasksCompleted.toString(),
-            icon: "task",
-          },
-          {
-            label: "Top Performer",
-            value: summary.topPerformer,
-            icon: "emoji_events",
-          },
-        ]}
-      />
-
-      {/* Leaderboard */}
+        {/* Leaderboard */}
       <Leaderboard entries={leaderboard} showBadges={true} maxEntries={10} />
 
       {/* Productivity Charts */}
