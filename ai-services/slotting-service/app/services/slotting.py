@@ -198,8 +198,7 @@ def evaluate_fitness(
             penalty += overage * 10.0  # Scale penalty by how much it's over volume
 
     # Calculate final fitness. We subtract the distance and penalties from the base score.
-    # Floor at 0.0 so we don't have negative fitness (useful for some selection methods).
-    final_fitness = max(0.0, base_score - total_travel_distance - penalty)
+    final_fitness = base_score - total_travel_distance - penalty
     
     # Update the chromosome's fitness
     chromosome.fitness = final_fitness
@@ -386,19 +385,69 @@ def run_slotting_optimization(
 
 if __name__ == "__main__":
     sample_locations = [
-        Location(id="LOC-A1", zone="A", aisle="1", rack="1", bin="1", max_weight=400.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=10.0),
-        Location(id="LOC-A2", zone="A", aisle="1", rack="2", bin="1", max_weight=500.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=15.0),
-        Location(id="LOC-B1", zone="B", aisle="2", rack="1", bin="1", max_weight=1000.0, max_volume=200.0, allowed_hazard_classes=["none"], distance_to_dispatch=30.0),
-        Location(id="LOC-C1", zone="C", aisle="3", rack="1", bin="1", max_weight=200.0, max_volume=50.0, allowed_hazard_classes=["flammable"], distance_to_dispatch=50.0),
-        Location(id="LOC-A3", zone="A", aisle="1", rack="3", bin="1", max_weight=500.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=20.0),
+        # Zone A - Fast Moving 
+        Location(id="LOC-A1", zone="A", aisle="1", rack="1", bin="1", max_weight=400.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=5.0),
+        Location(id="LOC-A2", zone="A", aisle="1", rack="2", bin="1", max_weight=500.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=10.0),
+        Location(id="LOC-A3", zone="A", aisle="1", rack="3", bin="1", max_weight=500.0, max_volume=100.0, allowed_hazard_classes=["none"], distance_to_dispatch=15.0),
+        Location(id="LOC-A4", zone="A", aisle="2", rack="1", bin="1", max_weight=400.0, max_volume=120.0, allowed_hazard_classes=["none"], distance_to_dispatch=10.0),
+        Location(id="LOC-A5", zone="A", aisle="2", rack="2", bin="1", max_weight=600.0, max_volume=150.0, allowed_hazard_classes=["none"], distance_to_dispatch=15.0),
+        
+        # Zone B - Heavy/Bulk items 
+        Location(id="LOC-B1", zone="B", aisle="3", rack="1", bin="1", max_weight=2000.0, max_volume=300.0, allowed_hazard_classes=["none"], distance_to_dispatch=30.0),
+        Location(id="LOC-B2", zone="B", aisle="3", rack="2", bin="1", max_weight=2000.0, max_volume=300.0, allowed_hazard_classes=["none"], distance_to_dispatch=35.0),
+        Location(id="LOC-B3", zone="B", aisle="4", rack="1", bin="1", max_weight=1500.0, max_volume=250.0, allowed_hazard_classes=["none"], distance_to_dispatch=40.0),
+        Location(id="LOC-B4", zone="B", aisle="4", rack="2", bin="1", max_weight=1500.0, max_volume=250.0, allowed_hazard_classes=["none"], distance_to_dispatch=45.0),
+        Location(id="LOC-B5", zone="B", aisle="4", rack="3", bin="1", max_weight=2500.0, max_volume=400.0, allowed_hazard_classes=["none"], distance_to_dispatch=50.0),
+        Location(id="LOC-B6", zone="B", aisle="4", rack="4", bin="1", max_weight=2500.0, max_volume=400.0, allowed_hazard_classes=["none"], distance_to_dispatch=55.0),
+        
+        # Zone C - Hazardous Materials 
+        Location(id="LOC-C1", zone="C", aisle="5", rack="1", bin="1", max_weight=300.0, max_volume=50.0, allowed_hazard_classes=["flammable", "toxic"], distance_to_dispatch=60.0),
+        Location(id="LOC-C2", zone="C", aisle="5", rack="2", bin="1", max_weight=300.0, max_volume=50.0, allowed_hazard_classes=["flammable", "toxic", "corrosive"], distance_to_dispatch=65.0),
+        Location(id="LOC-C3", zone="C", aisle="5", rack="3", bin="1", max_weight=500.0, max_volume=80.0, allowed_hazard_classes=["oxidizer", "corrosive"], distance_to_dispatch=70.0),
+        Location(id="LOC-C4", zone="C", aisle="5", rack="4", bin="1", max_weight=400.0, max_volume=70.0, allowed_hazard_classes=["flammable", "explosive"], distance_to_dispatch=75.0),
+        Location(id="LOC-C5", zone="C", aisle="5", rack="5", bin="1", max_weight=1000.0, max_volume=150.0, allowed_hazard_classes=["flammable", "toxic", "corrosive", "oxidizer"], distance_to_dispatch=80.0),
+        
+        # Zone D - Overflow / Slow Moving 
+        Location(id="LOC-D1", zone="D", aisle="6", rack="1", bin="1", max_weight=800.0, max_volume=200.0, allowed_hazard_classes=["none"], distance_to_dispatch=80.0),
+        Location(id="LOC-D2", zone="D", aisle="6", rack="2", bin="1", max_weight=800.0, max_volume=200.0, allowed_hazard_classes=["none"], distance_to_dispatch=85.0),
+        Location(id="LOC-D3", zone="D", aisle="6", rack="3", bin="1", max_weight=1000.0, max_volume=250.0, allowed_hazard_classes=["none"], distance_to_dispatch=90.0),
+        Location(id="LOC-D4", zone="D", aisle="7", rack="1", bin="1", max_weight=600.0, max_volume=150.0, allowed_hazard_classes=["none"], distance_to_dispatch=95.0),
+        Location(id="LOC-D5", zone="D", aisle="7", rack="2", bin="1", max_weight=600.0, max_volume=150.0, allowed_hazard_classes=["none"], distance_to_dispatch=100.0),
     ]
 
     sample_skus = [
-        SKU(id="SKU-1001", weight=10.0, volume=5.0, hazard_class="none", stackability_score=5, velocity=100.0),
-        SKU(id="SKU-1002", weight=50.0, volume=20.0, hazard_class="none", stackability_score=2, velocity=20.0),
-        SKU(id="SKU-1003", weight=5.0, volume=2.0, hazard_class="none", stackability_score=10, velocity=200.0),
-        SKU(id="SKU-HAZ-1", weight=15.0, volume=10.0, hazard_class="flammable", stackability_score=3, velocity=10.0),
-        SKU(id="SKU-CHILL-1", weight=20.0, volume=15.0, hazard_class="none", stackability_score=4, velocity=50.0),
+        # High Velocity / Small 
+        SKU(id="SKU-FAST-01", weight=2.0, volume=1.0, hazard_class="none", stackability_score=10, velocity=300.0),
+        SKU(id="SKU-FAST-02", weight=5.0, volume=2.0, hazard_class="none", stackability_score=8, velocity=250.0),
+        SKU(id="SKU-FAST-03", weight=3.0, volume=1.5, hazard_class="none", stackability_score=9, velocity=280.0),
+        SKU(id="SKU-FAST-04", weight=10.0, volume=4.0, hazard_class="none", stackability_score=5, velocity=150.0),
+        
+        # Medium Velocity / Standard
+        SKU(id="SKU-MED-01", weight=20.0, volume=15.0, hazard_class="none", stackability_score=4, velocity=50.0),
+        SKU(id="SKU-MED-02", weight=25.0, volume=18.0, hazard_class="none", stackability_score=4, velocity=45.0),
+        SKU(id="SKU-MED-03", weight=15.0, volume=10.0, hazard_class="none", stackability_score=5, velocity=60.0),
+        
+        # Low Velocity / Heavy Bulk 
+        SKU(id="SKU-HEAVY-01", weight=1000.0, volume=150.0, hazard_class="none", stackability_score=1, velocity=5.0),
+        SKU(id="SKU-HEAVY-02", weight=800.0, volume=100.0, hazard_class="none", stackability_score=1, velocity=10.0),
+        SKU(id="SKU-HEAVY-03", weight=1200.0, volume=200.0, hazard_class="none", stackability_score=1, velocity=2.0),
+        SKU(id="SKU-HEAVY-04", weight=1500.0, volume=250.0, hazard_class="none", stackability_score=1, velocity=1.0),
+        SKU(id="SKU-HEAVY-05", weight=2000.0, volume=350.0, hazard_class="none", stackability_score=1, velocity=3.0),
+        SKU(id="SKU-HEAVY-06", weight=1800.0, volume=300.0, hazard_class="none", stackability_score=1, velocity=4.0),
+        
+        # Hazardous Materials 
+        SKU(id="SKU-HAZ-FLAM", weight=15.0, volume=10.0, hazard_class="flammable", stackability_score=3, velocity=15.0),
+        SKU(id="SKU-HAZ-TOX", weight=10.0, volume=8.0, hazard_class="toxic", stackability_score=2, velocity=5.0),
+        SKU(id="SKU-HAZ-CORR", weight=25.0, volume=12.0, hazard_class="corrosive", stackability_score=2, velocity=8.0),
+        SKU(id="SKU-HAZ-OXI", weight=50.0, volume=20.0, hazard_class="oxidizer", stackability_score=1, velocity=2.0),
+        SKU(id="SKU-HAZ-EXP", weight=100.0, volume=30.0, hazard_class="explosive", stackability_score=1, velocity=1.0),
+        
+        # Slow Moving / Overflow 
+        SKU(id="SKU-SLOW-01", weight=30.0, volume=20.0, hazard_class="none", stackability_score=3, velocity=1.0),
+        SKU(id="SKU-SLOW-02", weight=40.0, volume=25.0, hazard_class="none", stackability_score=3, velocity=0.5),
+        SKU(id="SKU-SLOW-03", weight=10.0, volume=10.0, hazard_class="none", stackability_score=5, velocity=0.2),
+        SKU(id="SKU-SLOW-04", weight=50.0, volume=30.0, hazard_class="none", stackability_score=2, velocity=0.8),
+        SKU(id="SKU-SLOW-05", weight=100.0, volume=60.0, hazard_class="none", stackability_score=2, velocity=1.5),
     ]
 
     # Maps needed for fitness evaluation
