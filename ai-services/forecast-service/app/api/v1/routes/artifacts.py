@@ -206,6 +206,9 @@ def infer_saved_boosting_online(payload: BoostingOnlineInferenceRequest, request
             stage=payload.stage,
             clip_negative=payload.clip_negative,
         )
+    except HTTPException:
+        # re-raise HTTP exceptions (e.g., rate limiting) so FastAPI can handle them
+        raise
     except FileNotFoundError as ex:
         raise HTTPException(status_code=404, detail=str(ex))
     except Exception as ex:
