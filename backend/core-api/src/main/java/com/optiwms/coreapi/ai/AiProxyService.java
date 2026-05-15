@@ -23,10 +23,10 @@ public class AiProxyService {
     private final RestTemplate restTemplate;
     private final UserRepository userRepository;
 
-    @Value("${ai.services.forecast-base-url:http://localhost:8091}")
+    @Value("${ai.services.forecast-base-url:http://localhost:8082}")
     private String forecastBaseUrl;
 
-    @Value("${ai.services.orchestrator-base-url:http://localhost:8092}")
+    @Value("${ai.services.orchestrator-base-url:http://localhost:8084}")
     private String orchestratorBaseUrl;
 
     @Value("${ai.services.auth-token:}")
