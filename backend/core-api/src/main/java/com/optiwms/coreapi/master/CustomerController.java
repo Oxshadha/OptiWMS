@@ -8,6 +8,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.WebRequest;
 
@@ -26,7 +27,7 @@ public class CustomerController {
     }
 
     @GetMapping
-    public ResponseEntity<List<CustomerDto>> list(WebRequest webRequest) {
+    public ResponseEntity<List<CustomerDto>> list(@NonNull WebRequest webRequest) {
         var data = service.listAll().stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
@@ -40,8 +41,7 @@ public class CustomerController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String q
-    ) {
+            @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -50,8 +50,7 @@ public class CustomerController {
         Page<Customer> customerPage = service.findPaged(
                 status,
                 q,
-                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
-        );
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
 
         List<CustomerDto> data = customerPage.getContent().stream().map(this::toDto).toList();
         return ResponseEntity.ok(new PagedCustomerResponse(
@@ -59,8 +58,7 @@ public class CustomerController {
                 customerPage.getNumber(),
                 customerPage.getSize(),
                 customerPage.getTotalElements(),
-                customerPage.getTotalPages()
-        ));
+                customerPage.getTotalPages()));
     }
 
     @GetMapping("/{id}")
@@ -116,8 +114,7 @@ public class CustomerController {
                 domain.getAddress(),
                 domain.getCity(),
                 domain.getCountry(),
-                domain.getStatus()
-        );
+                domain.getStatus());
     }
 
     public record CustomerDto(
@@ -129,19 +126,20 @@ public class CustomerController {
             String address,
             String city,
             String country,
-            String status
-    ) {}
+            String status) {
+    }
 
     public record PagedCustomerResponse(
             List<CustomerDto> data,
             int page,
             int size,
             long totalElements,
-            int totalPages
-    ) {}
+            int totalPages) {
+    }
 
     private String sanitizeSortBy(String sortBy) {
-        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        if (sortBy == null || sortBy.isBlank())
+            return "createdAt";
         return switch (sortBy) {
             case "id", "code", "name", "email", "phone", "city", "country", "status", "createdAt" -> sortBy;
             default -> "createdAt";
