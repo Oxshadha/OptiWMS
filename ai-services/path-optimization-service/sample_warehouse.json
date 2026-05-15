@@ -1,0 +1,367 @@
+{
+  "name": "OptiWMS Demo Warehouse",
+  "version": "1.0",
+  "description": "Production-ready warehouse layout with realistic zones",
+  "metadata": {
+    "created": "2024-01-15",
+    "layout_type": "structured",
+    "total_racks": 12,
+    "total_aisles": 3
+  },
+  "nodes": [
+    {
+      "id": "ENTRY",
+      "row": 0,
+      "col": 5,
+      "type": "entry",
+      "walkable": true,
+      "description": "Main warehouse entry point"
+    },
+    {
+      "id": "EXIT",
+      "row": 10,
+      "col": 5,
+      "type": "exit",
+      "walkable": true,
+      "description": "Exit/packing station"
+    },
+    {
+      "id": "PACKING_STATION",
+      "row": 11,
+      "col": 5,
+      "type": "packing",
+      "walkable": true,
+      "description": "Order consolidation and packing area"
+    },
+    {
+      "id": "AISLE_1_A",
+      "row": 2,
+      "col": 1,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 1, Rack A"
+    },
+    {
+      "id": "AISLE_1_B",
+      "row": 2,
+      "col": 3,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 1, Rack B"
+    },
+    {
+      "id": "AISLE_1_C",
+      "row": 2,
+      "col": 5,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 1, Rack C"
+    },
+    {
+      "id": "AISLE_1_D",
+      "row": 2,
+      "col": 7,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 1, Rack D"
+    },
+    {
+      "id": "AISLE_2_A",
+      "row": 5,
+      "col": 1,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 2, Rack A"
+    },
+    {
+      "id": "AISLE_2_B",
+      "row": 5,
+      "col": 3,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 2, Rack B"
+    },
+    {
+      "id": "AISLE_2_C",
+      "row": 5,
+      "col": 5,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 2, Rack C"
+    },
+    {
+      "id": "AISLE_2_D",
+      "row": 5,
+      "col": 7,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 2, Rack D"
+    },
+    {
+      "id": "AISLE_3_A",
+      "row": 8,
+      "col": 1,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 3, Rack A"
+    },
+    {
+      "id": "AISLE_3_B",
+      "row": 8,
+      "col": 3,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 3, Rack B"
+    },
+    {
+      "id": "AISLE_3_C",
+      "row": 8,
+      "col": 5,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 3, Rack C"
+    },
+    {
+      "id": "AISLE_3_D",
+      "row": 8,
+      "col": 7,
+      "type": "rack",
+      "walkable": true,
+      "description": "Aisle 3, Rack D"
+    },
+    {
+      "id": "FRONT_ZONE",
+      "row": 1,
+      "col": 5,
+      "type": "aisle",
+      "walkable": true,
+      "description": "Front cross-aisle"
+    },
+    {
+      "id": "MIDDLE_ZONE",
+      "row": 5,
+      "col": 5,
+      "type": "aisle",
+      "walkable": true,
+      "description": "Middle cross-aisle"
+    },
+    {
+      "id": "BACK_ZONE",
+      "row": 9,
+      "col": 5,
+      "type": "aisle",
+      "walkable": true,
+      "description": "Back cross-aisle"
+    }
+  ],
+  "edges": [
+    {
+      "from": "ENTRY",
+      "to": "FRONT_ZONE",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "FRONT_ZONE",
+      "to": "MIDDLE_ZONE",
+      "cost": 3.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "MIDDLE_ZONE",
+      "to": "BACK_ZONE",
+      "cost": 3.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "BACK_ZONE",
+      "to": "EXIT",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "EXIT",
+      "to": "PACKING_STATION",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "FRONT_ZONE",
+      "to": "AISLE_1_A",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "FRONT_ZONE",
+      "to": "AISLE_1_B",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "FRONT_ZONE",
+      "to": "AISLE_1_C",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "FRONT_ZONE",
+      "to": "AISLE_1_D",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_1_A",
+      "to": "AISLE_1_B",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_1_B",
+      "to": "AISLE_1_C",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_1_C",
+      "to": "AISLE_1_D",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "MIDDLE_ZONE",
+      "to": "AISLE_2_A",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "MIDDLE_ZONE",
+      "to": "AISLE_2_B",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "MIDDLE_ZONE",
+      "to": "AISLE_2_C",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "MIDDLE_ZONE",
+      "to": "AISLE_2_D",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_2_A",
+      "to": "AISLE_2_B",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_2_B",
+      "to": "AISLE_2_C",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_2_C",
+      "to": "AISLE_2_D",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "BACK_ZONE",
+      "to": "AISLE_3_A",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "BACK_ZONE",
+      "to": "AISLE_3_B",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "BACK_ZONE",
+      "to": "AISLE_3_C",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "BACK_ZONE",
+      "to": "AISLE_3_D",
+      "cost": 1.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_3_A",
+      "to": "AISLE_3_B",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_3_B",
+      "to": "AISLE_3_C",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_3_C",
+      "to": "AISLE_3_D",
+      "cost": 2.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_1_D",
+      "to": "MIDDLE_ZONE",
+      "cost": 3.0,
+      "bidirectional": true,
+      "available": true
+    },
+    {
+      "from": "AISLE_2_D",
+      "to": "BACK_ZONE",
+      "cost": 3.0,
+      "bidirectional": true,
+      "available": true
+    }
+  ],
+  "constraints": {
+    "narrow_aisles": ["AISLE_3"],
+    "congestion_zones": [],
+    "high_traffic_areas": ["ENTRY", "EXIT", "PACKING_STATION"],
+    "restricted_areas": []
+  },
+  "performance_metrics": {
+    "average_aisle_walk_time": 15,
+    "average_cross_aisle_walk_time": 10,
+    "picking_time_per_item": 30,
+    "units": "seconds"
+  }
+}

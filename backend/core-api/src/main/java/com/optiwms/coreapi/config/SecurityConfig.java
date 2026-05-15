@@ -74,6 +74,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/refresh", "/api/auth/register").permitAll()
+                        // Warehouse graph endpoint for visualization (public for UI dashboards)
+                        .requestMatchers("/api/warehouse/graph").permitAll()
+                        .requestMatchers("/api/pathfinding/warehouse/graph").permitAll()
                         // Allow authenticated users to access their own preferences
                         .requestMatchers("/api/auth/me/**").authenticated()
                         // Role-based access control

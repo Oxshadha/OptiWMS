@@ -14,7 +14,15 @@ import {
 
 const allNavItems = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/admin/warehouses", label: "Warehouses", icon: "warehouse" },
+  {
+    href: "/admin/warehouses",
+    label: "Warehouses",
+    icon: "warehouse",
+    subItems: [
+      { href: "/admin/warehouses", label: "Warehouse Layout" },
+      { href: "/pathfinding", label: "Route Optimizer" },
+    ],
+  },
   {
     href: "/admin/orders",
     label: "Orders",

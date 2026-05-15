@@ -32,5 +32,7 @@ RUN npm ci --only=production
 # Expose port
 EXPOSE 3000
 
-# Start the application
-CMD ["npm", "start"]
+# Development: use npm run dev
+# Production: use npm start
+ENV NODE_ENV=production
+CMD ["npm", "run", "start"]
