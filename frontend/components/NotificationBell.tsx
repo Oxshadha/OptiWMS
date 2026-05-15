@@ -40,9 +40,10 @@ export function NotificationBell({ userId }: NotificationBellProps) {
   const fetchNotifications = async () => {
     try {
       setIsLoading(true);
-      const response = await notificationsApi.getNotifications({ limit: 10 });
-      setNotifications(response.notifications);
-      setUnreadCount(response.unreadCount);
+      const notifs = await notificationsApi.getAll(userId);
+      setNotifications(notifs.slice(0, 10));
+      const unread = await notificationsApi.getUnreadCount(userId);
+      setUnreadCount(unread);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
     } finally {
@@ -55,7 +56,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
       await notificationsApi.markAsRead(notificationId);
       setNotifications((prev) =>
         prev.map((n) =>
-          n.id === notificationId ? { ...n, isRead: true } : n
+          n.id === notificationId ? { ...n, read: true } : n
         )
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
@@ -66,7 +67,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
 
   const handleDelete = async (notificationId: string) => {
     try {
-      await notificationsApi.deleteNotification(notificationId);
+      await notificationsApi.delete(notificationId);
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
     } catch (error) {
       console.error('Failed to delete notification:', error);
@@ -75,9 +76,9 @@ export function NotificationBell({ userId }: NotificationBellProps) {
 
   const handleMarkAllAsRead = async () => {
     try {
-      await notificationsApi.markAllAsRead();
+      await notificationsApi.markAllAsRead(userId);
       setNotifications((prev) =>
-        prev.map((n) => ({ ...n, isRead: true }))
+        prev.map((n) => ({ ...n, read: true }))
       );
       setUnreadCount(0);
     } catch (error) {
@@ -85,13 +86,17 @@ export function NotificationBell({ userId }: NotificationBellProps) {
     }
   };
 
-  const getSeverityColor = (severity: string) => {
-    switch (severity) {
-      case 'critical':
+  const getSeverityColor = (type: string) => {
+    switch (type) {
+      case 'anomaly':
+      case 'system':
         return '#e74c3c';
-      case 'warning':
+      case 'inventory':
+      case 'return':
         return '#f39c12';
-      case 'info':
+      case 'order':
+      case 'shipment':
+      case 'task':
         return '#3498db';
       default:
         return '#95a5a6';
@@ -144,21 +149,21 @@ export function NotificationBell({ userId }: NotificationBellProps) {
                 <div
                   key={notification.id}
                   className={`notification-item ${
-                    !notification.isRead ? 'unread' : ''
+                    !notification.read ? 'unread' : ''
                   }`}
                   style={{
-                    borderLeftColor: getSeverityColor(notification.severity),
+                    borderLeftColor: getSeverityColor(notification.notificationType),
                   }}
                 >
                   <div className="notification-icon">
-                    {notification.severity === 'critical' ||
-                    notification.severity === 'warning' ? (
+                    {notification.notificationType === 'anomaly' ||
+                    notification.notificationType === 'system' ? (
                       <AlertCircle
                         size={18}
-                        color={getSeverityColor(notification.severity)}
+                        color={getSeverityColor(notification.notificationType)}
                       />
                     ) : (
-                      <CheckCircle size={18} color={getSeverityColor(notification.severity)} />
+                      <CheckCircle size={18} color={getSeverityColor(notification.notificationType)} />
                     )}
                   </div>
 
@@ -174,7 +179,7 @@ export function NotificationBell({ userId }: NotificationBellProps) {
                   </div>
 
                   <div className="notification-actions">
-                    {!notification.isRead && (
+                    {!notification.read && (
                       <button
                         className="action-btn"
                         onClick={() => handleMarkAsRead(notification.id)}
