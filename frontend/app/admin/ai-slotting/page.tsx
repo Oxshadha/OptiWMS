@@ -2,22 +2,44 @@
 
 import React, { useState } from 'react';
 import { AISlottingService, SlottingOptimizationRequest, SlottingOptimizationResponse } from '@/lib/services/aiSlottingService';
+import { warehousesApi, type Warehouse } from '@/lib/api/warehouses';
+import { useEffect } from 'react';
 
 export default function AISlottingOptimizationPage() {
-  const [warehouseId, setWarehouseId] = useState<string>('c9c81912-2d19-4b6a-9128-4e8a8b1c4e12');
+  const [warehouseId, setWarehouseId] = useState<string>('');
   const [populationSize, setPopulationSize] = useState<number>(20);
   const [generations, setGenerations] = useState<number>(50);
   const [mutationRate, setMutationRate] = useState<number>(0.05);
+  const [availableWarehouses, setAvailableWarehouses] = useState<Warehouse[]>([]);
   
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [result, setResult] = useState<SlottingOptimizationResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Mock Warehouses
-  const mockWarehouses = [
-    { id: 'c9c81912-2d19-4b6a-9128-4e8a8b1c4e12', name: 'Main Distribution Center (Chicago)' },
-    { id: 'd8f92113-1b22-4c5b-8017-3d7b7c2d3f23', name: 'Regional Hub (Dallas)' }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWarehouses() {
+      try {
+        const warehouses = await warehousesApi.getAll();
+        if (cancelled) return;
+        setAvailableWarehouses(warehouses);
+        if (!warehouseId && warehouses.length > 0) {
+          setWarehouseId(warehouses[0].id);
+        }
+      } catch {
+        if (!cancelled) {
+          setAvailableWarehouses([]);
+        }
+      }
+    }
+
+    void loadWarehouses();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleOptimize = async () => {
     setIsLoading(true);
@@ -66,7 +88,7 @@ export default function AISlottingOptimizationPage() {
                 value={warehouseId}
                 onChange={(e) => setWarehouseId(e.target.value)}
               >
-                {mockWarehouses.map(wh => (
+                {availableWarehouses.map(wh => (
                   <option key={wh.id} value={wh.id}>{wh.name}</option>
                 ))}
               </select>
