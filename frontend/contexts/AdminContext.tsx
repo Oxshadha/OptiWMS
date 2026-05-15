@@ -220,10 +220,17 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           }
         } catch (apiError) {
           logger.error("[AdminContext] Error fetching user from API:", apiError);
-          // Token might be invalid - clear it
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
+          // Only clear tokens for explicit auth/session failures.
+          const errorMessage =
+            apiError instanceof Error ? apiError.message.toLowerCase() : "";
+          const isAuthFailure =
+            errorMessage.includes("401") ||
+            errorMessage.includes("not authenticated") ||
+            errorMessage.includes("session expired") ||
+            errorMessage.includes("invalid refresh token");
+          if (isAuthFailure && typeof window !== "undefined") {
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
           }
           setAdminState(null);
         }

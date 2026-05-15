@@ -79,12 +79,12 @@ export function WarehouseStatsCards({ stats }: WarehouseStatsCardsProps) {
           </div>
           <div className="text-3xl font-bold text-sky-600">{stats.reservedRacks}</div>
         </div>
-        <div className="card bg-base-100 border border-warning rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
+        <div className="card bg-base-100 border border-orange-500 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-base-content/70">Maintenance</div>
-            <span className="material-symbols-outlined text-warning">build</span>
+            <span className="material-symbols-outlined text-orange-500">build</span>
           </div>
-          <div className="text-3xl font-bold text-warning">{stats.maintenanceRacks}</div>
+          <div className="text-3xl font-bold text-orange-600">{stats.maintenanceRacks}</div>
         </div>
         <div className="card bg-base-100 border border-error rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">

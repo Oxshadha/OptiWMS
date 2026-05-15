@@ -35,7 +35,7 @@ export function RackElevationView({
   const getBinColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status color
     if (rack.status === "maintenance") {
-      return "#FEF3C7"; // Yellow/amber tint
+      return "#FFEDD5"; // Orange tint
     } else if (rack.status === "out_of_service") {
       return "#FEE2E2"; // Dull red tint
     }
@@ -50,20 +50,20 @@ export function RackElevationView({
       return "#9333EA";
     }
 
-    // Capacity-based fill colors
+    // Capacity-based fill colors (Slate Gray scale)
     const occupancy = getBinOccupancy(bin);
-    if (occupancy === 0) return "#F5F5F5";
-    if (occupancy < 50) return "#22C55E"; // Green
-    if (occupancy < 85) return "#F59E0B"; // Amber
-    return "#1E3A8A"; // Blue
+    if (occupancy === 0) return "#F8FAFC"; // Slate 50
+    if (occupancy < 50) return "#CBD5E1"; // Slate 300
+    if (occupancy < 85) return "#64748B"; // Slate 500
+    return "#1E293B"; // Slate 900
   };
 
   const getBinBorderColor = (bin: LocationBin): string => {
     // If rack is in maintenance or out_of_service, ALL levels show rack status border
     if (rack.status === "maintenance") {
-      return "#D97706";
+      return "#F97316"; // Orange
     } else if (rack.status === "out_of_service") {
-      return "#DC2626";
+      return "#DC2626"; // Red
     }
 
     // Reserved bins use cyan border
@@ -76,10 +76,10 @@ export function RackElevationView({
     }
 
     const occupancy = getBinOccupancy(bin);
-    if (occupancy === 0) return "#D1D5DB";
-    if (occupancy < 50) return "#16A34A";
-    if (occupancy < 85) return "#D97706";
-    return "#1E40AF";
+    if (occupancy === 0) return "#CBD5E1"; // Slate 300
+    if (occupancy < 50) return "#94A3B8"; // Slate 400
+    if (occupancy < 85) return "#475569"; // Slate 600
+    return "#0F172A"; // Slate 950
   };
 
   const getBinOpacity = (bin: LocationBin): number => {
@@ -90,7 +90,7 @@ export function RackElevationView({
   const isDarkBin = (bin: LocationBin): boolean => {
     if (rack.status === "out_of_service" || rack.status === "maintenance") return false;
     const occupancy = getBinOccupancy(bin);
-    return occupancy >= 85 || bin.status === "quarantined";
+    return occupancy >= 50 || bin.status === "quarantined"; // Slate 500+ is dark
   };
 
   const hasRecentReceipt = (bin: LocationBin): boolean => {

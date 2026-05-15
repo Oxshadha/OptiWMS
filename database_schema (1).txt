@@ -1,0 +1,1128 @@
+
+================================================================================
+  DATABASE SCHEMA - OptiWMS
+  Total Tables: 50
+================================================================================
+
+--------------------------------------------------------------------------------
+  TABLE: ai_anomaly_detections
+--------------------------------------------------------------------------------
+  id                     UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  anomaly_type           VARCHAR       NOT NULL
+  material_id            UUID          NULL      [FK -> materials(id)]
+  warehouse_id           UUID          NULL      [FK -> warehouses(id)]
+  location_id            UUID          NULL      [FK -> locations(id)]
+  detected_value         NUMERIC       NULL
+  expected_value         NUMERIC       NULL
+  variance_percentage    NUMERIC       NULL
+  severity               VARCHAR       NULL
+  confidence_score       NUMERIC       NULL
+  description            TEXT          NULL
+  status                 VARCHAR       NULL      [DEFAULT: DETECTED]
+  reviewed_by            UUID          NULL      [FK -> users(id)]
+  reviewed_at            TIMESTAMP     NULL
+  resolution_notes       TEXT          NULL
+  created_at             TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: ai_demand_forecasts
+--------------------------------------------------------------------------------
+  id                    UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id           UUID          NULL      [UNIQUE]  [FK -> materials(id)]
+  warehouse_id          UUID          NULL      [UNIQUE]  [FK -> warehouses(id)]
+  forecast_date         DATE          NOT NULL  [UNIQUE]
+  predicted_quantity    NUMERIC       NOT NULL
+  confidence_score      NUMERIC       NULL
+  model_version         VARCHAR       NULL
+  created_at            TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: ai_path_recommendations
+--------------------------------------------------------------------------------
+  id                           UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  task_id                      UUID          NULL      [FK -> tasks(id)]
+  task_type                    VARCHAR       NULL
+  recommended_path             JSONB         NOT NULL
+  estimated_time_minutes       NUMERIC       NULL
+  estimated_distance_meters    NUMERIC       NULL
+  efficiency_score             NUMERIC       NULL
+  algorithm_used               VARCHAR       NULL
+  status                       VARCHAR       NULL      [DEFAULT: PENDING]
+  created_at                   TIMESTAMP     NULL      [DEFAULT: now()]
+  applied_at                   TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: ai_slotting_recommendations
+--------------------------------------------------------------------------------
+  id                               UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id                      UUID          NULL      [FK -> materials(id)]
+  warehouse_id                     UUID          NULL      [FK -> warehouses(id)]
+  recommended_location_code        VARCHAR       NULL
+  recommended_location_id          UUID          NULL      [FK -> locations(id)]
+  ga_fitness_score                 NUMERIC       NULL
+  space_utilization_improvement    NUMERIC       NULL
+  velocity_score                   NUMERIC       NULL
+  compatibility_score              NUMERIC       NULL
+  status                           VARCHAR       NULL      [DEFAULT: PENDING]
+  created_at                       TIMESTAMP     NULL      [DEFAULT: now()]
+  applied_at                       TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: ai_sourcing_recommendations
+--------------------------------------------------------------------------------
+  id                         UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id                UUID          NULL      [FK -> materials(id)]
+  warehouse_id               UUID          NULL      [FK -> warehouses(id)]
+  trigger_event              VARCHAR       NULL
+  recommended_action         VARCHAR       NULL
+  recommended_quantity       NUMERIC       NULL
+  recommended_supplier_id    UUID          NULL      [FK -> suppliers(id)]
+  calculated_roi             NUMERIC       NULL
+  space_freed_via_ga         NUMERIC       NULL
+  llm_justification          TEXT          NULL
+  status                     VARCHAR       NULL      [DEFAULT: PENDING]
+  created_at                 TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                 TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: customers
+--------------------------------------------------------------------------------
+  id                UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  code              VARCHAR       NULL      [UNIQUE]
+  name              VARCHAR       NOT NULL
+  email             VARCHAR       NULL
+  phone             VARCHAR       NULL
+  address           TEXT          NULL
+  city              VARCHAR       NULL
+  country           VARCHAR       NULL      [DEFAULT: Sri Lanka]
+  status            VARCHAR       NULL      [DEFAULT: active]
+  created_at        TIMESTAMP     NULL      [DEFAULT: now()]
+  postal_code       VARCHAR       NULL
+  country_code      VARCHAR       NULL
+  currency_code     VARCHAR       NULL      [DEFAULT: LKR]
+  priority_tier     VARCHAR       NULL
+  lifetime_value    NUMERIC       NULL      [DEFAULT: 0]
+  tax_id            VARCHAR       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: cycle_count_audit_logs
+--------------------------------------------------------------------------------
+  id                   UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  cycle_count_id       UUID          NOT NULL  [FK -> cycle_counts(id)]
+  action               VARCHAR       NOT NULL
+  performed_by         UUID          NULL      [FK -> users(id)]
+  from_status          VARCHAR       NULL
+  to_status            VARCHAR       NULL
+  expected_quantity    NUMERIC       NULL
+  counted_quantity     NUMERIC       NULL
+  variance             NUMERIC       NULL
+  notes                TEXT          NULL
+  created_at           TIMESTAMPTZ   NOT NULL  [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: cycle_count_recounts
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  cycle_count_id      UUID          NOT NULL  [UNIQUE]  [FK -> cycle_counts(id)]
+  recount_number      INTEGER       NOT NULL  [UNIQUE]
+  counted_quantity    NUMERIC       NOT NULL
+  variance            NUMERIC       NOT NULL
+  counted_by          UUID          NULL      [FK -> users(id)]
+  notes               TEXT          NULL
+  counted_at          TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: cycle_count_schedules
+--------------------------------------------------------------------------------
+  id                     UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  warehouse_id           UUID          NOT NULL  [FK -> warehouses(id)]
+  frequency              VARCHAR       NOT NULL  [DEFAULT: quarterly]
+  interval_days          INTEGER       NULL
+  next_scheduled_date    DATE          NOT NULL
+  location_pattern       VARCHAR       NULL
+  auto_create            BOOLEAN       NULL      [DEFAULT: true]
+  auto_assign_workers    BOOLEAN       NULL      [DEFAULT: false]
+  active                 BOOLEAN       NULL      [DEFAULT: true]
+  created_by             UUID          NULL      [FK -> users(id)]
+  created_at             TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at             TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: cycle_counts
+--------------------------------------------------------------------------------
+  id                     UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  count_number           VARCHAR       NOT NULL  [UNIQUE]
+  warehouse_id           UUID          NULL      [FK -> warehouses(id)]
+  location_code          VARCHAR       NULL
+  scheduled_date         DATE          NULL
+  assigned_workers       ARRAY         NULL
+  status                 VARCHAR       NULL      [DEFAULT: scheduled]
+  counted_by             UUID          NULL      [FK -> users(id)]
+  counted_at             TIMESTAMP     NULL
+  variance               NUMERIC       NULL
+  notes                  TEXT          NULL
+  created_at             TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at             TIMESTAMP     NULL      [DEFAULT: now()]
+  recount_required       BOOLEAN       NULL      [DEFAULT: false]
+  recount_count          INTEGER       NULL      [DEFAULT: 0]
+  previous_variance      NUMERIC       NULL
+  variance_threshold     NUMERIC       NULL      [DEFAULT: 5.0]
+  final_variance         NUMERIC       NULL
+  material_id            UUID          NULL      [FK -> materials(id)]
+  expected_quantity      NUMERIC       NULL
+  counted_quantity       NUMERIC       NULL
+  variance_percentage    NUMERIC       NULL
+  anomaly_level          VARCHAR       NULL
+  anomaly_detected       BOOLEAN       NULL      [DEFAULT: false]
+  approval_required      BOOLEAN       NULL      [DEFAULT: false]
+  approved_by            UUID          NULL      [FK -> users(id)]
+  approved_at            TIMESTAMP     NULL
+  approval_notes         TEXT          NULL
+
+--------------------------------------------------------------------------------
+  TABLE: data_integrity_snapshots
+--------------------------------------------------------------------------------
+  id              UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  stage           VARCHAR       NOT NULL
+  metric_name     VARCHAR       NOT NULL
+  metric_value    BIGINT        NOT NULL
+  created_at      TIMESTAMP     NULL      [DEFAULT: CURRENT_TIMESTAMP]
+
+--------------------------------------------------------------------------------
+  TABLE: delivery_partners
+--------------------------------------------------------------------------------
+  id                        UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  partner_code              VARCHAR       NOT NULL  [UNIQUE]
+  company_name              VARCHAR       NOT NULL
+  contact_person            VARCHAR       NULL
+  email                     VARCHAR       NULL
+  phone                     VARCHAR       NULL
+  address                   TEXT          NULL
+  city                      VARCHAR       NULL
+  country                   VARCHAR       NULL
+  service_areas             JSONB         NULL
+  rating                    NUMERIC       NULL
+  cost_per_delivery         NUMERIC       NULL
+  status                    VARCHAR       NULL      [DEFAULT: active]
+  total_shipments           INTEGER       NULL      [DEFAULT: 0]
+  on_time_delivery_rate     NUMERIC       NULL
+  created_at                TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                TIMESTAMP     NULL      [DEFAULT: now()]
+  postal_code               VARCHAR       NULL
+  country_code              VARCHAR       NULL
+  currency_code             VARCHAR       NULL      [DEFAULT: LKR]
+  carrier_type              VARCHAR       NULL
+  international_coverage    ARRAY         NULL
+  tax_id                    VARCHAR       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: dock_appointments
+--------------------------------------------------------------------------------
+  id                    UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  appointment_number    VARCHAR       NOT NULL  [UNIQUE]
+  dock_door_id          UUID          NULL      [FK -> dock_doors(id)]
+  warehouse_id          UUID          NULL      [FK -> warehouses(id)]
+  appointment_type      VARCHAR       NOT NULL
+  scheduled_start       TIMESTAMP     NOT NULL
+  scheduled_end         TIMESTAMP     NOT NULL
+  actual_start          TIMESTAMP     NULL
+  actual_end            TIMESTAMP     NULL
+  inbound_order_id      UUID          NULL      [FK -> orders(id)]
+  outbound_order_id     UUID          NULL      [FK -> orders(id)]
+  supplier_id           UUID          NULL      [FK -> suppliers(id)]
+  carrier_name          VARCHAR       NULL
+  trailer_number        VARCHAR       NULL
+  status                VARCHAR       NULL      [DEFAULT: scheduled]
+  notes                 TEXT          NULL
+  created_at            TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at            TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: dock_doors
+--------------------------------------------------------------------------------
+  id                        UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  door_number               VARCHAR       NOT NULL  [UNIQUE]
+  warehouse_id              UUID          NULL      [UNIQUE]  [FK -> warehouses(id)]
+  location                  VARCHAR       NULL
+  status                    VARCHAR       NULL      [DEFAULT: available]
+  current_appointment_id    UUID          NULL
+  created_at                TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: flyway_schema_history
+--------------------------------------------------------------------------------
+  installed_rank    INTEGER       NOT NULL  [PK]
+  version           VARCHAR       NULL
+  description       VARCHAR       NOT NULL
+  type              VARCHAR       NOT NULL
+  script            VARCHAR       NOT NULL
+  checksum          INTEGER       NULL
+  installed_by      VARCHAR       NOT NULL
+  installed_on      TIMESTAMP     NOT NULL  [DEFAULT: now()]
+  execution_time    INTEGER       NOT NULL
+  success           BOOLEAN       NOT NULL
+
+--------------------------------------------------------------------------------
+  TABLE: grns
+--------------------------------------------------------------------------------
+  id               UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  grn_number       VARCHAR       NOT NULL  [UNIQUE]
+  po_id            UUID          NULL
+  supplier_id      UUID          NULL      [FK -> suppliers(id)]
+  warehouse_id     UUID          NULL      [FK -> warehouses(id)]
+  received_date    TIMESTAMP     NOT NULL
+  received_by      UUID          NULL      [FK -> users(id)]
+  status           VARCHAR       NULL      [DEFAULT: PENDING_QA]
+  notes            TEXT          NULL
+  created_at       TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at       TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: inventory
+--------------------------------------------------------------------------------
+  id                            UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id                   UUID          NULL      [FK -> materials(id)]
+  warehouse_id                  UUID          NULL      [FK -> warehouses(id)]
+  location_code                 VARCHAR       NULL      [FK -> locations(location_code)]
+  quantity                      INTEGER       NOT NULL  [DEFAULT: 0]
+  available_quantity            INTEGER       NOT NULL  [DEFAULT: 0]
+  reserved_quantity             INTEGER       NOT NULL  [DEFAULT: 0]
+  buffer_stock                  NUMERIC       NULL
+  max_stock                     NUMERIC       NULL
+  min_stock                     NUMERIC       NULL
+  reorder_point                 NUMERIC       NULL
+  stacking_quantity             INTEGER       NULL
+  moq                           NUMERIC       NULL
+  lead_time_days                INTEGER       NULL
+  last_counted_at               TIMESTAMP     NULL
+  status                        VARCHAR       NULL      [DEFAULT: active]
+  created_at                    TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                    TIMESTAMP     NULL      [DEFAULT: now()]
+  batch_number                  VARCHAR       NULL
+  expiry_date                   DATE          NULL
+  grn_id                        UUID          NULL      [FK -> grns(id)]
+  last_movement_date            DATE          NULL
+  days_since_last_movement      INTEGER       NULL
+  ai_suggested_location_code    VARCHAR       NULL
+  ai_confidence_score           NUMERIC       NULL
+  ai_last_updated               TIMESTAMP     NULL
+  material_type                 VARCHAR       NULL
+  buffer_days                   INTEGER       NULL
+  lead_time_months              NUMERIC       NULL
+  rop_in_days                   NUMERIC       NULL
+  variance_demand               NUMERIC       NULL
+  variance_lead_time_demand     NUMERIC       NULL
+  difference                    NUMERIC       NULL
+  order_delivery_days           INTEGER       NULL
+  order_quantity                NUMERIC       NULL
+  pallet_requirement            NUMERIC       NULL
+  lpn_code                      VARCHAR       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: location_levels
+--------------------------------------------------------------------------------
+  id                      UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  location_id             UUID          NULL      [UNIQUE]  [FK -> locations(id)]
+  level_number            INTEGER       NOT NULL  [UNIQUE]
+  weight_capacity_kg      NUMERIC       NOT NULL
+  pallet_capacity         INTEGER       NOT NULL
+  height_cm               NUMERIC       NULL
+  accessibility_rating    INTEGER       NULL
+  current_weight_kg       NUMERIC       NULL      [DEFAULT: 0]
+  current_pallet_count    INTEGER       NULL      [DEFAULT: 0]
+  created_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at              TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: locations
+--------------------------------------------------------------------------------
+  id                               UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  warehouse_id                     UUID          NULL      [FK -> warehouses(id)]
+  location_code                    VARCHAR       NOT NULL  [UNIQUE]
+  area                             VARCHAR       NOT NULL
+  row_number                       VARCHAR       NOT NULL
+  bay_number                       VARCHAR       NOT NULL
+  level_number                     INTEGER       NOT NULL
+  bin_position                     VARCHAR       NOT NULL
+  location_type                    VARCHAR       NULL      [DEFAULT: storage]
+  capacity                         NUMERIC       NULL
+  is_active                        BOOLEAN       NULL      [DEFAULT: true]
+  qr_code                          TEXT          NULL
+  created_at                       TIMESTAMP     NULL      [DEFAULT: now()]
+  zone_type                        VARCHAR       NULL      [DEFAULT: STORAGE]
+  storage_condition                VARCHAR       NULL
+  x_coord                          NUMERIC       NULL
+  y_coord                          NUMERIC       NULL
+  z_coord                          NUMERIC       NULL
+  max_weight_kg                    NUMERIC       NULL
+  ai_optimal_for_material_types    ARRAY         NULL
+  ai_velocity_score                NUMERIC       NULL
+  rack_status                      VARCHAR       NULL      [DEFAULT: active]
+  description                      TEXT          NULL
+  notes                            TEXT          NULL
+  accessibility_rating             INTEGER       NULL
+  coordinate_x                     NUMERIC       NULL
+  coordinate_y                     NUMERIC       NULL
+  max_pallet_capacity              INTEGER       NULL
+  current_pallet_count             INTEGER       NULL      [DEFAULT: 0]
+  coordinate_z                     NUMERIC       NULL
+  amalgamated_class                VARCHAR       NULL
+  max_volume_cm3                   NUMERIC       NULL
+  max_lpn_count                    INTEGER       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: lpns
+--------------------------------------------------------------------------------
+  id               UUID          NOT NULL  [PK]  [DEFAULT: gen_random_uuid()]
+  lpn_code         VARCHAR       NOT NULL  [UNIQUE]
+  material_id      UUID          NULL      [FK -> materials(id)]
+  warehouse_id     UUID          NULL      [FK -> warehouses(id)]
+  location_code    VARCHAR       NULL      [FK -> locations(location_code)]
+  quantity         INTEGER       NOT NULL  [DEFAULT: 0]
+  status           VARCHAR       NULL      [DEFAULT: active]
+  created_at       TIMESTAMPTZ   NOT NULL  [DEFAULT: CURRENT_TIMESTAMP]
+  updated_at       TIMESTAMPTZ   NULL      [DEFAULT: CURRENT_TIMESTAMP]
+  created_by       UUID          NULL      [FK -> users(id)]
+  notes            TEXT          NULL
+
+--------------------------------------------------------------------------------
+  TABLE: material_default_locations
+--------------------------------------------------------------------------------
+  id               UUID          NOT NULL  [PK]  [DEFAULT: gen_random_uuid()]
+  material_id      UUID          NOT NULL  [UNIQUE]  [FK -> materials(id)]
+  warehouse_id     UUID          NOT NULL  [UNIQUE]  [FK -> warehouses(id)]
+  location_code    VARCHAR       NOT NULL  [UNIQUE]  [FK -> locations(location_code)]
+  priority         INTEGER       NULL      [DEFAULT: 1]
+  material_type    VARCHAR       NULL
+  notes            TEXT          NULL
+  created_at       TIMESTAMP     NULL      [DEFAULT: CURRENT_TIMESTAMP]
+  updated_at       TIMESTAMP     NULL      [DEFAULT: CURRENT_TIMESTAMP]
+
+--------------------------------------------------------------------------------
+  TABLE: material_planning
+--------------------------------------------------------------------------------
+  id                           UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id                  UUID          NULL      [UNIQUE]  [FK -> materials(id)]
+  warehouse_id                 UUID          NULL      [UNIQUE]  [FK -> warehouses(id)]
+  buffer_days                  INTEGER       NULL
+  future_average               NUMERIC       NULL
+  lead_time_days               INTEGER       NULL
+  lead_time_months             NUMERIC       NULL
+  expected_value               NUMERIC       NULL
+  variance_demand              NUMERIC       NULL
+  variance_lead_time_demand    NUMERIC       NULL
+  rop_days                     NUMERIC       NULL
+  order_delivery_days          INTEGER       NULL
+  order_quantity               NUMERIC       NULL
+  pallet_requirement           NUMERIC       NULL
+  updated_at                   TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: materials
+--------------------------------------------------------------------------------
+  id                           UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_code                VARCHAR       NOT NULL  [UNIQUE]
+  description                  TEXT          NOT NULL
+  unit_type                    VARCHAR       NULL
+  storage_type                 VARCHAR       NULL      [DEFAULT: pallet]
+  created_at                   TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                   TIMESTAMP     NULL      [DEFAULT: now()]
+  material_type                VARCHAR       NULL      [DEFAULT: raw_material]
+  sku_id                       VARCHAR       NULL
+  length_cm                    NUMERIC       NULL
+  width_cm                     NUMERIC       NULL
+  height_cm                    NUMERIC       NULL
+  weight_kg                    NUMERIC       NULL
+  shelf_life_days              INTEGER       NULL
+  reorder_method               VARCHAR       NULL      [DEFAULT: STATIC]
+  static_min_stock             NUMERIC       NULL
+  ai_min_stock                 NUMERIC       NULL
+  unit_cost_standard           NUMERIC       NULL
+  storage_location_type        VARCHAR       NULL      [DEFAULT: warehouse]
+  third_party_location         VARCHAR       NULL
+  requires_pallet              BOOLEAN       NULL      [DEFAULT: true]
+  buffer_days                  INTEGER       NULL
+  future_average               NUMERIC       NULL
+  lead_time_months             NUMERIC       NULL
+  expected_value               NUMERIC       NULL
+  variance_demand              NUMERIC       NULL
+  variance_lead_time_demand    NUMERIC       NULL
+  rop_days                     NUMERIC       NULL
+  order_delivery_days          INTEGER       NULL
+  order_quantity               NUMERIC       NULL
+  pallet_requirement           NUMERIC       NULL
+  volume_cm3                   NUMERIC       NULL
+  pallet_spaces                NUMERIC       NULL
+  stackable                    BOOLEAN       NULL      [DEFAULT: true]
+  max_stack_height             INTEGER       NULL
+  temperature_controlled       BOOLEAN       NULL      [DEFAULT: false]
+  hazardous                    BOOLEAN       NULL      [DEFAULT: false]
+  fragile                      BOOLEAN       NULL      [DEFAULT: false]
+  max_pallet_weight_kg         NUMERIC       NULL
+  min_order_quantity           NUMERIC       NULL
+  safety_stock_level           NUMERIC       NULL
+  abc_class                    VARCHAR       NULL
+  fms_class                    VARCHAR       NULL
+  preferred_zone               VARCHAR       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: non_moving_items
+--------------------------------------------------------------------------------
+  id                          UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id                 UUID          NULL      [UNIQUE]  [FK -> materials(id)]
+  warehouse_id                UUID          NULL      [UNIQUE]  [FK -> warehouses(id)]
+  last_movement_date          DATE          NULL
+  days_since_last_movement    INTEGER       NULL
+  flagged_at                  TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: notifications
+--------------------------------------------------------------------------------
+  id                   UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  user_id              UUID          NULL      [FK -> users(id)]
+  title                VARCHAR       NOT NULL
+  message              TEXT          NOT NULL
+  notification_type    VARCHAR       NOT NULL
+  read                 BOOLEAN       NULL      [DEFAULT: false]
+  action_url           VARCHAR       NULL
+  metadata             JSONB         NULL
+  created_at           TIMESTAMP     NULL      [DEFAULT: now()]
+  audience_roles       VARCHAR       NULL
+  warehouse_id         UUID          NULL      [FK -> warehouses(id)]
+
+--------------------------------------------------------------------------------
+  TABLE: operation_events
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: gen_random_uuid()]
+  operation_type      VARCHAR       NOT NULL
+  worker_id           UUID          NOT NULL
+  task_id             UUID          NULL
+  order_id            UUID          NULL
+  order_item_id       UUID          NULL
+  warehouse_id        UUID          NULL
+  material_id         UUID          NULL
+  quantity            INTEGER       NULL
+  started_at          TIMESTAMP     NULL
+  completed_at        TIMESTAMP     NOT NULL
+  duration_minutes    INTEGER       NULL
+  status              VARCHAR       NOT NULL  [DEFAULT: completed]
+  metadata            TEXT          NULL
+  created_at          TIMESTAMP     NOT NULL  [DEFAULT: CURRENT_TIMESTAMP]
+
+--------------------------------------------------------------------------------
+  TABLE: order_items
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  order_id            UUID          NULL      [FK -> orders(id)]
+  material_id         UUID          NULL      [FK -> materials(id)]
+  quantity            INTEGER       NOT NULL
+  unit_price          NUMERIC       NULL
+  picked_quantity     INTEGER       NULL      [DEFAULT: 0]
+  packed_quantity     INTEGER       NULL      [DEFAULT: 0]
+  location_code       VARCHAR       NULL
+  status              VARCHAR       NULL      [DEFAULT: pending]
+  created_at          TIMESTAMP     NULL      [DEFAULT: now()]
+  batch_number        VARCHAR       NULL
+  manufacture_date    DATE          NULL
+  expiry_date         DATE          NULL
+
+--------------------------------------------------------------------------------
+  TABLE: orders
+--------------------------------------------------------------------------------
+  id                             UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  order_number                   VARCHAR       NOT NULL  [UNIQUE]
+  order_type                     VARCHAR       NOT NULL
+  customer_id                    UUID          NULL      [FK -> customers(id)]
+  supplier_id                    UUID          NULL      [FK -> suppliers(id)]
+  warehouse_id                   UUID          NULL      [FK -> warehouses(id)]
+  status                         VARCHAR       NOT NULL  [DEFAULT: pending]
+  priority                       VARCHAR       NULL      [DEFAULT: normal]
+  order_date                     DATE          NOT NULL
+  expected_date                  DATE          NULL
+  total_amount                   NUMERIC       NULL
+  notes                          TEXT          NULL
+  created_by                     UUID          NULL      [FK -> users(id)]
+  created_at                     TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                     TIMESTAMP     NULL      [DEFAULT: now()]
+  ai_suggested_priority_score    INTEGER       NULL
+  ai_suggested_date              DATE          NULL
+  ai_confidence                  NUMERIC       NULL
+  received_by                    UUID          NULL      [FK -> users(id)]
+  picked_by                      UUID          NULL      [FK -> users(id)]
+  packed_by                      UUID          NULL      [FK -> users(id)]
+  shipped_by                     UUID          NULL      [FK -> users(id)]
+  received_at                    TIMESTAMP     NULL
+  picked_at                      TIMESTAMP     NULL
+  packed_at                      TIMESTAMP     NULL
+  shipped_at                     TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: packaging_types
+--------------------------------------------------------------------------------
+  id               UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  type_name        VARCHAR       NOT NULL
+  category         VARCHAR       NULL
+  length_cm        NUMERIC       NULL
+  width_cm         NUMERIC       NULL
+  height_cm        NUMERIC       NULL
+  max_weight_kg    NUMERIC       NULL
+  cost             NUMERIC       NULL
+  is_active        BOOLEAN       NULL      [DEFAULT: true]
+  created_at       TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: packing_records
+--------------------------------------------------------------------------------
+  id                       UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  order_id                 UUID          NULL      [FK -> orders(id)]
+  order_number             VARCHAR       NULL
+  packaging_type_id        UUID          NULL      [FK -> packaging_types(id)]
+  box_type                 VARCHAR       NULL
+  box_dimensions           JSONB         NULL
+  dunnage_materials        JSONB         NULL
+  has_fragile_items        BOOLEAN       NULL      [DEFAULT: false]
+  actual_weight_kg         NUMERIC       NULL
+  dimensional_weight_kg    NUMERIC       NULL
+  chargeable_weight_kg     NUMERIC       NULL
+  tracking_number          VARCHAR       NULL
+  shipping_label_url       TEXT          NULL
+  packing_slip_url         TEXT          NULL
+  packing_notes            TEXT          NULL
+  packing_photos           JSONB         NULL
+  packer_id                UUID          NULL      [FK -> users(id)]
+  status                   VARCHAR       NULL      [DEFAULT: in_progress]
+  started_at               TIMESTAMP     NULL
+  completed_at             TIMESTAMP     NULL
+  created_at               TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at               TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: quality_check_logs
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  grn_id              UUID          NULL      [FK -> grns(id)]
+  material_id         UUID          NULL      [FK -> materials(id)]
+  qty_received        NUMERIC       NOT NULL
+  qty_passed          NUMERIC       NOT NULL
+  qty_rejected        NUMERIC       NOT NULL
+  rejection_reason    TEXT          NULL
+  checked_by          UUID          NULL      [FK -> users(id)]
+  check_date          TIMESTAMP     NULL      [DEFAULT: now()]
+  approval_status     VARCHAR       NOT NULL  [DEFAULT: PENDING]
+  approved_by         UUID          NULL      [FK -> users(id)]
+  approved_at         TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: reports
+--------------------------------------------------------------------------------
+  id                 UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  report_name        VARCHAR       NOT NULL
+  report_type        VARCHAR       NOT NULL
+  description        TEXT          NULL
+  report_config      JSONB         NULL
+  generated_at       TIMESTAMP     NULL
+  file_size_bytes    BIGINT        NULL
+  file_path          VARCHAR       NULL
+  created_by         UUID          NULL      [FK -> users(id)]
+  created_at         TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: return_status_history
+--------------------------------------------------------------------------------
+  id             UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  return_id      UUID          NOT NULL  [FK -> returns(id)]
+  from_status    VARCHAR       NULL
+  to_status      VARCHAR       NOT NULL
+  changed_by     UUID          NULL
+  notes          TEXT          NULL
+  changed_at     TIMESTAMPTZ   NOT NULL  [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: returns
+--------------------------------------------------------------------------------
+  id                          UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  return_number               VARCHAR       NOT NULL  [UNIQUE]
+  original_order_id           UUID          NULL      [FK -> orders(id)]
+  customer_id                 UUID          NULL      [FK -> customers(id)]
+  warehouse_id                UUID          NULL      [FK -> warehouses(id)]
+  return_date                 DATE          NULL
+  reason                      TEXT          NULL
+  status                      VARCHAR       NULL      [DEFAULT: pending]
+  resolution                  VARCHAR       NULL
+  received_by                 UUID          NULL      [FK -> users(id)]
+  inspected_by                UUID          NULL      [FK -> users(id)]
+  created_at                  TIMESTAMP     NULL      [DEFAULT: now()]
+  return_flow                 VARCHAR       NULL      [DEFAULT: unknown]
+  qc_outcome                  VARCHAR       NULL
+  supplier_response_status    VARCHAR       NULL
+  supplier_response_notes     TEXT          NULL
+  false_return_request        BOOLEAN       NULL      [DEFAULT: false]
+  customer_care_flag          BOOLEAN       NULL      [DEFAULT: false]
+  followup_order_id           UUID          NULL
+  closed_at                   TIMESTAMP     NULL
+  last_status_changed_at      TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: scheduled_reports
+--------------------------------------------------------------------------------
+  id                    UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  report_type           VARCHAR       NOT NULL
+  frequency             VARCHAR       NOT NULL
+  scheduled_time        TIME          NOT NULL
+  email_recipients      ARRAY         NOT NULL
+  is_active             BOOLEAN       NULL      [DEFAULT: true]
+  last_generated_at     TIMESTAMP     NULL
+  next_generation_at    TIMESTAMP     NULL
+  created_by            UUID          NULL      [FK -> users(id)]
+  created_at            TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at            TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: shipments
+--------------------------------------------------------------------------------
+  id                       UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  shipment_number          VARCHAR       NOT NULL  [UNIQUE]
+  order_id                 UUID          NULL      [FK -> orders(id)]
+  delivery_partner_id      UUID          NULL      [FK -> delivery_partners(id)]
+  carrier                  VARCHAR       NULL
+  tracking_number          VARCHAR       NULL
+  destination              TEXT          NULL
+  weight_kg                NUMERIC       NULL
+  driver_name              VARCHAR       NULL
+  driver_phone             VARCHAR       NULL
+  vehicle_number           VARCHAR       NULL
+  status                   VARCHAR       NULL      [DEFAULT: label_created]
+  eta                      DATE          NULL
+  shipped_at               TIMESTAMP     NULL
+  delivered_at             TIMESTAMP     NULL
+  created_at               TIMESTAMP     NULL      [DEFAULT: now()]
+  delivery_confirmed_by    UUID          NULL
+  delivery_confirmed_at    TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: sops
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  title               VARCHAR       NOT NULL
+  category            VARCHAR       NOT NULL
+  content             TEXT          NOT NULL
+  version             VARCHAR       NOT NULL  [DEFAULT: 1.0]
+  status              VARCHAR       NOT NULL  [DEFAULT: draft]
+  created_by          VARCHAR       NOT NULL  [DEFAULT: System]
+  applicable_roles    TEXT          NULL
+  created_at          TIMESTAMP     NOT NULL  [DEFAULT: now()]
+  updated_at          TIMESTAMP     NOT NULL  [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: stock_movements
+--------------------------------------------------------------------------------
+  id                UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id       UUID          NULL      [FK -> materials(id)]
+  warehouse_id      UUID          NULL      [FK -> warehouses(id)]
+  location_code     VARCHAR       NULL
+  movement_type     VARCHAR       NOT NULL
+  quantity          INTEGER       NOT NULL
+  reference_type    VARCHAR       NULL
+  reference_id      UUID          NULL
+  user_id           UUID          NULL
+  notes             TEXT          NULL
+  created_at        TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: stock_transfer_line_events
+--------------------------------------------------------------------------------
+  id                      UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  transfer_line_id        UUID          NOT NULL  [FK -> stock_transfer_lines(id)]
+  event_type              VARCHAR       NOT NULL
+  worker_id               UUID          NULL      [FK -> users(id)]
+  quantity                INTEGER       NULL
+  source_scan_location    VARCHAR       NULL
+  dest_scan_location      VARCHAR       NULL
+  notes                   TEXT          NULL
+  created_at              TIMESTAMPTZ   NOT NULL  [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: stock_transfer_lines
+--------------------------------------------------------------------------------
+  id                      UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  transfer_id             UUID          NOT NULL  [UNIQUE]  [FK -> stock_transfers(id)]
+  line_number             INTEGER       NOT NULL  [UNIQUE]
+  material_id             UUID          NOT NULL  [FK -> materials(id)]
+  source_warehouse_id     UUID          NULL      [FK -> warehouses(id)]
+  source_location_code    VARCHAR       NULL
+  dest_warehouse_id       UUID          NULL      [FK -> warehouses(id)]
+  dest_location_code      VARCHAR       NULL
+  requested_quantity      INTEGER       NOT NULL
+  moved_quantity          INTEGER       NOT NULL  [DEFAULT: 0]
+  status                  VARCHAR       NOT NULL  [DEFAULT: open]
+  assigned_worker_id      UUID          NULL      [FK -> users(id)]
+  notes                   TEXT          NULL
+  created_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at              TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: stock_transfers
+--------------------------------------------------------------------------------
+  id                      UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  transfer_number         VARCHAR       NOT NULL  [UNIQUE]
+  transfer_type           VARCHAR       NOT NULL
+  material_id             UUID          NULL      [FK -> materials(id)]
+  source_warehouse_id     UUID          NULL      [FK -> warehouses(id)]
+  source_location_code    VARCHAR       NULL
+  dest_warehouse_id       UUID          NULL      [FK -> warehouses(id)]
+  dest_location_code      VARCHAR       NULL
+  quantity                INTEGER       NOT NULL
+  status                  VARCHAR       NULL      [DEFAULT: draft]
+  notes                   TEXT          NULL
+  dispatched_by           UUID          NULL      [FK -> users(id)]
+  dispatched_at           TIMESTAMP     NULL
+  received_by             UUID          NULL      [FK -> users(id)]
+  received_at             TIMESTAMP     NULL
+  created_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  created_by              UUID          NULL      [FK -> users(id)]
+  released_by             UUID          NULL      [FK -> users(id)]
+  released_at             TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: supplier_materials
+--------------------------------------------------------------------------------
+  id             UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  supplier_id    UUID          NOT NULL  [UNIQUE]  [FK -> suppliers(id)]
+  material_id    UUID          NOT NULL  [UNIQUE]  [FK -> materials(id)]
+  created_at     TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at     TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: supplier_product_links
+--------------------------------------------------------------------------------
+  id                UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  supplier_id       UUID          NULL      [UNIQUE]  [FK -> suppliers(id)]
+  material_id       UUID          NULL      [UNIQUE]  [FK -> materials(id)]
+  moq               NUMERIC       NULL
+  lead_time_days    INTEGER       NULL
+  unit_price        NUMERIC       NULL
+  currency_code     VARCHAR       NULL      [DEFAULT: LKR]
+  is_preferred      BOOLEAN       NULL      [DEFAULT: false]
+  created_at        TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: suppliers
+--------------------------------------------------------------------------------
+  id                 UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  code               VARCHAR       NULL      [UNIQUE]
+  name               VARCHAR       NOT NULL
+  contact_person     VARCHAR       NULL
+  email              VARCHAR       NULL
+  phone              VARCHAR       NULL
+  address            TEXT          NULL
+  country            VARCHAR       NULL
+  lead_time_days     INTEGER       NULL
+  rating             NUMERIC       NULL
+  status             VARCHAR       NULL      [DEFAULT: active]
+  created_at         TIMESTAMP     NULL      [DEFAULT: now()]
+  city               VARCHAR       NULL
+  postal_code        VARCHAR       NULL
+  country_code       VARCHAR       NULL
+  currency_code      VARCHAR       NULL      [DEFAULT: LKR]
+  tax_id             VARCHAR       NULL
+  risk_category      VARCHAR       NULL
+  ai_rating_score    NUMERIC       NULL
+
+--------------------------------------------------------------------------------
+  TABLE: supply_plans
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  material_id         UUID          NULL      [UNIQUE]  [FK -> materials(id)]
+  warehouse_id        UUID          NULL      [UNIQUE]  [FK -> warehouses(id)]
+  plan_year           INTEGER       NOT NULL  [UNIQUE]
+  plan_month          INTEGER       NOT NULL  [UNIQUE]
+  planned_quantity    NUMERIC       NOT NULL
+  actual_quantity     NUMERIC       NULL
+  variance            NUMERIC       NULL
+  created_at          TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at          TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: tasks
+--------------------------------------------------------------------------------
+  id                             UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  task_number                    VARCHAR       NOT NULL  [UNIQUE]
+  task_type                      VARCHAR       NOT NULL
+  warehouse_id                   UUID          NULL      [FK -> warehouses(id)]
+  assigned_to                    UUID          NULL      [FK -> users(id)]
+  priority                       VARCHAR       NULL      [DEFAULT: normal]
+  status                         VARCHAR       NULL      [DEFAULT: pending]
+  due_date                       TIMESTAMP     NULL
+  completed_at                   TIMESTAMP     NULL
+  location_code                  VARCHAR       NULL
+  reference_type                 VARCHAR       NULL
+  reference_id                   UUID          NULL
+  notes                          TEXT          NULL
+  created_at                     TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at                     TIMESTAMP     NULL      [DEFAULT: now()]
+  ai_suggested_sequence_order    INTEGER       NULL
+  ai_suggested_path              JSONB         NULL
+  ai_path_efficiency_score       NUMERIC       NULL
+  completed_by                   UUID          NULL      [FK -> users(id)]
+  started_at                     TIMESTAMP     NULL
+
+--------------------------------------------------------------------------------
+  TABLE: users
+--------------------------------------------------------------------------------
+  id                      UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  username                VARCHAR       NOT NULL  [UNIQUE]
+  email                   VARCHAR       NULL      [UNIQUE]
+  password_hash           VARCHAR       NOT NULL
+  employee_id             VARCHAR       NULL      [UNIQUE]
+  first_name              VARCHAR       NULL
+  last_name               VARCHAR       NULL
+  role                    VARCHAR       NOT NULL
+  warehouse_id            UUID          NULL      [FK -> warehouses(id)]
+  phone                   VARCHAR       NULL
+  avatar_url              TEXT          NULL
+  status                  VARCHAR       NULL      [DEFAULT: active]
+  device_id               VARCHAR       NULL
+  last_login_at           TIMESTAMP     NULL
+  created_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at              TIMESTAMP     NULL      [DEFAULT: now()]
+  blind_receiving_mode    BOOLEAN       NULL      [DEFAULT: false]
+  dashboard_settings      JSONB         NULL      [DEFAULT: {}]
+
+--------------------------------------------------------------------------------
+  TABLE: warehouses
+--------------------------------------------------------------------------------
+  id                UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  code              VARCHAR       NOT NULL  [UNIQUE]
+  name              VARCHAR       NOT NULL
+  address           TEXT          NULL
+  city              VARCHAR       NULL
+  country           VARCHAR       NULL      [DEFAULT: Sri Lanka]
+  contact_person    VARCHAR       NULL
+  phone             VARCHAR       NULL
+  email             VARCHAR       NULL
+  status            VARCHAR       NULL      [DEFAULT: active]
+  created_at        TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at        TIMESTAMP     NULL      [DEFAULT: now()]
+
+--------------------------------------------------------------------------------
+  TABLE: worker_achievements
+--------------------------------------------------------------------------------
+  id                  UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  worker_id           UUID          NULL      [FK -> users(id)]
+  achievement_type    VARCHAR       NOT NULL
+  earned_at           TIMESTAMP     NULL      [DEFAULT: now()]
+  metadata            JSONB         NULL
+
+--------------------------------------------------------------------------------
+  TABLE: yard_trailers
+--------------------------------------------------------------------------------
+  id                       UUID          NOT NULL  [PK]  [DEFAULT: uuid_generate_v4()]
+  trailer_number           VARCHAR       NOT NULL  [UNIQUE]
+  warehouse_id             UUID          NULL      [FK -> warehouses(id)]
+  carrier_name             VARCHAR       NULL
+  inbound_order_id         UUID          NULL      [FK -> orders(id)]
+  supplier_id              UUID          NULL      [FK -> suppliers(id)]
+  arrived_at               TIMESTAMP     NULL
+  wait_time_minutes        INTEGER       NULL
+  status                   VARCHAR       NULL      [DEFAULT: waiting]
+  assigned_dock_door_id    UUID          NULL      [FK -> dock_doors(id)]
+  created_at               TIMESTAMP     NULL      [DEFAULT: now()]
+  updated_at               TIMESTAMP     NULL      [DEFAULT: now()]
+
+================================================================================
+  FOREIGN KEY RELATIONSHIPS
+================================================================================
+
+  ai_anomaly_detections:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    location_id -> locations(id)
+    reviewed_by -> users(id)
+
+  ai_demand_forecasts:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+
+  ai_path_recommendations:
+    task_id -> tasks(id)
+
+  ai_slotting_recommendations:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    recommended_location_id -> locations(id)
+
+  ai_sourcing_recommendations:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    recommended_supplier_id -> suppliers(id)
+
+  cycle_count_audit_logs:
+    cycle_count_id -> cycle_counts(id)
+    performed_by -> users(id)
+
+  cycle_count_recounts:
+    cycle_count_id -> cycle_counts(id)
+    counted_by -> users(id)
+
+  cycle_count_schedules:
+    warehouse_id -> warehouses(id)
+    created_by -> users(id)
+
+  cycle_counts:
+    warehouse_id -> warehouses(id)
+    counted_by -> users(id)
+    material_id -> materials(id)
+    approved_by -> users(id)
+
+  dock_appointments:
+    dock_door_id -> dock_doors(id)
+    warehouse_id -> warehouses(id)
+    inbound_order_id -> orders(id)
+    outbound_order_id -> orders(id)
+    supplier_id -> suppliers(id)
+
+  dock_doors:
+    warehouse_id -> warehouses(id)
+
+  grns:
+    supplier_id -> suppliers(id)
+    warehouse_id -> warehouses(id)
+    received_by -> users(id)
+
+  inventory:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    location_code -> locations(location_code)
+    grn_id -> grns(id)
+
+  location_levels:
+    location_id -> locations(id)
+
+  locations:
+    warehouse_id -> warehouses(id)
+
+  lpns:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    location_code -> locations(location_code)
+    created_by -> users(id)
+
+  material_default_locations:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+    location_code -> locations(location_code)
+
+  material_planning:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+
+  non_moving_items:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+
+  notifications:
+    user_id -> users(id)
+    warehouse_id -> warehouses(id)
+
+  order_items:
+    order_id -> orders(id)
+    material_id -> materials(id)
+
+  orders:
+    customer_id -> customers(id)
+    supplier_id -> suppliers(id)
+    warehouse_id -> warehouses(id)
+    created_by -> users(id)
+    received_by -> users(id)
+    picked_by -> users(id)
+    packed_by -> users(id)
+    shipped_by -> users(id)
+
+  packing_records:
+    order_id -> orders(id)
+    packaging_type_id -> packaging_types(id)
+    packer_id -> users(id)
+
+  quality_check_logs:
+    grn_id -> grns(id)
+    material_id -> materials(id)
+    checked_by -> users(id)
+    approved_by -> users(id)
+
+  reports:
+    created_by -> users(id)
+
+  return_status_history:
+    return_id -> returns(id)
+
+  returns:
+    original_order_id -> orders(id)
+    customer_id -> customers(id)
+    warehouse_id -> warehouses(id)
+    received_by -> users(id)
+    inspected_by -> users(id)
+
+  scheduled_reports:
+    created_by -> users(id)
+
+  shipments:
+    order_id -> orders(id)
+    delivery_partner_id -> delivery_partners(id)
+
+  stock_movements:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+
+  stock_transfer_line_events:
+    transfer_line_id -> stock_transfer_lines(id)
+    worker_id -> users(id)
+
+  stock_transfer_lines:
+    transfer_id -> stock_transfers(id)
+    material_id -> materials(id)
+    source_warehouse_id -> warehouses(id)
+    dest_warehouse_id -> warehouses(id)
+    assigned_worker_id -> users(id)
+
+  stock_transfers:
+    material_id -> materials(id)
+    source_warehouse_id -> warehouses(id)
+    dest_warehouse_id -> warehouses(id)
+    dispatched_by -> users(id)
+    received_by -> users(id)
+    created_by -> users(id)
+    released_by -> users(id)
+
+  supplier_materials:
+    supplier_id -> suppliers(id)
+    material_id -> materials(id)
+
+  supplier_product_links:
+    supplier_id -> suppliers(id)
+    material_id -> materials(id)
+
+  supply_plans:
+    material_id -> materials(id)
+    warehouse_id -> warehouses(id)
+
+  tasks:
+    warehouse_id -> warehouses(id)
+    assigned_to -> users(id)
+    completed_by -> users(id)
+
+  users:
+    warehouse_id -> warehouses(id)
+
+  worker_achievements:
+    worker_id -> users(id)
+
+  yard_trailers:
+    warehouse_id -> warehouses(id)
+    inbound_order_id -> orders(id)
+    supplier_id -> suppliers(id)
+    assigned_dock_door_id -> dock_doors(id)
+
+================================================================================
+

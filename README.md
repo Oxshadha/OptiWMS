@@ -17,6 +17,43 @@ This project is a **modular layered monolith**:
 
 It is not a microservice architecture today. AI services are optional and additive.
 
+## AI Services (Forecast Feature)
+
+OptiWMS includes optional AI-powered forecasting capabilities:
+- **Forecast Service**: Machine learning models for demand forecasting
+- **Orchestrator Service**: Job scheduling and coordination
+- **Shadow Mode**: Safe testing with automatic governance
+- **Production Ready**: Quality gates and automatic model management
+
+### Quick Start (AI Services)
+
+1. **Prerequisites**
+   ```bash
+   # Ensure core services are running
+   docker-compose -f infra/docker-compose.yml up -d
+   ```
+
+2. **Setup AI Services**
+   ```bash
+   cd ai-services
+   cp .env.example .env
+   # Edit .env with your configuration
+   docker-compose -f docker-compose.ai.yml up -d
+   ```
+
+3. **Verify Installation**
+   ```bash
+   curl http://localhost:8091/health
+   curl http://localhost:8092/health
+   ```
+
+### AI Service Architecture
+- `ai-services/forecast-service/`: ML inference engine
+- `ai-services/orchestrator-service/`: Job orchestration
+- `ai-services/slotting-service/`: Inventory optimization (planned)
+
+See [TEAM_COLLABORATION_GUIDE.md](TEAM_COLLABORATION_GUIDE.md) for team setup and [DEPLOYMENT_CHANGELOG.md](DEPLOYMENT_CHANGELOG.md) for implementation details.
+
 ## Tech Stack
 
 - Backend: Java 21, Spring Boot 3.3, Spring Security, Spring Data JPA, Flyway
@@ -109,6 +146,31 @@ npm install
 npm run dev
 ```
 
+Helper scripts from repo root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-db.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-backend.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-frontend.ps1
+```
+
+Optional AI agent:
+
+```powershell
+cd ai-services\ai-agent
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+If you want the frontend warehouse assistant to call the AI agent, copy
+`frontend/.env.example` to `frontend/.env.local` and set:
+
+```env
+NEXT_PUBLIC_WAREHOUSE_AI_URL=http://localhost:8000/ask
+```
+
 ## First-Run Troubleshooting
 
 ### 1) Frontend build error: `Module not found: Can't resolve '@tanstack/react-query'`
@@ -166,6 +228,40 @@ cd backend
 ```
 
 This does not block normal API development; it only skips synthetic rack generation at startup.
+
+### 4) Backend startup fails with Flyway migration validation/version errors
+
+Common local causes:
+- Duplicate migration version in `backend/infra/src/main/resources/db/migration`.
+- Checksum mismatch in `flyway_schema_history` after editing an already-applied migration.
+
+Quick checks:
+
+```bash
+cd backend/infra/src/main/resources/db/migration
+ls V*.sql | sed 's/__.*//' | sort | uniq -d
+```
+
+If duplicates are found, keep historical versions stable and renumber only the new migration file.
+
+If startup fails with checksum mismatch in local dev, repair the local DB history to match the current file checksum:
+
+```bash
+docker exec -i optiwms-db psql -U optiwms -d optiwms -c "SELECT version, description, checksum, success FROM flyway_schema_history ORDER BY installed_rank;"
+```
+
+Then update only the affected version checksum reported by Flyway:
+
+```bash
+docker exec -i optiwms-db psql -U optiwms -d optiwms -c "UPDATE flyway_schema_history SET checksum = <resolved_locally_checksum> WHERE version = '<version>';"
+```
+
+Re-run backend:
+
+```bash
+cd backend
+./gradlew :core-api:bootRun
+```
 
 ## Default Bootstrap Credentials (Dev Only)
 
@@ -243,7 +339,7 @@ Services:
 
 ## Useful Documents
 
-- `QUICK_START.md`
+- `QUICK_START.txt`
 - `WMS_FLOW_DOCUMENTATION.md`
 - `START_HERE_SECURITY.md`
 - `START_HERE_TESTING.md`
