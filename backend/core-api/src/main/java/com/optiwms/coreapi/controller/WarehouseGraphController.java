@@ -2,6 +2,8 @@ package com.optiwms.coreapi.controller;
 
 import com.optiwms.coreapp.master.LocationService;
 import com.optiwms.domain.master.Location;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +18,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/warehouse")
 @CrossOrigin(origins = "*", allowedHeaders = "*")
 public class WarehouseGraphController {
+    private static final Logger log = LoggerFactory.getLogger(WarehouseGraphController.class);
     
     @Autowired
     private LocationService locationService;
@@ -155,8 +158,8 @@ public class WarehouseGraphController {
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(500).body(Map.of("error", "Failed to load warehouse graph: " + e.getMessage()));
+            log.error("Failed to load warehouse graph", e);
+            return ResponseEntity.status(500).body(Map.of("error", "Failed to load warehouse graph"));
         }
     }
 }
