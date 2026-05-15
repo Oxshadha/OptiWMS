@@ -260,8 +260,6 @@ public class CsvImportService {
         }
 
         String materialCode = parts[0].trim();
-        String unitType = parts[1].trim();
-        String description = parts[2].trim();
 
         if (materialCode.isEmpty()) {
             return null;

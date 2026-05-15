@@ -8,6 +8,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.lang.NonNull;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.WebRequest;
 
@@ -29,8 +30,7 @@ public class DeliveryPartnerController {
     @GetMapping
     public ResponseEntity<List<DeliveryPartnerDto>> listAll(
             @RequestParam(required = false) String status,
-            WebRequest webRequest
-    ) {
+            @NonNull WebRequest webRequest) {
         List<DeliveryPartner> partners;
         if (status != null) {
             partners = service.findByStatus(status);
@@ -51,8 +51,7 @@ public class DeliveryPartnerController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String status,
-            @RequestParam(required = false) String q
-    ) {
+            @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -61,8 +60,7 @@ public class DeliveryPartnerController {
         Page<DeliveryPartner> partnerPage = service.findPaged(
                 status,
                 q,
-                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
-        );
+                PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
 
         List<DeliveryPartnerDto> data = partnerPage.getContent().stream().map(this::toDto).toList();
         return ResponseEntity.ok(new PagedDeliveryPartnerResponse(
@@ -70,8 +68,7 @@ public class DeliveryPartnerController {
                 partnerPage.getNumber(),
                 partnerPage.getSize(),
                 partnerPage.getTotalElements(),
-                partnerPage.getTotalPages()
-        ));
+                partnerPage.getTotalPages()));
     }
 
     @GetMapping("/{id}")
@@ -109,10 +106,12 @@ public class DeliveryPartnerController {
             partner.setCurrencyCode(request.currencyCode());
             partner.setServiceAreas(request.serviceAreas());
             partner.setRating(request.rating() != null ? new BigDecimal(request.rating()) : null);
-            partner.setCostPerDelivery(request.costPerDelivery() != null ? new BigDecimal(request.costPerDelivery()) : null);
+            partner.setCostPerDelivery(
+                    request.costPerDelivery() != null ? new BigDecimal(request.costPerDelivery()) : null);
             partner.setStatus(request.status() != null ? request.status() : "active");
             partner.setTotalShipments(request.totalShipments() != null ? request.totalShipments() : 0);
-            partner.setOnTimeDeliveryRate(request.onTimeDeliveryRate() != null ? new BigDecimal(request.onTimeDeliveryRate()) : null);
+            partner.setOnTimeDeliveryRate(
+                    request.onTimeDeliveryRate() != null ? new BigDecimal(request.onTimeDeliveryRate()) : null);
 
             DeliveryPartner created = service.create(partner);
             return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
@@ -122,23 +121,38 @@ public class DeliveryPartnerController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<DeliveryPartnerDto> update(@PathVariable UUID id, @RequestBody UpdateDeliveryPartnerRequest request) {
+    public ResponseEntity<DeliveryPartnerDto> update(@PathVariable UUID id,
+            @RequestBody UpdateDeliveryPartnerRequest request) {
         try {
             DeliveryPartner partner = service.findById(id);
-            if (request.companyName() != null) partner.setCompanyName(request.companyName());
-            if (request.contactPerson() != null) partner.setContactPerson(request.contactPerson());
-            if (request.email() != null) partner.setEmail(request.email());
-            if (request.phone() != null) partner.setPhone(request.phone());
-            if (request.address() != null) partner.setAddress(request.address());
-            if (request.city() != null) partner.setCity(request.city());
-            if (request.country() != null) partner.setCountry(request.country());
-            if (request.currencyCode() != null) partner.setCurrencyCode(request.currencyCode());
-            if (request.serviceAreas() != null) partner.setServiceAreas(request.serviceAreas());
-            if (request.rating() != null) partner.setRating(new BigDecimal(request.rating()));
-            if (request.costPerDelivery() != null) partner.setCostPerDelivery(new BigDecimal(request.costPerDelivery()));
-            if (request.status() != null) partner.setStatus(request.status());
-            if (request.totalShipments() != null) partner.setTotalShipments(request.totalShipments());
-            if (request.onTimeDeliveryRate() != null) partner.setOnTimeDeliveryRate(new BigDecimal(request.onTimeDeliveryRate()));
+            if (request.companyName() != null)
+                partner.setCompanyName(request.companyName());
+            if (request.contactPerson() != null)
+                partner.setContactPerson(request.contactPerson());
+            if (request.email() != null)
+                partner.setEmail(request.email());
+            if (request.phone() != null)
+                partner.setPhone(request.phone());
+            if (request.address() != null)
+                partner.setAddress(request.address());
+            if (request.city() != null)
+                partner.setCity(request.city());
+            if (request.country() != null)
+                partner.setCountry(request.country());
+            if (request.currencyCode() != null)
+                partner.setCurrencyCode(request.currencyCode());
+            if (request.serviceAreas() != null)
+                partner.setServiceAreas(request.serviceAreas());
+            if (request.rating() != null)
+                partner.setRating(new BigDecimal(request.rating()));
+            if (request.costPerDelivery() != null)
+                partner.setCostPerDelivery(new BigDecimal(request.costPerDelivery()));
+            if (request.status() != null)
+                partner.setStatus(request.status());
+            if (request.totalShipments() != null)
+                partner.setTotalShipments(request.totalShipments());
+            if (request.onTimeDeliveryRate() != null)
+                partner.setOnTimeDeliveryRate(new BigDecimal(request.onTimeDeliveryRate()));
 
             DeliveryPartner updated = service.update(partner);
             return ResponseEntity.ok(toDto(updated));
@@ -174,8 +188,7 @@ public class DeliveryPartnerController {
                 partner.getCostPerDelivery() != null ? partner.getCostPerDelivery().toString() : null,
                 partner.getStatus(),
                 partner.getTotalShipments(),
-                partner.getOnTimeDeliveryRate() != null ? partner.getOnTimeDeliveryRate().toString() : null
-        );
+                partner.getOnTimeDeliveryRate() != null ? partner.getOnTimeDeliveryRate().toString() : null);
     }
 
     public record CreateDeliveryPartnerRequest(
@@ -193,8 +206,8 @@ public class DeliveryPartnerController {
             String costPerDelivery,
             String status,
             Integer totalShipments,
-            String onTimeDeliveryRate
-    ) {}
+            String onTimeDeliveryRate) {
+    }
 
     public record UpdateDeliveryPartnerRequest(
             String companyName,
@@ -210,8 +223,8 @@ public class DeliveryPartnerController {
             String costPerDelivery,
             String status,
             Integer totalShipments,
-            String onTimeDeliveryRate
-    ) {}
+            String onTimeDeliveryRate) {
+    }
 
     public record DeliveryPartnerDto(
             String id,
@@ -229,21 +242,24 @@ public class DeliveryPartnerController {
             String costPerDelivery,
             String status,
             Integer totalShipments,
-            String onTimeDeliveryRate
-    ) {}
+            String onTimeDeliveryRate) {
+    }
 
     public record PagedDeliveryPartnerResponse(
             List<DeliveryPartnerDto> data,
             int page,
             int size,
             long totalElements,
-            int totalPages
-    ) {}
+            int totalPages) {
+    }
 
     private String sanitizeSortBy(String sortBy) {
-        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        if (sortBy == null || sortBy.isBlank())
+            return "createdAt";
         return switch (sortBy) {
-            case "id", "partnerCode", "companyName", "contactPerson", "status", "city", "country", "createdAt", "rating", "costPerDelivery", "totalShipments" -> sortBy;
+            case "id", "partnerCode", "companyName", "contactPerson", "status", "city", "country", "createdAt",
+                    "rating", "costPerDelivery", "totalShipments" ->
+                sortBy;
             default -> "createdAt";
         };
     }

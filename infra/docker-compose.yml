@@ -38,9 +38,6 @@ services:
       JAVA_OPTS: "-Xmx512m -Xms256m"
     ports:
       - "8080:8080"
-    volumes:
-      - ../backend:/app
-      - backend_build:/app/build
     networks:
       - optiwms-network
     restart: unless-stopped

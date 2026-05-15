@@ -1,0 +1,344 @@
+/* Pathfinding Visualizer Styles - Matching OptiWMS Theme */
+
+.pathfinding-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.pathfinding-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.pathfinding-header h2 {
+  color: #2c3e50;
+  font-size: 2rem;
+  margin: 0;
+  font-weight: 700;
+}
+
+.pathfinding-header .subtitle {
+  color: #7f8c8d;
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.pathfinding-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+/* Grid Section */
+.grid-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.grid-wrapper {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+  overflow: auto;
+}
+
+.grid {
+  display: inline-grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  padding: 1rem;
+  background: #ecf0f1;
+  border-radius: 8px;
+}
+
+.grid-row {
+  display: contents;
+}
+
+.grid-cell {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #bdc3c7;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: white;
+  font-size: 0.8rem;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.grid-cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.grid-cell.empty {
+  background: #ffffff;
+  border-color: #ecf0f1;
+}
+
+.grid-cell.empty:hover {
+  background: #f8f9fa;
+}
+
+.grid-cell.start {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  border-color: #2980b9;
+  box-shadow: 0 0 10px rgba(52, 152, 219, 0.4);
+}
+
+.grid-cell.end {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  border-color: #c0392b;
+  box-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
+}
+
+.grid-cell.path {
+  background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+  border-color: #27ae60;
+  animation: pathPulse 0.6s ease-in-out;
+}
+
+.grid-cell.obstacle {
+  background: linear-gradient(135deg, #7f8c8d 0%, #34495e 100%);
+  border-color: #2c3e50;
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+}
+
+.grid-cell.searching {
+  background: linear-gradient(135deg, #f39c12 0%, #d68910 100%);
+  border-color: #d68910;
+  animation: searching 0.8s ease-in-out infinite;
+}
+
+.marker {
+  font-weight: 900;
+  font-size: 0.9rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes pathPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes searching {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(243, 156, 18, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(243, 156, 18, 0.8);
+  }
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%);
+  color: white;
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(149, 165, 166, 0.4);
+}
+
+/* Info Panel */
+.info-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.legend,
+.stats,
+.instructions {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+}
+
+.legend h3,
+.stats h3,
+.instructions h3 {
+  color: #2c3e50;
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  border-bottom: 2px solid #ecf0f1;
+  padding-bottom: 0.75rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+  color: #34495e;
+}
+
+.legend-color {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid #bdc3c7;
+}
+
+.legend-color.start {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+}
+
+.legend-color.end {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+}
+
+.legend-color.path {
+  background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+}
+
+.legend-color.obstacle {
+  background: linear-gradient(135deg, #7f8c8d 0%, #34495e 100%);
+}
+
+.message {
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.message.success {
+  background: #d5f4e6;
+  color: #27ae60;
+  border-left: 4px solid #27ae60;
+}
+
+.message.info {
+  background: #d6eaf8;
+  color: #3498db;
+  border-left: 4px solid #3498db;
+}
+
+.message.error {
+  background: #fadbd8;
+  color: #e74c3c;
+  border-left: 4px solid #e74c3c;
+}
+
+.stats p {
+  margin: 0.5rem 0;
+  color: #34495e;
+  font-size: 0.9rem;
+}
+
+.stats p strong {
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.instructions ol {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #34495e;
+  font-size: 0.9rem;
+}
+
+.instructions li {
+  margin-bottom: 0.5rem;
+  line-height: 1.6;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .pathfinding-content {
+    grid-template-columns: 1fr;
+  }
+
+  .pathfinding-container {
+    padding: 1rem;
+  }
+
+  .grid-cell {
+    width: 35px;
+    height: 35px;
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .pathfinding-header h2 {
+    font-size: 1.5rem;
+  }
+
+  .grid-cell {
+    width: 30px;
+    height: 30px;
+    gap: 1px;
+  }
+
+  .controls {
+    flex-direction: column;
+  }
+
+  .btn {
+    width: 100%;
+  }
+}
