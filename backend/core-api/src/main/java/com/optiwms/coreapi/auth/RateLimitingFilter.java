@@ -7,6 +7,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
@@ -27,27 +28,30 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             .build();
 
     @Override
-    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+    protected void doFilterInternal(@NonNull HttpServletRequest request,
+            @NonNull HttpServletResponse response,
+            @NonNull FilterChain filterChain)
             throws ServletException, IOException {
-        
+
         // Only apply rate limiting to login endpoint
         if (request.getRequestURI().equals("/api/auth/login") && "POST".equals(request.getMethod())) {
             String clientIp = getClientIpAddress(request);
             Integer attempts = attemptCache.getIfPresent(clientIp);
-            
+
             if (attempts != null && attempts >= MAX_ATTEMPTS) {
                 response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
                 response.setContentType("application/json");
-                response.getWriter().write("{\"success\":false,\"message\":\"Too many login attempts. Please try again later.\"}");
+                response.getWriter()
+                        .write("{\"success\":false,\"message\":\"Too many login attempts. Please try again later.\"}");
                 return;
             }
-            
+
             // Wrap response to capture status code
             ContentCachingResponseWrapper wrappedResponse = new ContentCachingResponseWrapper(response);
-            
+
             try {
                 filterChain.doFilter(request, wrappedResponse);
-                
+
                 // Check response status after filter chain
                 int statusCode = wrappedResponse.getStatus();
                 if (statusCode == 401 || statusCode == 429) {
@@ -57,7 +61,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                     // Reset on successful login
                     attemptCache.invalidate(clientIp);
                 }
-                
+
                 // Copy response body
                 wrappedResponse.copyBodyToResponse();
             } finally {

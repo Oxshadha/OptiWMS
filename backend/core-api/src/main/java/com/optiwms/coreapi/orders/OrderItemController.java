@@ -196,25 +196,6 @@ public class OrderItemController {
         return ResponseEntity.noContent().build();
     }
 
-    private OrderItemDto toDto(OrderItem item) {
-        return new OrderItemDto(
-                item.getId().toString(),
-                item.getOrderId().toString(),
-                item.getMaterialId().toString(),
-                item.getQuantity(),
-                item.getUnitPrice() != null ? item.getUnitPrice().toString() : null,
-                item.getPickedQuantity(),
-                item.getPackedQuantity(),
-                item.getLocationCode(),
-                item.getBatchNumber(),
-                item.getManufactureDate(),
-                item.getExpiryDate(),
-                null,
-                null,
-                item.getStatus()
-        );
-    }
-
     private OrderItemDto toDtoWithMaterial(OrderItem item) {
         String materialCode = null;
         String materialName = null;

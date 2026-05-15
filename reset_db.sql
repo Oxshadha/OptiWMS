@@ -1,0 +1,5 @@
+\c postgres
+DROP DATABASE IF EXISTS optiwms;
+CREATE DATABASE optiwms;
+GRANT ALL PRIVILEGES ON DATABASE optiwms TO optiwms;
+GRANT ALL PRIVILEGES ON SCHEMA public TO optiwms;
