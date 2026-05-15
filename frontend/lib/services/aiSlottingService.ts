@@ -19,7 +19,9 @@ export interface SlottingOptimizationResponse {
 }
 
 export class AISlottingService {
-  private static baseUrl = 'http://127.0.0.1:8000/api/v1/slotting';
+  private static baseUrl = process.env.NEXT_PUBLIC_AI_SERVICES_URL?.trim()
+    ? `${process.env.NEXT_PUBLIC_AI_SERVICES_URL.trim()}/slotting`
+    : '/api/v1/slotting';
 
   static async optimizeSlotting(request: SlottingOptimizationRequest): Promise<SlottingOptimizationResponse> {
     const response = await fetch(`${this.baseUrl}/optimize`, {
