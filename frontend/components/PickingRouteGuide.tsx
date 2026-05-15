@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { MapPin, ChevronRight, CheckCircle, AlertTriangle, Loader } from 'lucide-react';
-import { pathfindingApi } from '@/lib/api/pathfinding';
+import { findPathWithFallback } from '@/lib/pathfinding-client';
 import './PickingRouteGuide.module.css';
 
 interface PickingItem {
@@ -49,17 +49,23 @@ export function PickingRouteGuide({
       setIsLoading(true);
       setError('');
 
-      const response = await pathfindingApi.findPath({
-        startLocation: currentLocation,
-        endLocation: currentItem.location,
-        blockedLocations: [],
-        equipmentType: 'picker',
-      });
+      const response = await findPathWithFallback(
+        currentLocation,
+        currentItem.location,
+        { nodes: [], edges: [] },
+        { worker_type: 'picker' },
+        []
+      );
 
-      if (response.path && response.path.length > 0) {
-        setRoute(response.path);
-        setEstimatedTime(Math.ceil(response.estimatedTimeSeconds || 45));
-        setTotalDistance(response.totalDistance || 0);
+      if (response.path_found && response.path && response.path.length > 0) {
+        const mappedRoute = response.path.map(n => ({
+          x: n.col,
+          y: n.row,
+          label: n.node_id
+        }));
+        setRoute(mappedRoute);
+        setEstimatedTime(Math.ceil(response.estimated_travel_seconds || 45));
+        setTotalDistance(response.total_cost || 0);
       } else {
         setError('No path found to this location');
       }
