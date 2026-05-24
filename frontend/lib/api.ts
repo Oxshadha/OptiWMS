@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080").replace(/\/api$/, '');
 
 export async function fetchWarehouses() {
   const res = await fetch(`${API_BASE}/api/master/warehouses`, {
