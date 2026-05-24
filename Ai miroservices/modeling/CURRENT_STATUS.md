@@ -1,14 +1,14 @@
 # OptiWMS Forecast — Current Status
 
-> **Last updated**: 2026-05-05 (Production Deployment Ready)
+> **Last updated**: 2026-05-24 (Production Deployment Ready)
 
 ## Architecture
 
 ```
-[v2 M5 Pipeline]                     [Forecast Service]              [Frontend]
-01_prepare_m5.py                     artifact_service.py              forecasts/page.tsx
-02_train_global_model.py  ──────→    runtime_data_source.py   ──────→ SKU charts
-03_evaluate.py                       forecast_service.py              reorder table
+[v4 M5 Pipeline]                     [Forecast Service]              [Frontend]
+01_prepare_m5_data.py                artifact_service.py              forecasts/page.tsx
+03_model_comparison_m5.ipynb  ────→  runtime_data_source.py   ──────→ SKU charts
+09_promote_champion.py               forecast_service.py              reorder table
                                            ↑
                                      WMS Database (PostgreSQL)
                                      + forecast_outbound_history_backfill
@@ -16,120 +16,55 @@
 
 ## Model Status
 
-### Champion Models (All Trained on M5 Dataset)
+### Champion Models (All Trained on M5 Dataset - v4 Proper)
 
-| Model | Avg WAPE | Avg MASE | Avg Bias | Beats Naive | Status |
-|-------|----------|----------|----------|-------------|--------|
-| **LightGBM** | **0.1521** | **0.5763** | -98.4 | 10/11 horizons | ✅ Best overall |
-| CatBoost | 0.1531 | 0.5812 | +210.0 | 10/11 horizons | ✅ Close second |
-| XGBoost | 0.1540 | 0.5823 | -110.7 | 10/11 horizons | ✅ Consistent |
-| **Seasonal Naive** | **0.1955** | 1.0000 | — | baseline | ⬜ Baseline |
+We compared 7 models on critical supply chain metrics: WAPE, MAPE, RMSE, MAE, MASE, and Bias.
 
-**All three models beat seasonal naive on 10 out of 11 horizons** (H1-H10). At H11, model accuracy degrades
-due to forecast horizon length — this is expected and consistent with forecasting literature.
+| Model | Val WAPE | Val RMSE | Val Bias | Test WAPE | Test Bias | Status |
+|-------|----------|----------|----------|-----------|-----------|--------|
+| **Random Forest** | **0.0716** | **1883.9** | **50.7** | **0.0807** | **-212.1** | 🏆 **Champion (Deployed)** |
+| LightGBM | 0.0699 | 2023.1 | 82.2 | 0.0847 | -309.8 | 🥈 Close second (Higher Bias/RMSE) |
+| XGBoost | 0.0768 | 2153.1 | -18.1 | - | - | ✅ Lowest Absolute Bias |
+| CatBoost | 0.0816 | 1929.7 | -73.3 | - | - | ✅ Good |
+| Seasonal Naive | 0.1285 | 3705.5 | 124.3 | 0.1520 | 1332.1 | ⬜ **Fallback Baseline** |
 
-### Per-Horizon Breakdown (XGBoost, Test Set)
+**Why Random Forest was chosen as Champion:**
+While LightGBM technically had a slightly better WAPE (0.0699 vs 0.0716), **Random Forest** was explicitly selected as the production champion due to critical warehouse priorities:
+1. **Lowest RMSE**: It minimizes massive error spikes. In a warehouse, a massive prediction spike leads to catastrophic stockouts or overstock, making RMSE the most critical safety metric.
+2. **Lower Bias**: It has a significantly lower bias tendency compared to LightGBM.
 
-| Horizon | WAPE | MASE | Bias | vs Naive |
-|---------|------|------|------|----------|
-| H1 | 0.0997 | 0.3925 | +266 | ✅ beats 0.1688 |
-| H2 | 0.1049 | 0.4118 | +265 | ✅ beats 0.1839 |
-| H3 | 0.1153 | 0.4496 | +390 | ✅ beats 0.1882 |
-| H4 | 0.1211 | 0.4722 | +402 | ✅ beats 0.1975 |
-| H5 | 0.1276 | 0.4938 | +385 | ✅ beats 0.1897 |
-| H6 | 0.1410 | 0.5502 | +431 | ✅ beats 0.1883 |
-| H7 | 0.1525 | 0.6011 | +481 | ✅ beats 0.1882 |
-| H8 | 0.1588 | 0.6232 | +237 | ✅ beats 0.1842 |
-| H9 | 0.1731 | 0.6754 | -113 | ✅ beats 0.2108 |
-| H10 | 0.2079 | 0.7802 | -747 | ✅ beats 0.2223 |
-| H11 | 0.2917 | 0.9559 | -3213 | ❌ naive wins |
+## System Integration & Live Deployment
 
-### Feature Importance (Top 5, Consistent Across All Horizons)
+The system is fully professionalized and actively deploying the best model:
 
-1. `roll_mean_6` — 6-month rolling average (strongest signal)
-2. `lag_1` — Previous month demand
-3. `roll_mean_3` — 3-month rolling average
-4. `lag_3` — Demand 3 months ago
-5. `roll_mean_12` — 12-month rolling average
+### 1. Model Serialization & Promotion
+- **Dynamic Promotion**: The `09_promote_champion.py` script automatically reads the champion model designation from `metadata.json` and deploys it to the correct production path (`outputs/artifacts/P/random_forest_h1/production`).
+- **Generalization Tracking**: The comparison notebook now actively tracks Train vs Validation vs Test metrics to visualize and prevent overfitting.
 
-## Data Pipeline
-
-### Training Data: M5 Forecasting Competition (Walmart)
-- **Source**: Kaggle M5 Forecasting Accuracy Competition (2020)
-- **Volume**: 30,490 SKUs × 1,941 days (5.3 years)
-- **Aggregation**: Monthly at `dept × store` level → 70 series × 65 months
-- **Split**: 35 months train / 6 months validation / 12 months test
-- **Features**: 12 lags + 3 rolling means + 2 rolling stds + calendar + price = 23 features
-
-### Runtime Data: WMS Database
-- The forecast service queries the WMS PostgreSQL database for real outbound order history
-- For demo/cold-start: `generate_synthetic_history_for_runtime.py` creates realistic backfill
-  from the materials in the `inventory` table
-- Synthetic data includes: per-product volatility, intermittent demand, promotional spikes,
-  stockout censoring, phase-shifted seasonality
+### 2. Frontend UI / Dashboard Metrics
+- **MAPE Calculation Fixed**: The frontend was previously incorrectly multiplying `WAPE * 100` and displaying it as MAPE (which caused a ~15% baseline fallback display).
+- **True Metrics Rendered**: The dashboard now correctly extracts the exact `MAPE` metric (e.g. `9.65%` for Random Forest) directly from the backend API's payload, accurately reflecting true ML performance.
+- **Reliability & Fallbacks**: The system falls back to `Seasonal Naive` if ML fails (e.g. missing features), ensuring the warehouse always has a demand baseline.
 
 ## Deployment Phases
 
 | Phase | Data Source | Model | Status |
 |-------|-----------|-------|--------|
-| Phase 1: Pre-training | M5 dataset | XGBoost/CatBoost/LightGBM | ✅ Complete |
-| Phase 2: Live Deployment | **WMS PostgreSQL (Online)** | **LightGBM (Champion)** | ✅ **ACTIVE** |
+| Phase 1: Pre-training | M5 dataset | 7 Models Compared | ✅ Complete |
+| Phase 2: Live Deployment | **WMS PostgreSQL (Online)** | **Random Forest (Champion)** | ✅ **ACTIVE** |
 | Phase 3: Fine-tuning | ≥12 months real WMS data | Warm-start from pre-trained | ⬜ Future |
-
-## System Integration & Live Deployment
-
-The system is now fully professionalized for enterprise demonstration:
-
-### 1. Online Inference Engine
-- **Mode**: Switched from `snapshot` (offline CSV) to **`online`** mode.
-- **Database**: Connects directly to `optiwms` PostgreSQL (port 5434).
-- **Execution**: Triggers live inference using the LightGBM global model across all SKUs in the WMS inventory.
-- **Backfill**: 36 months of realistic demand history (seasonal + noise) successfully seeded into the database for all 120 demonstration SKUs.
-
-### 2. Dashboard Professionalization (UI/UX)
-- **Visual Excellence**: Upgraded "Inference Path Mix" to a modern **Donut Chart** with centered Success Rate metrics.
-- **User-Friendly Labels**: Replaced technical "H+1" labels with **"1 Month"**, **"2 Months"**, and **"1 Year"** in all charts and filters.
-- **Localized Context**: Fixed deployment scope to **"Colombo Main Warehouse"** to align with the primary demonstration site.
-- **Reliability**: Increased UI timeout tolerances to 60 seconds to ensure complex online inference runs complete successfully.
-
-### 3. Automated Governance
-- **Champion**: `LIGHTGBM` (WAPE: 0.1521).
-- **Fallback**: `SEASONAL_NAIVE` (replaces hardcoded ARIMA for academic consistency).
-- **Automation**: Governance service monitors performance against the "P" (Primary) dataset.
 
 ## Repository Structure
 
 ```
 Ai miroservices/modeling/
-├── v2_m5_clean/          ← Current: clean M5 pipeline (4 scripts + config + 1 notebook)
-│   ├── 00_m5_eda_and_analysis.ipynb ← NEW: Descriptive Stats & EDA (Before Modeling)
-│   ├── 01_prepare_m5.py             ← Data Preparation
-│   ├── 02_train_global_model.py     ← Model Training
-│   ├── 03_evaluate.py               ← Model Evaluation
-│   ├── 04_fine_tune.py              ← Future WMS fine-tuning
-│   └── config.yaml
-├── v1_legacy/            ← Previous: synthetic data approach (23 notebooks + 23 scripts)
-├── outputs/              ← Shared: artifacts + reports (docker volume mount target)
-│   ├── artifacts/P/      ← Model files (XGBoost/CatBoost/LightGBM × H1-H12)
-│   ├── reports/          ← CSVs for frontend dashboard
-│   └── m5_prepared/      ← Prepared M5 panel (parquet)
-├── CURRENT_STATUS.md     ← This file
-└── requirements.txt
+├── v4_m5_proper/         ← Current: complete M5 pipeline with full evaluation
+│   ├── 03_model_comparison_m5.ipynb ← Trains models, Generalization Charts, Selects Champion
+│   ├── 09_promote_champion.py       ← Deploys Champion to Backend Artifacts
+│   ├── champion_model/              ← Local serialized `.pkl` and `metadata.json`
+│   └── model_comparison_results.csv ← Static logging of run metrics
+├── outputs/artifacts/P/  ← Production Deployment Target
+│   ├── random_forest_h1/production/ ← Active Deployment
+│   └── lightgbm_h1/production/      ← Previous Deployment
+└── CURRENT_STATUS.md     ← This file
 ```
-
-## Key Decisions & Rationale
-
-1. **M5 over synthetic data**: Real retail demand data produces unbiased models.
-   The v1 synthetic approach created circular validation (trained on generated patterns,
-   evaluated on the same patterns).
-
-2. **Global model over per-series models**: With 70+ series sharing features,
-   a global model learns cross-series patterns. This transfers better to new WMS
-   deployments with different products.
-
-3. **Direct multi-step over recursive**: One model per horizon avoids error accumulation
-   from recursive forecasting. Standard practice in production systems.
-
-4. **dept×store aggregation over item×store**: 70 series is cleaner to train, and the
-   department-level patterns map well to WMS material categories. Item-level (30K series)
-   adds noise without proportional accuracy gain for monthly forecasting.
