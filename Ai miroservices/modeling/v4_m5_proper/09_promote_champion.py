@@ -6,10 +6,9 @@ import json
 
 SOURCE_MODEL_PATH = "champion_model/model.pkl"
 SOURCE_META_PATH = "champion_model/metadata.json"
-TARGET_DIR = "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/artifacts/P/lightgbm_h1/production"
 
 def main():
-    print("🚀 Promoting LightGBM champion model to production...")
+    print("🚀 Promoting champion model to production...")
     
     if not os.path.exists(SOURCE_MODEL_PATH):
         print(f"❌ Error: Source model {SOURCE_MODEL_PATH} not found.")
@@ -19,15 +18,28 @@ def main():
         print(f"❌ Error: Source metadata {SOURCE_META_PATH} not found.")
         return
         
-    os.makedirs(TARGET_DIR, exist_ok=True)
-    
     # Load source metadata
     with open(SOURCE_META_PATH, "r") as f:
         src_meta = json.load(f)
         
+    model_name_raw = src_meta.get("deployed", src_meta.get("champion", "LIGHTGBM"))
+    
+    if "Random Forest" in model_name_raw:
+        model_name = "RANDOM_FOREST"
+        dir_name = "random_forest_h1"
+    elif "XGBoost" in model_name_raw:
+        model_name = "XGBOOST"
+        dir_name = "xgboost_h1"
+    else:
+        model_name = "LIGHTGBM"
+        dir_name = "lightgbm_h1"
+        
+    TARGET_DIR = f"/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/artifacts/P/{dir_name}/production"
+    os.makedirs(TARGET_DIR, exist_ok=True)
+    
     # Map to target metadata format
     target_meta = {
-        "model_name": "LIGHTGBM",
+        "model_name": model_name,
         "dataset": "P",
         "horizon": 1,
         "model_cols": src_meta["features"],
@@ -52,7 +64,7 @@ def main():
     # Write metadata.json
     with open(os.path.join(TARGET_DIR, "metadata.json"), "w") as f:
         json.dump(target_meta, f, indent=2)
-    print(f"✅ Created metadata.json in {TARGET_DIR}")
+    print(f"✅ Created metadata.json in {TARGET_DIR} for model {model_name}")
     
     print("\n🎉 Model promotion complete!")
 

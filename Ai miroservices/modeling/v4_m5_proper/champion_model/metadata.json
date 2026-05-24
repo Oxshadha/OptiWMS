@@ -1,6 +1,6 @@
 {
   "champion": "LightGBM",
-  "deployed": "LightGBM",
+  "deployed": "Random Forest",
   "features": [
     "lag_1",
     "lag_2",
@@ -27,21 +27,21 @@
     "sell_price"
   ],
   "val_metrics": {
-    "WAPE": 0.0699,
-    "RMSE": 2023.1,
-    "MAE": 1081.4,
-    "MAPE": 8.95,
-    "Bias": 82.2,
-    "MASE": 0.2493,
-    "Time_s": 0.94
+    "WAPE": 0.0716,
+    "RMSE": 1883.9,
+    "MAE": 1107.5,
+    "MAPE": 9.65,
+    "Bias": 50.7,
+    "MASE": 0.2553,
+    "Time_s": 1.22
   },
   "test_metrics": {
-    "WAPE": 0.0847,
-    "RMSE": 2855.1,
-    "MAE": 1442.4,
-    "MAPE": 10.33,
-    "Bias": -309.8,
-    "MASE": 0.3028
+    "WAPE": 0.0807,
+    "RMSE": 2718.1,
+    "MAE": 1373.8,
+    "MAPE": 9.91,
+    "Bias": -212.1,
+    "MASE": 0.2884
   },
   "naive_test": {
     "WAPE": 0.152,
@@ -55,7 +55,7 @@
     "Seasonal Naive": 0.1285,
     "SARIMA (top10)": 0.1036,
     "Prophet (top10)": 0.1456,
-    "Random Forest": 0.0717,
+    "Random Forest": 0.0716,
     "XGBoost": 0.0768,
     "CatBoost": 0.0816,
     "LightGBM": 0.0699
