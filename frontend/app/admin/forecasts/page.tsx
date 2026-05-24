@@ -1107,10 +1107,17 @@ export default function ForecastsPage() {
 
   // 1. Overview & Forecasts Live Grouping
   const aggregatedForecastData = useMemo(() => {
-    const filtered = selectedSku 
+    let filtered = selectedSku 
       ? latestForecasts.filter(f => f.sku === selectedSku)
       : latestForecasts;
       
+    // Apply Horizon filter for projected data (historical actuals are preserved)
+    const maxHorizon = filters.horizon || 12;
+    filtered = filtered.filter(f => {
+      if (f.y_true !== null && f.y_true !== undefined) return true;
+      return f.horizon <= maxHorizon;
+    });
+
     if (!filtered.length) return [];
 
     const dateGroups: Record<string, {
@@ -1159,7 +1166,7 @@ export default function ForecastsPage() {
         lower: Math.round(g.lowerSum),
         trend: Math.round(g.forecastSum * 0.95)
       }));
-  }, [latestForecasts, selectedSku]);
+  }, [latestForecasts, selectedSku, filters.horizon]);
 
   // 2. Seasonality Live Calculation
   const liveSeasonality = useMemo(() => {
@@ -1722,7 +1729,7 @@ export default function ForecastsPage() {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="upper" fill={C.accent} fillOpacity={0.07} stroke={C.accent + "33"} strokeDasharray="3 2" name="Upper 90% Bound" />
+                      <Area type="monotone" dataKey="upper" fill={C.accent} fillOpacity={0.15} stroke={C.accent + "33"} strokeDasharray="3 2" name="Upper 90% Bound" />
                       <Area type="monotone" dataKey="lower" fill="transparent" stroke={C.accent + "33"} strokeDasharray="3 2" name="Lower 90% Bound" />
                     </>
                   )}
