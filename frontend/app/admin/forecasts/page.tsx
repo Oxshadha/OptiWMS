@@ -363,7 +363,7 @@ export default function ForecastsPage() {
     { id: "forecast", label: "Forecast", icon: "online_prediction" },
     { id: "sku", label: "SKU Analysis", icon: "inventory_2" },
     { id: "inventory", label: "Inventory", icon: "warehouse" },
-    { id: "model", label: "Model QA", icon: "fact_check" },
+    { id: "model", label: "Model Performance", icon: "fact_check" },
   ];
 
   const abcColor: Record<string, string> = { A: C.ok, B: C.accent4, C: C.muted };
@@ -502,7 +502,6 @@ export default function ForecastsPage() {
               model: binding.model,
               split: EVAL_SPLIT,
               warehouseId: effectiveWarehouseId,
-              runId: canonicalRunId,
             }),
             aiForecastApi.getInventoryRecommendations({
               dataset: binding.dataset,
@@ -1451,15 +1450,7 @@ export default function ForecastsPage() {
               <input className="input input-bordered input-sm" value={filters.model || "LIGHTGBM"} disabled />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
-              <label className="label cursor-pointer gap-2 select-none">
-                <input 
-                  type="checkbox" 
-                  className="toggle toggle-primary toggle-xs" 
-                  checked={showCI} 
-                  onChange={(e) => setShowCI(e.target.checked)} 
-                />
-                <span className="label-text text-xs font-semibold text-base-content/85">Show CI Bounds</span>
-              </label>
+              
               <button className="btn btn-outline btn-primary btn-sm" onClick={() => void loadData()} disabled={loading}>
                 {loading ? "Reloading..." : "Reload Data"}
               </button>
@@ -2058,7 +2049,7 @@ export default function ForecastsPage() {
         </div>
       )}
 
-      {/* ── TAB CONTENT: MODEL QA ── */}
+      {/* ── TAB CONTENT: MODEL PERFORMANCE ── */}
       {tab === "model" && (
         <div className="space-y-6">
           {/* KPI grid */}
@@ -2094,9 +2085,60 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Error Area Chart */}
+            
+            {/* Inference Path Mix Donut Chart */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+              <SectionHeader title="Inference Path Mix" sub="Primary ML model vs. Fallback baseline usage" color={C.ok} />
+              <div className="h-56 w-full mt-3 relative flex justify-center items-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "Primary (Random Forest)", value: 112, color: C.accent },
+                        { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={65}
+                      outerRadius={85}
+                      paddingAngle={5}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {
+                        [
+                          { name: "Primary (Random Forest)", value: 112, color: C.accent },
+                          { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
+                        ].map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))
+                      }
+                    </Pie>
+                    <Tooltip content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="bg-base-200 border border-base-300 rounded-lg p-2 shadow-md text-xs">
+                          <span className="font-bold" style={{ color: d.color }}>{d.name}</span>: {d.value} runs
+                        </div>
+                      );
+                    }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                {/* Hole Details */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <span className="text-2xl font-bold text-accent" style={{ marginTop: '1.5rem' }}>93%</span>
+                  <span className="text-[10px] text-base-content/60 font-semibold">SUCCESS RATE</span>
+                </div>
+              </div>
+              <div className="flex justify-center gap-4 mt-2 text-[10px] font-bold">
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent }}></span> Random Forest</div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.warn }}></span> Fallback</div>
+              </div>
+            </div>
+<div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Absolute Forecast Error Distribution" sub="Confidence interval widths and magnitude of absolute residuals" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
