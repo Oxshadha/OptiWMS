@@ -401,29 +401,8 @@ export default function ForecastsPage() {
   };
 
   const resolveBinding = async () => {
-    const configuredDataset = filters.dataset?.trim();
-    const configuredModel = filters.model?.trim();
-    if (configuredDataset && configuredModel) {
-      const configuredRows = await aiForecastApi.getForecasts({
-        dataset: configuredDataset,
-        model: configuredModel,
-        warehouseId: effectiveWarehouseId,
-      });
-      if ((configuredRows.items ?? []).length > 0) {
-        return { dataset: configuredDataset, model: configuredModel };
-      }
-    }
-
-    const discovered = await aiForecastApi.getForecasts({ warehouseId: effectiveWarehouseId });
-    const discoveredBinding = pickLatestBinding(discovered.items ?? []);
-    if (discoveredBinding) {
-      return discoveredBinding;
-    }
-
-    if (configuredDataset && configuredModel) {
-      return { dataset: configuredDataset, model: configuredModel };
-    }
-    return null;
+    // Force transition to the new Champion Model (Random Forest)
+    return { dataset: "P", model: "RANDOM_FOREST" };
   };
 
   const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
@@ -1387,7 +1366,7 @@ export default function ForecastsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">DEMAND FORECAST INTELLIGENCE</h1>
             <p className="text-xs text-base-content/60 mt-0.5">
-              Active Module · Colombo Main Warehouse · Model: {filters.model || DEFAULT_MODEL || "LightGBM Champion"}
+              Active Module · Colombo Main Warehouse · Model: {filters.model || "RANDOM_FOREST" || "Random Forest Champion"}
             </p>
           </div>
         </div>
@@ -1447,7 +1426,7 @@ export default function ForecastsPage() {
             </label>
             <label className="form-control">
               <span className="label-text text-xs font-medium mb-1">Active Model</span>
-              <input className="input input-bordered input-sm" value={filters.model || "LIGHTGBM"} disabled />
+              <input className="input input-bordered input-sm" value={filters.model || "RANDOM_FOREST"} disabled />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
               
@@ -2059,7 +2038,7 @@ export default function ForecastsPage() {
             <KpiCard title="Model Bias (MPB)" value={`${biasVal}%`} sub="Under/Over prediction" color={C.warn} icon="balance" />
             <KpiCard title="90% CI Coverage" value={`${coverageVal}%`} sub="Actuals inside interval" color={C.accent3} icon="straighten" />
             <KpiCard title="Mean Abs Error (MAE)" value="98 u" sub="Average absolute error" color={C.accent2} icon="bar_chart" />
-            <KpiCard title="Active Architecture" value="LightGBM" sub="Global Champion Model" color={C.muted} icon="psychology" />
+            <KpiCard title="Active Architecture" value={filters.model || "Random Forest"} sub="Global Champion Model" color={C.muted} icon="psychology" />
           </div>
 
           {/* Model residuals */}
