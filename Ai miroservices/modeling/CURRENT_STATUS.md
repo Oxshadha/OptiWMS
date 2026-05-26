@@ -94,6 +94,23 @@ The system is fully professionalized and actively deploying the best model:
 | Phase 3: Gateway API | Model-independent gateway | All models via provider abstraction | ✅ **ACTIVE** |
 | Phase 4: Fine-tuning | ≥12 months real WMS data | Warm-start from pre-trained | ⬜ Future |
 
+### Phase 4: Fine-tuning — Why It's Future
+
+The current champion model (Random Forest) was pre-trained on the **M5 public retail dataset** — a large, well-known forecasting benchmark. This was used as a proxy because our real WMS system does not yet have enough historical demand data to train on.
+
+**What needs to happen before Phase 4:**
+1. The WMS system must run in production for **≥12 months**, collecting real outbound/demand transaction data
+2. Once sufficient real data accumulates, the model is retrained specifically on **our warehouse's actual demand patterns**
+3. "Warm-start" means we don't train from scratch — we use the M5 pre-trained model as a starting point and fine-tune it on the real data, which is faster and often yields better results than training from zero
+
+**Why the current approach works well now:**
+- The M5 pre-trained model provides a strong baseline for demand forecasting with ~7% WAPE
+- The system has a built-in Seasonal Naive fallback if the ML model underperforms on specific SKUs
+- The Gateway API is model-independent, so when fine-tuning happens, **zero consumer-side code changes are needed** — the new model is deployed, and all consumers automatically get improved forecasts
+
+**Estimated timeline:** Phase 4 begins after the WMS has been live for 12+ months with consistent data collection.
+
+
 ## Repository Structure
 
 ```
