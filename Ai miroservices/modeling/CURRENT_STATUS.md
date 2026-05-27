@@ -1,6 +1,6 @@
 # OptiWMS Forecast — Current Status
 
-> **Last updated**: 2026-05-24 (Production Deployment Ready)
+> **Last updated**: 2026-05-26 (Forecast Gateway API Deployed)
 
 ## Architecture
 
@@ -12,6 +12,15 @@
                                            ↑
                                      WMS Database (PostgreSQL)
                                      + forecast_outbound_history_backfill
+
+                                     ┌─────────────────────────┐
+  [Chatbot / AI Services]  ────────→ │  Forecast Gateway API   │
+  [Other Team Services]    ────────→ │  /api/v1/gateway/*      │
+                                     │  (Model-Independent)    │
+                                     └──────────┬──────────────┘
+                                                ↓
+                                     ForecastProvider Abstraction
+                                     (BoostingProvider → model artifacts)
 ```
 
 ## Model Status
@@ -33,6 +42,31 @@ While LightGBM technically had a slightly better WAPE (0.0699 vs 0.0716), **Rand
 1. **Lowest RMSE**: It minimizes massive error spikes. In a warehouse, a massive prediction spike leads to catastrophic stockouts or overstock, making RMSE the most critical safety metric.
 2. **Lower Bias**: It has a significantly lower bias tendency compared to LightGBM.
 
+## Forecast Gateway API (NEW)
+
+A **model-independent public API** for all consumers (chatbot, AI agents, other services, team members). No internal knowledge required — callers never specify dataset codes or model names.
+
+### Gateway Endpoints
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `POST` | `/api/v1/gateway/forecast` | Run live inference (auto sync/async) |
+| `GET` | `/api/v1/gateway/forecast/latest` | Get latest published forecasts |
+| `GET` | `/api/v1/gateway/forecast/{sku}` | Get forecast for specific SKU |
+| `GET` | `/api/v1/gateway/jobs/{job_id}` | Poll async job status |
+| `GET` | `/api/v1/gateway/health` | Service health + champion model info |
+| `GET` | `/api/v1/gateway/models` | Available models & champion designation |
+
+### Key Design Decisions
+
+- **Model-independent**: A `ForecastProvider` abstraction layer means swapping models requires zero API changes.
+- **Dataset codes hidden**: Internal codes (`P`, `B`, `A`) are never exposed — resolved automatically via `DEFAULT_FORECAST_DATASET`.
+- **Smart sync/async**: ≤100 SKUs → synchronous response; >100 SKUs → async job with polling.
+- **Standardized envelope**: Every response uses the same `ForecastResponse` schema with `api_version`, `model` metadata, `forecasts[]`, and pagination.
+- **Python SDK**: Team members use `forecast_client.py` for 3-line integration.
+
+> 📖 **Full reference**: See `ai_services/FORECAST_GATEWAY_API_GUIDE.md` for team usage guide.
+
 ## System Integration & Live Deployment
 
 The system is fully professionalized and actively deploying the best model:
@@ -46,13 +80,36 @@ The system is fully professionalized and actively deploying the best model:
 - **True Metrics Rendered**: The dashboard now correctly extracts the exact `MAPE` metric (e.g. `9.65%` for Random Forest) directly from the backend API's payload, accurately reflecting true ML performance.
 - **Reliability & Fallbacks**: The system falls back to `Seasonal Naive` if ML fails (e.g. missing features), ensuring the warehouse always has a demand baseline.
 
+### 3. Forecast Gateway API
+- **Model-Independent Endpoint**: Any service can consume forecasts via `POST /api/v1/gateway/forecast` without knowledge of internal model details.
+- **Provider Abstraction**: `BoostingForecastProvider` wraps the existing artifact service. Future models implement the `ForecastProvider` protocol with zero gateway changes.
+- **Python SDK**: `ai_services/libs/forecast_client.py` provides typed client with `ForecastResult`, `ForecastPoint`, and `ModelInfo` dataclasses.
+
 ## Deployment Phases
 
 | Phase | Data Source | Model | Status |
 |-------|-----------|-------|--------|
 | Phase 1: Pre-training | M5 dataset | 7 Models Compared | ✅ Complete |
 | Phase 2: Live Deployment | **WMS PostgreSQL (Online)** | **Random Forest (Champion)** | ✅ **ACTIVE** |
-| Phase 3: Fine-tuning | ≥12 months real WMS data | Warm-start from pre-trained | ⬜ Future |
+| Phase 3: Gateway API | Model-independent gateway | All models via provider abstraction | ✅ **ACTIVE** |
+| Phase 4: Fine-tuning | ≥12 months real WMS data | Warm-start from pre-trained | ⬜ Future |
+
+### Phase 4: Fine-tuning — Why It's Future
+
+The current champion model (Random Forest) was pre-trained on the **M5 public retail dataset** — a large, well-known forecasting benchmark. This was used as a proxy because our real WMS system does not yet have enough historical demand data to train on.
+
+**What needs to happen before Phase 4:**
+1. The WMS system must run in production for **≥12 months**, collecting real outbound/demand transaction data
+2. Once sufficient real data accumulates, the model is retrained specifically on **our warehouse's actual demand patterns**
+3. "Warm-start" means we don't train from scratch — we use the M5 pre-trained model as a starting point and fine-tune it on the real data, which is faster and often yields better results than training from zero
+
+**Why the current approach works well now:**
+- The M5 pre-trained model provides a strong baseline for demand forecasting with ~7% WAPE
+- The system has a built-in Seasonal Naive fallback if the ML model underperforms on specific SKUs
+- The Gateway API is model-independent, so when fine-tuning happens, **zero consumer-side code changes are needed** — the new model is deployed, and all consumers automatically get improved forecasts
+
+**Estimated timeline:** Phase 4 begins after the WMS has been live for 12+ months with consistent data collection.
+
 
 ## Repository Structure
 
@@ -67,4 +124,25 @@ Ai miroservices/modeling/
 │   ├── random_forest_h1/production/ ← Active Deployment
 │   └── lightgbm_h1/production/      ← Previous Deployment
 └── CURRENT_STATUS.md     ← This file
+
+ai_services/forecast-service/app/
+├── api/v1/
+│   ├── routes/
+│   │   ├── gateway.py               ← NEW: Forecast Gateway Router (6 endpoints)
+│   │   ├── forecasts.py             ← Existing: internal forecast queries
+│   │   ├── dashboard.py             ← Existing: dashboard aggregation
+│   │   └── artifacts.py             ← Existing: model artifacts & inference
+│   └── schemas/
+│       ├── forecast_response.py     ← NEW: Standardized response envelope
+│       ├── gateway_request.py       ← NEW: Gateway request schemas
+│       └── artifacts.py             ← Existing: artifact schemas
+├── services/
+│   ├── forecast_provider.py         ← NEW: Model-independent provider abstraction
+│   ├── artifact_service.py          ← Model loading, inference, champion resolution
+│   └── forecast_service.py          ← Publish pipeline, online inference
+└── core/config.py                   ← Updated: gateway settings added
+
+ai_services/libs/
+└── forecast_client.py               ← NEW: Python SDK for team consumption
 ```
+
