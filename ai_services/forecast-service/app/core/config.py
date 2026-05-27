@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     governance_rollback_model_name: str = "ARIMA"
     governance_enforce_gate_on_autopromote: bool = True
 
+    # --- Gateway API settings ---
+    default_forecast_dataset: str = "P"  # Internal dataset code, never exposed to API consumers
+    gateway_sync_max_skus: int = 100  # Requests with more SKUs → async mode
+    gateway_async_poll_interval_seconds: float = 2.0
+    gateway_default_horizons: str = "1,3,6,12"  # Default horizons if caller doesn't specify
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
