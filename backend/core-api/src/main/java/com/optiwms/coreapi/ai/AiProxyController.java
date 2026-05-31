@@ -1,0 +1,244 @@
+package com.optiwms.coreapi.ai;
+
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceRequest;
+import com.optiwms.coreapi.ai.dto.AiBoostingOnlineInferenceResponse;
+import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/ai")
+public class AiProxyController {
+
+    private final AiProxyService service;
+
+    public AiProxyController(AiProxyService service) {
+        this.service = service;
+    }
+
+    @GetMapping("/health")
+    public Map<String, Object> health() {
+        return service.health();
+    }
+
+    @GetMapping("/health/runtime-contract")
+    public ResponseEntity<Object> runtimeContractHealth(
+            @RequestParam(required = false) Boolean force
+    ) {
+        return service.getRuntimeContractHealth(force);
+    }
+
+    @GetMapping("/forecasts")
+    public ResponseEntity<Object> forecasts(
+            Authentication authentication,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) Integer horizon,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false, name = "run_id") Integer runId
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse);
+    }
+
+    @GetMapping("/forecast-metrics")
+    public ResponseEntity<Object> metrics(
+            Authentication authentication,
+            @RequestParam(required = false) String split,
+            @RequestParam(required = false) Integer horizon,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
+    }
+
+    @GetMapping("/forecast-run-summary")
+    public ResponseEntity<Object> runSummary(
+            Authentication authentication,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String warehouseId
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getForecastRunSummary(dataset, model, runId, scopedWarehouse);
+    }
+
+    @GetMapping("/forecast-dashboard-summary")
+    public ResponseEntity<Object> dashboardSummary(
+            Authentication authentication,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) Integer horizon,
+            @RequestParam(required = false, name = "top_n") Integer topN
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getDashboardSummary(dataset, model, runId, scopedWarehouse, sku, horizon, topN);
+    }
+
+    @GetMapping("/inventory-recommendations")
+    public ResponseEntity<Object> inventory(
+            Authentication authentication,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false, name = "run_id") Integer runId
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getInventoryRecommendations(sku, dataset, model, runId, scopedWarehouse);
+    }
+
+    @GetMapping("/raw-material-requirements")
+    public ResponseEntity<Object> rawMaterialRequirements(
+            Authentication authentication,
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(required = false, name = "rm_sku") String rmSku
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.getRawMaterialRequirements(runId, dataset, model, scopedWarehouse, rmSku);
+    }
+
+    @GetMapping("/bom-mappings")
+    public ResponseEntity<Object> bomMappings(
+            @RequestParam(required = false, name = "fg_sku") String fgSku,
+            @RequestParam(required = false, name = "rm_sku") String rmSku,
+            @RequestParam(required = false, defaultValue = "true", name = "active_only") Boolean activeOnly
+    ) {
+        return service.getBomMappings(fgSku, rmSku, activeOnly);
+    }
+
+    @PutMapping("/bom-mappings")
+    public ResponseEntity<Object> upsertBomMappings(@RequestBody Map<String, Object> payload) {
+        return service.putBomMappings(payload);
+    }
+
+    @PostMapping("/jobs/forecast-run")
+    public ResponseEntity<Object> trigger(
+            Authentication authentication,
+            @RequestParam(defaultValue = "B") String dataset,
+            @RequestParam(defaultValue = "AUTO") String modelName,
+            @RequestParam(defaultValue = "snapshot") String mode,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride
+    ) {
+        String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
+        return service.triggerForecastRunWithGuard(authentication, dataset, modelName, mode, scopedWarehouse, criticalOverride);
+    }
+
+    @GetMapping("/artifacts")
+    public ResponseEntity<Object> artifacts(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false) String model
+    ) {
+        return service.getArtifacts(dataset, model);
+    }
+
+    @GetMapping("/artifacts/inference-audit")
+    public ResponseEntity<Object> inferenceAudit(
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName
+    ) {
+        return service.getInferenceAudit(limit, dataset, modelName);
+    }
+
+    @GetMapping("/artifacts/inference-alerts")
+    public ResponseEntity<AiInferenceAlertsResponse> inferenceAlerts(
+            @RequestParam(required = false) Integer limit,
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName
+    ) {
+        return service.getInferenceAlerts(limit, dataset, modelName);
+    }
+
+    @GetMapping("/artifacts/acceptance-gate")
+    public ResponseEntity<Object> acceptanceGate(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow
+    ) {
+        return service.getAcceptanceGate(dataset, modelName, split, inferenceWindow);
+    }
+
+    @GetMapping("/artifacts/production-readiness")
+    public ResponseEntity<Object> productionReadiness(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow,
+            @RequestParam(required = false, name = "soak_hours") Integer soakHours
+    ) {
+        return service.getProductionReadiness(dataset, modelName, split, inferenceWindow, soakHours);
+    }
+
+    @GetMapping("/artifacts/release-evidence")
+    public ResponseEntity<Object> releaseEvidence(
+            @RequestParam(required = false) String dataset,
+            @RequestParam(required = false, name = "model_name") String modelName,
+            @RequestParam(required = false, defaultValue = "test") String split,
+            @RequestParam(required = false, name = "inference_window") Integer inferenceWindow,
+            @RequestParam(required = false, name = "soak_hours") Integer soakHours,
+            @RequestParam(required = false, name = "history_limit") Integer historyLimit
+    ) {
+        return service.getReleaseEvidence(dataset, modelName, split, inferenceWindow, soakHours, historyLimit);
+    }
+
+    @GetMapping("/artifacts/operational-health")
+    public ResponseEntity<Object> operationalHealth() {
+        return service.getOperationalHealth();
+    }
+
+    @GetMapping("/artifacts/operational-health/history")
+    public ResponseEntity<Object> operationalHealthHistory(
+            @RequestParam(required = false) Integer limit
+    ) {
+        return service.getOperationalHealthHistory(limit);
+    }
+
+    @PostMapping("/artifacts/operational-health/refresh")
+    public ResponseEntity<Object> refreshOperationalHealth() {
+        return service.refreshOperationalHealth();
+    }
+
+    @GetMapping("/artifacts/governance/status")
+    public ResponseEntity<Object> governanceStatus() {
+        return service.getGovernanceStatus();
+    }
+
+    @PostMapping("/artifacts/governance/tick")
+    public ResponseEntity<Object> governanceTick() {
+        return service.runGovernanceTick();
+    }
+
+    @PostMapping("/artifacts/infer-classical")
+    public ResponseEntity<Object> inferClassical(@RequestBody Map<String, Object> payload) {
+        return service.postForecastService("/artifacts/infer-classical", payload);
+    }
+
+    @PostMapping("/artifacts/infer-boosting")
+    public ResponseEntity<Object> inferBoosting(@RequestBody Map<String, Object> payload) {
+        return service.postForecastService("/artifacts/infer-boosting", payload);
+    }
+
+    @PostMapping("/artifacts/infer-boosting-online")
+    public ResponseEntity<AiBoostingOnlineInferenceResponse> inferBoostingOnline(
+            @Valid @RequestBody AiBoostingOnlineInferenceRequest payload
+    ) {
+        return service.inferBoostingOnline(payload);
+    }
+}

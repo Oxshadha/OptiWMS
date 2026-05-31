@@ -45,7 +45,7 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
   
   locations.forEach((location) => {
     // Normalize area code: Convert "ST" to "C" for consistency (storage areas use single letter)
-    // This ensures all storage racks use consistent naming (C-01-01, A-01-01, etc.)
+    // This ensures all storage racks use consistent naming (C-01-001, A-01-001, etc.)
     let area = location.area || 'C';
     if (area === 'ST') {
       area = 'C'; // Standardize ST (Storage) to C for consistency
@@ -54,7 +54,7 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
     const rowNum = parseInt(location.rowNumber || "1", 10);
     const bayNum = parseInt(location.bayNumber || "1", 10);
     const row = String(Number.isFinite(rowNum) ? rowNum : 1).padStart(2, "0");
-    const bay = String(Number.isFinite(bayNum) ? bayNum : 1).padStart(2, "0");
+    const bay = String(Number.isFinite(bayNum) ? bayNum : 1).padStart(3, "0");
     const rackKey = `${area}-${row}-${bay}`;
     
     if (!rackMap.has(rackKey)) {

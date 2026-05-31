@@ -76,7 +76,7 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
     for (const loc of locations) {
       const zone = (loc.area || "C").toUpperCase();
       const row = (loc.rowNumber || "01").padStart(2, "0");
-      const bay = (loc.bayNumber || "01").padStart(2, "0");
+      const bay = (loc.bayNumber || "001").padStart(3, "0");
       const rackId = `${zone}-${row}-${bay}`;
       if (!map.has(rackId)) {
         map.set(rackId, {
@@ -267,7 +267,7 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
         prev.filter((loc) => {
           const zone = (loc.area || "C").toUpperCase();
           const row = (loc.rowNumber || "01").padStart(2, "0");
-          const bay = (loc.bayNumber || "01").padStart(2, "0");
+          const bay = (loc.bayNumber || "001").padStart(3, "0");
           return `${zone}-${row}-${bay}` !== rackId;
         })
       );

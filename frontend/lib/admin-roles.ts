@@ -25,11 +25,13 @@ export const ADMIN_ROUTES = {
   SHIPMENTS: '/admin/shipments',
   DELIVERY_PARTNERS: '/admin/delivery-partners',
   INVENTORY: '/admin/inventory',
+  FORECASTS: '/admin/forecasts',
   MATERIALS: '/admin/materials',
   // Legacy routes (for backward compatibility)
   PRODUCTS: '/admin/products',
   RAW_MATERIALS: '/admin/raw-materials',
   SUPPLIERS: '/admin/suppliers',
+  BOM_MASTER: '/admin/bom-master',
   WORKERS: '/admin/workers',
   ADMINS: '/admin/admins',
   TASKS: '/admin/tasks',
@@ -64,11 +66,13 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.BOM_MASTER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.WORKERS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.ADMINS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -97,11 +101,13 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']), // Manage shipping workflows
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']), // Cannot delete
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']), // View, initiate cycle counts, approve adjustments
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit']), // Forecast viewing and run trigger
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit']), // Unified materials management
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']), // Operational product management
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']), // Raw materials management
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO, cannot delete (no delete permission)
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only - cannot modify user accounts
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access - cannot modify user permissions
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']), // Assign tasks to staff
@@ -129,11 +135,13 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.SHIPMENTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.DELIVERY_PARTNERS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.INVENTORY]: new Set(['view', 'create', 'edit']),
+    [ADMIN_ROUTES.FORECASTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.MATERIALS]: new Set(['view', 'create', 'edit']),
     // Legacy routes map to MATERIALS for backward compatibility
     [ADMIN_ROUTES.PRODUCTS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.RAW_MATERIALS]: new Set(['view', 'create', 'edit']),
     [ADMIN_ROUTES.SUPPLIERS]: new Set(['view', 'create', 'edit', 'approve']), // Can approve PO
+    [ADMIN_ROUTES.BOM_MASTER]: new Set([]), // No access - BOM governance is admin-only
     [ADMIN_ROUTES.WORKERS]: new Set(['view']), // View only
     [ADMIN_ROUTES.ADMINS]: new Set([]), // No access
     [ADMIN_ROUTES.TASKS]: new Set(['view', 'create', 'edit']),
@@ -330,4 +338,3 @@ export function filterRoutesByRole<T extends { href?: string; subItems?: { href:
     return route;
   });
 }
-

@@ -109,10 +109,10 @@ export function WarehouseLayoutVisualization({
 
   // Get color based on velocity (for heat map mode)
   const getVelocityColor = (velocity?: number): string => {
-    if (velocity === undefined || velocity === null) return "#F5F5F5"; // Default gray for no data
-    if (velocity < 20) return "#22C55E"; // Green - Low velocity (0-20%)
-    if (velocity < 50) return "#F59E0B"; // Yellow - Medium velocity (20-50%)
-    return "#DC2626"; // Red - High velocity (50-100%)
+    if (velocity === undefined || velocity === null) return "#F8FAFC"; // Slate 50 for no data
+    if (velocity < 20) return "#38BDF8"; // Sky 400 - Low velocity (0-20%)
+    if (velocity < 50) return "#FBBF24"; // Amber 400 - Medium velocity (20-50%)
+    return "#F43F5E"; // Rose 500 - High velocity (50-100%)
   };
 
   // Get color based on occupancy and status
@@ -120,7 +120,7 @@ export function WarehouseLayoutVisualization({
   const getRackColor = (rack: RackUnit): string => {
     // Special status colors use muted fills with clearer borders/patterns.
     if (rack.status === "out_of_service") return "#FEE2E2"; // Dull red tint
-    if (rack.status === "maintenance") return "#FEF3C7"; // Yellow/amber tint
+    if (rack.status === "maintenance") return "#FFEDD5"; // Orange tint
     if (rack.status === "reserved") return "#E0F2FE"; // Soft cyan tint
 
     // If velocity mode is enabled, use velocity colors
@@ -130,10 +130,10 @@ export function WarehouseLayoutVisualization({
 
     // Occupancy-based colors for active racks (light-to-dark progression, color-blind friendly)
     const occupancy = getRackOccupancy(rack);
-    if (occupancy === 0) return "#F5F5F5"; // White/Very Light Gray - Empty/available
-    if (occupancy < 50) return "#22C55E"; // Green - Go/high availability
-    if (occupancy < 85) return "#F59E0B"; // Yellow/Amber - Cautionary/transitional
-    return "#1E3A8A"; // Dark Blue/Indigo - Heavy/high density (receding color)
+    if (occupancy === 0) return "#F8FAFC"; // Slate 50 - Empty/available
+    if (occupancy < 50) return "#CBD5E1"; // Slate 300 - Low fill
+    if (occupancy < 85) return "#64748B"; // Slate 500 - Medium fill
+    return "#1E293B"; // Slate 900 - Heavy/high density
   };
 
   // Check if rack has recently received items (for pulsing animation)
@@ -161,15 +161,15 @@ export function WarehouseLayoutVisualization({
     occupancy: number
   ): { color: string; stroke: string } => {
     if (occupancy === 0) {
-      return { color: "#F5F5F5", stroke: "#D1D5DB" }; // White/Very Light Gray - Empty
+      return { color: "#F8FAFC", stroke: "#CBD5E1" }; // Slate 50/300 - Empty
     }
     if (occupancy < 50) {
-      return { color: "#22C55E", stroke: "#16A34A" }; // Green - Low (<50%)
+      return { color: "#CBD5E1", stroke: "#94A3B8" }; // Slate 300/400 - Low (<50%)
     }
     if (occupancy < 85) {
-      return { color: "#F59E0B", stroke: "#D97706" }; // Yellow/Amber - Medium (50-85%)
+      return { color: "#64748B", stroke: "#475569" }; // Slate 500/600 - Medium (50-85%)
     }
-    return { color: "#1E3A8A", stroke: "#1E40AF" }; // Dark Blue/Indigo - High (>85%)
+    return { color: "#1E293B", stroke: "#0F172A" }; // Slate 900/950 - High (>85%)
   };
 
   // Get level segments for visual representation
@@ -226,7 +226,7 @@ export function WarehouseLayoutVisualization({
               y1="0"
               x2="0"
               y2="8"
-              stroke="#B45309"
+              stroke="#EA580C"
               strokeWidth="1.5"
               opacity="0.4"
             />
@@ -303,17 +303,20 @@ export function WarehouseLayoutVisualization({
                     : rack.status === "out_of_service"
                     ? "#DC2626" // Red border for out-of-service
                     : rack.status === "maintenance"
-                    ? "#D97706" // Amber border for maintenance
+                    ? "#F97316" // Orange border for maintenance
                     : rack.status === "reserved"
                     ? "#0369A1" // Cyan border for reserved
                     : showVelocity &&
                       rack.velocity !== undefined &&
                       rack.velocity >= 50
-                    ? "#991B1B" // Darker red border for high velocity
+                    ? "#E11D48" // Rose 600 border for high velocity
                     : showVelocity &&
                       rack.velocity !== undefined &&
                       rack.velocity >= 20
-                    ? "#D97706" // Darker yellow border for medium velocity
+                    ? "#D97706" // Amber 600 border for medium velocity
+                    : showVelocity &&
+                      rack.velocity !== undefined
+                    ? "#0284C7" // Sky 600 border for low velocity
                     : "#9CA3AF"
                 }
                 strokeWidth={isSelected ? 3 : isHovered ? 2 : 1}
@@ -377,8 +380,8 @@ export function WarehouseLayoutVisualization({
                 if (isRackInSpecialStatus) {
                   // All levels in maintenance/out_of_service racks show rack status color
                   if (rack.status === "maintenance") {
-                    segmentColor = "#FEF3C7";
-                    segmentStroke = "#D97706";
+                    segmentColor = "#FFEDD5";
+                    segmentStroke = "#F97316";
                   } else if (rack.status === "out_of_service") {
                     segmentColor = "#FEE2E2";
                     segmentStroke = "#DC2626";
@@ -390,25 +393,25 @@ export function WarehouseLayoutVisualization({
                   segmentColor = "#9333EA"; // Purple - Quarantined
                   segmentStroke = "#7C3AED"; // Dark purple border
                 }
-                // Priority 3: Velocity mode (when enabled, overrides occupancy)
-                else if (showVelocity && rack.velocity !== undefined) {
-                  // Use velocity color for all segments in this rack
-                  const velocityColor = getVelocityColor(rack.velocity);
-                  segmentColor = velocityColor;
-                  // Use darker version for stroke
-                  if (rack.velocity < 20) {
-                    segmentStroke = "#16A34A"; // Darker green
-                  } else if (rack.velocity < 50) {
-                    segmentStroke = "#D97706"; // Darker yellow
-                  } else {
-                    segmentStroke = "#991B1B"; // Darker red
-                  }
-                }
-                // Priority 4: Reserved bins
+                // Priority 3: Reserved bins
                 else if (segment.isReserved) {
                   // Reserved bins use cyan (distinct from high occupancy dark blue)
                   segmentColor = "#E0F2FE";
                   segmentStroke = "#0284C7";
+                }
+                // Priority 4: Velocity mode (when enabled, overrides normal occupancy colors for OCCUPIED bins)
+                else if (showVelocity && rack.velocity !== undefined && !segment.isEmpty) {
+                  // Use velocity color ONLY for occupied segments
+                  const velocityColor = getVelocityColor(rack.velocity);
+                  segmentColor = velocityColor;
+                  // Use darker version for stroke
+                  if (rack.velocity < 20) {
+                    segmentStroke = "#0284C7"; // Sky 600
+                  } else if (rack.velocity < 50) {
+                    segmentStroke = "#D97706"; // Amber 600
+                  } else {
+                    segmentStroke = "#E11D48"; // Rose 600
+                  }
                 }
                 // Priority 5: Occupied bins (occupancy-based colors)
                 else if (segment.isOccupied && segment.bin) {
