@@ -1,6 +1,14 @@
+# Web Framework & Server
 fastapi
 uvicorn[standard]
 python-dotenv
+
+# Database & Data Handling
+psycopg2-binary
+sqlalchemy
+pandas
+
+# AI & Vector Embeddings
 langchain-core
 langchain-community
 langchain-classic
@@ -8,3 +16,10 @@ langchain-google-genai
 chromadb
 sentence-transformers
 
+# Visualization
+plotly
+matplotlib
+seaborn
+
+streamlit
+google-genai

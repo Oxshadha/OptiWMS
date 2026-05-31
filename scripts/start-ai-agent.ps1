@@ -7,15 +7,9 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $agentRoot = Join-Path $repoRoot "ai-services\ai-agent"
-$venvRoot = Join-Path $agentRoot ".venv"
-$pythonExe = Join-Path $venvRoot "Scripts\python.exe"
+$pythonExe = "C:\Users\User\miniconda3\python.exe"
 
 Set-Location $agentRoot
-
-if (-not (Test-Path $pythonExe)) {
-    Write-Host "Creating AI agent virtual environment..." -ForegroundColor Cyan
-    python -m venv .venv
-}
 
 if (-not $SkipInstall) {
     Write-Host "Installing AI agent dependencies..." -ForegroundColor Cyan
