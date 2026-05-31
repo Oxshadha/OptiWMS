@@ -1,0 +1,87 @@
+project: optiwms_forecast_v2
+version: 2.0
+description: >
+  Clean M5-based global forecasting model for OptiWMS.
+  Pre-trained on Walmart M5 dataset, transferable to any WMS deployment.
+
+# ── Data ──────────────────────────────────────────────────────────
+m5_data:
+  base_dir: ../../external-data/m5-forecasting-accuracy
+  sales_file: sales_train_evaluation.csv
+  calendar_file: calendar.csv
+  prices_file: sell_prices.csv
+
+# ── Aggregation ───────────────────────────────────────────────────
+aggregation:
+  # dept_store → ~70 series (cleaner, maps to WMS categories)
+  # cat_store  → ~30 series (coarser)
+  # item_store → ~30K series (very granular, slow to train)
+  level: dept_store
+  freq: M  # monthly
+
+# ── Features ──────────────────────────────────────────────────────
+features:
+  lags: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+  rolling_means: [3, 6, 12]
+  rolling_stds: [3, 6]
+  calendar:
+    - month_sin
+    - month_cos
+    - quarter
+    - year
+  price: true  # include sell_price as feature
+
+# ── Split ─────────────────────────────────────────────────────────
+split:
+  test_months: 12       # last 12 months = test
+  validation_months: 6  # previous 6 = validation
+  min_train_months: 18  # minimum training history
+
+# ── Models ────────────────────────────────────────────────────────
+models:
+  primary: XGBOOST
+  compare: [XGBOOST, CATBOOST, LIGHTGBM]
+  horizons: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+xgboost_params:
+  n_estimators: 500
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  reg_alpha: 0.1
+  reg_lambda: 1.0
+  random_state: 42
+
+catboost_params:
+  iterations: 500
+  depth: 6
+  learning_rate: 0.05
+  random_seed: 42
+  verbose: 0
+
+lightgbm_params:
+  n_estimators: 500
+  max_depth: 6
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  random_state: 42
+  verbose: -1
+
+# ── Metrics ───────────────────────────────────────────────────────
+metrics:
+  - WAPE
+  - MASE
+  - RMSE
+  - Bias
+  - under_forecast_rate
+
+# ── Output (writes to SAME outputs/ that docker mounts) ──────────
+output:
+  artifacts_dir: ../outputs/artifacts
+  reports_dir: ../outputs/reports
+  data_dir: ../outputs/m5_prepared
+  dataset_tag: P  # keep same tag for service compatibility
