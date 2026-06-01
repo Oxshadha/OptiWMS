@@ -7,9 +7,14 @@ import { StatusChip, type StatusTone } from "@/components/StatusChip";
 import { ordersApi } from "@/lib/api/orders";
 import { suppliersApi, Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
+import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
+import {
+  AISlottingService,
+  type SlottingRecommendationItemResponse,
+} from "@/lib/services/aiSlottingService";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
@@ -232,9 +237,13 @@ export function CreateInboundOrderModal({
   const [error, setError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
   const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
   const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
+  const [recommendationLoading, setRecommendationLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationView, setRecommendationView] = useState<"recommended" | "manual">("recommended");
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<
     Map<number, {
       feasible: boolean;
@@ -246,6 +255,9 @@ export function CreateInboundOrderModal({
       notes: string[];
     }>
   >(new Map());
+  const [recommendationsByItem, setRecommendationsByItem] = useState<
+    Map<number, SlottingRecommendationItemResponse>
+  >(new Map());
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -255,11 +267,50 @@ export function CreateInboundOrderModal({
     items: [] as Array<{
       productId: string;
       quantityOrdered: number;
+      locationCode: string;
+      weightKg: number;
+      lengthCm: number;
+      widthCm: number;
+      heightCm: number;
       batchNumber: string;
       manufactureDate: string;
       expiryDate: string;
     }>,
   });
+
+  const buildRecommendationRequestItems = () => {
+    const materialMap = new Map(materials.map((material) => [material.id, material]));
+
+    return formData.items
+      .filter((item) => item.productId)
+      .map((item) => {
+        const material = materialMap.get(item.productId);
+        const volumeCm3 =
+          item.lengthCm > 0 && item.widthCm > 0 && item.heightCm > 0
+            ? item.lengthCm * item.widthCm * item.heightCm
+            : undefined;
+
+        return {
+          material_id: item.productId,
+          quantity: item.quantityOrdered,
+          weight_kg: item.weightKg > 0 ? item.weightKg : undefined,
+          volume_cm3: volumeCm3,
+          length_cm: item.lengthCm > 0 ? item.lengthCm : undefined,
+          width_cm: item.widthCm > 0 ? item.widthCm : undefined,
+          height_cm: item.heightCm > 0 ? item.heightCm : undefined,
+          preferred_zone: material?.preferredZone || undefined,
+          current_location_code: item.locationCode || undefined,
+        };
+      });
+  };
+
+  const hasIncompleteMeasurements = formData.items.some(
+    (item) =>
+      item.weightKg <= 0 ||
+      item.lengthCm <= 0 ||
+      item.widthCm <= 0 ||
+      item.heightCm <= 0
+  );
   const hasInfeasibleCapacity = formData.items.some((_, idx) => {
     const plan = capacityPlansByItem.get(idx);
     return !!plan && !plan.feasible;
@@ -280,6 +331,25 @@ export function CreateInboundOrderModal({
     };
     void loadData();
   }, []);
+
+  useEffect(() => {
+    const loadWarehouseLocations = async () => {
+      if (!formData.warehouseId) {
+        setWarehouseLocations([]);
+        return;
+      }
+
+      try {
+        const storageLocations = await locationsApi.getStorageLocationsByWarehouse(formData.warehouseId);
+        setWarehouseLocations(storageLocations);
+      } catch (err) {
+        logger.error("Failed to load warehouse locations:", err);
+        setWarehouseLocations([]);
+      }
+    };
+
+    void loadWarehouseLocations();
+  }, [formData.warehouseId]);
 
   useEffect(() => {
     const loadSupplierMaterials = async () => {
@@ -387,6 +457,45 @@ export function CreateInboundOrderModal({
     void runCapacityCheck();
   }, [step, formData.warehouseId, formData.items]);
 
+  useEffect(() => {
+    const loadRecommendations = async () => {
+      if (step !== 5 || !formData.warehouseId || formData.items.length === 0 || hasIncompleteMeasurements) {
+        setRecommendationLoading(false);
+        setRecommendationError(null);
+        setRecommendationsByItem(new Map());
+        return;
+      }
+
+      setRecommendationLoading(true);
+      setRecommendationError(null);
+
+      try {
+        const response = await AISlottingService.recommendPlacement({
+          warehouse_id: formData.warehouseId,
+          items: buildRecommendationRequestItems(),
+          population_size: 20,
+          generations: 50,
+          mutation_rate: 0.05,
+          top_k_alternatives: 3,
+        });
+
+        const recommendationMap = new Map<number, SlottingRecommendationItemResponse>();
+        response.recommendations.forEach((recommendation, index) => {
+          recommendationMap.set(index, recommendation);
+        });
+        setRecommendationsByItem(recommendationMap);
+      } catch (err) {
+        logger.error("Failed to load GA recommendations:", err);
+        setRecommendationError(err instanceof Error ? err.message : "Failed to generate recommendations.");
+        setRecommendationsByItem(new Map());
+      } finally {
+        setRecommendationLoading(false);
+      }
+    };
+
+    void loadRecommendations();
+  }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements]);
+
   const handleSubmit = async () => {
     try {
       setIsSubmitting(true);
@@ -475,11 +584,12 @@ export function CreateInboundOrderModal({
       const { orderItemsApi } = await import("@/lib/api/orderItems");
       try {
         await Promise.all(
-          formData.items.map((item) =>
+          formData.items.map((item, idx) =>
             orderItemsApi.create(createdOrder.id, {
               materialId: item.productId,
               quantity: item.quantityOrdered,
-              locationCode: undefined,
+              locationCode:
+                item.locationCode || recommendationsByItem.get(idx)?.recommended_location_code || undefined,
               batchNumber: item.batchNumber || undefined,
               manufactureDate: item.manufactureDate || undefined,
               expiryDate: item.expiryDate || undefined,
@@ -516,7 +626,7 @@ export function CreateInboundOrderModal({
 
         <div className="flex items-center justify-center p-4 border-b border-base-300">
           <div className="flex items-center gap-2">
-            {[1, 2, 3].map((s) => (
+            {[1, 2, 3, 4, 5].map((s) => (
               <div key={s} className="flex items-center">
                 <div
                   className={clsx(
@@ -528,7 +638,7 @@ export function CreateInboundOrderModal({
                 >
                   {s}
                 </div>
-                {s < 3 && (
+                {s < 5 && (
                   <div
                     className={clsx("w-16 h-1 mx-2", step > s ? "bg-primary" : "bg-base-300")}
                   />
@@ -731,13 +841,12 @@ export function CreateInboundOrderModal({
                       </label>
                       <input
                         type="date"
-                        className={`input input-bordered input-sm ${
-                          item.manufactureDate &&
+                        className={`input input-bordered input-sm ${item.manufactureDate &&
                           item.expiryDate &&
                           new Date(item.expiryDate) <= new Date(item.manufactureDate)
-                            ? "input-error"
-                            : ""
-                        }`}
+                          ? "input-error"
+                          : ""
+                          }`}
                         value={item.manufactureDate}
                         onChange={(e) => {
                           const newItems = [...formData.items];
@@ -762,13 +871,12 @@ export function CreateInboundOrderModal({
                       </label>
                       <input
                         type="date"
-                        className={`input input-bordered input-sm ${
-                          item.manufactureDate &&
+                        className={`input input-bordered input-sm ${item.manufactureDate &&
                           item.expiryDate &&
                           new Date(item.expiryDate) <= new Date(item.manufactureDate)
-                            ? "input-error"
-                            : ""
-                        }`}
+                          ? "input-error"
+                          : ""
+                          }`}
                         value={item.expiryDate}
                         onChange={(e) => {
                           const newItems = [...formData.items];
@@ -801,6 +909,11 @@ export function CreateInboundOrderModal({
                       {
                         productId: "",
                         quantityOrdered: 0,
+                        locationCode: "",
+                        weightKg: 0,
+                        lengthCm: 0,
+                        widthCm: 0,
+                        heightCm: 0,
                         batchNumber: "",
                         manufactureDate: "",
                         expiryDate: "",
@@ -906,7 +1019,259 @@ export function CreateInboundOrderModal({
               >
                 Back
               </button>
-              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>
+              <button className="btn btn-primary" onClick={() => setStep(4)} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-base-content mb-4">Package Details</h3>
+            <div className="alert alert-info">
+              <span>Enter the carton weight and dimensions for each item before generating GA recommendations.</span>
+            </div>
+            <div className="space-y-4">
+              {formData.items.map((item, idx) => (
+                <div key={idx} className="card bg-base-200 p-4 rounded-lg space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold">Item {idx + 1}</div>
+                      <div className="text-xs text-base-content/60">
+                        {materials.find((m) => m.id === item.productId)?.description || item.productId}
+                      </div>
+                    </div>
+                    <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="form-control">
+                      <label className="label"><span className="label-text font-medium">Weight (kg) *</span></label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="input input-bordered w-full"
+                        value={item.weightKg}
+                        onChange={(e) => {
+                          const next = [...formData.items];
+                          next[idx].weightKg = Number(e.target.value) || 0;
+                          setFormData({ ...formData, items: next });
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="form-control">
+                      <label className="label"><span className="label-text font-medium">Length (cm) *</span></label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="input input-bordered w-full"
+                        value={item.lengthCm}
+                        onChange={(e) => {
+                          const next = [...formData.items];
+                          next[idx].lengthCm = Number(e.target.value) || 0;
+                          setFormData({ ...formData, items: next });
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="form-control">
+                      <label className="label"><span className="label-text font-medium">Width (cm) *</span></label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="input input-bordered w-full"
+                        value={item.widthCm}
+                        onChange={(e) => {
+                          const next = [...formData.items];
+                          next[idx].widthCm = Number(e.target.value) || 0;
+                          setFormData({ ...formData, items: next });
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="form-control">
+                      <label className="label"><span className="label-text font-medium">Height (cm) *</span></label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        className="input input-bordered w-full"
+                        value={item.heightCm}
+                        onChange={(e) => {
+                          const next = [...formData.items];
+                          next[idx].heightCm = Number(e.target.value) || 0;
+                          setFormData({ ...formData, items: next });
+                        }}
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3 pt-4">
+              <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting}>
+                Back
+              </button>
+              <button className="btn btn-primary" onClick={() => setStep(5)} disabled={isSubmitting || hasIncompleteMeasurements}>
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 5 && (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <h3 className="text-lg font-semibold text-base-content">GA Recommended Locations</h3>
+              <div className="join">
+                <button
+                  className={clsx("btn btn-sm join-item", recommendationView === "recommended" ? "btn-primary" : "btn-ghost")}
+                  onClick={() => setRecommendationView("recommended")}
+                >
+                  Recommended
+                </button>
+                <button
+                  className={clsx("btn btn-sm join-item", recommendationView === "manual" ? "btn-primary" : "btn-ghost")}
+                  onClick={() => setRecommendationView("manual")}
+                >
+                  Manual
+                </button>
+              </div>
+            </div>
+
+            {recommendationError && (
+              <div className="alert alert-warning">
+                <span>{recommendationError}</span>
+              </div>
+            )}
+
+            {recommendationView === "recommended" && (
+              <div className="space-y-4">
+                {recommendationLoading && (
+                  <div className="flex items-center gap-2 text-sm text-base-content/60">
+                    <span className="loading loading-spinner loading-xs"></span>
+                    Generating GA recommendations...
+                  </div>
+                )}
+                {!recommendationLoading && formData.items.map((item, idx) => {
+                  const recommendation = recommendationsByItem.get(idx);
+                  const selectedLocation = recommendation ? warehouseLocations.find((location) => location.locationCode === recommendation.recommended_location_code) : undefined;
+                  return (
+                    <div key={idx} className="card bg-base-200 p-4 rounded-lg space-y-3 border border-base-300">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold">Item {idx + 1}</div>
+                          <div className="text-xs text-base-content/60">{materials.find((m) => m.id === item.productId)?.description || item.productId}</div>
+                        </div>
+                        <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
+                      </div>
+
+                      {recommendation ? (
+                        <>
+                          <div className="rounded-xl bg-base-100 border border-primary/20 p-4 space-y-2">
+                            <div className="text-xs uppercase tracking-wide text-base-content/60">Recommended Location</div>
+                            <div className="text-2xl font-bold text-primary">{recommendation.recommended_location_code}</div>
+                            {selectedLocation && (
+                              <div className="text-sm text-base-content/70 space-y-1">
+                                <div>Area: {selectedLocation.area || "-"} | Row: {selectedLocation.rowNumber || "-"} | Bay: {selectedLocation.bayNumber || "-"}</div>
+                                <div>Level: {selectedLocation.levelNumber || "-"} | Bin: {selectedLocation.binPosition || "-"}</div>
+                                <div>Zone: {selectedLocation.zoneType || selectedLocation.locationType || "storage"}</div>
+                              </div>
+                            )}
+                            <div className="text-sm text-base-content/70">Reason: {recommendation.reason}</div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="text-sm font-semibold">Alternatives</div>
+                            <div className="flex flex-wrap gap-2">
+                              {recommendation.alternatives.map((alternative) => (
+                                <span key={alternative.location_id} className="badge badge-ghost">{alternative.location_code}</span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              className="btn btn-outline btn-sm"
+                              onClick={() => {
+                                const next = [...formData.items];
+                                next[idx].locationCode = recommendation.recommended_location_code;
+                                setFormData({ ...formData, items: next });
+                              }}
+                            >
+                              Use this location
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="alert alert-info">
+                          <span>No GA recommendation available for this item. Use the manual tab to choose a location.</span>
+                        </div>
+                      )}
+
+                      <div className="text-xs text-base-content/70">Current selected location: {item.locationCode || "Not selected"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {recommendationView === "manual" && (
+              <div className="space-y-4">
+                <div className="alert alert-info">
+                  <span>Select locations manually for any item. You can still keep the GA recommendation if you want.</span>
+                </div>
+                {formData.items.map((item, idx) => (
+                  <div key={idx} className="card bg-base-200 p-4 rounded-lg space-y-3 border border-base-300">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">Item {idx + 1}</div>
+                        <div className="text-xs text-base-content/60">{materials.find((m) => m.id === item.productId)?.description || item.productId}</div>
+                      </div>
+                      <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
+                    </div>
+                    <div className="form-control">
+                      <label className="label"><span className="label-text text-xs">Manual Location</span></label>
+                      <select
+                        className="select select-bordered select-sm"
+                        value={item.locationCode}
+                        onChange={(e) => {
+                          const next = [...formData.items];
+                          next[idx].locationCode = e.target.value;
+                          setFormData({ ...formData, items: next });
+                        }}
+                      >
+                        <option value="">Use GA recommendation / none</option>
+                        {warehouseLocations.map((location) => (
+                          <option key={location.id} value={location.locationCode}>{location.locationCode}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="text-xs text-base-content/70">Current selected location: {item.locationCode || "Not selected"}</div>
+                  </div>
+                ))}
+                {warehouseLocations.length === 0 && (
+                  <div className="alert alert-warning">
+                    <span>No storage locations were found for the selected warehouse.</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="alert alert-error">
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-4">
+              <button className="btn btn-ghost" onClick={() => setStep(4)} disabled={isSubmitting || recommendationLoading}>
+                Back
+              </button>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={isSubmitting || recommendationLoading}>
                 {isSubmitting ? (
                   <>
                     <span className="loading loading-spinner loading-sm"></span>
