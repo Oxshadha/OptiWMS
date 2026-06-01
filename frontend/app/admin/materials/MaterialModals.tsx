@@ -53,8 +53,8 @@ const validateMaterialForm = (formData: {
   }
 
   const weightKg = parsePositive(formData.weightKg);
-  if (isInvalidPositiveInput(formData.weightKg)) return "Unit weight (kg) must be greater than 0";
-  if (weightKg === undefined) return "Unit weight (kg) is required";
+  if (isInvalidPositiveInput(formData.weightKg)) return "Carton weight (kg) must be greater than 0";
+  if (weightKg === undefined) return "Carton weight (kg) is required";
 
   const lengthCm = parsePositive(formData.lengthCm);
   if (isInvalidPositiveInput(formData.lengthCm)) return "Length (cm) must be greater than 0";
@@ -64,22 +64,22 @@ const validateMaterialForm = (formData: {
   if (isInvalidPositiveInput(formData.heightCm)) return "Height (cm) must be greater than 0";
 
   const volumeCm3 = parsePositive(formData.volumeCm3);
-  if (isInvalidPositiveInput(formData.volumeCm3)) return "Unit volume (cm3) must be greater than 0";
+  if (isInvalidPositiveInput(formData.volumeCm3)) return "Carton volume (cm3) must be greater than 0";
   const hasCompleteDims = lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined;
   if (volumeCm3 === undefined && !hasCompleteDims) {
-    return "Provide unit volume (cm3) or complete dimensions (L/W/H)";
+    return "Provide carton volume (cm3) or complete dimensions (L/W/H)";
   }
 
   if (formData.storageType === "pallet") {
     const unitsPerPallet = parsePositive(formData.palletSpaces);
-    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
-    if (unitsPerPallet === undefined) return "Units per pallet is required for pallet storage";
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per carton must be greater than 0";
+    if (unitsPerPallet === undefined) return "Units per carton is required for pallet storage";
     const maxPalletWeightKg = parsePositive(formData.maxPalletWeightKg);
-    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
-    if (maxPalletWeightKg === undefined) return "Max pallet weight is required for pallet storage";
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max carton weight must be greater than 0";
+    if (maxPalletWeightKg === undefined) return "Max carton weight is required for pallet storage";
   } else {
-    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per pallet must be greater than 0";
-    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max pallet weight must be greater than 0";
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per carton must be greater than 0";
+    if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max carton weight must be greater than 0";
   }
 
   return null;
@@ -177,7 +177,7 @@ export function CreateMaterialModal({
 
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Material Type</span>
+            <span className="label-text font-medium">Category</span>
           </label>
           <select
             className="select select-bordered"
@@ -194,7 +194,7 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Handling Unit Type</span>
+              <span className="label-text font-medium">Typical Unit Size</span>
             </label>
             <select
               className="select select-bordered"
@@ -238,7 +238,7 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Units Per Pallet</span>
+              <span className="label-text font-medium">Units Per Carton</span>
               {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
             </label>
             <input
@@ -254,7 +254,7 @@ export function CreateMaterialModal({
           </div>
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+              <span className="label-text font-medium">Max Carton Weight (kg)</span>
               {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
             </label>
             <input
@@ -273,7 +273,7 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Weight (kg)</span>
+              <span className="label-text font-medium">Carton Weight (kg)</span>
               <span className="label-text-alt text-error">Required</span>
             </label>
             <input
@@ -289,7 +289,7 @@ export function CreateMaterialModal({
           </div>
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Volume (cm3)</span>
+              <span className="label-text font-medium">Carton Volume (cm3)</span>
               <span className="label-text-alt">or provide L/W/H</span>
             </label>
             <input
@@ -480,7 +480,7 @@ export function EditMaterialModal({
 
         <div className="form-control">
           <label className="label">
-            <span className="label-text font-medium">Material Type</span>
+            <span className="label-text font-medium">Category</span>
           </label>
           <select
             className="select select-bordered"
@@ -497,7 +497,7 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Handling Unit Type</span>
+              <span className="label-text font-medium">Typical Unit Size</span>
             </label>
             <select
               className="select select-bordered"
@@ -541,7 +541,7 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Units Per Pallet</span>
+              <span className="label-text font-medium">Units Per Carton</span>
             </label>
             <input
               type="number"
@@ -555,7 +555,7 @@ export function EditMaterialModal({
           </div>
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+              <span className="label-text font-medium">Max Carton Weight (kg)</span>
             </label>
             <input
               type="number"
@@ -572,7 +572,7 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Weight (kg)</span>
+              <span className="label-text font-medium">Carton Weight (kg)</span>
             </label>
             <input
               type="number"
@@ -586,7 +586,7 @@ export function EditMaterialModal({
           </div>
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Unit Volume (cm3)</span>
+              <span className="label-text font-medium">Carton Volume (cm3)</span>
             </label>
             <input
               type="number"
