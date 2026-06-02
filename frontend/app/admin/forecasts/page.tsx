@@ -1192,11 +1192,15 @@ export default function ForecastsPage() {
     });
     
     const nonZeroAvgs = list.map(l => l.avg).filter(v => v > 0);
-    const overallAvg = nonZeroAvgs.length ? nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length : 1.0;
+    
+    // If we have no actual historical data at all, return empty to trigger fallback
+    if (nonZeroAvgs.length === 0) return [];
+    
+    const overallAvg = nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
     
     return list.map(l => ({
       month: l.month,
-      index: overallAvg > 0 ? Number((l.avg / overallAvg).toFixed(2)) : 1.0,
+      index: Number((l.avg / overallAvg).toFixed(2)),
       sales: Math.round(l.avg)
     }));
   }, [latestForecasts, selectedSku]);
@@ -1768,7 +1772,7 @@ export default function ForecastsPage() {
                   <RadarChart data={finalSeasonality}>
                     <PolarGrid stroke="currentColor" opacity={0.1} />
                     <PolarAngleAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 9 }} />
-                    <PolarRadiusAxis angle={90} domain={[0.5, 1.5]} tick={{ fill: "currentColor", fontSize: 8 }} />
+                    <PolarRadiusAxis angle={90} domain={[0, 'auto']} tick={{ fill: "currentColor", fontSize: 8 }} />
                     <Radar name="Seasonality index" dataKey="index" stroke={C.accent3} fill={C.accent3} fillOpacity={0.18} strokeWidth={2} />
                   </RadarChart>
                 </ResponsiveContainer>
