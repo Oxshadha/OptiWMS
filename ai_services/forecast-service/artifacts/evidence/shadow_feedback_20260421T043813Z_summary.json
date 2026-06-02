@@ -1,0 +1,32 @@
+{
+  "status": "ok",
+  "dataset": "B",
+  "model_name": "CATBOOST",
+  "rows_total_predictions": 71172,
+  "rows_matured_predictions": 22248,
+  "rows_matched_actuals": 156,
+  "coverage_pct_matured": 0.007011866235167206,
+  "wape": 2347.343557527273,
+  "rmse": 50914.045985175784,
+  "bias": 48752.52004095105,
+  "under_forecast_rate": 0.0,
+  "first_target_month": "2025-12-01",
+  "last_target_month": "2025-12-01",
+  "generated_at_utc": "2026-04-21T04:38:13.546152+00:00",
+  "details_csv": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence/shadow_feedback_20260421T043813Z_rows.csv",
+  "by_horizon_csv": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/evidence/shadow_feedback_20260421T043813Z_by_horizon.csv",
+  "inference_summary": {
+    "status": "ok",
+    "summary": {
+      "count": 72,
+      "fallback_rate": 0.0,
+      "total_errors": 0,
+      "avg_latency_ms": 684.066,
+      "p95_latency_ms": 761.837
+    },
+    "rules_triggered": [],
+    "window_size": 200,
+    "dataset": "B",
+    "model_name": "CATBOOST"
+  }
+}

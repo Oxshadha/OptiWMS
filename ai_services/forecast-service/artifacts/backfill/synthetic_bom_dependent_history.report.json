@@ -1,0 +1,51 @@
+{
+  "checks": {
+    "anchor_coverage_pct": 0.902778,
+    "anchor_matches": 1,
+    "anchor_sku_count": 288,
+    "anchor_unmatched": 1,
+    "component_types": [
+      "raw_material"
+    ],
+    "fg_skus_used": 1,
+    "matched_sku_count": 260,
+    "median_ratio_gen_to_anchor": 1.013441,
+    "months_max": 36,
+    "months_min": 28,
+    "months_p50": 36.0,
+    "non_negative": true,
+    "p10_ratio_gen_to_anchor": 0.944859,
+    "p90_ratio_gen_to_anchor": 1.074011,
+    "range_clamp_events": 32,
+    "realism_gate_pass": true,
+    "rows_daily": 9384,
+    "sku_count": 261,
+    "weighted_abs_anchor_pct_err": 0.049882
+  },
+  "dataset_version": "af7f89a5a6268685",
+  "excel_path": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/Forecast model train data optiwms/RM ROP and Pallet requirement  4- SEP.xlsx",
+  "meta": {
+    "anchor_rows": 288,
+    "bom_rows": 2,
+    "component_skus": 261,
+    "fg_seed_rows": 1,
+    "generated_at": "2026-04-20T16:03:04.148182+00:00",
+    "months": 36,
+    "seed": 42,
+    "source_tag": "excel_bom_dependent_synth_v2",
+    "warehouse_id": null
+  },
+  "out_csv": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/synthetic_bom_dependent_history.csv",
+  "realism_gate": {
+    "failed_conditions": [],
+    "pass": true,
+    "thresholds": {
+      "max_weighted_anchor_ape": 0.4,
+      "min_anchor_coverage": 0.7,
+      "min_matched_skus": 40
+    }
+  },
+  "reason": "ok",
+  "source": "excel_constrained_bom_dependent_generation",
+  "status": "ok"
+}
