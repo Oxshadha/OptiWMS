@@ -1611,19 +1611,16 @@ export default function ForecastsPage() {
             </button>
           ))}
         </div>
-        
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5">
-          <input 
-            id="ci-toggle"
-            type="checkbox" 
-            className={`toggle toggle-sm cursor-pointer ${showCI ? "toggle-primary" : "bg-gray-300 border-gray-300 hover:bg-gray-400"}`} 
-            checked={showCI} 
-
-            onChange={(e) => setShowCI(e.target.checked)} 
-          />
-          <label htmlFor="ci-toggle" className="text-[11px] font-semibold text-base-content/85 cursor-pointer leading-none mt-0.5">
+        <div 
+          className="flex items-center gap-2 px-3 py-1.5 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5 cursor-pointer hover:bg-base-200 transition-colors"
+          onClick={() => setShowCI(!showCI)}
+        >
+          <div className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? 'bg-primary' : 'bg-gray-400'}`}>
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? 'translate-x-4' : 'translate-x-1'}`} />
+          </div>
+          <span className="text-[11px] font-semibold text-base-content/85 leading-none mt-0.5">
             Show 90% Confidence Intervals
-          </label>
+          </span>
         </div>
       </div>
 
