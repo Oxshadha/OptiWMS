@@ -1,0 +1,1379 @@
+{
+  "acceptance_gate": {
+    "body": {
+      "checks": [
+        {
+          "comparator": "<=",
+          "name": "wape",
+          "pass": true,
+          "threshold": 0.135,
+          "value": 0.11961137441089092
+        },
+        {
+          "comparator": "<=",
+          "name": "bias_abs",
+          "pass": true,
+          "threshold": 0.1,
+          "value": 0.04030096035105383
+        },
+        {
+          "comparator": "<=",
+          "name": "under_forecast_rate",
+          "pass": true,
+          "threshold": 0.6,
+          "value": 0.5490830636461704
+        },
+        {
+          "comparator": "<=",
+          "name": "mase_mean",
+          "pass": true,
+          "threshold": 1.1,
+          "value": 1.0841848353375558
+        },
+        {
+          "comparator": ">=",
+          "name": "serving_window_count",
+          "pass": true,
+          "threshold": 1,
+          "value": 200
+        },
+        {
+          "comparator": "<=",
+          "name": "fallback_rate",
+          "pass": true,
+          "threshold": 0.05,
+          "value": 0.0
+        },
+        {
+          "comparator": "<=",
+          "name": "hard_error_rate",
+          "pass": true,
+          "threshold": 0.01,
+          "value": 0.0
+        },
+        {
+          "comparator": "<=",
+          "name": "p95_latency_ms",
+          "pass": true,
+          "threshold": 2500.0,
+          "value": 409.246
+        }
+      ],
+      "dataset": "B",
+      "inference_window": 200,
+      "model_name": "CATBOOST",
+      "quality_summary": {
+        "Bias_abs": 1244.5787897889861,
+        "Bias_abs_pct": 0.04030096035105383,
+        "MASE_mean": 1.0841848353375558,
+        "WAPE": 0.11961137441089092,
+        "under_forecast_rate": 0.5490830636461704
+      },
+      "ready": true,
+      "serving_summary": {
+        "count": 200,
+        "fallback_rate": 0.0,
+        "hard_error_rate": 0.0,
+        "p95_latency_ms": 409.246
+      },
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/acceptance-gate?dataset=B&model_name=CATBOOST&split=test&inference_window=200"
+  },
+  "business_plausibility": {
+    "checks": {
+      "forecast_non_negative": true,
+      "forecast_rows_gt_0": true,
+      "inventory_rows_gt_0": true,
+      "quantile_order_valid": true,
+      "reorder_le_target_max": true,
+      "suggested_non_negative": true,
+      "suggested_zero_when_on_hand_above_target": true
+    },
+    "status": "ok",
+    "summary": {
+      "forecast_rows": 1452,
+      "inventory_rows": 120,
+      "top_suggested_order_qty": 1272232.06,
+      "violations": {
+        "negative_forecast_values": 0,
+        "negative_suggested_order_qty": 0,
+        "quantile_order": 0,
+        "reorder_gt_target_max": 0,
+        "suggested_nonzero_when_onhand_above_target": 0
+      }
+    }
+  },
+  "params": {
+    "dataset": "B",
+    "inference_window": 200,
+    "model_name": "CATBOOST",
+    "soak_hours": 24,
+    "split": "test",
+    "warehouse_id": null,
+    "warmup_mode": "online",
+    "warmup_online_runs": 8
+  },
+  "production_readiness": {
+    "body": {
+      "checks": [
+        {
+          "details": {
+            "missing_columns": {},
+            "missing_tables": [],
+            "mode": "wms_db",
+            "reason": "validated",
+            "schema": "public",
+            "status": "ok"
+          },
+          "name": "runtime_contract_ok",
+          "pass": true,
+          "value": "ok"
+        },
+        {
+          "name": "latest_published_run_exists",
+          "pass": true,
+          "value": 162
+        },
+        {
+          "details": {
+            "checks": [
+              {
+                "comparator": "<=",
+                "name": "wape",
+                "pass": true,
+                "threshold": 0.135,
+                "value": 0.11961137441089092
+              },
+              {
+                "comparator": "<=",
+                "name": "bias_abs",
+                "pass": true,
+                "threshold": 0.1,
+                "value": 0.04030096035105383
+              },
+              {
+                "comparator": "<=",
+                "name": "under_forecast_rate",
+                "pass": true,
+                "threshold": 0.6,
+                "value": 0.5490830636461704
+              },
+              {
+                "comparator": "<=",
+                "name": "mase_mean",
+                "pass": true,
+                "threshold": 1.1,
+                "value": 1.0841848353375558
+              },
+              {
+                "comparator": ">=",
+                "name": "serving_window_count",
+                "pass": true,
+                "threshold": 1,
+                "value": 200
+              },
+              {
+                "comparator": "<=",
+                "name": "fallback_rate",
+                "pass": true,
+                "threshold": 0.05,
+                "value": 0.0
+              },
+              {
+                "comparator": "<=",
+                "name": "hard_error_rate",
+                "pass": true,
+                "threshold": 0.01,
+                "value": 0.0
+              },
+              {
+                "comparator": "<=",
+                "name": "p95_latency_ms",
+                "pass": true,
+                "threshold": 2500.0,
+                "value": 409.246
+              }
+            ],
+            "dataset": "B",
+            "inference_window": 200,
+            "model_name": "CATBOOST",
+            "quality_summary": {
+              "Bias_abs": 1244.5787897889861,
+              "Bias_abs_pct": 0.04030096035105383,
+              "MASE_mean": 1.0841848353375558,
+              "WAPE": 0.11961137441089092,
+              "under_forecast_rate": 0.5490830636461704
+            },
+            "ready": true,
+            "serving_summary": {
+              "count": 200,
+              "fallback_rate": 0.0,
+              "hard_error_rate": 0.0,
+              "p95_latency_ms": 409.246
+            },
+            "split": "test"
+          },
+          "name": "acceptance_gate_ready",
+          "pass": true,
+          "value": true
+        },
+        {
+          "details": {
+            "dataset": "B",
+            "model_name": "CATBOOST",
+            "rules_triggered": [],
+            "status": "ok",
+            "summary": {
+              "avg_latency_ms": 328.644,
+              "count": 200,
+              "fallback_rate": 0.0,
+              "p95_latency_ms": 409.246,
+              "total_errors": 0
+            },
+            "window_size": 200
+          },
+          "name": "inference_not_critical",
+          "pass": true,
+          "value": "ok"
+        },
+        {
+          "name": "soak_window_no_critical",
+          "pass": true,
+          "threshold": 0,
+          "value": 0,
+          "window_hours": 24
+        }
+      ],
+      "dataset": "B",
+      "inference_window": 200,
+      "latest_operational_health": {
+        "created_at": "2026-04-20T02:22:43.890181",
+        "details": {
+          "drift": {
+            "baseline_run_id": 155,
+            "baseline_wape": 0.11961137441089092,
+            "current_run_id": 156,
+            "current_wape": 0.11961137441089092,
+            "increase_ratio": 0.0,
+            "reason": "stable",
+            "status": "ok",
+            "threshold_ratio": 0.25
+          },
+          "freshness": {
+            "age_minutes": 6.98,
+            "latest_run_id": 156,
+            "reason": "within_threshold",
+            "status": "ok",
+            "threshold_minutes": 180.0
+          },
+          "inference": {
+            "dataset": null,
+            "model_name": null,
+            "rules_triggered": [],
+            "status": "ok",
+            "summary": {
+              "avg_latency_ms": 329.096,
+              "count": 200,
+              "fallback_rate": 0.0,
+              "p95_latency_ms": 411.084,
+              "total_errors": 0
+            },
+            "window_size": 200
+          }
+        },
+        "drift_status": "ok",
+        "freshness_status": "ok",
+        "id": 868,
+        "inference_status": "ok",
+        "status": "ok"
+      },
+      "model_name": "CATBOOST",
+      "ready": true,
+      "soak_hours": 24,
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/production-readiness?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24"
+  },
+  "release_evidence": {
+    "body": {
+      "acceptance_gate": {
+        "checks": [
+          {
+            "comparator": "<=",
+            "name": "wape",
+            "pass": true,
+            "threshold": 0.135,
+            "value": 0.11961137441089092
+          },
+          {
+            "comparator": "<=",
+            "name": "bias_abs",
+            "pass": true,
+            "threshold": 0.1,
+            "value": 0.04030096035105383
+          },
+          {
+            "comparator": "<=",
+            "name": "under_forecast_rate",
+            "pass": true,
+            "threshold": 0.6,
+            "value": 0.5490830636461704
+          },
+          {
+            "comparator": "<=",
+            "name": "mase_mean",
+            "pass": true,
+            "threshold": 1.1,
+            "value": 1.0841848353375558
+          },
+          {
+            "comparator": ">=",
+            "name": "serving_window_count",
+            "pass": true,
+            "threshold": 1,
+            "value": 200
+          },
+          {
+            "comparator": "<=",
+            "name": "fallback_rate",
+            "pass": true,
+            "threshold": 0.05,
+            "value": 0.0
+          },
+          {
+            "comparator": "<=",
+            "name": "hard_error_rate",
+            "pass": true,
+            "threshold": 0.01,
+            "value": 0.0
+          },
+          {
+            "comparator": "<=",
+            "name": "p95_latency_ms",
+            "pass": true,
+            "threshold": 2500.0,
+            "value": 409.246
+          }
+        ],
+        "dataset": "B",
+        "inference_window": 200,
+        "model_name": "CATBOOST",
+        "quality_summary": {
+          "Bias_abs": 1244.5787897889861,
+          "Bias_abs_pct": 0.04030096035105383,
+          "MASE_mean": 1.0841848353375558,
+          "WAPE": 0.11961137441089092,
+          "under_forecast_rate": 0.5490830636461704
+        },
+        "ready": true,
+        "serving_summary": {
+          "count": 200,
+          "fallback_rate": 0.0,
+          "hard_error_rate": 0.0,
+          "p95_latency_ms": 409.246
+        },
+        "split": "test"
+      },
+      "dataset": "B",
+      "inference_alerts": {
+        "dataset": "B",
+        "model_name": "CATBOOST",
+        "rules_triggered": [],
+        "status": "ok",
+        "summary": {
+          "avg_latency_ms": 328.644,
+          "count": 200,
+          "fallback_rate": 0.0,
+          "p95_latency_ms": 409.246,
+          "total_errors": 0
+        },
+        "window_size": 200
+      },
+      "inference_window": 200,
+      "latest_operational_health": {
+        "created_at": "2026-04-20T02:22:43.890181",
+        "details": {
+          "drift": {
+            "baseline_run_id": 155,
+            "baseline_wape": 0.11961137441089092,
+            "current_run_id": 156,
+            "current_wape": 0.11961137441089092,
+            "increase_ratio": 0.0,
+            "reason": "stable",
+            "status": "ok",
+            "threshold_ratio": 0.25
+          },
+          "freshness": {
+            "age_minutes": 6.98,
+            "latest_run_id": 156,
+            "reason": "within_threshold",
+            "status": "ok",
+            "threshold_minutes": 180.0
+          },
+          "inference": {
+            "dataset": null,
+            "model_name": null,
+            "rules_triggered": [],
+            "status": "ok",
+            "summary": {
+              "avg_latency_ms": 329.096,
+              "count": 200,
+              "fallback_rate": 0.0,
+              "p95_latency_ms": 411.084,
+              "total_errors": 0
+            },
+            "window_size": 200
+          }
+        },
+        "drift_status": "ok",
+        "freshness_status": "ok",
+        "id": 868,
+        "inference_status": "ok",
+        "status": "ok"
+      },
+      "latest_published_run": {
+        "created_at": "2026-04-20T02:23:11.131424",
+        "dataset": "B",
+        "id": 162,
+        "model_name": "CATBOOST",
+        "model_version": "v1",
+        "notes": null,
+        "status": "published",
+        "warehouse_id": null
+      },
+      "model_name": "CATBOOST",
+      "operational_health_history": {
+        "count": 50,
+        "items": [
+          {
+            "created_at": "2026-04-20T02:22:43.890181",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 868,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:13:55.850624",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 867,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:11:55.820601",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 866,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:09:55.795431",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 865,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:07:55.763763",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 864,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:06:18.490597",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 863,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:05:55.618926",
+            "drift_status": "ok",
+            "freshness_status": "ok",
+            "id": 862,
+            "inference_status": "ok",
+            "status": "ok"
+          },
+          {
+            "created_at": "2026-04-20T02:03:55.609087",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 861,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T02:01:55.582426",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 860,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:59:55.569916",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 859,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:57:55.545607",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 858,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:55:55.505157",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 857,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:53:55.485979",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 856,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:51:55.464298",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 855,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:49:55.431485",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 854,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:47:55.416852",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 853,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:45:55.396181",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 852,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:43:55.367853",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 851,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:41:55.346946",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 850,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:39:55.327012",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 849,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:37:55.327246",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 848,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:35:55.309853",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 847,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:33:55.289624",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 846,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:31:55.266182",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 845,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:29:55.245907",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 844,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:27:55.227104",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 843,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:25:55.194025",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 842,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:23:55.171827",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 841,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:21:55.133751",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 840,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:19:55.119026",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 839,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:17:55.102654",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 838,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:15:55.084159",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 837,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:13:55.057621",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 836,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:11:55.034127",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 835,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:09:55.006047",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 834,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:07:54.975007",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 833,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:05:54.951933",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 832,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:03:54.928730",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 831,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T01:01:54.905084",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 830,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:59:54.880630",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 829,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:57:54.860025",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 828,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:55:54.846597",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 827,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:53:54.824790",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 826,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:51:54.795124",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 825,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:49:54.761586",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 824,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:47:54.740866",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 823,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:45:54.720193",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 822,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:43:54.694520",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 821,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:41:54.677232",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 820,
+            "inference_status": "ok",
+            "status": "warn"
+          },
+          {
+            "created_at": "2026-04-20T00:39:54.656415",
+            "drift_status": "ok",
+            "freshness_status": "warn",
+            "id": 819,
+            "inference_status": "ok",
+            "status": "warn"
+          }
+        ]
+      },
+      "production_readiness": {
+        "checks": [
+          {
+            "details": {
+              "missing_columns": {},
+              "missing_tables": [],
+              "mode": "wms_db",
+              "reason": "validated",
+              "schema": "public",
+              "status": "ok"
+            },
+            "name": "runtime_contract_ok",
+            "pass": true,
+            "value": "ok"
+          },
+          {
+            "name": "latest_published_run_exists",
+            "pass": true,
+            "value": 162
+          },
+          {
+            "details": {
+              "checks": [
+                {
+                  "comparator": "<=",
+                  "name": "wape",
+                  "pass": true,
+                  "threshold": 0.135,
+                  "value": 0.11961137441089092
+                },
+                {
+                  "comparator": "<=",
+                  "name": "bias_abs",
+                  "pass": true,
+                  "threshold": 0.1,
+                  "value": 0.04030096035105383
+                },
+                {
+                  "comparator": "<=",
+                  "name": "under_forecast_rate",
+                  "pass": true,
+                  "threshold": 0.6,
+                  "value": 0.5490830636461704
+                },
+                {
+                  "comparator": "<=",
+                  "name": "mase_mean",
+                  "pass": true,
+                  "threshold": 1.1,
+                  "value": 1.0841848353375558
+                },
+                {
+                  "comparator": ">=",
+                  "name": "serving_window_count",
+                  "pass": true,
+                  "threshold": 1,
+                  "value": 200
+                },
+                {
+                  "comparator": "<=",
+                  "name": "fallback_rate",
+                  "pass": true,
+                  "threshold": 0.05,
+                  "value": 0.0
+                },
+                {
+                  "comparator": "<=",
+                  "name": "hard_error_rate",
+                  "pass": true,
+                  "threshold": 0.01,
+                  "value": 0.0
+                },
+                {
+                  "comparator": "<=",
+                  "name": "p95_latency_ms",
+                  "pass": true,
+                  "threshold": 2500.0,
+                  "value": 409.246
+                }
+              ],
+              "dataset": "B",
+              "inference_window": 200,
+              "model_name": "CATBOOST",
+              "quality_summary": {
+                "Bias_abs": 1244.5787897889861,
+                "Bias_abs_pct": 0.04030096035105383,
+                "MASE_mean": 1.0841848353375558,
+                "WAPE": 0.11961137441089092,
+                "under_forecast_rate": 0.5490830636461704
+              },
+              "ready": true,
+              "serving_summary": {
+                "count": 200,
+                "fallback_rate": 0.0,
+                "hard_error_rate": 0.0,
+                "p95_latency_ms": 409.246
+              },
+              "split": "test"
+            },
+            "name": "acceptance_gate_ready",
+            "pass": true,
+            "value": true
+          },
+          {
+            "details": {
+              "dataset": "B",
+              "model_name": "CATBOOST",
+              "rules_triggered": [],
+              "status": "ok",
+              "summary": {
+                "avg_latency_ms": 328.644,
+                "count": 200,
+                "fallback_rate": 0.0,
+                "p95_latency_ms": 409.246,
+                "total_errors": 0
+              },
+              "window_size": 200
+            },
+            "name": "inference_not_critical",
+            "pass": true,
+            "value": "ok"
+          },
+          {
+            "name": "soak_window_no_critical",
+            "pass": true,
+            "threshold": 0,
+            "value": 0,
+            "window_hours": 24
+          }
+        ],
+        "dataset": "B",
+        "inference_window": 200,
+        "latest_operational_health": {
+          "created_at": "2026-04-20T02:22:43.890181",
+          "details": {
+            "drift": {
+              "baseline_run_id": 155,
+              "baseline_wape": 0.11961137441089092,
+              "current_run_id": 156,
+              "current_wape": 0.11961137441089092,
+              "increase_ratio": 0.0,
+              "reason": "stable",
+              "status": "ok",
+              "threshold_ratio": 0.25
+            },
+            "freshness": {
+              "age_minutes": 6.98,
+              "latest_run_id": 156,
+              "reason": "within_threshold",
+              "status": "ok",
+              "threshold_minutes": 180.0
+            },
+            "inference": {
+              "dataset": null,
+              "model_name": null,
+              "rules_triggered": [],
+              "status": "ok",
+              "summary": {
+                "avg_latency_ms": 329.096,
+                "count": 200,
+                "fallback_rate": 0.0,
+                "p95_latency_ms": 411.084,
+                "total_errors": 0
+              },
+              "window_size": 200
+            }
+          },
+          "drift_status": "ok",
+          "freshness_status": "ok",
+          "id": 868,
+          "inference_status": "ok",
+          "status": "ok"
+        },
+        "model_name": "CATBOOST",
+        "ready": true,
+        "soak_hours": 24,
+        "split": "test"
+      },
+      "registry_entries": [
+        {
+          "artifact_stage": "production",
+          "created_at": "2026-04-07T05:20:26.884508",
+          "dataset": "B",
+          "id": 1,
+          "is_champion": true,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "priority": 1,
+          "status": "active",
+          "updated_at": "2026-04-17T18:45:07.884420",
+          "warehouse_id": null
+        }
+      ],
+      "runtime_contract": {
+        "missing_columns": {},
+        "missing_tables": [],
+        "mode": "wms_db",
+        "reason": "validated",
+        "schema": "public",
+        "status": "ok"
+      },
+      "soak_hours": 24,
+      "split": "test"
+    },
+    "ok": true,
+    "status": 200,
+    "url": "http://localhost:8091/artifacts/release-evidence?dataset=B&model_name=CATBOOST&split=test&inference_window=200&soak_hours=24&history_limit=50"
+  },
+  "runtime_readiness": {
+    "checks": {
+      "history_rows": 6,
+      "inventory_distinct_warehouses": 1,
+      "inventory_nonzero_on_hand_skus": 120,
+      "inventory_rows_count": 291,
+      "inventory_skus": 120,
+      "order_items_count": 102,
+      "orders_count": 83,
+      "product_materials_count": 120
+    },
+    "missing_columns": {},
+    "missing_tables": [],
+    "outbound_statuses": [
+      "shipped",
+      "delivered",
+      "completed"
+    ],
+    "profiles": {
+      "material_types": [
+        {
+          "count": 179,
+          "material_type": "raw_material"
+        },
+        {
+          "count": 120,
+          "material_type": "product"
+        }
+      ],
+      "order_statuses": [
+        {
+          "count": 43,
+          "status": "pending"
+        },
+        {
+          "count": 10,
+          "status": "received"
+        },
+        {
+          "count": 8,
+          "status": "packed"
+        },
+        {
+          "count": 6,
+          "status": "picking"
+        },
+        {
+          "count": 6,
+          "status": "put_away"
+        },
+        {
+          "count": 4,
+          "status": "cancelled"
+        },
+        {
+          "count": 2,
+          "status": "delivered"
+        },
+        {
+          "count": 2,
+          "status": "quality_approved"
+        },
+        {
+          "count": 2,
+          "status": "return_initiated"
+        }
+      ]
+    },
+    "reason": "live_runtime_data_verified",
+    "schema": "public",
+    "status": "ok",
+    "warehouse_id": null
+  },
+  "summary": {
+    "acceptance_gate_ready": true,
+    "business_plausibility_ok": true,
+    "note": "overall_ok excludes 24h soak unless --strict is set",
+    "overall_ok": true,
+    "production_readiness_ready": true,
+    "runtime_ready": true
+  },
+  "timestamp_utc": "20260420T022233Z",
+  "warmup_results": [
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 156,
+          "status": "publishing"
+        },
+        "run_id": 156,
+        "run_state": {
+          "created_at": "2026-04-20T02:15:45.321919",
+          "dataset": "B",
+          "id": 156,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "publishing",
+          "warehouse_id": null
+        },
+        "status": "publishing",
+        "triggered_at": "2026-04-20T02:22:39.646823Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "message": "run already publishing",
+          "mode_requested": "online",
+          "run_id": 156,
+          "status": "publishing"
+        },
+        "run_id": 156,
+        "run_state": {
+          "created_at": "2026-04-20T02:15:45.321919",
+          "dataset": "B",
+          "id": 156,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:22:41.259526Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 157,
+          "status": "publishing"
+        },
+        "run_id": 157,
+        "run_state": {
+          "created_at": "2026-04-20T02:22:41.273837",
+          "dataset": "B",
+          "id": 157,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:22:47.605976Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 158,
+          "status": "publishing"
+        },
+        "run_id": 158,
+        "run_state": {
+          "created_at": "2026-04-20T02:22:47.630117",
+          "dataset": "B",
+          "id": 158,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:22:52.290552Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 159,
+          "status": "publishing"
+        },
+        "run_id": 159,
+        "run_state": {
+          "created_at": "2026-04-20T02:22:52.302930",
+          "dataset": "B",
+          "id": 159,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:22:58.528696Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 160,
+          "status": "publishing"
+        },
+        "run_id": 160,
+        "run_state": {
+          "created_at": "2026-04-20T02:22:58.554557",
+          "dataset": "B",
+          "id": 160,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:23:04.845061Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 161,
+          "status": "publishing"
+        },
+        "run_id": 161,
+        "run_state": {
+          "created_at": "2026-04-20T02:23:04.879148",
+          "dataset": "B",
+          "id": 161,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:23:11.096217Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    },
+    {
+      "body": {
+        "job": "forecast-run",
+        "mode_requested": "online",
+        "publish_result": {
+          "accepted": true,
+          "async": true,
+          "mode_requested": "online",
+          "run_id": 162,
+          "status": "publishing"
+        },
+        "run_id": 162,
+        "run_state": {
+          "created_at": "2026-04-20T02:23:11.131424",
+          "dataset": "B",
+          "id": 162,
+          "model_name": "CATBOOST",
+          "model_version": "v1",
+          "notes": null,
+          "status": "published",
+          "warehouse_id": null
+        },
+        "status": "published",
+        "triggered_at": "2026-04-20T02:23:17.449920Z"
+      },
+      "ok": true,
+      "status": 200,
+      "url": "http://localhost:8092/jobs/forecast-run?dataset=B&model_name=CATBOOST&mode=online"
+    }
+  ]
+}

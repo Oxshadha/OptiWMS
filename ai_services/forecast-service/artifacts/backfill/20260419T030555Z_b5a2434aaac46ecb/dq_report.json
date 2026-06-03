@@ -1,0 +1,42 @@
+{
+  "checks": {
+    "base_rows": 48,
+    "daily_rows": 48,
+    "distinct_orders": 16,
+    "distinct_skus": 28,
+    "duplicate_order_material_groups": 0,
+    "missing_months_rate": 0.0,
+    "missing_months_total": 0,
+    "monthly_rows": 41,
+    "negative_qty_rows": 0,
+    "null_sku_rows": 0,
+    "zero_qty_rows": 0
+  },
+  "lineage": {
+    "artifacts": {
+      "daily_csv": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260419T030555Z_b5a2434aaac46ecb/outbound_demand_daily.csv",
+      "dq_report": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260419T030555Z_b5a2434aaac46ecb/dq_report.json",
+      "lineage_report": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260419T030555Z_b5a2434aaac46ecb/lineage.json",
+      "monthly_csv": "/Users/k.e.oshada/Documents/OptiWMS/ai-services/forecast-service/artifacts/backfill/20260419T030555Z_b5a2434aaac46ecb/outbound_demand_monthly.csv"
+    },
+    "dataset_version": "b5a2434aaac46ecb",
+    "end_date": null,
+    "generated_at": "2026-04-19T03:05:55.934430+00:00",
+    "outbound_statuses": [
+      "delivered",
+      "packed",
+      "picking"
+    ],
+    "row_counts": {
+      "base_rows": 48,
+      "daily_rows": 48,
+      "monthly_rows": 41
+    },
+    "schema": "public",
+    "source": "wms_db_outbound_orders",
+    "start_date": null,
+    "warehouse_id": null
+  },
+  "reason": "ok",
+  "status": "ok"
+}
