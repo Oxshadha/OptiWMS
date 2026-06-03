@@ -255,9 +255,9 @@ def recommend_placement(request: SlottingRecommendationRequest):
                     material_id=item.material_id,
                     material_code=item.material_id,          # code resolved by frontend
                     recommended_location_id=str(uuid.uuid4()),
-                    recommended_location_code=best_code + feasibility_note,
+                    recommended_location_code=best_code,
                     score=round(best_score, 3),
-                    reason=_build_reason(item, best_code),
+                    reason=_build_reason(item, best_code) + feasibility_note,
                     alternatives=alternatives,
                 )
             )
