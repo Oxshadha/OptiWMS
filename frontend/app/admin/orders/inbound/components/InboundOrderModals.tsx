@@ -1196,10 +1196,10 @@ export function CreateInboundOrderModal({
                           </div>
                           <div className="flex justify-end">
                             <button
-                              className="btn btn-outline btn-sm"
                               onClick={() => {
                                 const next = [...formData.items];
-                                next[idx].locationCode = recommendation.recommended_location_code;
+                                const pureCode = recommendation.recommended_location_code.split(" ")[0];
+                                next[idx].locationCode = pureCode;
                                 setFormData({ ...formData, items: next });
                               }}
                             >
