@@ -1020,7 +1020,7 @@ export function CreateInboundOrderModal({
               >
                 Back
               </button>
-              <button className="btn btn-primary" onClick={() => setStep(4)} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>
+              <button className="btn btn-primary" onClick={() => setStep(4)} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity || formData.items.some((item) => !item.productId || item.quantityOrdered <= 0)}>
                 Next
               </button>
             </div>
