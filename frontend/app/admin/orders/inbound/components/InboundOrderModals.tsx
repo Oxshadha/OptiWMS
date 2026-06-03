@@ -238,9 +238,9 @@ export function CreateInboundOrderModal({
   const [error, setError] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
-  const [materials, setMaterials] = useState<Array<{ id: string; description: string }>>([]);
-  const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
+  const [materials, setMaterials] = useState<
+    Array<{ id: string; description: string; preferredZone?: string }>
+  >([]);
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
