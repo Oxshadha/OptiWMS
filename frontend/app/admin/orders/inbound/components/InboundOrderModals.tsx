@@ -590,7 +590,9 @@ export function CreateInboundOrderModal({
               materialId: item.productId,
               quantity: item.quantityOrdered,
               locationCode:
-                item.locationCode || recommendationsByItem.get(idx)?.recommended_location_code || undefined,
+                item.locationCode ||
+                recommendationsByItem.get(idx)?.recommended_location_code.split(" ")[0] ||
+                undefined,
               batchNumber: item.batchNumber || undefined,
               manufactureDate: item.manufactureDate || undefined,
               expiryDate: item.expiryDate || undefined,
