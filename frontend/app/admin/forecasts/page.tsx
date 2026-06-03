@@ -1596,14 +1596,14 @@ export default function ForecastsPage() {
       </div>
 
       {/* Navigation Tabs & Controls */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-base-100 border border-base-300 p-1.5 rounded-xl shadow-sm">
-        <div className="tabs tabs-boxed bg-transparent p-0 flex flex-wrap gap-1">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-3 bg-base-100 border border-base-300 p-1.5 rounded-xl shadow-sm">
+        <div className="flex flex-wrap items-center gap-1">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`tab tab-sm font-semibold rounded-lg transition-all duration-200 px-4 py-2 flex items-center gap-1.5 ${
-                tab === t.id ? "tab-active bg-primary text-primary-content" : "text-base-content/70 hover:bg-base-200"
+              className={`font-semibold rounded-lg transition-all duration-200 px-3 py-1.5 flex items-center justify-center gap-1.5 text-[13px] ${
+                tab === t.id ? "bg-primary text-primary-content shadow-sm" : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
               }`}
             >
               <span className="material-symbols-outlined text-sm">{t.icon}</span>
@@ -1611,18 +1611,16 @@ export default function ForecastsPage() {
             </button>
           ))}
         </div>
-        
-        <div className="flex items-center gap-2 px-3 py-1 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5 h-8">
-          <input 
-            id="ci-toggle"
-            type="checkbox" 
-            className="toggle toggle-primary toggle-sm cursor-pointer" 
-            checked={showCI} 
-            onChange={(e) => setShowCI(e.target.checked)} 
-          />
-          <label htmlFor="ci-toggle" className="text-[11px] font-semibold text-base-content/85 cursor-pointer">
+        <div 
+          className="flex items-center gap-2 px-3 py-1.5 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5 cursor-pointer hover:bg-base-200 transition-colors"
+          onClick={() => setShowCI(!showCI)}
+        >
+          <div className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? 'bg-primary' : 'bg-gray-400'}`}>
+            <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? 'translate-x-4' : 'translate-x-1'}`} />
+          </div>
+          <span className="text-[11px] font-semibold text-base-content/85 leading-none mt-0.5">
             Show 90% Confidence Intervals
-          </label>
+          </span>
         </div>
       </div>
 

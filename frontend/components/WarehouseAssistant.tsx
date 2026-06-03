@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
@@ -18,8 +19,11 @@ import {
 } from "lucide-react";
 import {
   askWarehouseAI,
+  askDataAnalytics,
+  queryWmsDatabase,
   WarehouseAIRole,
   WarehouseAISource,
+  DataAnalyticsResponse,
 } from "@/services/aiService";
 
 type ChatMessage = {
@@ -27,46 +31,59 @@ type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   sources?: WarehouseAISource[];
+  sql?: string;
+  data?: Record<string, unknown>[];
+  chart?: string;
+  error?: string;
 };
 
 type WarehouseAssistantProps = {
   userRole: WarehouseAIRole;
   managerOffsetClassName?: string;
   onManagerOpenChange?: (isOpen: boolean) => void;
+  fullPage?: boolean;
 };
-
-const MANAGER_STARTERS = [
-  "Summarize forklift safety SOP",
-  "Which SOP covers unloading best practices?",
-  "Show warehouse safekeeping controls",
-];
-
-const WORKER_STARTERS = ["Where is SKU?", "Check SOP", "Report issue"];
 
 export function WarehouseAssistant({
   userRole,
   managerOffsetClassName,
   onManagerOpenChange,
+  fullPage = false,
 }: WarehouseAssistantProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([
-    {
-      id: "assistant-welcome",
-      role: "assistant",
-      content:
-        userRole === "manager"
-          ? "Warehouse AI is ready for SOP lookups, operational summaries, and source-backed answers."
-          : "Ask about tasks, SOP steps, or SKU help. Quick actions are ready below.",
-    },
-  ]);
+  const [loading, setLoading] = useState<{ sop: boolean; data: boolean }>({
+    sop: false,
+    data: false,
+  });
+  const [currentTab, setCurrentTab] = useState<"sop" | "data">("sop");
+  const [chatHistories, setChatHistories] = useState<{
+    sop: ChatMessage[];
+    data: ChatMessage[];
+  }>({
+    sop: [
+      {
+        id: "assistant-welcome-sop",
+        role: "assistant",
+        content:
+          userRole === "manager"
+            ? "Hello! I can help with SOP lookups, operational summaries, and source-backed answers. What would you like to know?"
+            : "Hello! Ask me about tasks, SOP steps, or SKU locations.",
+      },
+    ],
+    data: [
+      {
+        id: "assistant-welcome-data",
+        role: "assistant",
+        content:
+          "Hello! I can query your WMS data, generate reports, and visualise trends. What would you like to explore?",
+      },
+    ],
+  });
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const quickActions = useMemo(
-    () => (userRole === "manager" ? MANAGER_STARTERS : WORKER_STARTERS),
-    [userRole]
-  );
+  const chatHistory = chatHistories[currentTab];
 
   useEffect(() => {
     if (userRole === "manager") {
@@ -82,9 +99,7 @@ export function WarehouseAssistant({
 
   const submitQuery = async (nextQuery: string) => {
     const trimmedQuery = nextQuery.trim();
-    if (!trimmedQuery || loading) {
-      return;
-    }
+    if (!trimmedQuery || loading[currentTab]) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -92,35 +107,95 @@ export function WarehouseAssistant({
       content: trimmedQuery,
     };
 
-    setChatHistory((prev) => [...prev, userMessage]);
+    setChatHistories((prev) => ({
+      ...prev,
+      [currentTab]: [...prev[currentTab], userMessage],
+    }));
     setQuery("");
-    setLoading(true);
+    setLoading((prev) => ({ ...prev, [currentTab]: true }));
 
     try {
-      const response = await askWarehouseAI(trimmedQuery, userRole);
-      setChatHistory((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: response.answer,
-          sources: response.sources,
-        },
-      ]);
+      if (currentTab === "sop") {
+        const response = await askWarehouseAI(trimmedQuery, userRole);
+        setChatHistories((prev) => ({
+          ...prev,
+          sop: [
+            ...prev.sop,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: response.answer,
+              sources: response.sources,
+            },
+          ],
+        }));
+      } else {
+        let response: DataAnalyticsResponse =
+          await askDataAnalytics(trimmedQuery);
+
+        if (
+          response.sql &&
+          !response.data &&
+          !response.chart &&
+          !response.error
+        ) {
+          try {
+            const exec = await queryWmsDatabase(response.sql);
+            response = {
+              ...response,
+              data: exec.data ?? response.data,
+              chart: exec.chart ?? response.chart,
+              error: exec.error ?? response.error,
+            };
+          } catch (err) {
+            response = {
+              ...response,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }
+
+        const hasData = response.data && response.data.length > 0;
+        const hasChart = !!response.chart;
+
+        setChatHistories((prev) => ({
+          ...prev,
+          data: [
+            ...prev.data,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              // Only show a content message for errors or when there's genuinely nothing to display
+              content: response.error
+                ? response.error
+                : hasChart || hasData
+                  ? ""
+                  : "No data available for this query.",
+              sql: response.sql,
+              data: response.data,
+              chart: response.chart,
+              error: response.error,
+            },
+          ],
+        }));
+      }
     } catch (error) {
-      setChatHistory((prev) => [
+      setChatHistories((prev) => ({
         ...prev,
-        {
-          id: `assistant-error-${Date.now()}`,
-          role: "assistant",
-          content:
-            error instanceof Error
-              ? error.message
-              : "The warehouse assistant could not complete that request.",
-        },
-      ]);
+        [currentTab]: [
+          ...prev[currentTab],
+          {
+            id: `assistant-error-${Date.now()}`,
+            role: "assistant",
+            content:
+              error instanceof Error
+                ? error.message
+                : "Something went wrong. Please try again.",
+          },
+        ],
+      }));
     } finally {
-      setLoading(false);
+      setLoading((prev) => ({ ...prev, [currentTab]: false }));
     }
   };
 
@@ -129,6 +204,47 @@ export function WarehouseAssistant({
     await submitQuery(query);
   };
 
+  // ── Full page ─────────────────────────────────────────────────────────────
+  if (fullPage) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden bg-base-100 p-6">
+        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-base-200 bg-white shadow-lg overflow-hidden">
+          <AssistantHeader
+            title="Warehouse Assist"
+            subtitle="Full-screen assistant"
+            icon={<Warehouse className="h-5 w-5" />}
+            onClose={() => router.back()}
+            currentTab={currentTab}
+            onTabChange={setCurrentTab}
+          />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AssistantBody
+              userRole={userRole}
+              chatHistory={chatHistory}
+              loading={loading[currentTab]}
+              currentTab={currentTab}
+            />
+          </div>
+          <div className="shrink-0">
+            <AssistantComposer
+              inputRef={inputRef}
+              query={query}
+              loading={loading[currentTab]}
+              placeholder={
+                currentTab === "sop"
+                  ? "Ask about SOPs, safety checks, or warehouse exceptions…"
+                  : "Ask about your WMS data…"
+              }
+              onQueryChange={setQuery}
+              onSubmit={handleSubmit}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Manager drawer ────────────────────────────────────────────────────────
   const managerDrawer = (
     <>
       <button
@@ -137,11 +253,15 @@ export function WarehouseAssistant({
         onClick={() => setIsOpen((current) => !current)}
         className={clsx(
           "btn btn-ghost btn-circle border border-base-300 bg-base-100/80 text-base-content shadow-sm backdrop-blur",
-          isOpen && "border-cyan-500/40 bg-cyan-500/10 text-cyan-700"
+          isOpen && "border-primary/40 bg-primary/10 text-primary",
         )}
         title="Warehouse assistant"
       >
-        {isOpen ? <ChevronRight className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
+        {isOpen ? (
+          <ChevronRight className="h-5 w-5" />
+        ) : (
+          <Sparkles className="h-5 w-5" />
+        )}
       </button>
 
       {isOpen && (
@@ -149,86 +269,111 @@ export function WarehouseAssistant({
           <button
             type="button"
             aria-label="Close warehouse assistant overlay"
-            className="fixed inset-0 z-40 hidden bg-slate-950/10 backdrop-blur-[1px] lg:block"
+            className="fixed inset-0 z-40 hidden bg-neutral/10 backdrop-blur-[1px] lg:block"
             onClick={() => setIsOpen(false)}
           />
           <div
             className={clsx(
-              "fixed bottom-6 right-6 z-50 hidden w-[26rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-sky-100 bg-[linear-gradient(180deg,_#f8fdff_0%,_#eef8ff_100%)] text-slate-900 shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[42rem] lg:flex-col",
-              managerOffsetClassName
+              "fixed bottom-6 right-6 z-50 hidden w-[26rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[42rem] lg:flex-col",
+              managerOffsetClassName,
             )}
           >
-          <AssistantHeader
-            title="Warehouse Assist"
-            subtitle="Quick SOP and warehouse help"
-            icon={<Warehouse className="h-5 w-5" />}
-            onClose={() => setIsOpen(false)}
-          />
-          <AssistantBody
-            userRole={userRole}
-            chatHistory={chatHistory}
-            loading={loading}
-            quickActions={quickActions}
-            onQuickAction={submitQuery}
-          />
-          <AssistantComposer
-            inputRef={inputRef}
-            query={query}
-            loading={loading}
-            placeholder="Ask about SOPs, safety checks, or warehouse exceptions"
-            onQueryChange={setQuery}
-            onSubmit={handleSubmit}
-          />
+            <AssistantHeader
+              title="Warehouse Assist"
+              subtitle="SOP and warehouse queries"
+              icon={<Warehouse className="h-5 w-5" />}
+              onClose={() => setIsOpen(false)}
+              currentTab={currentTab}
+              onTabChange={setCurrentTab}
+            />
+            <div className="shrink-0 px-4 pt-2 pb-1">
+              <Link
+                href="/admin/assistant"
+                className="text-xs text-primary hover:underline"
+              >
+                Open full screen ↗
+              </Link>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <AssistantBody
+                userRole={userRole}
+                chatHistory={chatHistory}
+                loading={loading[currentTab]}
+                currentTab={currentTab}
+              />
+            </div>
+            <div className="shrink-0">
+              <AssistantComposer
+                inputRef={inputRef}
+                query={query}
+                loading={loading[currentTab]}
+                placeholder="Ask about SOPs, safety checks, or warehouse exceptions…"
+                onQueryChange={setQuery}
+                onSubmit={handleSubmit}
+              />
+            </div>
           </div>
         </>
       )}
     </>
   );
 
+  // ── Worker overlay ────────────────────────────────────────────────────────
   const workerOverlay = (
     <>
       <button
         type="button"
         aria-label="Open warehouse assistant"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full border border-cyan-200/30 bg-gradient-to-br from-cyan-400 via-sky-500 to-blue-700 text-white shadow-[0_18px_40px_rgba(14,116,144,0.45)] ring-4 ring-white/30 transition-transform active:scale-95"
+        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-gradient-to-br from-primary to-accent text-white shadow-[0_18px_40px_rgba(207,15,71,0.32)] ring-4 ring-white/30 transition-transform active:scale-95"
       >
         <MessageSquare className="h-7 w-7" />
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.10),_transparent_35%),linear-gradient(180deg,_#f8fdff_0%,_#edf7ff_100%)] text-slate-900">
+        <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(207,15,71,0.10),_transparent_35%),linear-gradient(180deg,_#fff6f8_0%,_#fff1f4_100%)] text-base-content">
           <AssistantHeader
             title="Warehouse Assist"
-            subtitle="Quick SOP and warehouse help"
+            subtitle="SOP and warehouse queries"
             icon={<Bot className="h-5 w-5" />}
             onClose={() => setIsOpen(false)}
+            currentTab={currentTab}
+            onTabChange={setCurrentTab}
           />
-          <div className="flex items-center gap-3 px-4 pt-2">
+          <div className="shrink-0 flex items-center gap-3 px-4 pt-2 pb-1">
             <button
               type="button"
-              className="flex h-16 flex-1 items-center justify-center gap-3 rounded-2xl border border-cyan-300 bg-cyan-100 text-base font-semibold text-cyan-950 shadow-lg"
+              className="flex h-12 flex-1 items-center justify-center gap-3 rounded-2xl border border-primary/20 bg-primary/10 text-primary font-semibold shadow"
             >
-              <Mic className="h-7 w-7" />
-              Voice / Mic
+              <Mic className="h-5 w-5" />
+              Voice input
             </button>
+            <Link
+              href="/admin/assistant"
+              className="text-sm text-primary font-medium hover:underline whitespace-nowrap"
+            >
+              Full screen ↗
+            </Link>
           </div>
-          <AssistantBody
-            userRole={userRole}
-            chatHistory={chatHistory}
-            loading={loading}
-            quickActions={quickActions}
-            onQuickAction={submitQuery}
-          />
-          <AssistantComposer
-            inputRef={inputRef}
-            query={query}
-            loading={loading}
-            placeholder="Ask about SKU location, SOP steps, or a task"
-            onQueryChange={setQuery}
-            onSubmit={handleSubmit}
-            mobile
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <AssistantBody
+              userRole={userRole}
+              chatHistory={chatHistory}
+              loading={loading[currentTab]}
+              currentTab={currentTab}
+            />
+          </div>
+          <div className="shrink-0">
+            <AssistantComposer
+              inputRef={inputRef}
+              query={query}
+              loading={loading[currentTab]}
+              placeholder="Ask about SKU location, SOP steps, or a task…"
+              onQueryChange={setQuery}
+              onSubmit={handleSubmit}
+              mobile
+            />
+          </div>
         </div>
       )}
     </>
@@ -237,22 +382,28 @@ export function WarehouseAssistant({
   return userRole === "manager" ? managerDrawer : workerOverlay;
 }
 
+// ── Sub-components ───────────────────────────────────────────────────────────
+
 function AssistantHeader({
   title,
   subtitle,
   icon,
   onClose,
+  currentTab,
+  onTabChange,
 }: {
   title: string;
   subtitle: string;
   icon: React.ReactNode;
   onClose: () => void;
+  currentTab: "sop" | "data";
+  onTabChange: (tab: "sop" | "data") => void;
 }) {
   return (
-    <div className="border-b border-sky-100 bg-white/80 px-4 py-4 backdrop-blur">
+    <div className="shrink-0 border-b border-base-200 bg-white/85 px-4 py-4 backdrop-blur">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-700 ring-1 ring-sky-200">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
             {icon}
           </div>
           <div>
@@ -268,6 +419,30 @@ function AssistantHeader({
           <X className="h-5 w-5" />
         </button>
       </div>
+      <div className="mt-4 flex gap-2">
+        <button
+          onClick={() => onTabChange("sop")}
+          className={clsx(
+            "rounded-lg px-3 py-1 text-sm font-medium transition",
+            currentTab === "sop"
+              ? "bg-primary text-primary-content"
+              : "bg-base-200 text-base-content hover:bg-base-300",
+          )}
+        >
+          SOP Assistant
+        </button>
+        <button
+          onClick={() => onTabChange("data")}
+          className={clsx(
+            "rounded-lg px-3 py-1 text-sm font-medium transition",
+            currentTab === "data"
+              ? "bg-primary text-primary-content"
+              : "bg-base-200 text-base-content hover:bg-base-300",
+          )}
+        >
+          Data &amp; Analytics
+        </button>
+      </div>
     </div>
   );
 }
@@ -276,14 +451,12 @@ function AssistantBody({
   userRole,
   chatHistory,
   loading,
-  quickActions,
-  onQuickAction,
+  currentTab,
 }: {
   userRole: WarehouseAIRole;
   chatHistory: ChatMessage[];
   loading: boolean;
-  quickActions: string[];
-  onQuickAction: (query: string) => void | Promise<void>;
+  currentTab: "sop" | "data";
 }) {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -292,49 +465,26 @@ function AssistantBody({
   }, [chatHistory, loading]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4">
-      <div className="mb-4 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.24em] text-sky-700">
-          <Sparkles className="h-4 w-4" />
-          Quick Actions
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {quickActions.map((action) => (
-            <button
-              key={action}
-              type="button"
-              onClick={() => void onQuickAction(action)}
-              className={clsx(
-                "rounded-full border px-3 py-2 text-sm font-medium transition",
-                userRole === "manager"
-                  ? "border-sky-200 bg-sky-50 text-sky-800 hover:border-sky-300 hover:bg-sky-100"
-                  : "border-sky-200 bg-white text-slate-700 hover:bg-sky-50"
-              )}
-            >
-              {action}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {chatHistory.map((message) => (
+    <div className="px-4 py-4 space-y-4">
+      {chatHistory.map((message) => (
+        <div
+          key={message.id}
+          className={clsx(
+            "flex",
+            message.role === "user" ? "justify-end" : "justify-start",
+          )}
+        >
           <div
-            key={message.id}
             className={clsx(
-              "flex",
-              message.role === "user" ? "justify-end" : "justify-start"
+              "max-w-[90%] rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm",
+              message.role === "user"
+                ? "bg-primary text-primary-content"
+                : "border border-base-200 bg-base-100 text-base-content",
             )}
           >
-            <div
-              className={clsx(
-                "max-w-[90%] rounded-3xl px-4 py-3 text-sm leading-6 shadow-lg",
-                message.role === "user"
-                  ? "bg-gradient-to-br from-cyan-400 to-blue-600 text-white"
-                  : "border border-sky-100 bg-white text-slate-800 shadow-sm"
-              )}
-            >
-              {message.role === "assistant" ? (
+            {/* Text content — skip if empty (chart/data-only messages) */}
+            {message.content &&
+              (message.role === "assistant" ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -365,52 +515,138 @@ function AssistantBody({
                 </ReactMarkdown>
               ) : (
                 <p className="whitespace-pre-wrap">{message.content}</p>
-              )}
-              {message.sources && message.sources.length > 0 && (
-                <div className="mt-3 border-t border-slate-100 pt-3">
-                  <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                    Sources
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {message.sources.map((source) =>
-                      source.href ? (
-                        <Link
-                          key={`${message.id}-${source.label}`}
-                          href={source.href}
-                          className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 transition hover:bg-sky-100"
-                        >
-                          {source.label}
-                        </Link>
-                      ) : (
-                        <span
-                          key={`${message.id}-${source.label}`}
-                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600"
-                        >
-                          {source.label}
-                        </span>
-                      )
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+              ))}
 
-        {loading && (
-          <div className="flex justify-start">
-            <div className="flex max-w-[85%] items-center gap-3 rounded-3xl border border-sky-100 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <div className="flex gap-1">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400 [animation-delay:120ms]" />
-                <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400 [animation-delay:240ms]" />
+            {/* Sources */}
+            {message.sources && message.sources.length > 0 && (
+              <div
+                className={clsx(
+                  "border-t border-slate-100 pt-3",
+                  message.content && "mt-3",
+                )}
+              >
+                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                  Sources
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {message.sources.map((source) =>
+                    source.href ? (
+                      <Link
+                        key={`${message.id}-${source.label}`}
+                        href={source.href}
+                        className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition hover:bg-primary/15"
+                      >
+                        {source.label}
+                      </Link>
+                    ) : (
+                      <span
+                        key={`${message.id}-${source.label}`}
+                        className="rounded-full border border-base-200 bg-base-200 px-3 py-1 text-xs font-medium text-base-content"
+                      >
+                        {source.label}
+                      </span>
+                    ),
+                  )}
+                </div>
               </div>
-              <span>Thinking through the SOPs...</span>
-            </div>
+            )}
+
+            {/* Data table */}
+            {message.data && message.data.length > 0 && (
+              <div
+                className={clsx(
+                  "border-t border-slate-100 pt-3",
+                  message.content && "mt-3",
+                )}
+              >
+                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+                  Results
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr className="bg-base-200">
+                        {Object.keys(message.data[0]).map((key) => (
+                          <th
+                            key={key}
+                            className="px-2 py-1 text-left font-medium"
+                          >
+                            {key}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {message.data.slice(0, 10).map((row, index) => (
+                        <tr key={index} className="border-t border-base-200">
+                          {Object.values(row).map((value, i) => (
+                            <td key={i} className="px-2 py-1">
+                              {String(value)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {message.data.length > 10 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Showing 10 of {message.data.length} rows.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Chart */}
+            {message.chart && (
+              <div
+                className={clsx(
+                  "border-t border-slate-100 pt-3",
+                  message.content && "mt-3",
+                )}
+              >
+                <div className="overflow-hidden rounded-2xl border border-base-200 bg-base-200 p-2">
+                  <img
+                    src={message.chart}
+                    alt="Analytics chart"
+                    className="w-full rounded-lg"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {message.error && (
+              <div
+                className={clsx(
+                  "border-t border-red-200 pt-3",
+                  message.content && "mt-3",
+                )}
+              >
+                <p className="text-xs text-red-600">{message.error}</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      ))}
+
+      {loading && (
+        <div className="flex justify-start">
+          <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-100 px-4 py-3 text-sm text-slate-500 shadow-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <div className="flex gap-1">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:120ms]" />
+              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:240ms]" />
+            </div>
+            <span>
+              {currentTab === "sop"
+                ? "Looking through the SOPs…"
+                : "Fetching data…"}
+            </span>
+          </div>
+        </div>
+      )}
 
       <div ref={messageEndRef} />
     </div>
@@ -438,11 +674,11 @@ function AssistantComposer({
     <form
       onSubmit={(event) => void onSubmit(event)}
       className={clsx(
-        "border-t border-sky-100 bg-white/85 p-4 backdrop-blur",
-        mobile && "bg-white/90"
+        "border-t border-base-200 bg-base-100/90 p-4 backdrop-blur",
+        mobile && "bg-base-100/95",
       )}
     >
-      <div className="flex items-center gap-3 rounded-3xl border border-sky-100 bg-slate-50 p-2 shadow-sm">
+      <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-200 p-2 shadow-sm">
         <input
           ref={inputRef}
           type="text"
@@ -455,11 +691,19 @@ function AssistantComposer({
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600 text-white shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-content shadow transition disabled:cursor-not-allowed disabled:opacity-50"
         >
           <SendHorizonal className="h-4 w-4" />
         </button>
       </div>
     </form>
   );
+}
+
+export function WarehouseAssistantFullPage({
+  userRole,
+}: {
+  userRole: WarehouseAIRole;
+}) {
+  return <WarehouseAssistant userRole={userRole} fullPage />;
 }
