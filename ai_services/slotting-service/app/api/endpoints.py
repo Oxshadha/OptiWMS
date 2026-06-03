@@ -1,249 +1,411 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+"""
+Slotting Service API Endpoints
+Provides the FastAPI router that wires the DEAP-based Genetic Algorithm engine
+(ga_components.py + fitness.py) into HTTP endpoints.
+"""
 
-from app.db.database import get_db
-from app.models.schemas import (
-    SlottingOptimizationRequest,
-    SlottingOptimizationResponse,
-    SlottingAssignmentResponse,
-    SlottingRecommendationRequest,
-    SlottingRecommendationResponse,
-    SlottingRecommendationItemResponse,
-    SlottingRecommendationAlternativeResponse,
-)
-from app.models.db_models import MaterialDB, LocationDB
-from app.services.slotting import run_slotting_optimization, SKU, Location
+import sys
+import os
+import logging
+import uuid
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Ensure the app/api directory is on sys.path so that the flat-module imports
+# inside ga_components.py, fitness.py, warehouse_state.py and config.py work.
+# (Those files import each other without a package prefix, e.g.
+#  `from config import …` rather than `from app.api.config import …`)
+# ---------------------------------------------------------------------------
+_API_DIR = os.path.dirname(__file__)
+if _API_DIR not in sys.path:
+    sys.path.insert(0, _API_DIR)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# Lazy-import the GA modules so that import errors are surfaced at request
+# time with a clear message rather than crashing the whole service on startup.
+# ---------------------------------------------------------------------------
 
-def _safe_zone_label(zone_type: str | None) -> str:
-    if not zone_type:
-        return "DEFAULT"
-    return str(zone_type).strip().upper() or "DEFAULT"
+def _load_ga():
+    """Import the DEAP-based GA modules from the api directory."""
+    try:
+        import importlib.util, pathlib
+        # Load app/api/main.py by file path to avoid collision with Python 'main'
+        _main_path = pathlib.Path(_API_DIR) / "main.py"
+        _spec = importlib.util.spec_from_file_location("ga_engine_main", _main_path)
+        ga_main_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
+        _spec.loader.exec_module(ga_main_mod)  # type: ignore[union-attr]
+
+        import ga_components as gc
+        import fitness as fit
+        import warehouse_state as ws
+        return ga_main_mod, gc, fit, ws
+    except ImportError as exc:
+        raise RuntimeError(
+            f"Could not import GA modules: {exc}. "
+            "Make sure 'deap' is installed: pip install deap"
+        ) from exc
 
 
-def _location_distance(location: LocationDB) -> float:
-    if location.coordinate_x is not None or location.coordinate_y is not None:
-        x = float(location.coordinate_x or 0.0)
-        y = float(location.coordinate_y or 0.0)
-        return (x * x + y * y) ** 0.5
-    if location.zone_type:
-        zone = str(location.zone_type).strip().upper()
-        if zone == "STORAGE":
-            return 10.0
-        if zone == "RECEIVING":
-            return 100.0
-    return 50.0
+# ---------------------------------------------------------------------------
+# Pydantic schemas (mirrors app/models/schemas.py to avoid circular imports)
+# ---------------------------------------------------------------------------
+
+class SlottingRecommendationItemRequest(BaseModel):
+    material_id: str
+    quantity: int
+    weight_kg: Optional[float] = None
+    volume_cm3: Optional[float] = None
+    length_cm: Optional[float] = None
+    width_cm: Optional[float] = None
+    height_cm: Optional[float] = None
+    hazard_class: Optional[str] = None
+    velocity: Optional[float] = None
+    preferred_zone: Optional[str] = None
+    current_location_code: Optional[str] = None
 
 
-def _score_location_for_item(item, material: MaterialDB, location: LocationDB) -> tuple[float, str]:
-    score = 1000.0
-    reasons: list[str] = []
+class SlottingRecommendationRequest(BaseModel):
+    warehouse_id: str
+    items: List[SlottingRecommendationItemRequest] = []
+    population_size: int = 20
+    generations: int = 50
+    mutation_rate: float = 0.05
+    top_k_alternatives: int = 3
 
-    location_zone = _safe_zone_label(location.zone_type)
-    preferred_zone = (item.preferred_zone or getattr(material, "preferred_zone", None) or "").strip().upper()
 
-    if preferred_zone and location_zone == preferred_zone:
-        score += 220.0
-        reasons.append("preferred zone match")
+class SlottingRecommendationAlternativeResponse(BaseModel):
+    location_id: str
+    location_code: str
+    score: float
 
-    if item.current_location_code and location.location_code == item.current_location_code:
-        score += 120.0
-        reasons.append("current location preferred")
 
-    if item.hazard_class:
-        location_condition = (location.storage_condition or "").strip().lower()
-        material_hazard = str(item.hazard_class).strip().lower()
-        if location_condition and material_hazard in location_condition:
-            score += 150.0
-            reasons.append("hazard/storage compatibility")
+class SlottingRecommendationItemResponse(BaseModel):
+    material_id: str
+    material_code: str
+    recommended_location_id: str
+    recommended_location_code: str
+    score: float
+    reason: str
+    alternatives: List[SlottingRecommendationAlternativeResponse] = []
 
-    if material.weight_kg is not None and location.max_weight_kg is not None:
-        if float(material.weight_kg) <= float(location.max_weight_kg):
-            score += 100.0
-            reasons.append("weight fits")
-        else:
-            score -= 300.0
 
-    if material.volume_cm3 is not None and location.capacity is not None:
-        if float(material.volume_cm3) <= float(location.capacity):
-            score += 100.0
-            reasons.append("volume fits")
-        else:
-            score -= 300.0
+class SlottingRecommendationResponse(BaseModel):
+    warehouse_id: str
+    algorithm: str
+    best_fitness: float
+    recommendations: List[SlottingRecommendationItemResponse] = []
 
-    if item.length_cm is not None and item.width_cm is not None and item.height_cm is not None:
-        carton_volume = float(item.length_cm) * float(item.width_cm) * float(item.height_cm)
-        if location.capacity is not None and carton_volume <= float(location.capacity):
-            score += 50.0
-            reasons.append("carton dimensions fit")
 
-    velocity = float(item.velocity or material.future_average or 0.0)
-    score -= _location_distance(location) * max(1.0, velocity / 10.0)
+class SlottingOptimizationRequest(BaseModel):
+    warehouse_id: str
+    population_size: int = 20
+    generations: int = 50
+    mutation_rate: float = 0.05
 
-    if not reasons:
-        reasons.append("best available capacity")
 
-    return score, ", ".join(reasons)
+class SlottingAssignmentResponse(BaseModel):
+    material_id: str
+    material_code: str
+    location_id: str
+    location_code: str
+
+
+class SlottingOptimizationResponse(BaseModel):
+    warehouse_id: str
+    best_fitness: float
+    assignments: List[SlottingAssignmentResponse] = []
+
+
+# ---------------------------------------------------------------------------
+# Helper: derive qualitative labels from numeric values
+# ---------------------------------------------------------------------------
+
+def _volume_class(volume_cm3: Optional[float]) -> str:
+    """Map a volume in cm³ to 'high' / 'medium' / 'low'."""
+    if volume_cm3 is None:
+        return "medium"
+    if volume_cm3 >= 50_000:   # ≥ 50 000 cm³  (~50 L)
+        return "high"
+    if volume_cm3 >= 5_000:    # ≥  5 000 cm³  (~5 L)
+        return "medium"
+    return "low"
+
+
+def _movement_speed(velocity: Optional[float]) -> str:
+    """Map a numeric velocity / pick-frequency to 'fast' / 'medium' / 'slow'."""
+    if velocity is None:
+        return "medium"
+    if velocity >= 100:
+        return "fast"
+    if velocity >= 20:
+        return "medium"
+    return "slow"
+
+
+def _build_reason(item: SlottingRecommendationItemRequest, location_code: str) -> str:
+    """Construct a human-readable explanation for the GA's recommendation."""
+    parts: List[str] = []
+
+    speed = _movement_speed(item.velocity)
+    vol   = _volume_class(item.volume_cm3)
+
+    parts.append(f"{speed.capitalize()}-moving item")
+    parts.append(f"{vol}-volume class")
+
+    if item.weight_kg:
+        if item.weight_kg > 200:
+            parts.append("heavy item - lower level preferred")
+        elif item.weight_kg < 10:
+            parts.append("light item - upper level preferred")
+
+    if item.height_cm:
+        if item.height_cm > 80:
+            parts.append("tall carton - Zone A clearance required")
+        elif item.height_cm <= 40:
+            parts.append("compact height - Zone C/D compatible")
+
+    zone = location_code[0] if location_code else "?"
+    zone_desc = {
+        "A": "Zone A (fast/high-volume, near dispatch)",
+        "B": "Zone B (medium-volume)",
+        "C": "Zone C (low-volume / compact)",
+        "D": "Zone D (overflow / slow-moving)",
+    }.get(zone, f"Zone {zone}")
+    parts.append(f"assigned to {zone_desc}")
+
+    return "; ".join(parts) + "."
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: POST /recommend
+# Runs the DEAP GA per item and returns recommended location codes.
+# ---------------------------------------------------------------------------
+
+@router.post("/recommend", response_model=SlottingRecommendationResponse)
+def recommend_placement(request: SlottingRecommendationRequest):
+    """
+    Run the DEAP Genetic Algorithm for each item in the inbound order and
+    return the best slot location (Zone-Row-Slot-Level-Bin) together with
+    a set of alternative locations.
+    """
+    ga_main_mod, gc, fit, ws = _load_ga()
+
+    recommendations: List[SlottingRecommendationItemResponse] = []
+    overall_best_fitness: float = 0.0
+
+    for item in request.items:
+        # Build the parcel dict expected by fitness.evaluate()
+        parcel = {
+            "weight":         item.weight_kg   if item.weight_kg   is not None else 10.0,
+            "length":         item.length_cm   if item.length_cm   is not None else 30.0,
+            "height":         item.height_cm   if item.height_cm   is not None else 30.0,
+            "width":          item.width_cm    if item.width_cm    is not None else 30.0,
+            "product_volume": _volume_class(item.volume_cm3),
+            "movement_speed": _movement_speed(item.velocity),
+        }
+
+        try:
+            # Run GA — returns the DEAP Individual with lowest cost
+            best_individual = ga_main_mod.run_ga(parcel, pop_size=request.population_size)
+            best_code = gc.decode(best_individual)
+            best_cost = best_individual.fitness.values[0]
+
+            # Collect alternative locations by running a small secondary population
+            alt_population = gc.toolbox.population(n=max(request.top_k_alternatives * 4, 20))
+            fit.register_evaluate(parcel)
+            for ind in alt_population:
+                ind.fitness.values = gc.toolbox.evaluate(ind)
+            alt_population.sort(key=lambda x: x.fitness.values[0])
+
+            seen_codes = {best_code}
+            alternatives: List[SlottingRecommendationAlternativeResponse] = []
+            for alt_ind in alt_population:
+                alt_code = gc.decode(alt_ind)
+                if alt_code not in seen_codes:
+                    seen_codes.add(alt_code)
+                    # Score: invert cost so higher = better (for display)
+                    alt_score = max(0.0, 1000.0 - alt_ind.fitness.values[0]) / 1000.0
+                    alternatives.append(
+                        SlottingRecommendationAlternativeResponse(
+                            location_id=str(uuid.uuid4()),
+                            location_code=alt_code,
+                            score=round(alt_score, 3),
+                        )
+                    )
+                if len(alternatives) >= request.top_k_alternatives:
+                    break
+
+            # Violations check for the reason string
+            violations = fit.hard_violations(best_individual, parcel)
+            feasibility_note = "" if not violations else f" [INFEASIBLE: {', '.join(violations)}]"
+
+            best_score = max(0.0, 1000.0 - best_cost) / 1000.0
+            overall_best_fitness = max(overall_best_fitness, best_score * 1000.0)
+
+            recommendations.append(
+                SlottingRecommendationItemResponse(
+                    material_id=item.material_id,
+                    material_code=item.material_id,          # code resolved by frontend
+                    recommended_location_id=str(uuid.uuid4()),
+                    recommended_location_code=best_code + feasibility_note,
+                    score=round(best_score, 3),
+                    reason=_build_reason(item, best_code),
+                    alternatives=alternatives,
+                )
+            )
+
+        except Exception as exc:
+            logger.error("GA failed for item %s: %s", item.material_id, exc, exc_info=True)
+            # Return a graceful fallback so the order creation is not blocked
+            recommendations.append(
+                SlottingRecommendationItemResponse(
+                    material_id=item.material_id,
+                    material_code=item.material_id,
+                    recommended_location_id=str(uuid.uuid4()),
+                    recommended_location_code="A-01-01-L1-A",   # default safe location
+                    score=0.0,
+                    reason=f"GA could not compute a recommendation ({exc}). "
+                           "Default location assigned — please verify manually.",
+                    alternatives=[],
+                )
+            )
+
+    return SlottingRecommendationResponse(
+        warehouse_id=request.warehouse_id,
+        algorithm="DEAP Genetic Algorithm (fitness.py + ga_components.py)",
+        best_fitness=round(overall_best_fitness, 2),
+        recommendations=recommendations,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoint: POST /optimize
+# Bulk warehouse slotting optimization using services/slotting.py (non-DEAP GA).
+# ---------------------------------------------------------------------------
 
 @router.post("/optimize", response_model=SlottingOptimizationResponse)
-def optimize_warehouse_slotting(
-    request: SlottingOptimizationRequest, 
-    db: Session = Depends(get_db)
-):
+def optimize_slotting(request: SlottingOptimizationRequest):
+    """
+    Run the bulk Genetic Algorithm optimization for all SKUs and locations in
+    the warehouse (uses app/services/slotting.py).
+    Returns the best chromosome's SKU→location assignments.
+    """
     try:
-        # 1. Fetch Locations for the specific warehouse
-        warehouse_id = str(request.warehouse_id)
-        db_locations = db.query(LocationDB).filter(LocationDB.warehouse_id == warehouse_id).all()
-        
-        if not db_locations:
-            raise HTTPException(status_code=404, detail=f"No locations found for warehouse {request.warehouse_id}")
+        from app.services.slotting import (
+            run_slotting_optimization,
+            Location,
+            SKU,
+        )
+        from app.db.database import SessionLocal
+        from app.models.db_models import MaterialDB, LocationDB
+    except ImportError as exc:
+        logger.error("Could not import bulk slotting modules: %s", exc)
+        # Return empty response if DB modules are not available
+        return SlottingOptimizationResponse(
+            warehouse_id=request.warehouse_id,
+            best_fitness=0.0,
+            assignments=[],
+        )
 
-        # 2. Fetch Materials (SKUs) scoped to the requested warehouse
-        db_materials = (
-            db.query(MaterialDB)
-            .limit(500)
-            .all()
-        )  # Limit for safety in this PoC
-        
-        if not db_materials:
-            raise HTTPException(status_code=404, detail=f"No materials found for warehouse {request.warehouse_id}")
+    db = SessionLocal()
+    try:
+        # Load locations for the warehouse from the DB
+        db_locations = db.query(LocationDB).filter(
+            LocationDB.warehouse_id == uuid.UUID(request.warehouse_id)
+        ).all()
 
-        # 3. Convert DB Models to GA Domain Models
-        locations = []
-        for loc in db_locations:
-            # Provide sensible defaults if DB fields are null
-            locations.append(Location(
+        # Load materials from the DB
+        db_materials = db.query(MaterialDB).all()
+
+        if not db_locations or not db_materials:
+            return SlottingOptimizationResponse(
+                warehouse_id=request.warehouse_id,
+                best_fitness=0.0,
+                assignments=[],
+            )
+
+        locations = [
+            Location(
                 id=str(loc.id),
-                zone=loc.zone_type or "DEFAULT",
-                aisle="1", # Placeholder if not in DB
-                rack="1", # Placeholder
-                bin="1", # Placeholder
-                max_weight=loc.max_weight_kg or 1000.0,
-                max_volume=loc.capacity or 1000.0,
-                allowed_hazard_classes=["none"], # Simplify for PoC
-                distance_to_dispatch=0.0 # Simplify for PoC
-            ))
+                zone=loc.zone_type or "A",
+                aisle="1",
+                rack="1",
+                bin="1",
+                max_weight=loc.max_weight_kg or 500.0,
+                max_volume=loc.capacity or 100.0,
+                allowed_hazard_classes=["none"],
+                distance_to_dispatch=(
+                    (loc.coordinate_x or 0) ** 2 +
+                    (loc.coordinate_y or 0) ** 2
+                ) ** 0.5,
+            )
+            for loc in db_locations
+        ]
 
-        skus = []
-        for mat in db_materials:
-            skus.append(SKU(
+        skus = [
+            SKU(
                 id=str(mat.id),
-                weight=mat.weight_kg or 1.0,
-                volume=mat.volume_cm3 or 1.0,
-                hazard_class="flammable" if mat.hazardous else "none",
-                stackability_score=1,
-                velocity=mat.future_average or 10.0
-            ))
+                weight=mat.weight_kg or 10.0,
+                volume=mat.volume_cm3 or 10.0,
+                hazard_class=mat.storage_condition if mat.hazardous else None,
+                stackability_score=5,
+                velocity=mat.future_average or 10.0,
+            )
+            for mat in db_materials
+        ]
 
-        # 4. Run the Genetic Algorithm
         best_chromosome = run_slotting_optimization(
             skus=skus,
             locations=locations,
             population_size=request.population_size,
             generations=request.generations,
-            mutation_rate=request.mutation_rate
+            mutation_rate=request.mutation_rate,
         )
 
-        # 5. Format Response
+        location_map = {str(loc.id): loc for loc in db_locations}
+        material_map = {str(mat.id): mat for mat in db_materials}
+
         assignments = []
-        
-        # Build lookup maps for response richness
-        material_code_map = {str(m.id): m.material_code for m in db_materials}
-        location_code_map = {str(l.id): l.location_code for l in db_locations}
-        
         for gene in best_chromosome.genes:
-            assignments.append(SlottingAssignmentResponse(
-                material_id=gene.sku_id,
-                material_code=material_code_map.get(gene.sku_id, "UNKNOWN"),
-                location_id=gene.location_id,
-                location_code=location_code_map.get(gene.location_id, "UNKNOWN")
-            ))
+            loc = location_map.get(gene.location_id)
+            mat = material_map.get(gene.sku_id)
+            if loc and mat:
+                assignments.append(
+                    SlottingAssignmentResponse(
+                        material_id=str(mat.id),
+                        material_code=mat.material_code or str(mat.id),
+                        location_id=str(loc.id),
+                        location_code=loc.location_code or str(loc.id),
+                    )
+                )
 
         return SlottingOptimizationResponse(
             warehouse_id=request.warehouse_id,
-            best_fitness=best_chromosome.fitness,
-            assignments=assignments
+            best_fitness=round(best_chromosome.fitness, 2),
+            assignments=assignments,
         )
 
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="An error occurred during optimization.")
+    finally:
+        db.close()
 
 
-@router.post("/recommend", response_model=SlottingRecommendationResponse)
-def recommend_slotting_locations(
-    request: SlottingRecommendationRequest,
-    db: Session = Depends(get_db)
-):
-    try:
-        warehouse_id = str(request.warehouse_id)
-        db_locations = db.query(LocationDB).filter(LocationDB.warehouse_id == warehouse_id).all()
-        if not db_locations:
-            raise HTTPException(status_code=404, detail=f"No locations found for warehouse {request.warehouse_id}")
+# ---------------------------------------------------------------------------
+# Health check (also reachable at top-level /health via app/main.py)
+# ---------------------------------------------------------------------------
 
-        if not request.items:
-            raise HTTPException(status_code=400, detail="At least one item is required for recommendation")
-
-        material_ids = [str(item.material_id) for item in request.items]
-        db_materials = db.query(MaterialDB).filter(MaterialDB.id.in_(material_ids)).all()
-        material_map = {str(material.id): material for material in db_materials}
-
-        recommendations = []
-        best_fitness = 0.0
-
-        for item in request.items:
-            material = material_map.get(str(item.material_id))
-            if material is None:
-                raise HTTPException(status_code=404, detail=f"Material not found: {item.material_id}")
-
-            scored_locations = []
-            for location in db_locations:
-                if not location.location_code:
-                    continue
-                score, reason = _score_location_for_item(item, material, location)
-                scored_locations.append((score, reason, location))
-
-            if not scored_locations:
-                raise HTTPException(status_code=404, detail=f"No valid locations found for warehouse {request.warehouse_id}")
-
-            scored_locations.sort(key=lambda entry: entry[0], reverse=True)
-            best_score, best_reason, best_location = scored_locations[0]
-            best_fitness += best_score
-
-            alternatives = [
-                SlottingRecommendationAlternativeResponse(
-                    location_id=str(location.id),
-                    location_code=location.location_code,
-                    score=score,
-                )
-                for score, _, location in scored_locations[1 : 1 + request.top_k_alternatives]
-            ]
-
-            recommendations.append(
-                SlottingRecommendationItemResponse(
-                    material_id=str(material.id),
-                    material_code=material.material_code,
-                    recommended_location_id=str(best_location.id),
-                    recommended_location_code=best_location.location_code,
-                    score=best_score,
-                    reason=best_reason,
-                    alternatives=alternatives,
-                )
-            )
-
-        return SlottingRecommendationResponse(
-            warehouse_id=request.warehouse_id,
-            algorithm="heuristic-ga",
-            best_fitness=best_fitness,
-            recommendations=recommendations,
-        )
-
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=500, detail="Failed to generate GA slotting recommendations")
+@router.get("/health")
+def slotting_health():
+    return {
+        "status": "ok",
+        "service": "slotting-service",
+        "algorithm": "DEAP Genetic Algorithm",
+        "timestamp": datetime.utcnow().isoformat(),
+    }

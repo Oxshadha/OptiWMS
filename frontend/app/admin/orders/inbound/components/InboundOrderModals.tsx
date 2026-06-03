@@ -20,6 +20,7 @@ import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "../types";
 
+
 function getInboundStatusTone(status: string): StatusTone {
   if (status === "completed") return "success";
   if (status === "cancelled") return "danger";
