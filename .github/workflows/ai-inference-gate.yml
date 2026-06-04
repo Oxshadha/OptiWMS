@@ -3,7 +3,7 @@ name: AI Inference Gate
 on:
   pull_request:
     paths:
-      - "ai-services/**"
+      - "ai_services/**"
       - "backend/**"
       - ".github/workflows/ai-inference-gate.yml"
   push:
@@ -11,7 +11,7 @@ on:
       - main
       - master
     paths:
-      - "ai-services/**"
+      - "ai_services/**"
       - "backend/**"
 
 jobs:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ai-services/forecast-service
+        working-directory: ai_services/forecast-service
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
