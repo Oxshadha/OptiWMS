@@ -40,15 +40,8 @@ const allNavItems = [
   },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
-  {
-    href: "/admin/replenishment",
-    label: "Replenishment",
-    icon: "move_to_inbox",
-    subItems: [
-      { href: "/admin/replenishment", label: "Replenishment Planner" },
-      { href: "/admin/replenishment/storage", label: "Storage Optimizer" },
-    ],
-  },
+  { href: "/admin/replenishment", label: "Replenishment Planner", icon: "move_to_inbox" },
+  { href: "/admin/replenishment/storage", label: "Storage Optimizer", icon: "layers" },
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
   { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
   { href: "/admin/bom-master", label: "BOM Master", icon: "account_tree" },
