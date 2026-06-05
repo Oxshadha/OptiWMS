@@ -134,7 +134,7 @@ if __name__ == "__main__":
         print("  ──────────────")
         print(f"  Location       :  {loc_code}")
         print(f"  Fitness Cost   :  {fitness_score:.1f}   (lower = better)")
-        print(f"  Feasibility    :  {feasibility_status}")
+        #print(f"  Feasibility    :  {feasibility_status}")
         print(f"  Reason         :  {reason}")
 
         if not violations:
