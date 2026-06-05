@@ -64,6 +64,52 @@ export interface SlottingOptimizationResponse {
   assignments: SlottingAssignmentResponse[];
 }
 
+export interface SlottingRecommendationItemRequest {
+  material_id: string;
+  quantity: number;
+  weight_kg?: number;
+  volume_cm3?: number;
+  length_cm?: number;
+  width_cm?: number;
+  height_cm?: number;
+  hazard_class?: string;
+  velocity?: number;
+  preferred_zone?: string;
+  current_location_code?: string;
+}
+
+export interface SlottingRecommendationRequest {
+  warehouse_id: string;
+  items: SlottingRecommendationItemRequest[];
+  population_size: number;
+  generations: number;
+  mutation_rate: number;
+  top_k_alternatives?: number;
+}
+
+export interface SlottingRecommendationAlternative {
+  location_id: string;
+  location_code: string;
+  score: number;
+}
+
+export interface SlottingRecommendationItemResponse {
+  material_id: string;
+  material_code: string;
+  recommended_location_id: string;
+  recommended_location_code: string;
+  score: number;
+  reason: string;
+  alternatives: SlottingRecommendationAlternative[];
+}
+
+export interface SlottingRecommendationResponse {
+  warehouse_id: string;
+  algorithm: string;
+  best_fitness: number;
+  recommendations: SlottingRecommendationItemResponse[];
+}
+
 export class AISlottingService {
   private static baseUrl = process.env.NEXT_PUBLIC_AI_SERVICES_URL?.trim()
     ? `${process.env.NEXT_PUBLIC_AI_SERVICES_URL.trim()}/slotting`
@@ -97,7 +143,11 @@ export class AISlottingService {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+<<<<<<< HEAD
       throw new Error(errorData.detail || 'Failed to generate GA slotting recommendations');
+=======
+      throw new Error(errorData.detail || 'Failed to recommend a location');
+>>>>>>> dev
     }
 
     return response.json();
