@@ -70,6 +70,21 @@ export default function ReplenishmentDashboard() {
         return '#10b981'; // green-500
     };
 
+    const CustomScatterTooltip = ({ active, payload }: any) => {
+        if (active && payload && payload.length) {
+            const data = payload[0].payload;
+            return (
+                <div className="bg-base-100 p-3 border border-base-300 rounded-xl shadow-lg">
+                    <p className="font-bold text-base-content mb-2 border-b border-base-200 pb-1">{data.sku}</p>
+                    <p className="text-sm text-base-content/70 mb-1">Volatility (Risk): <span className="font-semibold text-base-content">{data.volatility}</span></p>
+                    <p className="text-sm text-base-content/70 mb-1">Annual Value: <span className="font-semibold text-base-content">{data.value.toLocaleString()} LKR</span></p>
+                    <p className="text-sm text-base-content/70">Order Qty: <span className="font-semibold text-base-content">{data.qty}</span></p>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div className="space-y-6 text-base-content">
             {/* KPI Row */}
@@ -150,7 +165,7 @@ export default function ReplenishmentDashboard() {
                                 <XAxis type="number" dataKey="volatility" name="Demand Volatility (CoV)" tick={{fontSize: 12}} domain={[0, 1]} label={{ value: 'Volatility (Risk)', position: 'bottom', offset: 0, fontSize: 12 }} />
                                 <YAxis type="number" dataKey="value" name="Annual Value" tickFormatter={(v) => `${v/1000000}M`} tick={{fontSize: 12}} label={{ value: 'Annual Value (LKR)', angle: -90, position: 'left', fontSize: 12 }} />
                                 <ZAxis type="number" dataKey="qty" range={[60, 400]} name="Order Qty" />
-                                <Tooltip cursor={{strokeDasharray: '3 3'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} formatter={(value, name) => name === 'Annual Value' ? `${value} LKR` : value} />
+                                <Tooltip cursor={{strokeDasharray: '3 3'}} content={<CustomScatterTooltip />} />
                                 <Scatter name="SKUs" data={scatterData}>
                                     {scatterData.map((entry, index) => {
                                         const matchesSearch = searchQuery === '' || entry.sku.toLowerCase().includes(searchQuery.toLowerCase());
