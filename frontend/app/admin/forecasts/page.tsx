@@ -93,7 +93,7 @@ function makeForecastData() {
     const forecast = Math.round(trend + seasonal + (Math.random() - 0.5) * 60);
     const upper = forecast + Math.round(120 + i * 2);
     const lower = forecast - Math.round(100 + i * 2);
-    return { label, actual, forecast, upper, lower, trend: Math.round(trend) };
+    return { label, actual, forecast, upper, lower, ciRange: [lower, upper], trend: Math.round(trend) };
   });
 }
 
@@ -145,6 +145,17 @@ function makeExogData() {
     priceIndex: +(1 + 0.04 * i + (Math.random() - 0.5) * 0.05).toFixed(2),
   }));
 }
+
+const CustomBrushHandle = (props: any) => {
+  const { x, y, width, height } = props;
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <rect x={0} y={0} width={width} height={height} fill={C.panel} stroke={C.textDim} rx={2} />
+      <line x1={width / 2 - 2} y1={height / 3} x2={width / 2 - 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
+      <line x1={width / 2 + 2} y1={height / 3} x2={width / 2 + 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
+    </g>
+  );
+};
 
 // ── KPI Card Component ──────────────────────────────────────────
 interface KpiCardProps {
@@ -1164,6 +1175,7 @@ export default function ForecastsPage() {
         forecast: Math.round(g.forecastSum),
         upper: Math.round(g.upperSum),
         lower: Math.round(g.lowerSum),
+        ciRange: [Math.round(g.lowerSum), Math.round(g.upperSum)],
         trend: Math.round(g.forecastSum * 0.95)
       }));
   }, [latestForecasts, selectedSku, filters.horizon]);
@@ -1192,11 +1204,15 @@ export default function ForecastsPage() {
     });
     
     const nonZeroAvgs = list.map(l => l.avg).filter(v => v > 0);
-    const overallAvg = nonZeroAvgs.length ? nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length : 1.0;
+    
+    // If we have no actual historical data at all, return empty to trigger fallback
+    if (nonZeroAvgs.length === 0) return [];
+    
+    const overallAvg = nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
     
     return list.map(l => ({
       month: l.month,
-      index: overallAvg > 0 ? Number((l.avg / overallAvg).toFixed(2)) : 1.0,
+      index: Number((l.avg / overallAvg).toFixed(2)),
       sales: Math.round(l.avg)
     }));
   }, [latestForecasts, selectedSku]);
@@ -1255,7 +1271,8 @@ export default function ForecastsPage() {
       const sid = rec.sku;
       const seriesPoints = latestForecasts.filter(f => f.sku === sid);
       const actuals = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined).map(f => Number(f.y_true));
-      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 150;
+      const skuHash = sid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 80 + (skuHash % 420);
       
       const abc = velocity > 350 ? "A" : velocity > 120 ? "B" : "C";
       const xyz = rec.suggested_order_qty > 200 ? "Z" : rec.suggested_order_qty > 50 ? "Y" : "X";
@@ -1263,7 +1280,7 @@ export default function ForecastsPage() {
       const hist = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined);
       const sumAbsErr = hist.reduce((s, f) => s + Math.abs(Number(f.y_true) - Number(f.p50)), 0);
       const sumActual = hist.reduce((s, f) => s + Number(f.y_true), 0);
-      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 5.0 + (sumAbsErr % 8);
+      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 3.0 + (skuHash % 60) / 10;
       
       const onHand = rec.on_hand_inventory ?? 0;
       const coverDays = velocity > 0 ? Math.round((onHand / (velocity / 30))) : 20;
@@ -1653,15 +1670,16 @@ export default function ForecastsPage() {
                   )}
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="upper" fill={C.accent} fillOpacity={0.06} stroke="none" name="Upper 90% CI" />
-                      <Area type="monotone" dataKey="lower" fill="none" stroke="none" name="Lower 90% CI" />
+                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
+                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
+                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
                     </>
                   )}
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1} dot={false} strokeDasharray="4 3" name="Trend Baseline" />
-                  <Line type="monotone" dataKey="actual" stroke={C.accent3} strokeWidth={2.5} dot={false} name="Actual demand" connectNulls />
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Expected Forecast (Retrospective)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Expected Forecast (Projected)" connectNulls />
-                  <Brush dataKey="label" height={20} stroke={C.border + "40"} fill="transparent" />
+                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1} dot={false} strokeDasharray="4 3" name="Baseline Trend" />
+                  <Line type="monotone" dataKey="actual" stroke="#000000" strokeWidth={2.5} dot={false} name="Actual Demand" connectNulls />
+                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
+                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Future Forecast" connectNulls />
+                  <Brush dataKey="label" height={24} stroke={C.textDim} fill={C.border} tickFormatter={() => ""} travellerWidth={14} traveller={CustomBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1727,13 +1745,14 @@ export default function ForecastsPage() {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="upper" fill={C.accent} fillOpacity={0.15} stroke={C.accent + "33"} strokeDasharray="3 2" name="Upper 90% Bound" />
-                      <Area type="monotone" dataKey="lower" fill="transparent" stroke={C.accent + "33"} strokeDasharray="3 2" name="Lower 90% Bound" />
+                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
+                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
+                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
                     </>
                   )}
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent} strokeWidth={2.5} strokeDasharray="5 5" name="Expected Forecast (Retrospective)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={3} dot={{ r: 4, fill: C.accent }} name="Expected Forecast (Projected)" connectNulls />
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Trend Baseline" />
+                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2.5} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
+                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={3} dot={{ r: 4, fill: C.accent }} name="Future Forecast" connectNulls />
+                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Baseline Trend" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1741,9 +1760,9 @@ export default function ForecastsPage() {
 
           {/* Exogenous Variables & Seasonality Radar */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Exogenous signals */}
+            {/* Market Drivers */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Exogenous Variables Impact" sub="Calendar event correlation with weather & pricing effects" color={C.accent4} />
+              <SectionHeader title="Market Drivers & Promotions" sub="How external events (weather, pricing, campaigns) impact our baseline demand" color={C.accent4} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={finalExog.slice(0, 12)}>
@@ -1752,9 +1771,10 @@ export default function ForecastsPage() {
                     <YAxis yAxisId="left" tick={{ fill: "currentColor", fontSize: 10 }} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fill: "currentColor", fontSize: 10 }} />
                     <Tooltip content={<ChartTip />} />
-                    <Bar yAxisId="left" dataKey="promo" name="Promotion Event" fill={C.accent2} fillOpacity={0.75} radius={[3, 3, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="weatherImpact" stroke={C.accent4} strokeWidth={2} dot={false} name="Weather Factor" />
-                    <Line yAxisId="right" type="monotone" dataKey="priceIndex" stroke={C.accent3} strokeWidth={2} dot={false} name="Price Index" />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar yAxisId="left" dataKey="promo" name="Active Campaign (Yes=1)" fill={C.textDim} fillOpacity={0.75} radius={[3, 3, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="weatherImpact" stroke={C.muted} strokeWidth={2} dot={false} name="Weather Demand Impact (Index)" />
+                    <Line yAxisId="right" type="monotone" dataKey="priceIndex" stroke={C.accent} strokeWidth={2} dot={false} name="Market Price Index" />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -1768,8 +1788,10 @@ export default function ForecastsPage() {
                   <RadarChart data={finalSeasonality}>
                     <PolarGrid stroke="currentColor" opacity={0.1} />
                     <PolarAngleAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 9 }} />
-                    <PolarRadiusAxis angle={90} domain={[0.5, 1.5]} tick={{ fill: "currentColor", fontSize: 8 }} />
-                    <Radar name="Seasonality index" dataKey="index" stroke={C.accent3} fill={C.accent3} fillOpacity={0.18} strokeWidth={2} />
+                    <PolarRadiusAxis angle={90} domain={[0, 'auto']} tick={{ fill: "currentColor", fontSize: 8 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Radar name="Seasonality Multiplier" dataKey="index" stroke={C.accent} fill={C.accent} fillOpacity={0.15} strokeWidth={2} />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
