@@ -36,7 +36,7 @@ const allNavItems = [
   {
     href: "/admin/delivery-partners",
     label: "Delivery Partners",
-    icon: "local_shipping",
+    icon: "handshake",
   },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
