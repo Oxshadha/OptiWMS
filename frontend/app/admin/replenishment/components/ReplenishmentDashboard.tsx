@@ -3,12 +3,14 @@
 import React, { useState } from 'react';
 import { 
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
-    ScatterChart, Scatter, ZAxis, Cell, ComposedChart, Bar, Line, Legend
+    ScatterChart, Scatter, ZAxis, Cell, ComposedChart, BarChart, Bar, Line, Legend
 } from 'recharts';
 import clsx from 'clsx';
 
 export default function ReplenishmentDashboard() {
-    const [selectedSku, setSelectedSku] = useState<any>(null);
+    const [selectedSku, setSelectedSku] = useState<any>({ 
+        id: 1, sku: 'SKU-10901', name: 'Premium Widget', current: 120, rop: 500, qty: 1500, value: '1.8M LKR', risk: 'High', status: 'Pending' 
+    });
 
     // Advanced Executive KPIs
     const kpis = {
