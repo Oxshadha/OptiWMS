@@ -14,6 +14,7 @@ export default function ReplenishmentDashboard() {
     
     const [searchQuery, setSearchQuery] = useState('');
     const [filterClass, setFilterClass] = useState('All');
+    const [tableSearchQuery, setTableSearchQuery] = useState('');
 
     // Advanced Executive KPIs
     const kpis = {
@@ -228,7 +229,16 @@ export default function ReplenishmentDashboard() {
                 
                 {/* Recommendations Table */}
                 <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-300 lg:col-span-2">
-                    <h3 className="text-xl font-bold text-base-content mb-6">AI Procurement Recommendations</h3>
+                    <div className="flex justify-between items-end mb-6">
+                        <h3 className="text-xl font-bold text-base-content">AI Procurement Recommendations</h3>
+                        <input 
+                            type="text" 
+                            placeholder="Search SKU or Name..." 
+                            className="input input-bordered input-sm w-48 bg-base-100"
+                            value={tableSearchQuery}
+                            onChange={(e) => setTableSearchQuery(e.target.value)}
+                        />
+                    </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm text-base-content/80">
                             <thead className="bg-base-200 dark:bg-base-300 text-base-content uppercase text-xs tracking-wider">
@@ -242,7 +252,10 @@ export default function ReplenishmentDashboard() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-base-200 dark:divide-base-300">
-                                {recommendedOrders.map((order) => (
+                                {recommendedOrders.filter(order => 
+                                    order.sku.toLowerCase().includes(tableSearchQuery.toLowerCase()) || 
+                                    order.name.toLowerCase().includes(tableSearchQuery.toLowerCase())
+                                ).map((order) => (
                                     <tr key={order.id} className="hover:bg-base-200/50 transition-colors">
                                         <td className="px-4 py-4">
                                             <div className="font-bold text-info cursor-pointer hover:underline" onClick={() => setSelectedSku(order)}>{order.sku}</div>
