@@ -7,5 +7,4 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110.0",
   "uvicorn[standard]>=0.29.0",
-  "pygad>=3.3.0",
 ]

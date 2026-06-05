@@ -89,15 +89,16 @@ public class OrderItemController {
                         suggestedLocation = materialLocationService.suggestLocationForPutaway(
                                 item.getMaterialId(),
                                 order.getWarehouseId(),
-                                item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity());
-                        Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity()
-                                : item.getQuantity();
+                                item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity()
+                        );
+                        Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity();
                         if (putawayQty != null && putawayQty > 0) {
                             var plan = putawayCapacityPlanningService.suggestSplitPlan(
                                     order.getWarehouseId(),
                                     item.getMaterialId(),
                                     putawayQty,
-                                    suggestedLocation);
+                                    suggestedLocation
+                            );
                             splitPlan = toPutawaySplitPlanDto(plan);
                         }
                     } catch (Exception ignored) {
@@ -113,15 +114,15 @@ public class OrderItemController {
                             suggestedLocation,
                             existingLocations,
                             item.getStatus(),
-                            splitPlan);
+                            splitPlan
+                    );
                 })
                 .collect(Collectors.toList());
         return ResponseEntity.ok(putawayItems);
     }
 
     @PostMapping("/{orderId}/items")
-    public ResponseEntity<OrderItemDto> create(@PathVariable UUID orderId,
-            @RequestBody CreateOrderItemRequest request) {
+    public ResponseEntity<OrderItemDto> create(@PathVariable UUID orderId, @RequestBody CreateOrderItemRequest request) {
         UUID materialId = UUID.fromString(request.materialId());
         Order order = orderService.findById(orderId);
         if ("inbound".equalsIgnoreCase(order.getOrderType())) {
@@ -131,11 +132,13 @@ public class OrderItemController {
             }
             if (!supplierMaterialService.hasAnyMaterialLink(supplierId)) {
                 throw new IllegalArgumentException(
-                        "No materials are linked to the selected supplier. Link supplier materials first.");
+                        "No materials are linked to the selected supplier. Link supplier materials first."
+                );
             }
             if (!supplierMaterialService.isMaterialLinked(supplierId, materialId)) {
                 throw new IllegalArgumentException(
-                        "Selected material is not linked to the supplier for this inbound order.");
+                        "Selected material is not linked to the supplier for this inbound order."
+                );
             }
 
             var primaryDefault = materialDefaultLocationService.getPrimaryLocation(materialId, order.getWarehouseId());
@@ -144,7 +147,8 @@ public class OrderItemController {
                     order.getWarehouseId(),
                     materialId,
                     request.quantity(),
-                    preferredLocationCode);
+                    preferredLocationCode
+            );
             if (!splitPlan.feasible()) {
                 String notes = splitPlan.notes() != null ? String.join(" ", splitPlan.notes()) : "";
                 String message = "Insufficient storage capacity for inbound item quantity " + request.quantity()
@@ -159,10 +163,6 @@ public class OrderItemController {
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());
-        item.setWeightKg(request.weightKg());
-        item.setHeightCm(request.heightCm());
-        item.setLengthCm(request.lengthCm());
-        item.setWidthCm(request.widthCm());
         item.setBatchNumber(request.batchNumber());
         item.setManufactureDate(request.manufactureDate());
         item.setExpiryDate(request.expiryDate());
@@ -175,15 +175,12 @@ public class OrderItemController {
     @PutMapping("/items/{itemId}")
     public ResponseEntity<OrderItemDto> update(
             @PathVariable UUID itemId,
-            @RequestBody UpdateOrderItemRequest request) {
+            @RequestBody UpdateOrderItemRequest request
+    ) {
         OrderItem item = new OrderItem();
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());
-        item.setWeightKg(request.weightKg());
-        item.setHeightCm(request.heightCm());
-        item.setLengthCm(request.lengthCm());
-        item.setWidthCm(request.widthCm());
         item.setBatchNumber(request.batchNumber());
         item.setManufactureDate(request.manufactureDate());
         item.setExpiryDate(request.expiryDate());
@@ -218,16 +215,13 @@ public class OrderItemController {
                 item.getPickedQuantity(),
                 item.getPackedQuantity(),
                 item.getLocationCode(),
-                item.getWeightKg(),
-                item.getHeightCm(),
-                item.getLengthCm(),
-                item.getWidthCm(),
                 item.getBatchNumber(),
                 item.getManufactureDate(),
                 item.getExpiryDate(),
                 materialCode,
                 materialName,
-                item.getStatus());
+                item.getStatus()
+        );
     }
 
     public record OrderItemDto(
@@ -239,45 +233,33 @@ public class OrderItemController {
             Integer pickedQuantity,
             Integer packedQuantity,
             String locationCode,
-            java.math.BigDecimal weightKg,
-            java.math.BigDecimal heightCm,
-            java.math.BigDecimal lengthCm,
-            java.math.BigDecimal widthCm,
             String batchNumber,
             java.time.LocalDate manufactureDate,
             java.time.LocalDate expiryDate,
             String materialCode,
             String materialName,
-            String status) {
-    }
+            String status
+    ) {}
 
     public record CreateOrderItemRequest(
             String materialId,
             Integer quantity,
             String unitPrice,
             String locationCode,
-            java.math.BigDecimal weightKg,
-            java.math.BigDecimal heightCm,
-            java.math.BigDecimal lengthCm,
-            java.math.BigDecimal widthCm,
             String batchNumber,
             java.time.LocalDate manufactureDate,
-            java.time.LocalDate expiryDate) {
-    }
+            java.time.LocalDate expiryDate
+    ) {}
 
     public record UpdateOrderItemRequest(
             Integer quantity,
             String unitPrice,
             String locationCode,
-            java.math.BigDecimal weightKg,
-            java.math.BigDecimal heightCm,
-            java.math.BigDecimal lengthCm,
-            java.math.BigDecimal widthCm,
             String batchNumber,
             java.time.LocalDate manufactureDate,
             java.time.LocalDate expiryDate,
-            String status) {
-    }
+            String status
+    ) {}
 
     public record PutawayItemDto(
             String itemId,
@@ -289,8 +271,8 @@ public class OrderItemController {
             String suggestedLocation,
             List<String> existingLocations,
             String status,
-            PutawaySplitPlanDto splitPlan) {
-    }
+            PutawaySplitPlanDto splitPlan
+    ) {}
 
     public record PutawaySplitPlanDto(
             boolean feasible,
@@ -298,14 +280,14 @@ public class OrderItemController {
             int plannedQuantity,
             int unplannedQuantity,
             List<PutawaySplitLineDto> allocations,
-            List<String> notes) {
-    }
+            List<String> notes
+    ) {}
 
     public record PutawaySplitLineDto(
             String locationCode,
             int allocatedQuantity,
-            String reason) {
-    }
+            String reason
+    ) {}
 
     private PutawaySplitPlanDto toPutawaySplitPlanDto(PutawayCapacityPlanningService.SplitPlanResult plan) {
         return new PutawaySplitPlanDto(
@@ -317,8 +299,10 @@ public class OrderItemController {
                         .map(line -> new PutawaySplitLineDto(
                                 line.locationCode(),
                                 line.allocatedQuantity(),
-                                line.reason()))
+                                line.reason()
+                        ))
                         .collect(Collectors.toList()),
-                plan.notes());
+                plan.notes()
+        );
     }
 }

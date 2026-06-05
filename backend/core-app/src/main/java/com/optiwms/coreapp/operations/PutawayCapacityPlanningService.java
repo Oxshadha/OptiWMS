@@ -35,7 +35,8 @@ public class PutawayCapacityPlanningService {
             UUID warehouseId,
             UUID materialId,
             Integer totalQuantity,
-            String preferredLocationCode) {
+            String preferredLocationCode
+    ) {
         if (totalQuantity == null || totalQuantity <= 0) {
             throw new RuntimeException("Quantity must be greater than 0");
         }
@@ -49,7 +50,6 @@ public class PutawayCapacityPlanningService {
         Map<UUID, Material> materialCache = buildMaterialCache(warehouseInventory, materialId, inboundMaterial);
 
         List<Location> candidateLocations = locationService.findAvailableByWarehouse(warehouseId).stream()
-                .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
                 .filter(this::isStorageLocation)
                 .sorted(locationComparator(preferredLocationCode, materialId, inventoryByLocation))
                 .toList();
@@ -60,13 +60,13 @@ public class PutawayCapacityPlanningService {
         BigDecimal unitsPerPallet = inboundMaterial.getPalletSpaces();
         if (unitsPerPallet != null && unitsPerPallet.compareTo(BigDecimal.ZERO) > 0) {
             requiredPalletSlots = toPositiveIntCeil(
-                    BigDecimal.valueOf(totalQuantity).divide(unitsPerPallet, 8, RoundingMode.CEILING));
+                    BigDecimal.valueOf(totalQuantity).divide(unitsPerPallet, 8, RoundingMode.CEILING)
+            );
             availablePalletSlots = candidateLocations.stream()
                     .mapToInt(loc -> {
                         Integer max = loc.getMaxPalletCapacity();
                         Integer current = loc.getCurrentPalletCount();
-                        if (max == null || max <= 0)
-                            return 0;
+                        if (max == null || max <= 0) return 0;
                         return Math.max(max - (current != null ? current : 0), 0);
                     })
                     .sum();
@@ -96,7 +96,8 @@ public class PutawayCapacityPlanningService {
                     allocated,
                     allocationReason(location, preferredLocationCode, materialId,
                             inventoryByLocation.getOrDefault(location.getLocationCode(), List.of())),
-                    projected));
+                    projected
+            ));
             remaining -= allocated;
         }
 
@@ -123,14 +124,16 @@ public class PutawayCapacityPlanningService {
                 availablePalletSlots,
                 toString(unitsPerPallet),
                 planLines,
-                notes);
+                notes
+        );
     }
 
     public ValidationResult validateSingleLocation(
             UUID warehouseId,
             UUID materialId,
             Integer quantity,
-            String locationCode) {
+            String locationCode
+    ) {
         if (quantity == null || quantity <= 0) {
             throw new RuntimeException("Invalid putaway quantity");
         }
@@ -164,7 +167,8 @@ public class PutawayCapacityPlanningService {
                 quantity,
                 inboundMaterial,
                 locationInventory,
-                materialCache);
+                materialCache
+        );
 
         List<String> violations = new ArrayList<>();
         if (computation.blockedByRackPalletRule()) {
@@ -198,10 +202,11 @@ public class PutawayCapacityPlanningService {
     private Comparator<Location> locationComparator(
             String preferredLocationCode,
             UUID materialId,
-            Map<String, List<InventoryItem>> inventoryByLocation) {
+            Map<String, List<InventoryItem>> inventoryByLocation
+    ) {
         String preferred = preferredLocationCode != null ? preferredLocationCode.trim().toUpperCase(Locale.ROOT) : null;
         return Comparator
-                .comparing((Location loc) -> !sameLocationCode(loc.getLocationCode(), preferred))
+                .comparing((Location loc) -> !loc.getLocationCode().equalsIgnoreCase(preferred != null ? preferred : ""))
                 .thenComparing((Location loc) -> {
                     List<InventoryItem> inv = inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of());
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
@@ -211,8 +216,7 @@ public class PutawayCapacityPlanningService {
                     List<InventoryItem> inv = inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of());
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
                     int level = loc.getLevelNumber() != null ? loc.getLevelNumber() : 0;
-                    // Consolidation prefers easy-access lower levels; overflow prefers
-                    // deeper/higher levels.
+                    // Consolidation prefers easy-access lower levels; overflow prefers deeper/higher levels.
                     return hasMaterial ? level : -level;
                 })
                 .thenComparing(Location::getLocationCode);
@@ -222,8 +226,9 @@ public class PutawayCapacityPlanningService {
             Location location,
             String preferredLocationCode,
             UUID materialId,
-            List<InventoryItem> locationInventory) {
-        if (sameLocationCode(location.getLocationCode(), preferredLocationCode)) {
+            List<InventoryItem> locationInventory
+    ) {
+        if (preferredLocationCode != null && location.getLocationCode().equalsIgnoreCase(preferredLocationCode.trim())) {
             return "Preferred location";
         }
         boolean hasMaterial = locationInventory.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
@@ -236,20 +241,14 @@ public class PutawayCapacityPlanningService {
         return "Best available capacity";
     }
 
-    private boolean sameLocationCode(String left, String right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        return left.trim().equalsIgnoreCase(right.trim());
-    }
-
     private CapacityComputation computeCapacity(
             Location location,
             UUID inboundMaterialId,
             Integer desiredQuantity,
             Material inboundMaterial,
             List<InventoryItem> locationInventory,
-            Map<UUID, Material> materialCache) {
+            Map<UUID, Material> materialCache
+    ) {
         int currentQty = locationInventory.stream().mapToInt(item -> nvl(item.getQuantity())).sum();
         int desired = Math.max(desiredQuantity, 0);
         int allocatable = desired;
@@ -285,28 +284,24 @@ public class PutawayCapacityPlanningService {
         }
 
         if (location.getMaxWeightKg() != null && location.getMaxWeightKg().compareTo(BigDecimal.ZERO) > 0) {
-            if (inboundMaterial.getWeightKg() == null
-                    || inboundMaterial.getWeightKg().compareTo(BigDecimal.ZERO) <= 0) {
+            if (inboundMaterial.getWeightKg() == null || inboundMaterial.getWeightKg().compareTo(BigDecimal.ZERO) <= 0) {
                 allocatable = 0;
                 missingWeightMetric = true;
             } else {
                 BigDecimal remainingWeight = location.getMaxWeightKg().subtract(currentWeight);
-                int byWeight = toPositiveIntFloor(
-                        remainingWeight.divide(inboundMaterial.getWeightKg(), 8, RoundingMode.FLOOR));
+                int byWeight = toPositiveIntFloor(remainingWeight.divide(inboundMaterial.getWeightKg(), 8, RoundingMode.FLOOR));
                 allocatable = Math.min(allocatable, byWeight);
                 blockedByWeight = byWeight <= 0;
             }
         }
 
         if (location.getMaxVolumeCm3() != null && location.getMaxVolumeCm3().compareTo(BigDecimal.ZERO) > 0) {
-            if (inboundMaterial.getVolumeCm3() == null
-                    || inboundMaterial.getVolumeCm3().compareTo(BigDecimal.ZERO) <= 0) {
+            if (inboundMaterial.getVolumeCm3() == null || inboundMaterial.getVolumeCm3().compareTo(BigDecimal.ZERO) <= 0) {
                 allocatable = 0;
                 missingVolumeMetric = true;
             } else {
                 BigDecimal remainingVolume = location.getMaxVolumeCm3().subtract(currentVolume);
-                int byVolume = toPositiveIntFloor(
-                        remainingVolume.divide(inboundMaterial.getVolumeCm3(), 8, RoundingMode.FLOOR));
+                int byVolume = toPositiveIntFloor(remainingVolume.divide(inboundMaterial.getVolumeCm3(), 8, RoundingMode.FLOOR));
                 allocatable = Math.min(allocatable, byVolume);
                 blockedByVolume = byVolume <= 0;
             }
@@ -335,7 +330,8 @@ public class PutawayCapacityPlanningService {
             int currentPalletCount = location.getCurrentPalletCount() != null ? location.getCurrentPalletCount() : 0;
             int slotHeadroom = Math.max(location.getMaxPalletCapacity() - currentPalletCount, 0);
             int byPalletSlots = toPositiveIntFloor(
-                    BigDecimal.valueOf(slotHeadroom).multiply(inboundMaterial.getPalletSpaces()));
+                    BigDecimal.valueOf(slotHeadroom).multiply(inboundMaterial.getPalletSpaces())
+            );
             allocatable = Math.min(allocatable, byPalletSlots);
             if (byPalletSlots <= 0) {
                 allocatable = 0;
@@ -343,8 +339,7 @@ public class PutawayCapacityPlanningService {
             }
         }
 
-        if (allocatable < desired && !blockedByUnits && location.getCapacity() != null
-                && location.getCapacity().intValue() > 0) {
+        if (allocatable < desired && !blockedByUnits && location.getCapacity() != null && location.getCapacity().intValue() > 0) {
             blockedByUnits = true;
         }
 
@@ -360,26 +355,26 @@ public class PutawayCapacityPlanningService {
                 blockedByLpn,
                 blockedByRackPalletRule,
                 missingWeightMetric,
-                missingVolumeMetric);
+                missingVolumeMetric
+        );
     }
 
     private CapacitySnapshot buildProjectedSnapshot(
             Location location,
             Material inboundMaterial,
             CapacityComputation computation,
-            int allocationQty) {
+            int allocationQty
+    ) {
         int projectedQty = computation.currentQuantity() + Math.max(allocationQty, 0);
 
         BigDecimal projectedWeight = computation.currentWeightKg();
         if (inboundMaterial.getWeightKg() != null) {
-            projectedWeight = projectedWeight
-                    .add(inboundMaterial.getWeightKg().multiply(BigDecimal.valueOf(Math.max(allocationQty, 0))));
+            projectedWeight = projectedWeight.add(inboundMaterial.getWeightKg().multiply(BigDecimal.valueOf(Math.max(allocationQty, 0))));
         }
 
         BigDecimal projectedVolume = computation.currentVolumeCm3();
         if (inboundMaterial.getVolumeCm3() != null) {
-            projectedVolume = projectedVolume
-                    .add(inboundMaterial.getVolumeCm3().multiply(BigDecimal.valueOf(Math.max(allocationQty, 0))));
+            projectedVolume = projectedVolume.add(inboundMaterial.getVolumeCm3().multiply(BigDecimal.valueOf(Math.max(allocationQty, 0))));
         }
 
         int projectedLpn = computation.currentLpnCount();
@@ -399,7 +394,8 @@ public class PutawayCapacityPlanningService {
                 fillPercent(projectedVolume, location.getMaxVolumeCm3()),
                 projectedLpn,
                 location.getMaxLpnCount(),
-                fillPercent(projectedLpn, location.getMaxLpnCount()));
+                fillPercent(projectedLpn, location.getMaxLpnCount())
+        );
     }
 
     private String normalizeRackStatus(String rackStatus) {
@@ -423,8 +419,7 @@ public class PutawayCapacityPlanningService {
         return "STORAGE".equals(zoneType) || "storage".equals(locType);
     }
 
-    private Map<UUID, Material> buildMaterialCache(List<InventoryItem> warehouseInventory, UUID inboundMaterialId,
-            Material inboundMaterial) {
+    private Map<UUID, Material> buildMaterialCache(List<InventoryItem> warehouseInventory, UUID inboundMaterialId, Material inboundMaterial) {
         Map<UUID, Material> cache = new HashMap<>();
         cache.put(inboundMaterialId, inboundMaterial);
 
@@ -464,14 +459,12 @@ public class PutawayCapacityPlanningService {
         return value.setScale(0, RoundingMode.CEILING).intValue();
     }
 
-    private void notesForPalletModel(List<String> notes, Integer requiredPalletSlots, Integer availablePalletSlots,
-            BigDecimal unitsPerPallet) {
+    private void notesForPalletModel(List<String> notes, Integer requiredPalletSlots, Integer availablePalletSlots, BigDecimal unitsPerPallet) {
         if (requiredPalletSlots == null || availablePalletSlots == null || unitsPerPallet == null) {
             return;
         }
         notes.add("Handling model: " + unitsPerPallet.stripTrailingZeros().toPlainString() + " units per pallet slot.");
-        notes.add("Required pallet slots: " + requiredPalletSlots + ", available pallet slots: " + availablePalletSlots
-                + ".");
+        notes.add("Required pallet slots: " + requiredPalletSlots + ", available pallet slots: " + availablePalletSlots + ".");
     }
 
     private String fillPercent(Integer used, Integer max) {
@@ -510,7 +503,8 @@ public class PutawayCapacityPlanningService {
             boolean blockedByLpn,
             boolean blockedByRackPalletRule,
             boolean missingWeightMetric,
-            boolean missingVolumeMetric) {
+            boolean missingVolumeMetric
+    ) {
     }
 
     public record SplitPlanResult(
@@ -522,20 +516,23 @@ public class PutawayCapacityPlanningService {
             Integer availablePalletSlots,
             String unitsPerPallet,
             List<SplitPlanLine> allocations,
-            List<String> notes) {
+            List<String> notes
+    ) {
     }
 
     public record SplitPlanLine(
             String locationCode,
             int allocatedQuantity,
             String reason,
-            CapacitySnapshot projectedAfter) {
+            CapacitySnapshot projectedAfter
+    ) {
     }
 
     public record ValidationResult(
             boolean valid,
             List<String> violations,
-            CapacitySnapshot projectedAfter) {
+            CapacitySnapshot projectedAfter
+    ) {
     }
 
     public record CapacitySnapshot(
@@ -550,6 +547,7 @@ public class PutawayCapacityPlanningService {
             String volumeFillPercent,
             Integer lpnUsed,
             Integer lpnCapacity,
-            String lpnFillPercent) {
+            String lpnFillPercent
+    ) {
     }
 }

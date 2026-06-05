@@ -11,10 +11,6 @@ export interface OrderItem {
   pickedQuantity: number;
   packedQuantity: number;
   locationCode?: string;
-  weightKg?: number;
-  heightCm?: number;
-  lengthCm?: number;
-  widthCm?: number;
   batchNumber?: string;
   manufactureDate?: string;
   expiryDate?: string;
@@ -26,10 +22,6 @@ export interface CreateOrderItemRequest {
   quantity: number;
   unitPrice?: string;
   locationCode?: string;
-  weightKg?: number;
-  heightCm?: number;
-  lengthCm?: number;
-  widthCm?: number;
   batchNumber?: string;
   manufactureDate?: string;
   expiryDate?: string;

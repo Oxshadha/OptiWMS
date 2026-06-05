@@ -427,7 +427,7 @@ export default function MaterialsPage() {
               },
               {
                 key: "materialType",
-                label: "Category",
+                label: "Type",
                 render: (material: Material) => {
                   const typeChip = getMaterialTypeChip(material.materialType);
                   return (
@@ -441,55 +441,10 @@ export default function MaterialsPage() {
               },
               {
                 key: "unitType",
-                label: "Typical Unit Size",
+                label: "Handling Unit",
                 render: (material: Material) => (
                   <span className="text-base-content/60 uppercase">
                     {material.unitType || "—"}
-                  </span>
-                ),
-              },
-              {
-                key: "palletSpaces",
-                label: "Units Per Carton",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.palletSpaces != null ? material.palletSpaces : "—"}
-                  </span>
-                ),
-              },
-              {
-                key: "weightKg",
-                label: "Carton Weight (kg)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.weightKg != null ? material.weightKg : "—"}
-                  </span>
-                ),
-              },
-              {
-                key: "lengthCm",
-                label: "Length (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.lengthCm != null ? material.lengthCm : "—"}
-                  </span>
-                ),
-              },
-              {
-                key: "widthCm",
-                label: "Width (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.widthCm != null ? material.widthCm : "—"}
-                  </span>
-                ),
-              },
-              {
-                key: "heightCm",
-                label: "Height (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.heightCm != null ? material.heightCm : "—"}
                   </span>
                 ),
               },

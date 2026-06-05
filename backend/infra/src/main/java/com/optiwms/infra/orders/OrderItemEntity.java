@@ -39,18 +39,6 @@ public class OrderItemEntity {
     @Column(name = "location_code", length = 50)
     private String locationCode;
 
-    @Column(name = "weight_kg", precision = 10, scale = 2)
-    private BigDecimal weightKg;
-
-    @Column(name = "height_cm", precision = 10, scale = 2)
-    private BigDecimal heightCm;
-
-    @Column(name = "length_cm", precision = 10, scale = 2)
-    private BigDecimal lengthCm;
-
-    @Column(name = "width_cm", precision = 10, scale = 2)
-    private BigDecimal widthCm;
-
     @Column(name = "batch_number", length = 100)
     private String batchNumber;
 
@@ -137,38 +125,6 @@ public class OrderItemEntity {
 
     public void setLocationCode(String locationCode) {
         this.locationCode = locationCode;
-    }
-
-    public BigDecimal getWeightKg() {
-        return weightKg;
-    }
-
-    public void setWeightKg(BigDecimal weightKg) {
-        this.weightKg = weightKg;
-    }
-
-    public BigDecimal getHeightCm() {
-        return heightCm;
-    }
-
-    public void setHeightCm(BigDecimal heightCm) {
-        this.heightCm = heightCm;
-    }
-
-    public BigDecimal getLengthCm() {
-        return lengthCm;
-    }
-
-    public void setLengthCm(BigDecimal lengthCm) {
-        this.lengthCm = lengthCm;
-    }
-
-    public BigDecimal getWidthCm() {
-        return widthCm;
-    }
-
-    public void setWidthCm(BigDecimal widthCm) {
-        this.widthCm = widthCm;
     }
 
     public String getStatus() {

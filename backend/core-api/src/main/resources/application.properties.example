@@ -44,7 +44,7 @@ jwt.accessTokenExpirationMs=900000
 jwt.refreshTokenExpirationMs=604800000
 
 # CORS Configuration (Environment-specific)
-frontend.url=${FRONTEND_URL:http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003}
+frontend.url=${FRONTEND_URL:http://localhost:3000}
 
 # Logging Configuration
 logging.level.root=INFO

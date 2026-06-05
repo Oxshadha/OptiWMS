@@ -126,51 +126,6 @@ def generate_random_chromosome(skus: List[SKU], locations: List[Location]) -> Ch
     return chromosome
 
 
-def _score_location_for_sku(sku: SKU, location: Location) -> float:
-    """
-    Scores how suitable a location is for a SKU when building seed chromosomes.
-    Higher scores indicate a better initial assignment for the genetic algorithm.
-    """
-    score = 1000.0
-
-    # Prefer shorter travel distance for faster moving items.
-    score -= location.distance_to_dispatch * (1.0 + (sku.velocity / 100.0))
-
-    # Penalize capacity overages so seed chromosomes are closer to feasible.
-    if sku.weight > location.max_weight:
-        score -= (sku.weight - location.max_weight) * 20.0
-    if sku.volume > location.max_volume:
-        score -= (sku.volume - location.max_volume) * 15.0
-
-    # Strongly penalize hazard mismatches.
-    if sku.hazard_class and sku.hazard_class not in location.allowed_hazard_classes:
-        score -= 1000.0
-
-    # Slight preference for velocity-aware zoning if the warehouse uses zones that way.
-    if location.zone == "A" and sku.velocity >= 100.0:
-        score += 40.0
-    elif location.zone == "D" and sku.velocity < 50.0:
-        score += 15.0
-
-    return score
-
-
-def create_heuristic_chromosome(skus: List[SKU], locations: List[Location]) -> Chromosome:
-    """
-    Builds a chromosome by assigning each SKU to the highest-scoring location.
-    This gives the genetic algorithm a strong seed solution based on warehouse rules.
-    """
-    if not skus or not locations:
-        raise ValueError("Both SKUs and Locations must be provided to build a chromosome.")
-
-    chromosome = Chromosome()
-    for sku in skus:
-        best_location = max(locations, key=lambda location: _score_location_for_sku(sku, location))
-        chromosome.genes.append(Gene(sku_id=sku.id, location_id=best_location.id))
-
-    return chromosome
-
-
 def generate_initial_population(
     pop_size: int, 
     skus: List[SKU], 
@@ -180,9 +135,7 @@ def generate_initial_population(
     Generates the initial population of solutions for the genetic algorithm.
     """
     population = Population(size=pop_size)
-    population.add_individual(create_heuristic_chromosome(skus, locations))
-
-    while len(population.individuals) < pop_size:
+    for _ in range(pop_size):
         chromosome = generate_random_chromosome(skus, locations)
         population.add_individual(chromosome)
     return population
