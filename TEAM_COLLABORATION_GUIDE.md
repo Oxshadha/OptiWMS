@@ -27,6 +27,7 @@ collect_feedback.sh
 # Documentation
 DEPLOYMENT_CHANGELOG.md
 ai-services/README.md
+ai-services/FORECAST_GATEWAY_API_GUIDE.md
 docs/forecasting-workflow-gap-assessment.md
 docs/ai-microservices-implementation-brief.md
 ```

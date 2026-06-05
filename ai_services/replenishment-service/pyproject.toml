@@ -1,0 +1,29 @@
+[project]
+name = "optiwms-replenishment-service"
+version = "1.0.0"
+description = "Intelligent Replenishment & Inventory Optimization Engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn>=0.23.2",
+    "sqlalchemy>=2.0.23",
+    "alembic>=1.12.1",
+    "pydantic>=2.4.2",
+    "pydantic-settings>=2.0.3",
+    "httpx>=0.25.1",
+    "python-dotenv>=1.0.0",
+    "pandas>=2.1.2",
+    "numpy>=1.26.1",
+    "scipy>=1.11.3",
+    "mip>=1.15.0",
+    "shap>=0.43.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+addopts = "-v --cov=app"
+testpaths = ["tests"]
