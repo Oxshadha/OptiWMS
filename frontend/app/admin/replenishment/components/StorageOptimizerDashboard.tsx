@@ -330,7 +330,7 @@ export default function StorageOptimizerDashboard() {
                                         </div>
                                         <div>
                                             <div className="text-base-content/60 text-xs">Supplier Lead Time:</div>
-                                            <div className={clsx("font-bold", adj.leadTime.includes('High Risk') ? 'text-error' : 'text-warning')}>{activeReview.leadTime}</div>
+                                            <div className={clsx("font-bold", activeReview.leadTime.includes('High Risk') ? 'text-error' : 'text-warning')}>{activeReview.leadTime}</div>
                                         </div>
                                         <div>
                                             <div className="text-base-content/60 text-xs">Revenue at Risk:</div>
