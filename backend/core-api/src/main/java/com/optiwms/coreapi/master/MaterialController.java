@@ -29,8 +29,7 @@ public class MaterialController {
     public MaterialController(
             MaterialService materialService,
             SupplierMaterialService supplierMaterialService,
-            CsvImportService csvImportService
-    ) {
+            CsvImportService csvImportService) {
         this.materialService = materialService;
         this.supplierMaterialService = supplierMaterialService;
         this.csvImportService = csvImportService;
@@ -40,13 +39,12 @@ public class MaterialController {
     public ResponseEntity<List<MaterialDto>> list(
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
-            @NonNull WebRequest webRequest
-    ) {
+            @NonNull WebRequest webRequest) {
         var materials = supplierId != null
                 ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)
                 : (materialType != null
-                    ? materialService.findByMaterialType(materialType)
-                    : materialService.listAll());
+                        ? materialService.findByMaterialType(materialType)
+                        : materialService.listAll());
         var data = materials.stream()
                 .map(m -> new MaterialDto(
                         m.getId(),
@@ -69,8 +67,7 @@ public class MaterialController {
                 "materials",
                 materialType,
                 supplierId,
-                data
-        );
+                data);
     }
 
     @GetMapping("/paged")
@@ -81,8 +78,7 @@ public class MaterialController {
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
-            @RequestParam(required = false) String q
-    ) {
+            @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDir) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -97,8 +93,7 @@ public class MaterialController {
             if (q != null && !q.isBlank()) {
                 String query = q.toLowerCase();
                 filtered = filtered.stream()
-                        .filter(m ->
-                                contains(m.getMaterialCode(), query) ||
+                        .filter(m -> contains(m.getMaterialCode(), query) ||
                                 contains(m.getDescription(), query) ||
                                 contains(m.getUnitType(), query) ||
                                 contains(m.getStorageType(), query) ||
@@ -108,13 +103,13 @@ public class MaterialController {
             filtered.sort((a, b) -> compareMaterial(a, b, safeSortBy, direction));
             int from = Math.min(safePage * safeSize, filtered.size());
             int to = Math.min(from + safeSize, filtered.size());
-            materialPage = new PageImpl<>(filtered.subList(from, to), PageRequest.of(safePage, safeSize), filtered.size());
+            materialPage = new PageImpl<>(filtered.subList(from, to), PageRequest.of(safePage, safeSize),
+                    filtered.size());
         } else {
             materialPage = materialService.findPaged(
                     materialType,
                     q,
-                    PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id")))
-            );
+                    PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
         }
 
         var data = materialPage.getContent().stream()
@@ -139,8 +134,7 @@ public class MaterialController {
                 materialPage.getNumber(),
                 materialPage.getSize(),
                 materialPage.getTotalElements(),
-                materialPage.getTotalPages()
-        ));
+                materialPage.getTotalPages()));
     }
 
     @GetMapping("/{id}")
@@ -160,8 +154,7 @@ public class MaterialController {
                     material.getWeightKg(),
                     material.getVolumeCm3(),
                     material.getPalletSpaces(),
-                    material.getMaxPalletWeightKg()
-            ));
+                    material.getMaxPalletWeightKg()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
@@ -184,8 +177,7 @@ public class MaterialController {
                     material.getWeightKg(),
                     material.getVolumeCm3(),
                     material.getPalletSpaces(),
-                    material.getMaxPalletWeightKg()
-            ));
+                    material.getMaxPalletWeightKg()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
@@ -222,8 +214,7 @@ public class MaterialController {
                     created.getWeightKg(),
                     created.getVolumeCm3(),
                     created.getPalletSpaces(),
-                    created.getMaxPalletWeightKg()
-            ));
+                    created.getMaxPalletWeightKg()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
@@ -260,8 +251,7 @@ public class MaterialController {
                     updated.getWeightKg(),
                     updated.getVolumeCm3(),
                     updated.getPalletSpaces(),
-                    updated.getMaxPalletWeightKg()
-            ));
+                    updated.getMaxPalletWeightKg()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
@@ -275,9 +265,9 @@ public class MaterialController {
                 uuid = java.util.UUID.fromString(id);
             } catch (IllegalArgumentException e) {
                 return ResponseEntity.badRequest()
-                    .body(new ErrorResponse("Invalid material ID format. Expected UUID."));
+                        .body(new ErrorResponse("Invalid material ID format. Expected UUID."));
             }
-            
+
             try {
                 materialService.delete(uuid);
                 return ResponseEntity.noContent().build();
@@ -286,26 +276,28 @@ public class MaterialController {
                 String message = e.getMessage();
                 if (message != null && message.contains("not found")) {
                     return ResponseEntity.status(404)
-                        .body(new ErrorResponse("Material not found."));
-                } else if (message != null && (message.contains("Cannot delete") || message.contains("used in") || message.contains("referenced"))) {
+                            .body(new ErrorResponse("Material not found."));
+                } else if (message != null && (message.contains("Cannot delete") || message.contains("used in")
+                        || message.contains("referenced"))) {
                     // User-friendly constraint violation message
                     return ResponseEntity.status(409) // Conflict
-                        .body(new ErrorResponse(message));
+                            .body(new ErrorResponse(message));
                 } else {
                     // Generic error - don't expose internal details
                     return ResponseEntity.status(500)
-                        .body(new ErrorResponse("Unable to delete material. Please try again or contact support."));
+                            .body(new ErrorResponse("Unable to delete material. Please try again or contact support."));
                 }
             }
         } catch (Exception e) {
             // Catch any unexpected errors and return generic message
             return ResponseEntity.status(500)
-                .body(new ErrorResponse("An error occurred while deleting the material. Please try again."));
+                    .body(new ErrorResponse("An error occurred while deleting the material. Please try again."));
         }
     }
-    
+
     // Helper class for error responses
-    private record ErrorResponse(String message) {}
+    private record ErrorResponse(String message) {
+    }
 
     @PostMapping("/import")
     public ResponseEntity<ImportResponse> importCsv(@RequestParam("file") MultipartFile file) {
@@ -319,8 +311,7 @@ public class MaterialController {
             return ResponseEntity.ok(new ImportResponse(
                     result.getSuccessCount(),
                     result.getErrorCount(),
-                    result.getErrors()
-            ));
+                    result.getErrors()));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(new ImportResponse(0, 1, List.of("Error reading file: " + e.getMessage())));
@@ -339,8 +330,7 @@ public class MaterialController {
             return ResponseEntity.ok(new ImportResponse(
                     result.getSuccessCount(),
                     result.getErrorCount(),
-                    result.getErrors()
-            ));
+                    result.getErrors()));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(new ImportResponse(0, 1, List.of("Error reading file: " + e.getMessage())));
@@ -360,22 +350,22 @@ public class MaterialController {
             java.math.BigDecimal weightKg,
             java.math.BigDecimal volumeCm3,
             java.math.BigDecimal palletSpaces,
-            java.math.BigDecimal maxPalletWeightKg
-    ) {}
+            java.math.BigDecimal maxPalletWeightKg) {
+    }
 
     public record ImportResponse(
             int successCount,
             int errorCount,
-            List<String> errors
-    ) {}
+            List<String> errors) {
+    }
 
     public record PagedMaterialResponse(
             List<MaterialDto> data,
             int page,
             int size,
             long totalElements,
-            int totalPages
-    ) {}
+            int totalPages) {
+    }
 
     public record CreateMaterialRequest(
             String materialCode,
@@ -389,8 +379,8 @@ public class MaterialController {
             java.math.BigDecimal weightKg,
             java.math.BigDecimal volumeCm3,
             java.math.BigDecimal palletSpaces,
-            java.math.BigDecimal maxPalletWeightKg
-    ) {}
+            java.math.BigDecimal maxPalletWeightKg) {
+    }
 
     public record UpdateMaterialRequest(
             String materialCode,
@@ -404,11 +394,12 @@ public class MaterialController {
             java.math.BigDecimal weightKg,
             java.math.BigDecimal volumeCm3,
             java.math.BigDecimal palletSpaces,
-            java.math.BigDecimal maxPalletWeightKg
-    ) {}
+            java.math.BigDecimal maxPalletWeightKg) {
+    }
 
     private String sanitizeSortBy(String sortBy) {
-        if (sortBy == null || sortBy.isBlank()) return "createdAt";
+        if (sortBy == null || sortBy.isBlank())
+            return "createdAt";
         return switch (sortBy) {
             case "id", "materialCode", "description", "unitType", "storageType", "materialType", "createdAt" -> sortBy;
             default -> "createdAt";
@@ -419,7 +410,8 @@ public class MaterialController {
         return value != null && value.toLowerCase().contains(query);
     }
 
-    private int compareMaterial(com.optiwms.domain.master.Material a, com.optiwms.domain.master.Material b, String sortBy, Sort.Direction direction) {
+    private int compareMaterial(com.optiwms.domain.master.Material a, com.optiwms.domain.master.Material b,
+            String sortBy, Sort.Direction direction) {
         String av;
         String bv;
         switch (sortBy) {
