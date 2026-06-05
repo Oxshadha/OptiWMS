@@ -16,7 +16,6 @@ export interface LoginResponse {
   role?: string;
   warehouseId?: string;
   accessToken?: string;
-  refreshToken?: string;
 }
 
 export interface RefreshRequest {
@@ -26,7 +25,6 @@ export interface RefreshRequest {
 export interface RefreshResponse {
   success: boolean;
   accessToken?: string;
-  refreshToken?: string;
   error?: string;
 }
 
@@ -50,7 +48,6 @@ export const authApi = {
     // This ensures we don't use an old token from a different user/role
     logger.log('[AuthAPI] Clearing existing tokens before login');
     localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
     
     // Login endpoint doesn't require authentication
     const baseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080').replace(/\/api$/, '');
@@ -85,15 +82,11 @@ export const authApi = {
       // Note: storage event only fires in OTHER tabs, not the current one
       window.dispatchEvent(new CustomEvent('tokenChanged'));
     }
-    if (data.refreshToken) {
-      localStorage.setItem('refreshToken', data.refreshToken);
-      logger.log('[AuthAPI] New refresh token stored');
-    }
 
     return data;
   },
 
-  refresh: async (refreshToken: string): Promise<RefreshResponse> => {
+  refresh: async (): Promise<RefreshResponse> => {
     const baseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080').replace(/\/api$/, '');
     const response = await fetch(`${baseUrl}/api/auth/refresh`, {
       method: 'POST',
@@ -101,7 +94,6 @@ export const authApi = {
         'Content-Type': 'application/json',
       },
       credentials: 'include',
-      body: JSON.stringify({ refreshToken }),
     });
 
     if (!response.ok) {
@@ -115,9 +107,6 @@ export const authApi = {
     if (data.accessToken) {
       localStorage.setItem('accessToken', data.accessToken);
     }
-    if (data.refreshToken) {
-      localStorage.setItem('refreshToken', data.refreshToken);
-    }
 
     return data;
   },
@@ -129,9 +118,19 @@ export const authApi = {
   logout: async () => {
     logger.log('[AuthAPI] Logging out...');
     
+    // Call backend to clear the HttpOnly refresh token cookie
+    try {
+      const baseUrl = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080').replace(/\/api$/, '');
+      await fetch(`${baseUrl}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (e) {
+      logger.error('[AuthAPI] Failed to call logout endpoint', e);
+    }
+
     // Clear tokens from localStorage
     localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
     logger.log('[AuthAPI] Tokens cleared from localStorage');
     // Dispatch custom event to notify other tabs AND current tab
     window.dispatchEvent(new CustomEvent('tokenChanged'));
@@ -168,10 +167,6 @@ export const authApi = {
 
   getAccessToken: (): string | null => {
     return localStorage.getItem('accessToken');
-  },
-
-  getRefreshToken: (): string | null => {
-    return localStorage.getItem('refreshToken');
   },
 
   updatePreferences: async (
