@@ -86,6 +86,13 @@ docker compose -f ai-services/docker-compose.ai.yml up --build
 - Forecast API: `http://localhost:8091/docs`
 - Orchestrator API: `http://localhost:8092/docs`
 
+### 4. Start AI Chatbot Agent (Standalone)
+To run the AI Chatbot microservice locally, navigate to its directory and start the server:
+```bash
+cd ai_services/ai-agent
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
 ## Team Handoff
 - Enterprise sharing and governance guide: `ai-services/docs/TEAM_HANDOFF_ENTERPRISE.md`
 - Production gap plan: `ai-services/docs/AI_MICROSERVICE_PROD_GAP_PLAN.md`
