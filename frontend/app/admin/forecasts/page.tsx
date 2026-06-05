@@ -1003,12 +1003,12 @@ export default function ForecastsPage() {
     return "badge-ghost";
   }, [runStatus.phase]);
 
-  const statusBadgeClass = (status?: string | null) => {
+  const statusBadgeStyle = (status?: string | null) => {
     const norm = String(status ?? "").toLowerCase();
-    if (norm === "ok") return "badge-success";
-    if (norm === "warn") return "badge-warning";
-    if (norm === "critical" || norm === "error") return "badge-error";
-    return "badge-ghost";
+    if (norm === "ok") return { color: '#00e5a0', borderColor: '#00e5a0', backgroundColor: 'transparent', borderWidth: '1px' };
+    if (norm === "warn") return { color: '#ffd166', borderColor: '#ffd166', backgroundColor: 'transparent', borderWidth: '1px' };
+    if (norm === "critical" || norm === "error") return { color: '#ff4d6d', borderColor: '#ff4d6d', backgroundColor: 'transparent', borderWidth: '1px' };
+    return {};
   };
 
   const applySkuSearch = () => {
@@ -1490,17 +1490,17 @@ export default function ForecastsPage() {
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span>Overall:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(operationalHealth?.status)}`}>{operationalHealth?.status ?? "OK"}</span>
+                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(operationalHealth?.status)}>{operationalHealth?.status ?? "OK"}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span>Drift:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(operationalHealth?.drift_status)}`}>{operationalHealth?.drift_status ?? "OK"}</span>
+                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(operationalHealth?.drift_status)}>{operationalHealth?.drift_status ?? "OK"}</span>
                   </div>
-                  <div className="flex justify-between col-span-2">
+                  <div className="flex justify-between col-span-2 items-center">
                     <span>DB Schema Contract:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(runtimeContractHealth?.status)}`}>{runtimeContractHealth?.status ?? "OK"}</span>
+                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(runtimeContractHealth?.status)}>{runtimeContractHealth?.status ?? "OK"}</span>
                   </div>
                 </div>
               </div>
@@ -1509,7 +1509,7 @@ export default function ForecastsPage() {
               <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs font-bold text-base-content/80">Model Readiness Gates</span>
-                  <span className={`badge badge-xs ${productionReadiness?.ready ? "badge-success" : "badge-warning"}`}>
+                  <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={productionReadiness?.ready ? { color: '#00e5a0', borderColor: '#00e5a0', backgroundColor: 'transparent', borderWidth: '1px' } : { color: '#ffd166', borderColor: '#ffd166', backgroundColor: 'transparent', borderWidth: '1px' }}>
                     {productionReadiness?.ready ? "PASS" : "WARN"}
                   </span>
                 </div>
@@ -1645,12 +1645,11 @@ export default function ForecastsPage() {
       {tab === "overview" && (
         <div className="space-y-6">
           {/* KPI Summary Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={`${100 - mapeVal}%`} sub={`WAPE = ${mapeVal}%`} color={C.ok} delta={1.2} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={Math.round(totalSuggestedQty * 1.8 || 38420).toLocaleString()} sub="Next 6 months" color={C.accent} delta={8.4} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} delta={-1} icon="warning" />
             <KpiCard title="Avg Days of Stock" value="24.8d" sub="Warehouse coverage" color={C.accent4} delta={-3.1} icon="grid_view" />
-            <KpiCard title="Safety Stock Value" value="$184K" sub="Carrying cost risk" color={C.accent2} delta={2.5} icon="shield" />
             <KpiCard title="Forecast Bias" value={`${biasVal}%`} sub="Slight under-forecast" color={C.warn} icon="balance" />
           </div>
 

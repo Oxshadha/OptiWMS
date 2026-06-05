@@ -41,13 +41,16 @@ async function handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized
     if (response.status === 401) {
       logger.error("[API Client] 401 Unauthorized - attempting token refresh");
-      const refreshToken = localStorage.getItem('refreshToken');
       
-      // Try to refresh token if we have one
-      if (refreshToken) {
+      // We no longer check localStorage for refreshToken as it's an HttpOnly cookie.
+      // We just attempt to refresh if we have an accessToken (meaning we were logged in).
+      const accessToken = localStorage.getItem('accessToken');
+      
+      // Try to refresh token
+      if (accessToken) {
         try {
           const { authApi } = await import('./auth');
-          const refreshResponse = await authApi.refresh(refreshToken);
+          const refreshResponse = await authApi.refresh();
           
           if (refreshResponse.success && refreshResponse.accessToken) {
             // Token refreshed successfully - user should retry the request
@@ -76,8 +79,8 @@ async function handleResponse<T>(response: Response): Promise<T> {
           throw new Error('Session expired. Please login again.');
         }
       } else {
-        // No refresh token - redirect to login
-        logger.error("[API Client] No refresh token available");
+        // Not logged in at all - redirect to login
+        logger.error("[API Client] No active session available");
         redirectToLogin();
         throw new Error('Not authenticated. Please login.');
       }

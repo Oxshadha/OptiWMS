@@ -1,12 +1,13 @@
 import streamlit as st
 import plotly.express as px
+import requests
 from agent import load_agent, ask
 from db_agent import ask_database
 
 st.set_page_config(page_title="OptiWMS Assistant", page_icon="🏭", layout="wide")
 st.title("🏭 OptiWMS Warehouse Assistant")
 
-tab1, tab2 = st.tabs(["📄 SOP Assistant", "📊 Data & Analytics"])
+tab1, tab2, tab3 = st.tabs(["📄 SOP Assistant", "📊 Data & Analytics", "📦 Replenishment"])
 
 # ── Tab 1: SOP Q&A (your existing agent) ──────────────────────────────────
 with tab1:
@@ -126,3 +127,31 @@ with tab2:
 
             st.session_state.db_messages.append(result)
         st.rerun()
+
+# ── Tab 3: Replenishment ───────────────────────────────────────────────
+with tab3:
+    st.caption("Get AI-driven insights on inventory replenishment decisions.")
+    
+    st.markdown("**Ask why the system made a specific reorder recommendation:**")
+    sku_to_explain = st.text_input("Enter SKU (e.g. SKU-10901)")
+    
+    if st.button("Explain Decision"):
+        if sku_to_explain:
+            with st.spinner(f"Analyzing replenishment logic for {sku_to_explain}..."):
+                try:
+                    res = requests.get(f"http://localhost:8095/api/v1/replenishment/explain/{sku_to_explain}")
+                    if res.status_code == 200:
+                        data = res.json()
+                        st.success(f"Action: **{data['action']}** | Qty: **{data['recommended_qty']}** | Confidence: **{data['confidence_score'] * 100}%**")
+                        st.info(data['natural_language_explanation'])
+                        
+                        # Display Waterfall
+                        steps = data.get("waterfall_data", [])
+                        if steps:
+                            st.write("### Decision Breakdown")
+                            for step in steps:
+                                st.write(f"- **{step['feature']}**: {step['impact']}{step['value']}")
+                    else:
+                        st.error("Could not fetch explanation from Replenishment Service.")
+                except Exception as e:
+                    st.error(f"Error connecting to Replenishment Service: {e}")
