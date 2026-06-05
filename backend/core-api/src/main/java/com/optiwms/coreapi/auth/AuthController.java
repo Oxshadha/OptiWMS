@@ -12,6 +12,9 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 
+import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletResponse;
+
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -33,7 +36,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request, HttpServletResponse response) {
         try {
             String loginIdentifier = request.username(); // Can be username, email, or employee ID
 
@@ -51,7 +54,7 @@ public class AuthController {
                 return ResponseEntity.status(401).body(new LoginResponse(
                         false,
                         "Invalid email or password",
-                        null, null, null, null, null, null, null, null));
+                        null, null, null, null, null, null, null));
             }
 
             UserEntity user = userEntity.orElseThrow(() -> new IllegalStateException("User not found"));
@@ -61,7 +64,7 @@ public class AuthController {
                 return ResponseEntity.status(401).body(new LoginResponse(
                         false,
                         "Account is inactive. Please contact administrator.",
-                        null, null, null, null, null, null, null, null));
+                        null, null, null, null, null, null, null));
             }
 
             // Verify password
@@ -69,7 +72,7 @@ public class AuthController {
                 return ResponseEntity.status(401).body(new LoginResponse(
                         false,
                         "Invalid email or password",
-                        null, null, null, null, null, null, null, null));
+                        null, null, null, null, null, null, null));
             }
 
             // Update last login time
@@ -83,6 +86,14 @@ public class AuthController {
                     user.getId().toString());
             String refreshToken = tokenProvider.generateRefreshToken(user.getUsername());
 
+            // Set refresh token in HttpOnly cookie
+            Cookie refreshCookie = new Cookie("refresh_token", refreshToken);
+            refreshCookie.setHttpOnly(true);
+            refreshCookie.setSecure(false); // Set to true ONLY in production with HTTPS
+            refreshCookie.setPath("/api/auth");
+            refreshCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            response.addCookie(refreshCookie);
+
             return ResponseEntity.ok(new LoginResponse(
                     true,
                     "Login successful",
@@ -93,30 +104,34 @@ public class AuthController {
                             + (user.getLastName() != null ? user.getLastName() : "")).trim(),
                     user.getRole(),
                     user.getWarehouseId() != null ? user.getWarehouseId().toString() : null,
-                    accessToken,
-                    refreshToken));
+                    accessToken));
         } catch (Exception e) {
             return ResponseEntity.status(401).body(new LoginResponse(
                     false,
                     "Invalid email or password",
-                    null, null, null, null, null, null, null, null));
+                    null, null, null, null, null, null, null));
         }
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<RefreshResponse> refresh(@RequestBody RefreshRequest request) {
+    public ResponseEntity<RefreshResponse> refresh(
+            @CookieValue(name = "refresh_token", required = false) String refreshToken,
+            HttpServletResponse response) {
         try {
-            String refreshToken = request.refreshToken();
+            if (refreshToken == null || refreshToken.isEmpty()) {
+                return ResponseEntity.status(401).body(new RefreshResponse(false, null, "No refresh token provided"));
+            }
+
             String username = tokenProvider.getUsernameFromToken(refreshToken);
 
             if (tokenProvider.isTokenExpired(refreshToken)) {
-                return ResponseEntity.status(401).body(new RefreshResponse(false, null, null, "Refresh token expired"));
+                return ResponseEntity.status(401).body(new RefreshResponse(false, null, "Refresh token expired"));
             }
 
             // Load user to get role and ID
             Optional<UserEntity> userEntity = userRepository.findByUsername(username);
             if (userEntity.isEmpty()) {
-                return ResponseEntity.status(401).body(new RefreshResponse(false, null, null, "User not found"));
+                return ResponseEntity.status(401).body(new RefreshResponse(false, null, "User not found"));
             }
 
             UserEntity user = userEntity.orElseThrow(() -> new IllegalStateException("User not found"));
@@ -126,10 +141,30 @@ public class AuthController {
                     user.getId().toString());
             String newRefreshToken = tokenProvider.generateRefreshToken(username);
 
-            return ResponseEntity.ok(new RefreshResponse(true, newAccessToken, newRefreshToken, null));
+            // Set new refresh token in HttpOnly cookie
+            Cookie refreshCookie = new Cookie("refresh_token", newRefreshToken);
+            refreshCookie.setHttpOnly(true);
+            refreshCookie.setSecure(false); // Set to true ONLY in production with HTTPS
+            refreshCookie.setPath("/api/auth");
+            refreshCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+            response.addCookie(refreshCookie);
+
+            return ResponseEntity.ok(new RefreshResponse(true, newAccessToken, null));
         } catch (Exception e) {
-            return ResponseEntity.status(401).body(new RefreshResponse(false, null, null, "Invalid refresh token"));
+            return ResponseEntity.status(401).body(new RefreshResponse(false, null, "Invalid refresh token"));
         }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Map<String, Object>> logout(HttpServletResponse response) {
+        Cookie refreshCookie = new Cookie("refresh_token", "");
+        refreshCookie.setHttpOnly(true);
+        refreshCookie.setSecure(false); // Match the creation flag
+        refreshCookie.setPath("/api/auth");
+        refreshCookie.setMaxAge(0); // Delete cookie
+        response.addCookie(refreshCookie);
+        
+        return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
     }
 
     @GetMapping("/me")
@@ -360,17 +395,15 @@ public class AuthController {
             String name,
             String role,
             String warehouseId,
-            String accessToken,
-            String refreshToken) {
+            String accessToken) {
     }
 
-    public record RefreshRequest(String refreshToken) {
+    public record RefreshRequest(String refreshToken) { // kept for backward compat if needed elsewhere
     }
 
     public record RefreshResponse(
             boolean success,
             String accessToken,
-            String refreshToken,
             String error) {
     }
 
