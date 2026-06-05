@@ -1005,9 +1005,9 @@ export default function ForecastsPage() {
 
   const statusBadgeClass = (status?: string | null) => {
     const norm = String(status ?? "").toLowerCase();
-    if (norm === "ok") return "badge-success";
-    if (norm === "warn") return "badge-warning";
-    if (norm === "critical" || norm === "error") return "badge-error";
+    if (norm === "ok") return "badge-success text-success-content font-bold";
+    if (norm === "warn") return "badge-warning text-warning-content font-bold";
+    if (norm === "critical" || norm === "error") return "badge-error text-error-content font-bold";
     return "badge-ghost";
   };
 
@@ -1509,7 +1509,7 @@ export default function ForecastsPage() {
               <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs font-bold text-base-content/80">Model Readiness Gates</span>
-                  <span className={`badge badge-xs ${productionReadiness?.ready ? "badge-success" : "badge-warning"}`}>
+                  <span className={`badge badge-xs ${productionReadiness?.ready ? "badge-success text-success-content font-bold" : "badge-warning text-warning-content font-bold"}`}>
                     {productionReadiness?.ready ? "PASS" : "WARN"}
                   </span>
                 </div>
@@ -1645,12 +1645,11 @@ export default function ForecastsPage() {
       {tab === "overview" && (
         <div className="space-y-6">
           {/* KPI Summary Grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={`${100 - mapeVal}%`} sub={`WAPE = ${mapeVal}%`} color={C.ok} delta={1.2} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={Math.round(totalSuggestedQty * 1.8 || 38420).toLocaleString()} sub="Next 6 months" color={C.accent} delta={8.4} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} delta={-1} icon="warning" />
             <KpiCard title="Avg Days of Stock" value="24.8d" sub="Warehouse coverage" color={C.accent4} delta={-3.1} icon="grid_view" />
-            <KpiCard title="Safety Stock Value" value="$184K" sub="Carrying cost risk" color={C.accent2} delta={2.5} icon="shield" />
             <KpiCard title="Forecast Bias" value={`${biasVal}%`} sub="Slight under-forecast" color={C.warn} icon="balance" />
           </div>
 
