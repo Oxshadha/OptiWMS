@@ -5,13 +5,15 @@ import clsx from 'clsx';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 export default function StorageOptimizerDashboard() {
+    const [selectedInterval, setSelectedInterval] = useState('6 Months');
+
     // 1. Next Review Preferences & Countdown Data
     const reviewCycle = {
         category: "A-Class / High Volume",
-        interval: "6 Months",
-        nextReviewDate: "2026-06-17",
-        daysRemaining: 12,
-        status: "Approaching"
+        interval: selectedInterval,
+        nextReviewDate: selectedInterval === '3 Months' ? "2026-03-15" : (selectedInterval === '1 Month' ? "2026-02-01" : "2026-06-17"),
+        daysRemaining: selectedInterval === '3 Months' ? 4 : (selectedInterval === '1 Month' ? 1 : 12),
+        status: selectedInterval === '3 Months' || selectedInterval === '1 Month' ? "Urgent" : "Approaching"
     };
 
     // 2. Mock Micro-Adjustment Engine (Capacity constraints)
@@ -47,12 +49,28 @@ export default function StorageOptimizerDashboard() {
         { id: 3, sku: 'PKG-110', type: 'Packaging', qty: 2500, value: '10k LKR', issue: 'Obsolete branding', actionRec: 'Scrap & Recycle' }
     ];
 
-    // 4. Replenishment History (Past 6-month cycles)
-    const history = [
-        { cycle: 'Q1 2026', date: 'Jan 15, 2026', decision: 'Ordered 1,500 SKU-10901', spaceAction: 'Compressed Zone C', outcome: 'Success: 0 Stockouts' },
-        { cycle: 'Q3 2025', date: 'Jul 10, 2025', decision: 'Ordered 800 SKU-20042', spaceAction: 'No action needed', outcome: 'Warning: 10% Overstock' },
-        { cycle: 'Q1 2025', date: 'Jan 12, 2025', decision: 'Liquidated 500 SKU-Z', spaceAction: 'Freed 12m³ in Zone A', outcome: 'Success: Space Reclaimed' },
-    ];
+    // 4. Replenishment History (Past cycles based on selection)
+    const historyData: Record<string, any[]> = {
+        '6 Months': [
+            { cycle: 'H1 2026', date: 'Jan 15, 2026', decision: 'Ordered 1,500 SKU-10901', spaceAction: 'Compressed Zone C', outcome: 'Success: 0 Stockouts' },
+            { cycle: 'H2 2025', date: 'Jul 10, 2025', decision: 'Ordered 800 SKU-20042', spaceAction: 'No action needed', outcome: 'Warning: 10% Overstock' },
+            { cycle: 'H1 2025', date: 'Jan 12, 2025', decision: 'Liquidated 500 SKU-Z', spaceAction: 'Freed 12m³ in Zone A', outcome: 'Success: Space Reclaimed' },
+        ],
+        '3 Months': [
+            { cycle: 'Q1 2026', date: 'Jan 05, 2026', decision: 'Ordered 400 SKU-10901', spaceAction: 'Moved to Zone B', outcome: 'Success: Handled Surge' },
+            { cycle: 'Q4 2025', date: 'Oct 01, 2025', decision: 'Paused SKU-44021', spaceAction: 'No action needed', outcome: 'Warning: Slight Deficit' },
+            { cycle: 'Q3 2025', date: 'Jul 05, 2025', decision: 'Liquidated 200 RAW-0019', spaceAction: 'Freed 5m³ in Zone B', outcome: 'Success: Avoided Expiry' },
+        ],
+        '1 Month': [
+            { cycle: 'Jan 2026', date: 'Jan 01, 2026', decision: 'Ordered 100 Fast-Movers', spaceAction: 'Micro-adjust Zone A', outcome: 'Success' },
+            { cycle: 'Dec 2025', date: 'Dec 01, 2025', decision: 'Holiday Surge Prep', spaceAction: 'Expanded Zone A by 10%', outcome: 'Success' },
+        ],
+        '12 Months': [
+            { cycle: '2026 Annual', date: 'Jan 20, 2026', decision: 'Massive Raw Material PO', spaceAction: 'Full Zone C Reallocation', outcome: 'Pending' },
+            { cycle: '2025 Annual', date: 'Jan 15, 2025', decision: 'Standard Annual Restock', spaceAction: 'No action needed', outcome: 'Success' },
+        ]
+    };
+    const history = historyData[selectedInterval] || historyData['6 Months'];
 
     // Chart Data: GA Rack Capacity Utilization
     const capacityData = [
@@ -74,9 +92,20 @@ export default function StorageOptimizerDashboard() {
                                 <span className="material-symbols-outlined text-info text-xl">event_upcoming</span>
                                 <h3 className="text-xl font-bold text-base-content">Next Procurement Cycle</h3>
                             </div>
-                            <p className="text-sm text-base-content/60 mt-1">Based on {reviewCycle.interval} review rules.</p>
+                            <select 
+                                className="select select-bordered select-sm w-full max-w-xs mt-2 bg-base-100 text-base-content font-semibold"
+                                value={selectedInterval}
+                                onChange={(e) => setSelectedInterval(e.target.value)}
+                            >
+                                <option value="1 Month">1 Month Cycle</option>
+                                <option value="3 Months">3 Months Cycle</option>
+                                <option value="6 Months">6 Months Cycle</option>
+                                <option value="12 Months">Annual Cycle (12 Mo)</option>
+                            </select>
                         </div>
-                        <div className="badge badge-warning text-yellow-900 font-bold border-none">{reviewCycle.status}</div>
+                        <div className={clsx("badge font-bold border-none text-white", reviewCycle.status === 'Urgent' ? 'bg-error' : 'bg-warning text-yellow-900')}>
+                            {reviewCycle.status}
+                        </div>
                     </div>
                     
                     <div className="flex items-end gap-4 mt-6">
@@ -93,7 +122,7 @@ export default function StorageOptimizerDashboard() {
                 <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-700 lg:col-span-2">
                     <h3 className="text-lg font-bold text-base-content mb-4 flex items-center gap-2">
                         <span className="material-symbols-outlined text-base-content/50">history</span>
-                        Historical 6-Month Decisions
+                        Historical {selectedInterval} Decisions
                     </h3>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
