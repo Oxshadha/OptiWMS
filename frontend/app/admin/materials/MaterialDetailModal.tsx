@@ -82,7 +82,7 @@ export function MaterialDetailModal({
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Type</span>
+              <span className="label-text font-medium">Category</span>
             </label>
             <div>{typeMap[material.materialType || "raw_material"] || material.materialType || "—"}</div>
           </div>
@@ -94,7 +94,7 @@ export function MaterialDetailModal({
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Handling Unit Type</span>
+              <span className="label-text font-medium">Typical Unit Size</span>
             </label>
             <div className="uppercase">{material.unitType || "—"}</div>
           </div>
@@ -106,33 +106,35 @@ export function MaterialDetailModal({
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Units Per Pallet</span>
+              <span className="label-text font-medium">Units Per Carton</span>
+            </label>
+            <div>{material.palletSpaces != null ? material.palletSpaces : "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Carton Weight (kg)</span>
             </label>
             <div>
-              {(material.storageType || "").toLowerCase() === "pallet"
-                ? material.palletSpaces != null
-                  ? material.palletSpaces
-                  : "Missing"
-                : "N/A (non-pallet)"}
+              {material.weightKg != null ? material.weightKg : "—"}
             </div>
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Max Pallet Weight (kg)</span>
+              <span className="label-text font-medium">Length (cm)</span>
             </label>
-            <div>
-              {(material.storageType || "").toLowerCase() === "pallet"
-                ? material.maxPalletWeightKg != null
-                  ? material.maxPalletWeightKg
-                  : "Missing"
-                : "N/A (non-pallet)"}
-            </div>
+            <div>{material.lengthCm != null ? material.lengthCm : "—"}</div>
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Unit Weight (kg)</span>
+              <span className="label-text font-medium">Width (cm)</span>
             </label>
-            <div>{material.weightKg != null ? material.weightKg : "—"}</div>
+            <div>{material.widthCm != null ? material.widthCm : "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Height (cm)</span>
+            </label>
+            <div>{material.heightCm != null ? material.heightCm : "—"}</div>
           </div>
           <div className="col-span-2">
             <label className="label">
