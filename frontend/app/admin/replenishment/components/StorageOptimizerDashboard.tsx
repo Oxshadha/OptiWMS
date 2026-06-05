@@ -2,10 +2,15 @@
 
 import React, { useState } from 'react';
 import clsx from 'clsx';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, AreaChart, Area } from 'recharts';
 
 export default function StorageOptimizerDashboard() {
     const [selectedInterval, setSelectedInterval] = useState('6 Months');
+    
+    // Interactive State
+    const [selectedAdjustments, setSelectedAdjustments] = useState<number[]>([]);
+    const [approvedAdjustments, setApprovedAdjustments] = useState<number[]>([]);
+    const [reviewingId, setReviewingId] = useState<number | null>(null);
 
     // 1. Next Review Preferences & Countdown Data
     const reviewCycle = {
@@ -27,7 +32,9 @@ export default function StorageOptimizerDashboard() {
             skuToCompress: "SKU-50992 (Discontinued)",
             freedSpace: "+ 6.5 m³",
             action: "Swap Bins & Compress",
-            impact: "Prevents 1.8M LKR Stockout"
+            impact: "Prevents 1.8M LKR Stockout",
+            expandDemandTrend: [400, 450, 520, 600, 750, 900],
+            compressDemandTrend: [150, 100, 80, 40, 10, 0]
         },
         {
             id: 2,
@@ -38,7 +45,9 @@ export default function StorageOptimizerDashboard() {
             skuToCompress: "SKU-88210 (Seasonal End)",
             freedSpace: "+ 5.0 m³",
             action: "Relocate to Top Rack",
-            impact: "Maintains 25% bulk discount"
+            impact: "Maintains 25% bulk discount",
+            expandDemandTrend: [1000, 1050, 1100, 1200, 1300, 1400],
+            compressDemandTrend: [800, 600, 400, 200, 50, 20]
         }
     ];
 
@@ -78,6 +87,30 @@ export default function StorageOptimizerDashboard() {
         { name: 'Zone B (Medium)', capacity: 100, currentUsage: 70, projectedUsage: 75, afterAdjustment: 85 },
         { name: 'Zone C (Slow/Dead)', capacity: 100, currentUsage: 85, projectedUsage: 85, afterAdjustment: 40 },
     ];
+
+    // Handlers
+    const handleToggleSelect = (id: number) => {
+        setSelectedAdjustments(prev => 
+            prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = () => {
+        const unapprovedIds = microAdjustments.filter(a => !approvedAdjustments.includes(a.id)).map(a => a.id);
+        if (selectedAdjustments.length === unapprovedIds.length) {
+            setSelectedAdjustments([]); // Deselect all
+        } else {
+            setSelectedAdjustments(unapprovedIds);
+        }
+    };
+
+    const handleApproveSelected = () => {
+        setApprovedAdjustments(prev => [...prev, ...selectedAdjustments]);
+        setSelectedAdjustments([]);
+        setReviewingId(null);
+    };
+
+    const activeReview = microAdjustments.find(a => a.id === reviewingId);
 
     return (
         <div className="space-y-6">
@@ -157,76 +190,215 @@ export default function StorageOptimizerDashboard() {
                 </div>
             </div>
 
-            {/* Middle Row: Micro-Adjustment Engine & Capacity Chart */}
+            {/* Middle Row: Micro-Adjustment Engine & Review Panel */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Adjustments Table */}
-                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-700">
-                    <div className="mb-4">
-                        <h3 className="text-xl font-bold text-base-content">Capacity Micro-Adjustments</h3>
-                        <p className="text-sm text-base-content/60 mt-1">Resolving rack space deficits for the upcoming 6-month bulk orders.</p>
+                
+                {/* Adjustments Table (Interactive) */}
+                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-700 flex flex-col">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 className="text-xl font-bold text-base-content">Capacity Micro-Adjustments</h3>
+                            <p className="text-sm text-base-content/60 mt-1">Select and approve space shifts to fit upcoming orders.</p>
+                        </div>
+                        {selectedAdjustments.length > 0 && (
+                            <button onClick={handleApproveSelected} className="btn btn-sm btn-success text-white shadow-md animate-in fade-in zoom-in">
+                                Approve {selectedAdjustments.length} Shifts
+                            </button>
+                        )}
                     </div>
                     
-                    <div className="space-y-4 mt-6">
-                        {microAdjustments.map((adj) => (
-                            <div key={adj.id} className="p-4 border border-base-300 dark:border-base-600 rounded-xl bg-base-50 dark:bg-base-300/30">
-                                <div className="flex justify-between items-start mb-3">
-                                    <div>
-                                        <div className="text-xs font-bold text-success uppercase tracking-wider mb-1">Expand Request</div>
-                                        <div className="font-bold text-base-content">{adj.skuToExpand}</div>
-                                        <div className="text-sm text-base-content/70">Bulk PO: {adj.poQty}</div>
-                                    </div>
-                                    <div className="text-right">
-                                        <div className="text-xs font-bold text-error uppercase tracking-wider mb-1">Space Deficit</div>
-                                        <div className="font-bold text-error">{adj.spaceRequired} required</div>
-                                        <div className="text-sm text-base-content/70">Only {adj.spaceAvailable} available</div>
-                                    </div>
-                                </div>
-                                
-                                <div className="bg-base-200 dark:bg-base-100 p-3 rounded-lg flex items-center justify-between border border-base-300 dark:border-base-700">
-                                    <div className="flex items-center gap-3">
-                                        <span className="material-symbols-outlined text-warning">compress</span>
-                                        <div>
-                                            <div className="text-sm font-semibold text-base-content">Action: {adj.action}</div>
-                                            <div className="text-xs text-base-content/60">Target: {adj.skuToCompress}</div>
+                    {/* Select All Bar */}
+                    <div className="flex items-center gap-3 px-2 py-3 bg-base-200 dark:bg-base-300/50 rounded-lg mb-2">
+                        <input 
+                            type="checkbox" 
+                            className="checkbox checkbox-sm checkbox-primary" 
+                            checked={selectedAdjustments.length > 0 && selectedAdjustments.length === microAdjustments.filter(a => !approvedAdjustments.includes(a.id)).length}
+                            onChange={handleSelectAll}
+                            disabled={microAdjustments.every(a => approvedAdjustments.includes(a.id))}
+                        />
+                        <span className="text-sm font-semibold text-base-content/80">Select All Unapproved</span>
+                    </div>
+
+                    <div className="space-y-4 mt-2 overflow-y-auto pr-2">
+                        {microAdjustments.map((adj) => {
+                            const isApproved = approvedAdjustments.includes(adj.id);
+                            const isSelected = selectedAdjustments.includes(adj.id);
+                            const isReviewing = reviewingId === adj.id;
+
+                            return (
+                                <div key={adj.id} className={clsx(
+                                    "p-4 border rounded-xl transition-all duration-200",
+                                    isApproved ? "border-success/50 bg-success/5" : (isSelected ? "border-primary bg-primary/5" : "border-base-300 dark:border-base-600 bg-base-50 dark:bg-base-300/30"),
+                                    isReviewing && !isApproved && "ring-2 ring-info border-transparent"
+                                )}>
+                                    <div className="flex gap-4">
+                                        <div className="pt-1">
+                                            <input 
+                                                type="checkbox" 
+                                                className="checkbox checkbox-sm checkbox-primary" 
+                                                checked={isSelected || isApproved}
+                                                onChange={() => handleToggleSelect(adj.id)}
+                                                disabled={isApproved}
+                                            />
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <div className="text-xs font-bold text-success uppercase tracking-wider">Expand</div>
+                                                        {isApproved && <span className="badge badge-success badge-sm text-white border-none font-bold">Approved</span>}
+                                                    </div>
+                                                    <div className="font-bold text-base-content">{adj.skuToExpand}</div>
+                                                    <div className="text-sm text-base-content/70">Bulk PO: {adj.poQty}</div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="text-xs font-bold text-error uppercase tracking-wider mb-1">Deficit</div>
+                                                    <div className="font-bold text-error">{adj.spaceRequired}</div>
+                                                    <div className="text-sm text-base-content/70">Only {adj.spaceAvailable}</div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="bg-base-200 dark:bg-base-100 p-3 rounded-lg flex items-center justify-between border border-base-300 dark:border-base-700">
+                                                <div className="flex items-center gap-3">
+                                                    <span className="material-symbols-outlined text-warning">compress</span>
+                                                    <div>
+                                                        <div className="text-sm font-semibold text-base-content">Action: {adj.action}</div>
+                                                        <div className="text-xs text-base-content/60">Target: {adj.skuToCompress}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    {!isApproved && (
+                                                        <button 
+                                                            onClick={() => setReviewingId(isReviewing ? null : adj.id)}
+                                                            className={clsx("btn btn-sm text-xs font-bold", isReviewing ? "btn-neutral" : "btn-outline btn-info")}
+                                                        >
+                                                            {isReviewing ? 'Close' : 'Review Shift'}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="text-sm font-bold text-success">{adj.freedSpace}</div>
-                                        <button className="text-xs text-info hover:underline mt-1">{adj.impact}</button>
-                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
 
-                {/* Capacity Chart */}
-                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-700">
-                    <div className="mb-4">
-                        <h3 className="text-xl font-bold text-base-content">GA Rack Utilization Impact</h3>
-                        <p className="text-sm text-base-content/60 mt-1">Visualizing space utilization % before and after the micro-adjustments.</p>
-                    </div>
-                    <div className="h-[350px] w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={capacityData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                <XAxis dataKey="name" tick={{fontSize: 12}} />
-                                <YAxis tick={{fontSize: 12}} domain={[0, 120]} />
-                                <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
-                                <Legend wrapperStyle={{fontSize: '12px', marginTop: '10px'}} />
-                                
-                                <ReferenceLine y={100} label={{ position: 'top', value: '100% Max Physical Capacity', fontSize: 10, fill: '#ef4444' }} stroke="#ef4444" strokeDasharray="3 3" />
-                                
-                                <Bar dataKey="projectedUsage" name="Projected (Without Adjustment)" fill="#ef4444" radius={[4, 4, 0, 0]} opacity={0.5} />
-                                <Bar dataKey="afterAdjustment" name="Optimized (After Micro-Adjustments)" fill="#39BE7D" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
+                {/* Right Side: Either GA Chart OR Head-to-Head Review Panel */}
+                <div className="h-full">
+                    {activeReview ? (
+                        /* Head-to-Head Comparison Panel */
+                        <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-lg border-2 border-info relative h-full flex flex-col animate-in slide-in-from-right-4 duration-300">
+                            <button onClick={() => setReviewingId(null)} className="absolute top-4 right-4 btn btn-circle btn-sm btn-ghost">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                            
+                            <h3 className="text-xl font-bold text-base-content mb-1">Head-to-Head Analysis</h3>
+                            <p className="text-sm text-base-content/60 mb-6">Detailed justification for overriding standard space allocation.</p>
+                            
+                            <div className="flex-1 space-y-6">
+                                {/* Winner / Expand */}
+                                <div className="bg-success/5 p-4 rounded-xl border border-success/20">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <div className="font-bold text-success flex items-center gap-2">
+                                            <span className="material-symbols-outlined">trending_up</span> WINNER (Expand)
+                                        </div>
+                                        <div className="text-sm font-bold">{activeReview.skuToExpand}</div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                                        <div>
+                                            <div className="text-base-content/60">6-Mo Demand Trend:</div>
+                                            <div className="font-semibold text-base-content">+125% Growth</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-base-content/60">Revenue at Risk:</div>
+                                            <div className="font-bold text-error">{activeReview.impact}</div>
+                                        </div>
+                                    </div>
+                                    <div className="h-16 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={activeReview.expandDemandTrend.map((v, i) => ({ month: i, value: v }))}>
+                                                <Area type="monotone" dataKey="value" stroke="#39BE7D" fill="#39BE7D" fillOpacity={0.2} />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+
+                                {/* Mathematical Bridge */}
+                                <div className="flex justify-center -my-2 relative z-10">
+                                    <div className="bg-base-200 dark:bg-base-300 px-4 py-2 rounded-full font-bold text-sm border border-base-300 flex items-center gap-2 shadow-sm">
+                                        <span className="material-symbols-outlined text-warning text-sm">swap_vert</span>
+                                        Requires {activeReview.spaceRequired}
+                                    </div>
+                                </div>
+
+                                {/* Loser / Compress */}
+                                <div className="bg-error/5 p-4 rounded-xl border border-error/20">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <div className="font-bold text-error flex items-center gap-2">
+                                            <span className="material-symbols-outlined">trending_down</span> LOSER (Compress)
+                                        </div>
+                                        <div className="text-sm font-bold">{activeReview.skuToCompress}</div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                                        <div>
+                                            <div className="text-base-content/60">6-Mo Demand Trend:</div>
+                                            <div className="font-semibold text-base-content">-100% (Dead)</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-base-content/60">Space Freed:</div>
+                                            <div className="font-bold text-success">{activeReview.freedSpace}</div>
+                                        </div>
+                                    </div>
+                                    <div className="h-16 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={activeReview.compressDemandTrend.map((v, i) => ({ month: i, value: v }))}>
+                                                <Area type="monotone" dataKey="value" stroke="#ef4444" fill="#ef4444" fillOpacity={0.2} />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div className="mt-6 pt-4 border-t border-base-200 dark:border-base-700 flex justify-end gap-3">
+                                <button onClick={() => setReviewingId(null)} className="btn btn-ghost">Cancel</button>
+                                <button onClick={() => {
+                                    handleToggleSelect(activeReview.id);
+                                    handleApproveSelected();
+                                }} className="btn btn-success text-white">Approve This Shift</button>
+                            </div>
+                        </div>
+                    ) : (
+                        /* Default View: Capacity Chart */
+                        <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-700 h-full flex flex-col">
+                            <div className="mb-4">
+                                <h3 className="text-xl font-bold text-base-content">GA Rack Utilization Impact</h3>
+                                <p className="text-sm text-base-content/60 mt-1">Visualizing space utilization % before and after the micro-adjustments.</p>
+                            </div>
+                            <div className="flex-1 min-h-[300px]">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={capacityData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                        <XAxis dataKey="name" tick={{fontSize: 12}} />
+                                        <YAxis tick={{fontSize: 12}} domain={[0, 120]} />
+                                        <Tooltip contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} />
+                                        <Legend wrapperStyle={{fontSize: '12px', marginTop: '10px'}} />
+                                        
+                                        <ReferenceLine y={100} label={{ position: 'top', value: '100% Max Physical Capacity', fontSize: 10, fill: '#ef4444' }} stroke="#ef4444" strokeDasharray="3 3" />
+                                        
+                                        <Bar dataKey="projectedUsage" name="Projected (Without Adjustment)" fill="#ef4444" radius={[4, 4, 0, 0]} opacity={0.5} />
+                                        <Bar dataKey="afterAdjustment" name="Optimized (After Micro-Adjustments)" fill="#39BE7D" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
             {/* Bottom Row: Liquidation / Dead-Stock Center */}
-            <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-300 dark:border-base-700 border-l-4 border-l-error">
+            <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-300 dark:border-base-700 border-l-4 border-l-error mt-6">
                 <div className="flex justify-between items-end mb-6">
                     <div>
                         <h3 className="text-xl font-bold text-base-content">Liquidation & Expiry Action Center</h3>
