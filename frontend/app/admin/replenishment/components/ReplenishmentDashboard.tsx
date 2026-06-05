@@ -105,7 +105,7 @@ export default function ReplenishmentDashboard() {
                     <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="material-symbols-outlined text-amber-500 text-sm">inventory</span>
-                            <p className="text-sm font-semibold text-base-content/60 uppercase tracking-wider">Capital in Excess Stock</p>
+                            <p className="text-sm font-semibold text-base-content/60 uppercase tracking-wider">Holding Cost (Excess)</p>
                         </div>
                         <p className="text-4xl font-bold text-amber-600 dark:text-amber-400">{kpis.capitalTiedUp}</p>
                         <p className="text-xs text-base-content/50 mt-2">Wasted holding capital on SKUs significantly above optimal EOQ levels.</p>
@@ -186,6 +186,12 @@ export default function ReplenishmentDashboard() {
                                 </Scatter>
                             </ScatterChart>
                         </ResponsiveContainer>
+                    </div>
+                    {/* Scatter Plot Legend */}
+                    <div className="flex items-center gap-4 mt-2 text-xs font-semibold text-base-content/70 justify-center">
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-error inline-block"></span> Critical Risk ({'>'}0.7)</div>
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-warning inline-block"></span> Monitor ({'>'}0.5)</div>
+                        <div className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-success inline-block"></span> Healthy</div>
                     </div>
                 </div>
 
