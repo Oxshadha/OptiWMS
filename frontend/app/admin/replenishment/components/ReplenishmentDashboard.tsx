@@ -71,8 +71,7 @@ export default function ReplenishmentDashboard() {
         <div className="space-y-6 text-base-content">
             {/* KPI Row */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-300 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-red-100 dark:bg-red-900/20 rounded-bl-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-300 dark:border-base-700 border-l-4 border-l-error relative overflow-hidden group">
                     <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="material-symbols-outlined text-red-500 text-sm">warning</span>
@@ -83,8 +82,7 @@ export default function ReplenishmentDashboard() {
                     </div>
                 </div>
 
-                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-300 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-amber-100 dark:bg-amber-900/20 rounded-bl-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-300 dark:border-base-700 border-l-4 border-l-warning relative overflow-hidden group">
                     <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="material-symbols-outlined text-amber-500 text-sm">inventory</span>
@@ -95,8 +93,7 @@ export default function ReplenishmentDashboard() {
                     </div>
                 </div>
 
-                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-300 relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-green-100 dark:bg-green-900/20 rounded-bl-full -mr-16 -mt-16 transition-transform group-hover:scale-110"></div>
+                <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-300 dark:border-base-700 border-l-4 border-l-success relative overflow-hidden group">
                     <div className="relative z-10">
                         <div className="flex items-center gap-2 mb-2">
                             <span className="material-symbols-outlined text-green-500 text-sm">trending_up</span>
@@ -188,7 +185,7 @@ export default function ReplenishmentDashboard() {
                                     <th className="px-4 py-3 rounded-tl-lg font-semibold">SKU / Item</th>
                                     <th className="px-4 py-3 font-semibold">Risk Lvl</th>
                                     <th className="px-4 py-3 font-semibold">Stock vs ROP</th>
-                                    <th className="px-4 py-3 font-semibold text-primary">PO Qty</th>
+                                    <th className="px-4 py-3 font-semibold">PO Qty</th>
                                     <th className="px-4 py-3 font-semibold">LKR Value</th>
                                     <th className="px-4 py-3 rounded-tr-lg font-semibold">Decision</th>
                                 </tr>
@@ -197,17 +194,17 @@ export default function ReplenishmentDashboard() {
                                 {recommendedOrders.map((order) => (
                                     <tr key={order.id} className="hover:bg-base-200/50 transition-colors">
                                         <td className="px-4 py-4">
-                                            <div className="font-bold text-primary cursor-pointer hover:underline" onClick={() => setSelectedSku(order)}>{order.sku}</div>
+                                            <div className="font-bold text-info cursor-pointer hover:underline" onClick={() => setSelectedSku(order)}>{order.sku}</div>
                                             <div className="text-xs text-base-content/50">{order.name}</div>
                                         </td>
                                         <td className="px-4 py-4">
-                                            <span className={clsx(
-                                                "px-2.5 py-1 rounded-full text-xs font-bold",
-                                                order.risk === 'High' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                            )}>{order.risk}</span>
+                                            <div className={clsx(
+                                                "badge font-bold border-none text-white shadow-sm",
+                                                order.risk === 'High' ? 'bg-error' : 'bg-warning text-yellow-900'
+                                            )}>{order.risk}</div>
                                         </td>
                                         <td className="px-4 py-4">
-                                            <span className="text-red-500 font-bold">{order.current}</span>
+                                            <span className="text-error font-bold">{order.current}</span>
                                             <span className="text-base-content/40 mx-1">/</span>
                                             <span className="text-base-content/70">{order.rop}</span>
                                         </td>
@@ -216,7 +213,7 @@ export default function ReplenishmentDashboard() {
                                         <td className="px-4 py-4">
                                             {order.status === 'Pending' ? (
                                                 <div className="flex gap-2">
-                                                    <button className="btn btn-sm btn-primary">Approve</button>
+                                                    <button className="btn btn-sm btn-success text-white">Approve</button>
                                                     <button 
                                                         className="btn btn-sm btn-outline btn-neutral"
                                                         onClick={() => setSelectedSku(order)}
