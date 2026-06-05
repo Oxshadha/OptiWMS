@@ -11,6 +11,9 @@ export default function ReplenishmentDashboard() {
     const [selectedSku, setSelectedSku] = useState<any>({ 
         id: 1, sku: 'SKU-10901', name: 'Premium Widget', current: 120, rop: 500, qty: 1500, value: '1.8M LKR', risk: 'High', status: 'Pending' 
     });
+    
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filterClass, setFilterClass] = useState('All');
 
     // Advanced Executive KPIs
     const kpis = {
@@ -113,11 +116,32 @@ export default function ReplenishmentDashboard() {
                 
                 {/* 1. Risk vs Value Scatter Plot */}
                 <div className="bg-base-100 dark:bg-base-200 p-6 rounded-2xl shadow-sm border border-base-200 dark:border-base-300">
-                    <div className="mb-4">
-                        <h3 className="text-xl font-bold text-base-content">Portfolio Risk Analysis</h3>
-                        <p className="text-sm text-base-content/60 mt-1">
-                            Identifying high-value items with highly erratic demand (Top Right).
-                        </p>
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 className="text-xl font-bold text-base-content">Portfolio Risk Analysis</h3>
+                            <p className="text-sm text-base-content/60 mt-1">
+                                Identifying high-value items with highly erratic demand (Top Right).
+                            </p>
+                        </div>
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="Search SKU..." 
+                                className="input input-bordered input-sm w-36 bg-base-100"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                            />
+                            <select 
+                                className="select select-bordered select-sm bg-base-100"
+                                value={filterClass}
+                                onChange={(e) => setFilterClass(e.target.value)}
+                            >
+                                <option value="All">All Classes</option>
+                                <option value="Critical">Critical</option>
+                                <option value="Monitor">Monitor</option>
+                                <option value="Healthy">Healthy</option>
+                            </select>
+                        </div>
                     </div>
                     <div className="h-[300px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
@@ -128,9 +152,21 @@ export default function ReplenishmentDashboard() {
                                 <ZAxis type="number" dataKey="qty" range={[60, 400]} name="Order Qty" />
                                 <Tooltip cursor={{strokeDasharray: '3 3'}} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}} formatter={(value, name) => name === 'Annual Value' ? `${value} LKR` : value} />
                                 <Scatter name="SKUs" data={scatterData}>
-                                    {scatterData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={getRiskColor(entry.volatility)} opacity={0.8} />
-                                    ))}
+                                    {scatterData.map((entry, index) => {
+                                        const matchesSearch = searchQuery === '' || entry.sku.toLowerCase().includes(searchQuery.toLowerCase());
+                                        const matchesFilter = filterClass === 'All' || entry.class === filterClass;
+                                        const isHighlighted = matchesSearch && matchesFilter;
+                                        
+                                        const isFaded = (!isHighlighted) && (searchQuery !== '' || filterClass !== 'All');
+
+                                        return (
+                                            <Cell 
+                                                key={`cell-${index}`} 
+                                                fill={isFaded ? '#cbd5e1' : getRiskColor(entry.volatility)} 
+                                                opacity={isFaded ? 0.2 : 0.9} 
+                                            />
+                                        );
+                                    })}
                                 </Scatter>
                             </ScatterChart>
                         </ResponsiveContainer>
