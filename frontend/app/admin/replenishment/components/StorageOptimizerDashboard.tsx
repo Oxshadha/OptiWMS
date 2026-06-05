@@ -29,10 +29,15 @@ export default function StorageOptimizerDashboard() {
             poQty: "2,000 Units (6 mo)",
             spaceRequired: "14.2 m³",
             spaceAvailable: "8.0 m³",
+            weightRequired: "840 kg",
+            weightAvailable: "1,200 kg",
             skuToCompress: "SKU-50992 (Discontinued)",
             freedSpace: "+ 6.5 m³",
+            freedWeight: "+ 210 kg",
             action: "Swap Bins & Compress",
             impact: "Prevents 1.8M LKR Stockout",
+            leadTime: "14 Days",
+            holdingCostPenalty: "-45k LKR",
             expandDemandTrend: [400, 450, 520, 600, 750, 900],
             compressDemandTrend: [150, 100, 80, 40, 10, 0]
         },
@@ -42,10 +47,15 @@ export default function StorageOptimizerDashboard() {
             poQty: "5,000 Units (6 mo)",
             spaceRequired: "22.0 m³",
             spaceAvailable: "18.0 m³",
+            weightRequired: "4,500 kg",
+            weightAvailable: "3,100 kg",
             skuToCompress: "SKU-88210 (Seasonal End)",
             freedSpace: "+ 5.0 m³",
-            action: "Relocate to Top Rack",
+            freedWeight: "+ 1,800 kg",
+            action: "Relocate to Ground Rack",
             impact: "Maintains 25% bulk discount",
+            leadTime: "45 Days (High Risk)",
+            holdingCostPenalty: "-120k LKR",
             expandDemandTrend: [1000, 1050, 1100, 1200, 1300, 1400],
             compressDemandTrend: [800, 600, 400, 200, 50, 20]
         }
@@ -54,7 +64,7 @@ export default function StorageOptimizerDashboard() {
     // 3. Liquidation / Expiry Center
     const deadStockItems = [
         { id: 1, sku: 'SKU-50992', type: 'Finished Good', qty: 150, value: '120k LKR', issue: 'Zero demand in 90 days', actionRec: 'Run 20% Discount Promo' },
-        { id: 2, sku: 'RAW-0019', type: 'Raw Material', qty: 800, value: '50k LKR', issue: 'Expiring in 45 days', actionRec: 'Return to Vendor (RTV)' },
+        { id: 2, sku: 'RAW-0019', type: 'Raw Material', qty: 800, value: '50k LKR', issue: 'Shelf-Life Expiry Risk (Violates MOQ limits)', actionRec: 'Return to Vendor (RTV)' },
         { id: 3, sku: 'PKG-110', type: 'Packaging', qty: 2500, value: '10k LKR', issue: 'Obsolete branding', actionRec: 'Scrap & Recycle' }
     ];
 
@@ -251,10 +261,17 @@ export default function StorageOptimizerDashboard() {
                                                     <div className="font-bold text-base-content">{adj.skuToExpand}</div>
                                                     <div className="text-sm text-base-content/70">Bulk PO: {adj.poQty}</div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <div className="text-xs font-bold text-error uppercase tracking-wider mb-1">Deficit</div>
-                                                    <div className="font-bold text-error">{adj.spaceRequired}</div>
-                                                    <div className="text-sm text-base-content/70">Only {adj.spaceAvailable}</div>
+                                                <div className="text-right flex gap-4">
+                                                    <div>
+                                                        <div className="text-xs font-bold text-error uppercase tracking-wider mb-1">Vol Deficit</div>
+                                                        <div className="font-bold text-error">{adj.spaceRequired}</div>
+                                                        <div className="text-xs text-base-content/70">Avail: {adj.spaceAvailable}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-xs font-bold text-error uppercase tracking-wider mb-1">Wt Deficit</div>
+                                                        <div className="font-bold text-error">{adj.weightRequired}</div>
+                                                        <div className="text-xs text-base-content/70">Avail: {adj.weightAvailable}</div>
+                                                    </div>
                                                 </div>
                                             </div>
                                             
@@ -306,13 +323,17 @@ export default function StorageOptimizerDashboard() {
                                         </div>
                                         <div className="text-sm font-bold">{activeReview.skuToExpand}</div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                                    <div className="grid grid-cols-3 gap-2 text-sm mb-3">
                                         <div>
-                                            <div className="text-base-content/60">6-Mo Demand Trend:</div>
+                                            <div className="text-base-content/60 text-xs">6-Mo Demand:</div>
                                             <div className="font-semibold text-base-content">+125% Growth</div>
                                         </div>
                                         <div>
-                                            <div className="text-base-content/60">Revenue at Risk:</div>
+                                            <div className="text-base-content/60 text-xs">Supplier Lead Time:</div>
+                                            <div className={clsx("font-bold", adj.leadTime.includes('High Risk') ? 'text-error' : 'text-warning')}>{activeReview.leadTime}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-base-content/60 text-xs">Revenue at Risk:</div>
                                             <div className="font-bold text-error">{activeReview.impact}</div>
                                         </div>
                                     </div>
@@ -329,7 +350,7 @@ export default function StorageOptimizerDashboard() {
                                 <div className="flex justify-center -my-2 relative z-10">
                                     <div className="bg-base-200 dark:bg-base-300 px-4 py-2 rounded-full font-bold text-sm border border-base-300 flex items-center gap-2 shadow-sm">
                                         <span className="material-symbols-outlined text-warning text-sm">swap_vert</span>
-                                        Requires {activeReview.spaceRequired}
+                                        Requires {activeReview.spaceRequired} & {activeReview.weightRequired}
                                     </div>
                                 </div>
 
@@ -341,14 +362,18 @@ export default function StorageOptimizerDashboard() {
                                         </div>
                                         <div className="text-sm font-bold">{activeReview.skuToCompress}</div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4 text-sm mb-3">
+                                    <div className="grid grid-cols-3 gap-2 text-sm mb-3">
                                         <div>
-                                            <div className="text-base-content/60">6-Mo Demand Trend:</div>
+                                            <div className="text-base-content/60 text-xs">6-Mo Demand:</div>
                                             <div className="font-semibold text-base-content">-100% (Dead)</div>
                                         </div>
                                         <div>
-                                            <div className="text-base-content/60">Space Freed:</div>
-                                            <div className="font-bold text-success">{activeReview.freedSpace}</div>
+                                            <div className="text-base-content/60 text-xs">Holding Cost Penalty:</div>
+                                            <div className="font-bold text-error">{activeReview.holdingCostPenalty}</div>
+                                        </div>
+                                        <div>
+                                            <div className="text-base-content/60 text-xs">Space Freed:</div>
+                                            <div className="font-bold text-success">{activeReview.freedSpace} <span className="text-xs font-normal opacity-70">({activeReview.freedWeight})</span></div>
                                         </div>
                                     </div>
                                     <div className="h-16 w-full">
