@@ -26,7 +26,6 @@ As emphasized in **Section 2.2 (Pre-processing data)** of *Forecasting: theory a
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import boxcox
 from statsmodels.tsa.seasonal import seasonal_decompose
 
 plt.style.use('seaborn-v0_8-whitegrid')
@@ -39,6 +38,10 @@ warnings.filterwarnings('ignore')
 PANEL_PATH = "../outputs/m5_prepared/m5_monthly_panel.parquet"
 df = pd.read_parquet(PANEL_PATH)
 df['month'] = pd.to_datetime(df['month'].astype(str))
+
+# FIX: Drop incomplete final month (2016-05)
+df = df[df['month'] < '2016-05-01'].copy()
+
 print(f"Loaded {df.shape[0]} rows. Data ranges from {df['month'].min()} to {df['month'].max()}")""")
 
     md(nb, """### 1. Robust Outlier Handling
@@ -74,33 +77,17 @@ plt.tight_layout()
 plt.savefig('plots/01_outlier_handling.png')
 plt.show()""")
 
-    md(nb, """### 2. Box-Cox Transformation
+    md(nb, """### 2. Variance Stabilization (log1p)
 *Reference: Section 2.2.1 - Box-Cox transformations.*
-To stabilize variance (especially important for series where variance scales with the mean), we apply a Box-Cox transformation.""")
+To stabilize variance, we apply the `log1p` transformation (equivalent to Box-Cox with $\lambda=0$). We do this *after* hierarchical aggregation in Notebook 2, so here we just verify the overall dataset.""")
 
-    code(nb, """def apply_boxcox(series):
-    # Box-Cox requires strictly positive data
-    # We add a small constant (e.g., 1) to handle zeros
-    transformed, lmbda = boxcox(series + 1)
-    return transformed, lmbda
-
-lambdas = {}
-transformed_demand = []
-
-for series_id, group in df.groupby('series_id'):
-    t, l = apply_boxcox(group['demand_clean'].values)
-    lambdas[series_id] = l
-    # Assign back to the group
-    df.loc[group.index, 'demand_transformed'] = t
-
-print(f"Average Lambda chosen: {np.mean(list(lambdas.values())):.3f}")
-
+    code(nb, """# Since we will apply log1p after aggregation in Notebook 2, 
+# we just preview the distribution of the cleaned demand here.
 plt.figure(figsize=(14, 5))
-sns.histplot(list(lambdas.values()), bins=30, kde=True)
-plt.title('Distribution of Box-Cox Lambda values across all series')
-plt.xlabel('Lambda')
+sns.histplot(df['demand_clean'], bins=50, kde=True)
+plt.title('Distribution of Cleaned Demand (Raw Scale)')
+plt.xlabel('Demand')
 plt.tight_layout()
-plt.savefig('plots/02_boxcox_lambdas.png')
 plt.show()""")
 
     md(nb, """### 3. Time Series Decomposition
@@ -124,10 +111,8 @@ plt.tight_layout()
 plt.savefig('plots/03_decomposition.png')
 plt.show()""")
 
-    code(nb, """# Save the cleaned and transformed dataset
+    code(nb, """# Save the cleaned dataset
 df.to_parquet('data/01_preprocessed_m5.parquet', index=False)
-# Save lambdas for back-transformation later
-pd.Series(lambdas).to_csv('data/boxcox_lambdas.csv')
 print("Successfully saved preprocessed data.")""")
 
     nbf.write(nb, os.path.join(V5_DIR, "01_Data_Preprocessing.ipynb"))
@@ -160,33 +145,29 @@ print(f"Loaded {df.shape[0]} rows of preprocessed data.")""")
     md(nb, """### 1. Constructing the Hierarchy""")
 
     code(nb, """# The raw data has item_id, dept_id, cat_id, store_id
-# If the previous panel doesn't have these, we extract them from series_id
-# The previous panel series_id is formatted like: HOBBIES_1_CA_1 (dept_store) or similar
-# Let's verify columns:
 print("Columns available:", df.columns.tolist())
 
-# Assuming we have 'series_id', 'category', 'demand_transformed', etc.
-# We will create pseudo-hierarchies based on category (dept) and store.
-# Since the input panel was aggregated at a specific level, we'll build a simple 2-level hierarchy: Total -> Category.
+# Level 2: Series
+level_2 = df[['month', 'series_id', 'category', 'demand_clean']].copy()
 
-# If we only have category, we do: Level 0 (Total) -> Level 1 (Category) -> Level 2 (Series)
-level_2 = df[['month', 'series_id', 'category', 'demand_transformed']].copy()
-
-# Level 1: Category
-level_1 = level_2.groupby(['month', 'category'])['demand_transformed'].sum().reset_index()
+# Level 1: Category (AGGREGATE ON RAW SCALE)
+level_1 = level_2.groupby(['month', 'category'])['demand_clean'].sum().reset_index()
 level_1['series_id'] = 'CAT_' + level_1['category']
 
-# Level 0: Total
-level_0 = level_2.groupby(['month'])['demand_transformed'].sum().reset_index()
+# Level 0: Total (AGGREGATE ON RAW SCALE)
+level_0 = level_2.groupby(['month'])['demand_clean'].sum().reset_index()
 level_0['series_id'] = 'TOTAL'
 level_0['category'] = 'TOTAL'
 
-# Combine all levels into a single dataframe for feature engineering
+# Combine all levels
 hierarchical_df = pd.concat([
-    level_0[['month', 'series_id', 'demand_transformed']],
-    level_1[['month', 'series_id', 'demand_transformed']],
-    level_2[['month', 'series_id', 'demand_transformed']]
+    level_0[['month', 'series_id', 'demand_clean']],
+    level_1[['month', 'series_id', 'demand_clean']],
+    level_2[['month', 'series_id', 'demand_clean']]
 ], ignore_index=True)
+
+# APPLY STABILIZATION (log1p) AFTER AGGREGATION
+hierarchical_df['demand_transformed'] = np.log1p(hierarchical_df['demand_clean'])
 
 print(f"Hierarchical Dataset: {hierarchical_df.shape[0]} rows across {hierarchical_df['series_id'].nunique()} distinct series.")
 """)
@@ -396,28 +377,22 @@ This notebook implements the final, most critical components of modern forecasti
     code(nb, """import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import boxcox
-from scipy.special import inv_boxcox
 import warnings
 warnings.filterwarnings('ignore')
 
-preds_df = pd.read_parquet('data/04_ensemble_probabilistic_preds.parquet')
-lambdas = pd.read_csv('data/boxcox_lambdas.csv', index_col=0).iloc[:, 0].to_dict()""")
+preds_df = pd.read_parquet('data/04_ensemble_probabilistic_preds.parquet')""")
 
     md(nb, """### 1. Back-Transformation
-We must revert the Box-Cox transformation to evaluate on the original scale.""")
+We must revert the log1p transformation to evaluate on the original scale.""")
 
-    code(nb, """def invert_boxcox(series, series_ids, lambdas, offset=1):
-    result = []
-    for val, sid in zip(series, series_ids):
-        lmbda = lambdas.get(sid, 1.0) # default to 1.0 if not found
-        inv_val = inv_boxcox(val, lmbda) - offset
-        result.append(max(0, inv_val)) # Demand cannot be negative
-    return np.array(result)
+    code(nb, """def invert_log1p(series):
+    # log1p back-transform is expm1
+    # We use np.clip to avoid infinite exponentials just in case
+    return np.expm1(np.clip(series, a_min=0, a_max=20))
 
 for col in ['demand_transformed', 'pred_mean', 'pred_q10', 'pred_q90']:
     new_col = col.replace('_transformed', '') if 'transformed' in col else col + '_orig'
-    preds_df[new_col] = invert_boxcox(preds_df[col], preds_df['series_id'], lambdas)
+    preds_df[new_col] = invert_log1p(preds_df[col])
 
 # Rename for clarity
 preds_df.rename(columns={'demand': 'actuals'}, inplace=True)
@@ -462,7 +437,7 @@ def dm_test(actual, pred1, pred2):
 
 # For demonstration, we use lag_12 (Seasonal Naive) as baseline
 # It needs to be back-transformed too
-preds_df['naive_orig'] = invert_boxcox(preds_df['lag_12'], preds_df['series_id'], lambdas)
+preds_df['naive_orig'] = invert_log1p(preds_df['lag_12'])
 
 # Calculate WAPE
 def wape(actual, pred):
