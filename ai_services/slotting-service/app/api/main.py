@@ -8,7 +8,7 @@ from fitness import register_evaluate, hard_violations
 from bin_registry import BinRegistry
 from warehouse_state import WarehouseState
 from input_handler import get_user_inputs
-from config import SLOT_MAX_DEPTH, SLOT_MAX_WEIGHT
+from config import SLOT_MAX_DEPTH, LEVEL_MAX_WEIGHT
 
 DEFAULT_POP_SIZE        = 50
 DEFAULT_GENERATIONS     = 100
@@ -138,7 +138,7 @@ if __name__ == "__main__":
             registry.save("bin_states.json")
             
             bin_state = registry.get_bin(best)
-            max_weight = SLOT_MAX_WEIGHT[best[3]]
+            max_weight = LEVEL_MAX_WEIGHT[best[3]]
             print("\n  Bin State")
             print("  ─────────")
             print(f"  Usage          :  {bin_state.used_depth_cm}/{SLOT_MAX_DEPTH} cm | {bin_state.used_weight_kg}/{max_weight} kg")

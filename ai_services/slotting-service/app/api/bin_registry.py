@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from config import (
     SLOT_MAX_DEPTH,
-    SLOT_MAX_WEIGHT,
+    LEVEL_MAX_WEIGHT,
     ZONES, ROWS, SLOTS, LEVELS, BINS
 )
 
@@ -22,7 +22,7 @@ class BinState:
         return max(0.0, SLOT_MAX_DEPTH - self.used_depth_cm)
 
     def remaining_weight(self, level_idx: int) -> float:
-        return max(0.0, SLOT_MAX_WEIGHT[level_idx] - self.used_weight_kg)
+        return max(0.0, LEVEL_MAX_WEIGHT[level_idx] - self.used_weight_kg)
 
 
 class BinRegistry:
@@ -59,7 +59,7 @@ class BinRegistry:
             return False
         if b.used_depth_cm + parcel["length"] > SLOT_MAX_DEPTH:
             return False
-        if b.used_weight_kg + parcel["weight"] > SLOT_MAX_WEIGHT[level_idx]:
+        if b.used_weight_kg + parcel["weight"] > LEVEL_MAX_WEIGHT[level_idx]:
             return False
         
         return True

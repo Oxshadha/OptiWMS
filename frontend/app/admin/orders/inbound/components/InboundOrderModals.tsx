@@ -19,6 +19,7 @@ import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "../types";
+
 function getInboundStatusTone(status: string): StatusTone {
   if (status === "completed") return "success";
   if (status === "cancelled") return "danger";
@@ -443,17 +444,6 @@ export function CreateInboundOrderModal({
     }
   };
 
-  const handleConfirmRecommendedLocations = async () => {
-    const confirmedItems = formData.items.map((item, idx) => {
-      const recommendation = recommendationsByItem.get(idx);
-      return {
-        ...item,
-        locationCode: recommendation?.recommended_location_code.split(" ")[0] || item.locationCode,
-      };
-    });
-
-    await submitInboundOrder(confirmedItems);
-  };
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -631,8 +621,6 @@ export function CreateInboundOrderModal({
 
     void loadRecommendations();
   }, [step, formData.warehouseId, formData.items]);
-
-  const currentStepCount = 5;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -869,7 +857,6 @@ export function CreateInboundOrderModal({
                 Next
               </button>
             </div>
-            <div className="flex justify-end gap-3 pt-4"><button className="btn btn-ghost" onClick={() => setStep(1)}>Back</button><button className="btn btn-primary" onClick={() => setStep(3)}>Next</button></div>
           </div>
         )}
 
@@ -924,192 +911,6 @@ export function CreateInboundOrderModal({
               {capacityCheckLoading && <div className="text-xs text-base-content/60 flex items-center gap-2"><span className="loading loading-spinner loading-xs"></span>Checking storage capacity...</div>}
             </div>
             <div className="flex justify-end gap-3 pt-4"><button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting}>Back</button><button className="btn btn-primary" onClick={() => setStep(5)} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity}>Next</button></div>
-          </div>
-        )}
-
-        {step === 5 && (
-          <div className="p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-base-content mb-4">AI Recommended Locations</h3>
-            {recommendationError && <div className="alert alert-warning"><span>{recommendationError}</span></div>}
-            <div className="space-y-4">
-              {formData.items.map((item, idx) => {
-                const recommendation = recommendationsByItem.get(idx);
-                const recommendedLocation = recommendation ? warehouseLocations.find((location) => location.locationCode === recommendation.recommended_location_code) : undefined;
-                return (
-                  <div key={idx} className="card bg-base-200 p-4 rounded-lg space-y-3 border border-base-300">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">Item {idx + 1}</div>
-                        <div className="text-xs text-base-content/60">{materials.find((m) => m.id === item.productId)?.description || item.productId}</div>
-                      </div>
-                      <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
-                    </div>
-                    {recommendationLoading && <div className="flex items-center gap-2 text-sm text-base-content/60"><span className="loading loading-spinner loading-xs"></span>Generating recommendation...</div>}
-                    {!recommendationLoading && recommendation && (
-                      <>
-                        <div className="rounded-xl bg-base-100 border border-primary/20 p-4 space-y-2">
-                          <div className="text-xs uppercase tracking-wide text-base-content/60">Recommended Warehouse Location</div>
-                          <div className="text-2xl font-bold text-primary">{recommendation.recommended_location_code}</div>
-                          {recommendedLocation && (
-                            <div className="text-sm text-base-content/70 space-y-1">
-                              <div>Area: {recommendedLocation.area || "-"} | Row: {recommendedLocation.rowNumber || "-"} | Bay: {recommendedLocation.bayNumber || "-"}</div>
-                              <div>Level: {recommendedLocation.levelNumber || "-"} | Bin: {recommendedLocation.binPosition || "-"}</div>
-                              <div>Zone: {recommendedLocation.zoneType || recommendedLocation.locationType || "storage"}</div>
-                            </div>
-                          )}
-                          <div className="text-sm text-base-content/70">Reason: {recommendation.reason}</div>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-sm font-semibold">Alternatives</div>
-                          <div className="flex flex-wrap gap-2">
-                            {recommendation.alternatives.map((alternative) => (
-                              <span key={alternative.location_id} className="badge badge-ghost">{alternative.location_code}</span>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
-                    {!recommendationLoading && !recommendation && (
-                      <div className="alert alert-info"><span>No AI recommendation available yet. Use manual selection or try again.</span></div>
-                    )}
-                    <div className="text-xs text-base-content/70">Current manual location: {item.locationCode || "Not selected"}</div>
-
-                    <div className="form-control">
-                      <label className="label"><span className="label-text text-xs">Manual Location (optional)</span></label>
-                      {warehouseLocations.length > 0 ? (
-                        <select
-                          className="select select-bordered select-sm"
-                          value={item.locationCode}
-                          onChange={(e) => {
-                            const next = [...formData.items];
-                            next[idx].locationCode = e.target.value;
-                            setFormData({ ...formData, items: next });
-                          }}
-                        >
-                          <option value="">Use recommended / none</option>
-                          {warehouseLocations.map((location) => (
-                            <option key={location.id} value={location.locationCode}>{location.locationCode}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div className="text-xs text-base-content/60">No storage locations available for the selected warehouse.</div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {error && <div className="alert alert-error"><span>{error}</span></div>}
-            <div className="flex justify-end gap-3 pt-4">
-              <button
-                className="btn btn-ghost"
-                onClick={() => setStep(2)}
-                disabled={isSubmitting}
-              >
-                Back
-              </button>
-              <button className="btn btn-primary" onClick={() => setStep(4)} disabled={isSubmitting || capacityCheckLoading || hasInfeasibleCapacity || formData.items.some((item) => !item.productId || item.quantityOrdered <= 0)}>
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === 4 && (
-          <div className="p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-base-content mb-4">Package Details</h3>
-            <div className="alert alert-info">
-              <span>Enter the carton weight and dimensions for each item before generating GA recommendations.</span>
-            </div>
-            <div className="space-y-4">
-              {formData.items.map((item, idx) => (
-                <div key={idx} className="card bg-base-200 p-4 rounded-lg space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold">Item {idx + 1}</div>
-                      <div className="text-xs text-base-content/60">
-                        {materials.find((m) => m.id === item.productId)?.description || item.productId}
-                      </div>
-                    </div>
-                    <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="form-control">
-                      <label className="label"><span className="label-text font-medium">Weight (kg) *</span></label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        className="input input-bordered w-full"
-                        value={item.weightKg}
-                        onChange={(e) => {
-                          const next = [...formData.items];
-                          next[idx].weightKg = Number(e.target.value) || 0;
-                          setFormData({ ...formData, items: next });
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="form-control">
-                      <label className="label"><span className="label-text font-medium">Length (cm) *</span></label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        className="input input-bordered w-full"
-                        value={item.lengthCm}
-                        onChange={(e) => {
-                          const next = [...formData.items];
-                          next[idx].lengthCm = Number(e.target.value) || 0;
-                          setFormData({ ...formData, items: next });
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="form-control">
-                      <label className="label"><span className="label-text font-medium">Width (cm) *</span></label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        className="input input-bordered w-full"
-                        value={item.widthCm}
-                        onChange={(e) => {
-                          const next = [...formData.items];
-                          next[idx].widthCm = Number(e.target.value) || 0;
-                          setFormData({ ...formData, items: next });
-                        }}
-                        required
-                      />
-                    </div>
-                    <div className="form-control">
-                      <label className="label"><span className="label-text font-medium">Height (cm) *</span></label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        className="input input-bordered w-full"
-                        value={item.heightCm}
-                        onChange={(e) => {
-                          const next = [...formData.items];
-                          next[idx].heightCm = Number(e.target.value) || 0;
-                          setFormData({ ...formData, items: next });
-                        }}
-                        required
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end gap-3 pt-4">
-              <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting}>
-                Back
-              </button>
-              <button className="btn btn-primary" onClick={() => setStep(5)} disabled={isSubmitting || hasIncompleteMeasurements}>
-                Next
-              </button>
-            </div>
           </div>
         )}
 
@@ -1277,4 +1078,3 @@ export function CreateInboundOrderModal({
     </div>
   );
 }
-

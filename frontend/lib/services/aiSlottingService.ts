@@ -1,9 +1,12 @@
-export interface SlottingOptimizationRequest {
-  warehouse_id: string;
-  population_size: number;
-  generations: number;
-  mutation_rate: number;
-}
+/**
+ * aiSlottingService.ts
+ * Calls the FastAPI /slotting/recommend endpoint (backed by endpoints.py / main.py GA).
+ */
+
+const SLOTTING_BASE_URL =
+  process.env.NEXT_PUBLIC_SLOTTING_API_URL ?? "http://localhost:8000";
+
+// ── Request types (mirror SlottingRecommendationRequest in endpoints.py) ──────
 
 export interface SlottingRecommendationItemRequest {
   material_id: string;
@@ -22,11 +25,13 @@ export interface SlottingRecommendationItemRequest {
 export interface SlottingRecommendationRequest {
   warehouse_id: string;
   items: SlottingRecommendationItemRequest[];
-  population_size: number;
-  generations: number;
-  mutation_rate: number;
-  top_k_alternatives: number;
+  population_size?: number;   // default 50
+  generations?: number;       // default 100
+  mutation_rate?: number;     // default 0.2
+  top_k_alternatives?: number; // default 3
 }
+
+// ── Response types (mirror SlottingRecommendationResponse in endpoints.py) ────
 
 export interface SlottingRecommendationAlternativeResponse {
   location_id: string;
@@ -51,56 +56,36 @@ export interface SlottingRecommendationResponse {
   recommendations: SlottingRecommendationItemResponse[];
 }
 
-export interface SlottingAssignmentResponse {
-  material_id: string;
-  material_code: string;
-  location_id: string;
-  location_code: string;
-}
+// ── Service ───────────────────────────────────────────────────────────────────
 
-export interface SlottingOptimizationResponse {
-  warehouse_id: string;
-  best_fitness: number;
-  assignments: SlottingAssignmentResponse[];
-}
+export const AISlottingService = {
+  /**
+   * Ask the GA engine to recommend warehouse bin locations for a set of items.
+   * Called automatically on Step 5 of CreateInboundOrderModal.
+   */
+  async recommendPlacement(
+    request: SlottingRecommendationRequest
+  ): Promise<SlottingRecommendationResponse> {
+    const url = `${SLOTTING_BASE_URL}/slotting/recommend`;
 
-
-export class AISlottingService {
-  private static baseUrl = process.env.NEXT_PUBLIC_AI_SERVICES_URL?.trim()
-    ? `${process.env.NEXT_PUBLIC_AI_SERVICES_URL.trim()}/slotting`
-    : '/api/v1/slotting';
-
-  static async optimizeSlotting(request: SlottingOptimizationRequest): Promise<SlottingOptimizationResponse> {
-    const response = await fetch(`${this.baseUrl}/optimize`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(request),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to optimize slotting');
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`Slotting API error ${res.status}: ${detail}`);
     }
 
-    return response.json();
-  }
+    return res.json() as Promise<SlottingRecommendationResponse>;
+  },
 
-  static async recommendPlacement(request: SlottingRecommendationRequest): Promise<SlottingRecommendationResponse> {
-    const response = await fetch(`${this.baseUrl}/recommend`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.detail || 'Failed to recommend a location');
-    }
-
-    return response.json();
-  }
-}
+  /** Health-check — useful for an admin ping or startup check. */
+  async healthCheck(): Promise<{ status: string }> {
+    const res = await fetch(`${SLOTTING_BASE_URL}/slotting/health`);
+    if (!res.ok) throw new Error("Slotting service is unreachable");
+    return res.json();
+  },
+};
