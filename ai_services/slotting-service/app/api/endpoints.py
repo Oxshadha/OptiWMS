@@ -145,29 +145,84 @@ def _build_reason(
     return "; ".join(parts) + "."
  
 
+def _enrich_from_db(material_id: str) -> dict:
+    """Load material dimensions, forecast, and classification from PostgreSQL."""
+    try:
+        from app.db.database import SessionLocal
+        from app.models.db_models import MaterialDB
+        db = SessionLocal()
+        try:
+            mat = db.query(MaterialDB).filter(
+                (MaterialDB.id == material_id) | (MaterialDB.material_code == material_id)
+            ).first()
+            if mat is None:
+                return {}
+            return {
+                "weight_kg": mat.weight_kg,
+                "length_cm": mat.length_cm,
+                "width_cm": mat.width_cm,
+                "height_cm": mat.height_cm,
+                "volume_cm3": mat.volume_cm3,
+                "storage_type": mat.storage_type,
+                "hazard_class": mat.hazard_class,
+                "abc_class": mat.abc_class,
+                "fms_class": mat.fms_class,
+                "forecast_p50": mat.forecast_p50,
+                "forecast_p90": mat.forecast_p90,
+                "forecast_p10": mat.forecast_p10,
+                "velocity": mat.future_average,
+            }
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.debug("DB enrichment unavailable: %s", exc)
+        return {}
+
+
 @router.post("/recommend", response_model=SlottingRecommendationResponse)
 def recommend_placement(request: SlottingRecommendationRequest):
     from config import classify_volume, classify_velocity
- 
+
     ga_main_mod, gc, fit, ws, br = _load_ga()
- 
+
     registry = br.BinRegistry()
     order_state = ws.WarehouseState(registry)
- 
+
     recommendations: List[SlottingRecommendationItemResponse] = []
     overall_best_fitness: float = 0.0
- 
+
     for item in request.items:
-        volume_class   = classify_volume(item.volume_cm3)
-        movement_speed = classify_velocity(item.velocity)
- 
+        db_data = _enrich_from_db(item.material_id)
+
+        eff_weight = item.weight_kg if item.weight_kg is not None else db_data.get("weight_kg", 10.0)
+        eff_length = item.length_cm if item.length_cm is not None else db_data.get("length_cm", 30.0)
+        eff_height = item.height_cm if item.height_cm is not None else db_data.get("height_cm", 30.0)
+        eff_width = item.width_cm if item.width_cm is not None else db_data.get("width_cm", 30.0)
+        eff_volume = item.volume_cm3 if item.volume_cm3 is not None else db_data.get("volume_cm3")
+        eff_velocity = item.velocity if item.velocity is not None else db_data.get("velocity")
+
+        volume_class   = classify_volume(eff_volume)
+        movement_speed = classify_velocity(eff_velocity)
+
+        forecast_p50 = getattr(item, "forecast_p50", None) or db_data.get("forecast_p50", 0.0)
+        forecast_p90 = getattr(item, "forecast_p90", None) or db_data.get("forecast_p90")
+        forecast_p10 = getattr(item, "forecast_p10", None) or db_data.get("forecast_p10")
+        volatility = (forecast_p90 - forecast_p10) if (forecast_p90 and forecast_p10) else None
+
         parcel = {
-            "weight":         item.weight_kg  if item.weight_kg  is not None else 10.0,
-            "length":         item.length_cm  if item.length_cm  is not None else 30.0,
-            "height":         item.height_cm  if item.height_cm  is not None else 30.0,
-            "width":          item.width_cm   if item.width_cm   is not None else 30.0,
+            "weight":         eff_weight or 10.0,
+            "length":         eff_length or 30.0,
+            "height":         eff_height or 30.0,
+            "width":          eff_width or 30.0,
             "product_volume": volume_class,
             "movement_speed": movement_speed,
+            "storage_type":   getattr(item, "storage_type", None) or db_data.get("storage_type"),
+            "abc_class":      getattr(item, "abc_class", None) or db_data.get("abc_class"),
+            "fms_class":      getattr(item, "fms_class", None) or db_data.get("fms_class"),
+            "forecast_p50":   forecast_p50 or 0.0,
+            "forecast_volatility": volatility,
+            "quantity":       item.quantity,
+            "is_relocation":  item.current_location_code is not None,
         }
  
         try:
