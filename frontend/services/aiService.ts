@@ -30,8 +30,8 @@ function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Warehouse
           href: isUrl
             ? source
             : role === "manager"
-            ? `/admin/sops?search=${encodeURIComponent(source)}`
-            : undefined,
+              ? `/admin/sops?search=${encodeURIComponent(source)}`
+              : undefined,
         };
       }
 
@@ -41,10 +41,10 @@ function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Warehouse
           typeof candidate.label === "string"
             ? candidate.label
             : typeof candidate.title === "string"
-            ? candidate.title
-            : typeof candidate.source === "string"
-            ? candidate.source
-            : null;
+              ? candidate.title
+              : typeof candidate.source === "string"
+                ? candidate.source
+                : null;
 
         if (!label) {
           return null;
@@ -103,10 +103,10 @@ export async function askWarehouseAI(
       typeof data.answer === "string"
         ? data.answer
         : typeof data.response === "string"
-        ? data.response
-        : typeof data.message === "string"
-        ? data.message
-        : "I couldn't read a valid answer from the AI service.";
+          ? data.response
+          : typeof data.message === "string"
+            ? data.message
+            : "I couldn't read a valid answer from the AI service.";
 
     return {
       answer,
@@ -139,6 +139,8 @@ export interface DataAnalyticsResponse {
   data?: Record<string, unknown>[];
   chart?: string;
   error?: string;
+  answer?: string;        // Conversational summary (Mode 1) or download-link markdown (Mode 2)
+  download_url?: string;  // Set only in Report Generation mode
 }
 
 const DEFAULT_DATA_ENDPOINT =
@@ -185,6 +187,8 @@ export async function askDataAnalytics(
       data: Array.isArray(data.data) ? data.data : undefined,
       chart: typeof data.chart === "string" ? data.chart : undefined,
       error: typeof data.error === "string" ? data.error : undefined,
+      answer: typeof data.answer === "string" ? data.answer : undefined,
+      download_url: typeof data.download_url === "string" ? data.download_url : undefined,
     };
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {

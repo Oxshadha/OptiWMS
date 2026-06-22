@@ -20,6 +20,9 @@ CREATE TEMP TABLE tmp_location_code_ranked (
 ALTER TABLE material_default_locations DROP CONSTRAINT IF EXISTS material_default_locations_location_code_fkey;
 ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_code_fkey;
 
+-- Temporarily drop any existing storage-location code format constraint so legacy 2-digit bay values can be rewritten.
+ALTER TABLE locations DROP CONSTRAINT IF EXISTS chk_location_code_format;
+
 -- Parse "new-style" hybrid codes such as C-RFW-01-003-2-B and
 -- fold them into canonical area-row-bay-level-bin columns.
 UPDATE locations l
@@ -134,14 +137,41 @@ WHERE l.id = r.id
   AND r.rn = 1
   AND l.location_code IS DISTINCT FROM r.new_code;
 
+-- Safety net: rewrite any storage location_code not yet in canonical format.
+UPDATE locations
+SET location_code = FORMAT('%s-%s-%s-%s-%s', area, row_number, bay_number, level_number, bin_position)
+WHERE (zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage')
+  AND location_code !~ '^[A-Z]-[0-9]{2}-[0-9]{3}-[0-9]{1,2}-[A-Z]$'
+  AND area IS NOT NULL
+  AND row_number IS NOT NULL
+  AND bay_number IS NOT NULL
+  AND level_number IS NOT NULL
+  AND bin_position IS NOT NULL;
+
 -- Enforce canonical storage-code format.
-ALTER TABLE locations DROP CONSTRAINT IF EXISTS chk_location_code_format;
-ALTER TABLE locations
-    ADD CONSTRAINT chk_location_code_format
-    CHECK (
-        NOT (zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage')
-        OR location_code ~ '^[A-Z]-[0-9]{2}-[0-9]{3}-[0-9]{1,2}-[A-Z]$'
-    );
+DO $$
+DECLARE
+    invalid_count INTEGER;
+BEGIN
+    ALTER TABLE locations DROP CONSTRAINT IF EXISTS chk_location_code_format;
+
+    SELECT COUNT(*) INTO invalid_count
+    FROM locations
+    WHERE (zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage')
+      AND location_code IS NOT NULL
+      AND location_code !~ '^[A-Z]-[0-9]{2}-[0-9]{3}-[0-9]{1,2}-[A-Z]$';
+
+    IF invalid_count <> 0 THEN
+        RAISE EXCEPTION 'Cannot add chk_location_code_format: % storage locations have non-canonical codes', invalid_count;
+    END IF;
+
+    ALTER TABLE locations
+        ADD CONSTRAINT chk_location_code_format
+        CHECK (
+            NOT (zone_type = 'STORAGE' OR LOWER(COALESCE(location_type, '')) = 'storage')
+            OR location_code ~ '^[A-Z]-[0-9]{2}-[0-9]{3}-[0-9]{1,2}-[A-Z]$'
+        );
+END $$;
 
 -- Enforce structural uniqueness for storage slots.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_locations_storage_slot

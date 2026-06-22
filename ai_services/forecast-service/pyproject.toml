@@ -16,6 +16,7 @@ dependencies = [
   "catboost>=1.2",
   "lightgbm>=4.0",
   "scikit-learn>=1.4",
+  "shap>=0.45.0",
 ]
 
 [build-system]

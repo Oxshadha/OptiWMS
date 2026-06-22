@@ -783,6 +783,7 @@ def infer_boosting_online(
     series: list[Any],
     stage: str = "production",
     clip_negative: bool = True,
+    return_feature_matrix: bool = False,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     model_name = resolve_champion_model(dataset=dataset, horizon=horizon, requested_model=model_name)
@@ -839,6 +840,7 @@ def infer_boosting_online(
             for idx, _ in model_queue:
                 payload = payloads[idx]
                 items[idx] = _build_fallback_item(dataset, payload, horizon, reason=reason, preferred="auto")
+            frame = None
 
     finalized_items = [it for it in items if it is not None]
     fallback_count = sum(1 for it in finalized_items if it.get("fallback_used"))
@@ -885,4 +887,8 @@ def infer_boosting_online(
         "fallback_count": fallback_count,
         "fallback_methods": fallback_methods,
         "metadata": metadata,
+        **(  # only include feature_frame when explicitly requested — avoids serialization cost
+            {"feature_frame": frame if "frame" in dir() else None}
+            if return_feature_matrix else {}
+        ),
     }

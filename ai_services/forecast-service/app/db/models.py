@@ -171,3 +171,22 @@ class OperationalHealthSnapshot(Base):
     inference_status: Mapped[str] = mapped_column(String(16), default="unknown")
     details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+
+class ForecastShapExplanation(Base):
+    """Persists top-N SHAP feature contributions per SKU/horizon after each forecast run."""
+    __tablename__ = "forecast_shap_explanations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("forecast_runs.id"), index=True)
+    dataset: Mapped[str] = mapped_column(String(16), index=True)
+    model_name: Mapped[str] = mapped_column(String(64), index=True)
+    sku: Mapped[str] = mapped_column(String(64), index=True)
+    horizon: Mapped[int] = mapped_column(Integer, index=True)
+    # JSON array: [{"feature": "lag_1", "label": "demand 1 month ago",
+    #               "shap_value": 42.3, "feature_value": 450.0}, ...]
+    top_features_json: Mapped[str] = mapped_column(Text)
+    base_value: Mapped[float] = mapped_column(Float)   # SHAP expected value (model baseline)
+    prediction: Mapped[float] = mapped_column(Float)   # model output for this SKU/horizon
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+

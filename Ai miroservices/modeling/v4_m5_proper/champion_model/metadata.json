@@ -33,7 +33,7 @@
     "MAPE": 9.65,
     "Bias": 50.7,
     "MASE": 0.2553,
-    "Time_s": 1.22
+    "Time_s": 0.51
   },
   "test_metrics": {
     "WAPE": 0.0807,
@@ -56,7 +56,7 @@
     "SARIMA (top10)": 0.1036,
     "Prophet (top10)": 0.1456,
     "Random Forest": 0.0716,
-    "XGBoost": 0.0768,
+    "XGBoost": 0.0739,
     "CatBoost": 0.0816,
     "LightGBM": 0.0699
   }

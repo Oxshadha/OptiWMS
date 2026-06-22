@@ -44,6 +44,8 @@ import {
   Brush,
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
+import ForecastChatButton from "@/components/ForecastChatButton";
+import { useForecastChat } from "@/hooks/useForecastChat";
 
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
@@ -72,7 +74,9 @@ function genBase(months = 24) {
   const labels = [];
   const d = new Date(2023, 0, 1);
   for (let i = 0; i < months; i++) {
-    labels.push(d.toLocaleString("default", { month: "short", year: "2-digit" }));
+    labels.push(
+      d.toLocaleString("default", { month: "short", year: "2-digit" }),
+    );
     d.setMonth(d.getMonth() + 1);
   }
   return labels;
@@ -93,12 +97,27 @@ function makeForecastData() {
     const forecast = Math.round(trend + seasonal + (Math.random() - 0.5) * 60);
     const upper = forecast + Math.round(120 + i * 2);
     const lower = forecast - Math.round(100 + i * 2);
-    return { label, actual, forecast, upper, lower, ciRange: [lower, upper], trend: Math.round(trend) };
+    return {
+      label,
+      actual,
+      forecast,
+      upper,
+      lower,
+      ciRange: [lower, upper],
+      trend: Math.round(trend),
+    };
   });
 }
 
 function makeSkuData() {
-  const skus = ["SKU-300001", "SKU-300002", "SKU-300003", "SKU-300004", "SKU-300005", "SKU-300006"];
+  const skus = [
+    "SKU-300001",
+    "SKU-300002",
+    "SKU-300003",
+    "SKU-300004",
+    "SKU-300005",
+    "SKU-300006",
+  ];
   return skus.map((sku, si) => ({
     sku,
     velocity: Math.round(400 + si * 130 + Math.random() * 80),
@@ -112,7 +131,20 @@ function makeSkuData() {
 }
 
 function makeSeasonalityData() {
-  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const names = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
   return names.map((m, i) => ({
     month: m,
     index: +(0.75 + 0.5 * Math.sin((2 * Math.PI * i) / 12 - 1)).toFixed(2),
@@ -130,8 +162,13 @@ function makeResidualData() {
 
 function makeInventoryData() {
   return MONTHS.slice(0, 18).map((label, i) => {
-    const demand = Math.round(1200 + sine(i, 300, 12) + (Math.random() - 0.5) * 100);
-    const stock = Math.max(0, Math.round(3000 - i * 40 + sine(i, 500, 6) + (Math.random() - 0.5) * 200));
+    const demand = Math.round(
+      1200 + sine(i, 300, 12) + (Math.random() - 0.5) * 100,
+    );
+    const stock = Math.max(
+      0,
+      Math.round(3000 - i * 40 + sine(i, 500, 6) + (Math.random() - 0.5) * 200),
+    );
     return { label, demand, stock, reorder: 800 };
   });
 }
@@ -141,7 +178,9 @@ function makeExogData() {
     label,
     promo: i === 3 || i === 11 || i === 14 ? 1 : 0,
     holiday: i === 11 ? 1 : 0,
-    weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(2),
+    weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(
+      2,
+    ),
     priceIndex: +(1 + 0.04 * i + (Math.random() - 0.5) * 0.05).toFixed(2),
   }));
 }
@@ -150,9 +189,33 @@ const CustomBrushHandle = (props: any) => {
   const { x, y, width, height } = props;
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <rect x={0} y={0} width={width} height={height} fill={C.panel} stroke={C.textDim} rx={2} />
-      <line x1={width / 2 - 2} y1={height / 3} x2={width / 2 - 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
-      <line x1={width / 2 + 2} y1={height / 3} x2={width / 2 + 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
+      <rect
+        x={0}
+        y={0}
+        width={width}
+        height={height}
+        fill={C.panel}
+        stroke={C.textDim}
+        rx={2}
+      />
+      <line
+        x1={width / 2 - 2}
+        y1={height / 3}
+        x2={width / 2 - 2}
+        y2={(height * 2) / 3}
+        stroke={C.text}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <line
+        x1={width / 2 + 2}
+        y1={height / 3}
+        x2={width / 2 + 2}
+        y2={(height * 2) / 3}
+        stroke={C.text}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
     </g>
   );
 };
@@ -170,18 +233,31 @@ interface KpiCardProps {
 function KpiCard({ title, value, sub, color, delta, icon }: KpiCardProps) {
   const up = delta !== undefined ? delta >= 0 : false;
   return (
-    <div 
+    <div
       className="card bg-base-100 border border-base-300 p-4 shadow-sm transition-all duration-200 hover:shadow-md"
       style={{ borderTop: `4px solid ${color}` }}
     >
       <div className="flex justify-between items-center mb-1">
-        <span className="text-[10px] uppercase tracking-wider text-base-content/60 font-semibold">{title}</span>
-        <span className="material-symbols-outlined text-base-content/70 text-lg" style={{ color }}>{icon}</span>
+        <span className="text-[10px] uppercase tracking-wider text-base-content/60 font-semibold">
+          {title}
+        </span>
+        <span
+          className="material-symbols-outlined text-base-content/70 text-lg"
+          style={{ color }}
+        >
+          {icon}
+        </span>
       </div>
-      <span className="text-2xl font-bold text-base-content leading-none mb-1">{value}</span>
+      <span className="text-2xl font-bold text-base-content leading-none mb-1">
+        {value}
+      </span>
       <div className="flex items-center gap-1 text-xs text-base-content/60">
         {delta !== undefined && (
-          <span className={up ? "text-success font-semibold" : "text-error font-semibold"}>
+          <span
+            className={
+              up ? "text-success font-semibold" : "text-error font-semibold"
+            }
+          >
             {up ? "▲" : "▼"} {Math.abs(delta)}%
           </span>
         )}
@@ -200,7 +276,9 @@ function ChartTip({ active, payload, label }: any) {
       {payload.map((p: any, i: number) => (
         <p key={i} className="my-0.5 flex justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}:</span>
-          <strong className="text-base-content">{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
+          <strong className="text-base-content">
+            {typeof p.value === "number" ? p.value.toLocaleString() : p.value}
+          </strong>
         </p>
       ))}
     </div>
@@ -208,12 +286,22 @@ function ChartTip({ active, payload, label }: any) {
 }
 
 // ── Section Header ──────────────────────────────────────────────
-function SectionHeader({ title, sub, color = C.accent }: { title: string; sub?: string; color?: string }) {
+function SectionHeader({
+  title,
+  sub,
+  color = C.accent,
+}: {
+  title: string;
+  sub?: string;
+  color?: string;
+}) {
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2">
         <div className="w-1 h-5 rounded-full" style={{ background: color }} />
-        <span className="text-sm font-bold text-base-content uppercase tracking-wide">{title}</span>
+        <span className="text-sm font-bold text-base-content uppercase tracking-wide">
+          {title}
+        </span>
       </div>
       {sub && <p className="text-xs text-base-content/60 ml-3 mt-0.5">{sub}</p>}
     </div>
@@ -223,12 +311,12 @@ function SectionHeader({ title, sub, color = C.accent }: { title: string; sub?: 
 // ── Badge Component ─────────────────────────────────────────────
 function Badge({ label, color }: { label: string; color: string }) {
   return (
-    <span 
+    <span
       className="px-2 py-0.5 text-[10px] font-bold rounded border"
-      style={{ 
-        background: color + "15", 
-        color: color, 
-        borderColor: color + "40"
+      style={{
+        background: color + "15",
+        color: color,
+        borderColor: color + "40",
       }}
     >
       {label}
@@ -246,7 +334,9 @@ function downloadCsv<T extends object>(filename: string, rows: T[]) {
     const raw = value === null || value === undefined ? "" : String(value);
     return `"${raw.replace(/"/g, '""')}"`;
   };
-  const body = rows.map((row) => headers.map((h) => esc(row[h])).join(",")).join("\n");
+  const body = rows
+    .map((row) => headers.map((h) => esc(row[h])).join(","))
+    .join("\n");
   const csv = `${headers.join(",")}\n${body}`;
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -259,7 +349,9 @@ function downloadCsv<T extends object>(filename: string, rows: T[]) {
 }
 
 function downloadJson(filename: string, obj: unknown) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8;" });
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {
+    type: "application/json;charset=utf-8;",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -289,7 +381,7 @@ const compareMonthLabels = (a: string, b: string): number => {
   }
   if (a.startsWith("H+")) return 1;
   if (b.startsWith("H+")) return -1;
-  
+
   const dateA = new Date(a);
   const dateB = new Date(b);
   if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
@@ -337,24 +429,37 @@ export default function ForecastsPage() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   const [forecasts, setForecasts] = useState<ForecastPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
-  const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
-  const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
-  const [inferenceAudit, setInferenceAudit] = useState<InferenceAuditResponse | null>(null);
-  const [operationalHealth, setOperationalHealth] = useState<OperationalHealthSnapshot | null>(null);
-  const [runtimeContractHealth, setRuntimeContractHealth] = useState<RuntimeContractHealth | null>(null);
-  const [productionReadiness, setProductionReadiness] = useState<ProductionReadinessResponse | null>(null);
-  const [governanceStatus, setGovernanceStatus] = useState<GovernanceStatus | null>(null);
+  const [recommendations, setRecommendations] = useState<
+    InventoryRecommendation[]
+  >([]);
+  const [inferenceAlerts, setInferenceAlerts] =
+    useState<InferenceAlertsResponse | null>(null);
+  const [inferenceAudit, setInferenceAudit] =
+    useState<InferenceAuditResponse | null>(null);
+  const [operationalHealth, setOperationalHealth] =
+    useState<OperationalHealthSnapshot | null>(null);
+  const [runtimeContractHealth, setRuntimeContractHealth] =
+    useState<RuntimeContractHealth | null>(null);
+  const [productionReadiness, setProductionReadiness] =
+    useState<ProductionReadinessResponse | null>(null);
+  const [governanceStatus, setGovernanceStatus] =
+    useState<GovernanceStatus | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-  const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
+  const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<
+    Array<{ id: string; value: string; label: string }>
+  >([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [skuSearchInput, setSkuSearchInput] = useState("");
   const [skuSearchOpen, setSkuSearchOpen] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
-  const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
+  const [inventorySort, setInventorySort] = useState<
+    "risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc"
+  >("risk_desc");
   const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [showCI, setShowCI] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const { captureOpenContext } = useForecastChat();
   const [runStatus, setRunStatus] = useState<{
     phase: string;
     runId?: number;
@@ -377,8 +482,16 @@ export default function ForecastsPage() {
     { id: "model", label: "Model Performance", icon: "fact_check" },
   ];
 
-  const abcColor: Record<string, string> = { A: C.ok, B: C.accent4, C: C.muted };
-  const xyzColor: Record<string, string> = { X: C.accent, Y: C.accent2, Z: C.danger };
+  const abcColor: Record<string, string> = {
+    A: C.ok,
+    B: C.accent4,
+    C: C.muted,
+  };
+  const xyzColor: Record<string, string> = {
+    X: C.accent,
+    Y: C.accent2,
+    Z: C.danger,
+  };
 
   const managerWarehouseScope = useMemo(() => {
     if (!admin) {
@@ -390,7 +503,9 @@ export default function ForecastsPage() {
     if (!admin.warehouseId) {
       return undefined;
     }
-    const matched = warehouseMasterOptions.find((w) => w.id === admin.warehouseId);
+    const matched = warehouseMasterOptions.find(
+      (w) => w.id === admin.warehouseId,
+    );
     return matched?.value ?? admin.warehouseId;
   }, [admin, warehouseMasterOptions]);
 
@@ -398,7 +513,8 @@ export default function ForecastsPage() {
     ? filters.warehouseId || undefined
     : managerWarehouseScope;
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   const pickLatestBinding = (rows: ForecastPoint[]) => {
     if (!rows.length) {
@@ -416,7 +532,10 @@ export default function ForecastsPage() {
     return { dataset: "P", model: "RANDOM_FOREST" };
   };
 
-  const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
+  const loadData = async (options?: {
+    preserveOnEmpty?: boolean;
+    keepInfo?: boolean;
+  }) => {
     try {
       setLoading(true);
       setError(null);
@@ -433,12 +552,21 @@ export default function ForecastsPage() {
         setOperationalHealth(null);
         setRuntimeContractHealth(null);
         setProductionReadiness(null);
-        setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
+        setInfoMessage(
+          "No published forecast rows found yet. Run forecast after model/data mapping is ready.",
+        );
         return { hasRows: false, latestRunId: undefined };
       }
 
-      if (filters.dataset !== binding.dataset || filters.model !== binding.model) {
-        setFilters((prev) => ({ ...prev, dataset: binding.dataset, model: binding.model }));
+      if (
+        filters.dataset !== binding.dataset ||
+        filters.model !== binding.model
+      ) {
+        setFilters((prev) => ({
+          ...prev,
+          dataset: binding.dataset,
+          model: binding.model,
+        }));
       }
 
       const [forecastRes, metricRes, recoRes] = await Promise.all([
@@ -471,7 +599,9 @@ export default function ForecastsPage() {
         ...nextMetrics.map((r) => Number(r.run_id)),
         ...nextRecommendations.map((r) => Number(r.run_id)),
       ].filter((v) => Number.isFinite(v) && v > 0);
-      const canonicalRunId = candidateRunIds.length ? Math.max(...candidateRunIds) : undefined;
+      const canonicalRunId = candidateRunIds.length
+        ? Math.max(...candidateRunIds)
+        : undefined;
 
       if (canonicalRunId) {
         const needsRunNormalization =
@@ -537,10 +667,18 @@ export default function ForecastsPage() {
         isAdmin ? aiForecastApi.getGovernanceStatus() : Promise.resolve(null),
       ]);
 
-      const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
-      const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
+      const gotNoRows =
+        nextForecasts.length === 0 &&
+        nextMetrics.length === 0 &&
+        nextRecommendations.length === 0;
+      const hadPreviousRows =
+        forecasts.length > 0 ||
+        metrics.length > 0 ||
+        recommendations.length > 0;
       if (options?.preserveOnEmpty && gotNoRows && hadPreviousRows) {
-        setInfoMessage("Trigger started, but no new rows are available yet. Showing previous data.");
+        setInfoMessage(
+          "Trigger started, but no new rows are available yet. Showing previous data.",
+        );
         setLoading(false);
         return { hasRows: false, latestRunId: canonicalRunId };
       }
@@ -551,47 +689,75 @@ export default function ForecastsPage() {
       if (inferenceAlertsResult.status === "fulfilled") {
         setInferenceAlerts(inferenceAlertsResult.value ?? null);
       } else {
-        logger.warn("[ForecastsPage] Inference alerts endpoint unavailable:", inferenceAlertsResult.reason);
+        logger.warn(
+          "[ForecastsPage] Inference alerts endpoint unavailable:",
+          inferenceAlertsResult.reason,
+        );
         setInferenceAlerts(null);
       }
       if (inferenceAuditResult.status === "fulfilled") {
         setInferenceAudit(inferenceAuditResult.value ?? null);
       } else {
-        logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
+        logger.warn(
+          "[ForecastsPage] Inference audit endpoint unavailable:",
+          inferenceAuditResult.reason,
+        );
         setInferenceAudit(null);
       }
       if (operationalHealthResult.status === "fulfilled") {
         setOperationalHealth(operationalHealthResult.value ?? null);
       } else {
-        logger.warn("[ForecastsPage] Operational health endpoint unavailable:", operationalHealthResult.reason);
+        logger.warn(
+          "[ForecastsPage] Operational health endpoint unavailable:",
+          operationalHealthResult.reason,
+        );
         setOperationalHealth(null);
       }
       if (runtimeContractResult.status === "fulfilled") {
         setRuntimeContractHealth(runtimeContractResult.value ?? null);
       } else {
-        logger.warn("[ForecastsPage] Runtime contract endpoint unavailable:", runtimeContractResult.reason);
+        logger.warn(
+          "[ForecastsPage] Runtime contract endpoint unavailable:",
+          runtimeContractResult.reason,
+        );
         setRuntimeContractHealth(null);
       }
       if (productionReadinessResult.status === "fulfilled") {
         setProductionReadiness(productionReadinessResult.value ?? null);
       } else {
-        logger.warn("[ForecastsPage] Production readiness endpoint unavailable:", productionReadinessResult.reason);
+        logger.warn(
+          "[ForecastsPage] Production readiness endpoint unavailable:",
+          productionReadinessResult.reason,
+        );
         setProductionReadiness(null);
       }
       if (governanceStatusResult.status === "fulfilled") {
-        setGovernanceStatus((governanceStatusResult.value as GovernanceStatus | null) ?? null);
+        setGovernanceStatus(
+          (governanceStatusResult.value as GovernanceStatus | null) ?? null,
+        );
       } else {
-        logger.warn("[ForecastsPage] Governance status endpoint unavailable:", governanceStatusResult.reason);
+        logger.warn(
+          "[ForecastsPage] Governance status endpoint unavailable:",
+          governanceStatusResult.reason,
+        );
         setGovernanceStatus(null);
       }
       setLastLoadedAt(new Date().toISOString());
       return {
         hasRows: !gotNoRows,
-        latestRunId: canonicalRunId ?? (nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined),
+        latestRunId:
+          canonicalRunId ??
+          (nextForecasts.length
+            ? Math.max(...nextForecasts.map((f) => f.run_id))
+            : undefined),
       };
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
-      setError(loadError instanceof Error ? loadError.message : "Failed to load forecast data");
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load forecast data",
+      );
       return { hasRows: false, latestRunId: undefined as number | undefined };
     } finally {
       setLoading(false);
@@ -623,15 +789,19 @@ export default function ForecastsPage() {
     const resolvedDataset = binding?.dataset ?? DEFAULT_DATASET;
     const resolvedModel = binding?.model ?? DEFAULT_MODEL;
     if (!resolvedDataset || !resolvedModel) {
-      setError("No runtime dataset/model binding found. Publish at least one valid run first.");
+      setError(
+        "No runtime dataset/model binding found. Publish at least one valid run first.",
+      );
       return;
     }
 
-    const currentInferenceStatus = String(inferenceAlerts?.status ?? "ok").toLowerCase();
+    const currentInferenceStatus = String(
+      inferenceAlerts?.status ?? "ok",
+    ).toLowerCase();
     let criticalOverride = false;
     if (currentInferenceStatus === "critical") {
       const proceed = window.confirm(
-        "Inference health is CRITICAL (high fallback/error/latency). Do you still want to trigger a new run?"
+        "Inference health is CRITICAL (high fallback/error/latency). Do you still want to trigger a new run?",
       );
       if (!proceed) {
         return;
@@ -673,7 +843,9 @@ export default function ForecastsPage() {
             updatedAt: new Date().toISOString(),
           });
         } else {
-          setInfoMessage("Run started, but publish is still in progress. Showing latest available data.");
+          setInfoMessage(
+            "Run started, but publish is still in progress. Showing latest available data.",
+          );
           setRunStatus({
             phase: "timeout",
             runId,
@@ -692,12 +864,22 @@ export default function ForecastsPage() {
         await loadData({ preserveOnEmpty: true, keepInfo: true });
       }
     } catch (triggerError) {
-      logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
-      setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
+      logger.error(
+        "[ForecastsPage] Failed to trigger forecast run:",
+        triggerError,
+      );
+      setError(
+        triggerError instanceof Error
+          ? triggerError.message
+          : "Failed to trigger forecast run",
+      );
       setInfoMessage(null);
       setRunStatus({
         phase: "failed",
-        message: triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run",
+        message:
+          triggerError instanceof Error
+            ? triggerError.message
+            : "Failed to trigger forecast run",
         updatedAt: new Date().toISOString(),
       });
     } finally {
@@ -717,12 +899,17 @@ export default function ForecastsPage() {
           .map((w) => ({
             id: String(w.id),
             value: (w.name && String(w.name).trim()) || String(w.id),
-            label: w.name ? `${w.name}${w.code ? ` (${w.code})` : ""}` : String(w.id),
+            label: w.name
+              ? `${w.name}${w.code ? ` (${w.code})` : ""}`
+              : String(w.id),
           }))
           .sort((a, b) => a.label.localeCompare(b.label));
         setWarehouseMasterOptions(options);
       } catch (warehouseError) {
-        logger.warn("[ForecastsPage] Failed to load warehouses:", warehouseError);
+        logger.warn(
+          "[ForecastsPage] Failed to load warehouses:",
+          warehouseError,
+        );
         setWarehouseMasterOptions([]);
       }
     };
@@ -738,13 +925,25 @@ export default function ForecastsPage() {
 
   const latestForecasts = useMemo(
     () => forecasts.filter((f) => !latestRunId || f.run_id === latestRunId),
-    [forecasts, latestRunId]
+    [forecasts, latestRunId],
   );
 
   const skuOptions = useMemo(() => {
     const fromRecommendations = recommendations.map((row) => row.sku);
     const fromForecasts = latestForecasts.map((row) => row.sku);
-    return Array.from(new Set([...fromRecommendations, ...fromForecasts])).sort((a, b) => a.localeCompare(b));
+    const resolvedSkus = Array.from(new Set([...fromRecommendations, ...fromForecasts]));
+    if (resolvedSkus.length > 0) {
+      return resolvedSkus.sort((a, b) => a.localeCompare(b));
+    }
+    // Fallback to mock SKUs when live forecasts/recommendations are not loaded
+    return [
+      "SKU-300001",
+      "SKU-300002",
+      "SKU-300003",
+      "SKU-300004",
+      "SKU-300005",
+      "SKU-300006",
+    ];
   }, [latestForecasts, recommendations]);
 
   useEffect(() => {
@@ -752,16 +951,18 @@ export default function ForecastsPage() {
       setSelectedSku("");
       return;
     }
-    if (!selectedSku || !skuOptions.includes(selectedSku)) {
-      setSelectedSku(filters.sku && skuOptions.includes(filters.sku) ? filters.sku : skuOptions[0]);
+    // Sync with filters.sku if it is specified and in the options
+    if (filters.sku && skuOptions.includes(filters.sku) && selectedSku !== filters.sku) {
+      setSelectedSku(filters.sku);
+    } else if (selectedSku && !skuOptions.includes(selectedSku)) {
+      // If selected SKU is not empty but no longer in the options, reset it
+      setSelectedSku("");
     }
   }, [filters.sku, selectedSku, skuOptions]);
 
   useEffect(() => {
-    if (!selectedSku) {
-      return;
-    }
-    setSkuSearchInput(selectedSku);
+    // Sync input field value when selectedSku changes, including empty values (All SKUs Combined)
+    setSkuSearchInput(selectedSku || "");
   }, [selectedSku]);
 
   const deferredSkuQuery = useDeferredValue(skuSearchInput);
@@ -771,9 +972,14 @@ export default function ForecastsPage() {
       return skuOptions.slice(0, 12);
     }
     const exact = skuOptions.filter((sku) => sku.toLowerCase() === q);
-    const starts = skuOptions.filter((sku) => sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q);
+    const starts = skuOptions.filter(
+      (sku) => sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q,
+    );
     const contains = skuOptions.filter(
-      (sku) => sku.toLowerCase().includes(q) && !sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q
+      (sku) =>
+        sku.toLowerCase().includes(q) &&
+        !sku.toLowerCase().startsWith(q) &&
+        sku.toLowerCase() !== q,
     );
     return [...exact, ...starts, ...contains].slice(0, 12);
   }, [deferredSkuQuery, skuOptions]);
@@ -851,9 +1057,9 @@ export default function ForecastsPage() {
         (row) =>
           row.on_hand_inventory !== null &&
           row.on_hand_inventory !== undefined &&
-          row.on_hand_inventory < row.reorder_point
+          row.on_hand_inventory < row.reorder_point,
       ).length,
-    [recommendations]
+    [recommendations],
   );
 
   const overstockCount = useMemo(
@@ -862,14 +1068,15 @@ export default function ForecastsPage() {
         (row) =>
           row.on_hand_inventory !== null &&
           row.on_hand_inventory !== undefined &&
-          row.on_hand_inventory > row.target_max
+          row.on_hand_inventory > row.target_max,
       ).length,
-    [recommendations]
+    [recommendations],
   );
 
   const totalSuggestedQty = useMemo(
-    () => recommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0),
-    [recommendations]
+    () =>
+      recommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0),
+    [recommendations],
   );
 
   const topReorderItems = useMemo(() => {
@@ -887,7 +1094,7 @@ export default function ForecastsPage() {
 
   const selectedSkuRecommendation = useMemo(
     () => recommendations.find((row) => row.sku === selectedSku) ?? null,
-    [recommendations, selectedSku]
+    [recommendations, selectedSku],
   );
 
   const inferenceMix = useMemo(() => {
@@ -906,7 +1113,9 @@ export default function ForecastsPage() {
     const primary = Math.max(totalSeries - totalFallback - totalErrors, 0);
     const denom = totalSeries || 1;
     const primaryModelName = (
-      (items.find((it) => typeof it.model_name === "string" && it.model_name.trim())?.model_name as string | undefined) ||
+      (items.find(
+        (it) => typeof it.model_name === "string" && it.model_name.trim(),
+      )?.model_name as string | undefined) ||
       filters.model ||
       "Primary"
     ).toString();
@@ -915,7 +1124,8 @@ export default function ForecastsPage() {
       const methods = item.fallback_methods;
       if (Array.isArray(methods)) {
         methods.forEach((m) => {
-          if (typeof m === "string" && m.trim()) fallbackMethodSet.add(m.trim().toUpperCase());
+          if (typeof m === "string" && m.trim())
+            fallbackMethodSet.add(m.trim().toUpperCase());
         });
       }
       const baseline = item.baseline_method;
@@ -924,7 +1134,9 @@ export default function ForecastsPage() {
       }
     }
     const fallbackLabel =
-      fallbackMethodSet.size > 0 ? Array.from(fallbackMethodSet).sort().join(" / ") : "Fallback";
+      fallbackMethodSet.size > 0
+        ? Array.from(fallbackMethodSet).sort().join(" / ")
+        : "Fallback";
     return {
       totalSeries,
       totalFallback,
@@ -983,11 +1195,19 @@ export default function ForecastsPage() {
 
   useEffect(() => {
     setInventoryPage(1);
-  }, [inventorySearch, inventorySort, recommendations, filters.horizon, filters.sku, effectiveWarehouseId]);
+  }, [
+    inventorySearch,
+    inventorySort,
+    recommendations,
+    filters.horizon,
+    filters.sku,
+    effectiveWarehouseId,
+  ]);
 
   const totalInventoryPages = useMemo(
-    () => Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
-    [sortedRecommendations.length]
+    () =>
+      Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
+    [sortedRecommendations.length],
   );
 
   const pagedRecommendations = useMemo(() => {
@@ -999,7 +1219,11 @@ export default function ForecastsPage() {
     if (runStatus.phase === "failed") return "badge-error";
     if (runStatus.phase === "timeout") return "badge-warning";
     if (runStatus.phase === "published") return "badge-success";
-    if (runStatus.phase === "triggering" || runStatus.phase === "waiting_publish") return "badge-info";
+    if (
+      runStatus.phase === "triggering" ||
+      runStatus.phase === "waiting_publish"
+    )
+      return "badge-info";
     return "badge-ghost";
   }, [runStatus.phase]);
 
@@ -1014,35 +1238,62 @@ export default function ForecastsPage() {
   const applySkuSearch = () => {
     const q = skuSearchInput.trim().toLowerCase();
     if (!q) {
+      setSelectedSku("");
       return;
     }
-    const exact = skuOptions.find((sku) => sku.toLowerCase() === q);
-    if (exact) {
-      setSelectedSku(exact);
+    
+    // Normalize query: remove non-alphanumeric characters and 'sku' prefix
+    const cleanQ = q.replace(/^sku-?/, "").replace(/[^a-z0-9]/g, "");
+
+    // 1. Exact string match
+    let found = skuOptions.find((sku) => sku.toLowerCase() === q);
+    if (found) {
+      setSelectedSku(found);
       return;
     }
-    const partial = skuOptions.find((sku) => sku.toLowerCase().includes(q));
-    if (partial) {
-      setSelectedSku(partial);
+
+    // 2. Exact match on clean normalized string
+    found = skuOptions.find((sku) => {
+      const cleanSku = sku.toLowerCase().replace(/^sku-?/, "").replace(/[^a-z0-9]/g, "");
+      return cleanSku === cleanQ;
+    });
+    if (found) {
+      setSelectedSku(found);
+      return;
+    }
+
+    // 3. Partial match on clean string
+    found = skuOptions.find((sku) => {
+      const cleanSku = sku.toLowerCase().replace(/^sku-?/, "").replace(/[^a-z0-9]/g, "");
+      return cleanSku.includes(cleanQ) || cleanQ.includes(cleanSku);
+    });
+    if (found) {
+      setSelectedSku(found);
+      return;
+    }
+
+    // 4. Fuzzy check for digit sequence to handle mismatched zero count (e.g. "30001" matching "SKU-300001")
+    const digitsQ = q.replace(/\D/g, "");
+    if (digitsQ.length >= 2) {
+      const fuzzyPattern = digitsQ.split("").join(".*");
+      try {
+        const regex = new RegExp(fuzzyPattern);
+        found = skuOptions.find((sku) => regex.test(sku));
+        if (found) {
+          setSelectedSku(found);
+          return;
+        }
+      } catch (e) {
+        // ignore regex errors
+      }
     }
   };
 
   const onSkuSearchInputChange = (value: string) => {
     setSkuSearchInput(value);
     setSkuSearchOpen(true);
-    const q = value.trim().toLowerCase();
-    if (!q) {
-      return;
-    }
-    const exact = skuOptions.find((sku) => sku.toLowerCase() === q);
-    if (exact) {
-      setSelectedSku(exact);
-      return;
-    }
-    const starts = skuOptions.find((sku) => sku.toLowerCase().startsWith(q));
-    if (starts) {
-      setSelectedSku(starts);
-    }
+    // Note: Do not auto-select/override selectedSku on typing to avoid input locking.
+    // Real-time matching is shown in the dropdown, and user can submit with Enter/Select SKU button.
   };
 
   const selectSkuFromSearch = (sku: string) => {
@@ -1073,7 +1324,11 @@ export default function ForecastsPage() {
       }
     } catch (ex) {
       logger.error("[ForecastsPage] Failed to refresh operational health:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to refresh operational health");
+      setError(
+        ex instanceof Error
+          ? ex.message
+          : "Failed to refresh operational health",
+      );
     } finally {
       setHealthRefreshing(false);
     }
@@ -1087,7 +1342,9 @@ export default function ForecastsPage() {
       await refreshOperationalHealthNow();
     } catch (ex) {
       logger.error("[ForecastsPage] Failed to run governance tick:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to run governance tick");
+      setError(
+        ex instanceof Error ? ex.message : "Failed to run governance tick",
+      );
     } finally {
       setHealthRefreshing(false);
     }
@@ -1096,19 +1353,22 @@ export default function ForecastsPage() {
   const exportReleaseEvidence = async () => {
     try {
       setEvidenceLoading(true);
-      const evidence: ReleaseEvidenceBundle = await aiForecastApi.getReleaseEvidence({
-        dataset: filters.dataset || undefined,
-        modelName: filters.model || undefined,
-        split: EVAL_SPLIT,
-        inferenceWindow: 200,
-        soakHours: 24,
-        historyLimit: 200,
-      });
+      const evidence: ReleaseEvidenceBundle =
+        await aiForecastApi.getReleaseEvidence({
+          dataset: filters.dataset || undefined,
+          modelName: filters.model || undefined,
+          split: EVAL_SPLIT,
+          inferenceWindow: 200,
+          soakHours: 24,
+          historyLimit: 200,
+        });
       const stamp = new Date().toISOString().replaceAll(":", "-");
       downloadJson(`forecast_release_evidence_${stamp}.json`, evidence);
     } catch (ex) {
       logger.error("[ForecastsPage] Failed to export release evidence:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to export release evidence");
+      setError(
+        ex instanceof Error ? ex.message : "Failed to export release evidence",
+      );
     } finally {
       setEvidenceLoading(false);
     }
@@ -1118,33 +1378,36 @@ export default function ForecastsPage() {
 
   // 1. Overview & Forecasts Live Grouping
   const aggregatedForecastData = useMemo(() => {
-    let filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
+    let filtered = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
       : latestForecasts;
-      
+
     // Apply Horizon filter for projected data (historical actuals are preserved)
     const maxHorizon = filters.horizon || 12;
-    filtered = filtered.filter(f => {
+    filtered = filtered.filter((f) => {
       if (f.y_true !== null && f.y_true !== undefined) return true;
       return f.horizon <= maxHorizon;
     });
 
     if (!filtered.length) return [];
 
-    const dateGroups: Record<string, {
-      date: string;
-      actualSum: number | null;
-      actualCount: number;
-      forecastSum: number;
-      lowerSum: number;
-      upperSum: number;
-      count: number;
-    }> = {};
-    
-    filtered.forEach(f => {
+    const dateGroups: Record<
+      string,
+      {
+        date: string;
+        actualSum: number | null;
+        actualCount: number;
+        forecastSum: number;
+        lowerSum: number;
+        upperSum: number;
+        count: number;
+      }
+    > = {};
+
+    filtered.forEach((f) => {
       const dateStr = f.month;
       if (!dateStr) return;
-      
+
       if (!dateGroups[dateStr]) {
         dateGroups[dateStr] = {
           date: dateStr,
@@ -1153,7 +1416,7 @@ export default function ForecastsPage() {
           forecastSum: 0,
           lowerSum: 0,
           upperSum: 0,
-          count: 0
+          count: 0,
         };
       }
       const g = dateGroups[dateStr];
@@ -1166,86 +1429,112 @@ export default function ForecastsPage() {
       g.upperSum += Number(f.p90);
       g.count++;
     });
-    
+
     return Object.values(dateGroups)
       .sort((a, b) => compareMonthLabels(a.date, b.date))
-      .map(g => ({
+      .map((g) => ({
         label: formatMonthLabel(g.date),
         actual: g.actualCount > 0 ? Math.round(g.actualSum || 0) : null,
         forecast: Math.round(g.forecastSum),
         upper: Math.round(g.upperSum),
         lower: Math.round(g.lowerSum),
         ciRange: [Math.round(g.lowerSum), Math.round(g.upperSum)],
-        trend: Math.round(g.forecastSum * 0.95)
+        trend: Math.round(g.forecastSum * 0.95),
       }));
   }, [latestForecasts, selectedSku, filters.horizon]);
 
   // 2. Seasonality Live Calculation
   const liveSeasonality = useMemo(() => {
-    const filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
+    const filtered = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
       : latestForecasts;
-      
+
     if (!filtered.length) return [];
 
     const monthlyActuals: Record<number, number[]> = {};
-    filtered.forEach(f => {
+    filtered.forEach((f) => {
       if (f.y_true === null || f.y_true === undefined || !f.month) return;
       const m = getMonthIndex(f.month);
       if (!monthlyActuals[m]) monthlyActuals[m] = [];
       monthlyActuals[m].push(Number(f.y_true));
     });
-    
-    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const list = monthNames.map((name, i) => {
       const vals = monthlyActuals[i] || [];
-      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      const avg = vals.length
+        ? vals.reduce((a, b) => a + b, 0) / vals.length
+        : 0;
       return { month: name, avg };
     });
-    
-    const nonZeroAvgs = list.map(l => l.avg).filter(v => v > 0);
-    
+
+    const nonZeroAvgs = list.map((l) => l.avg).filter((v) => v > 0);
+
     // If we have no actual historical data at all, return empty to trigger fallback
     if (nonZeroAvgs.length === 0) return [];
-    
-    const overallAvg = nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
-    
-    return list.map(l => ({
+
+    const overallAvg =
+      nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
+
+    return list.map((l) => ({
       month: l.month,
       index: Number((l.avg / overallAvg).toFixed(2)),
-      sales: Math.round(l.avg)
+      sales: Math.round(l.avg),
     }));
   }, [latestForecasts, selectedSku]);
 
   // 3. Inventory Projection Simulation
   const liveInventoryFlow = useMemo(() => {
-    const filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
+    const filtered = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
       : latestForecasts;
-      
+
     if (!filtered.length) return [];
 
-    const rec = recommendations.find(r => r.sku === (selectedSku || recommendations[0]?.sku));
+    const rec = recommendations.find(
+      (r) => r.sku === (selectedSku || recommendations[0]?.sku),
+    );
     const startStock = rec?.on_hand_inventory ?? 500;
     const rop = rec?.reorder_point ?? 100;
     const maxStock = rec?.target_max ?? 1000;
-    
+
     const futureMonths = filtered
-      .filter(f => (f.y_true === null || f.y_true === undefined) && f.month)
-      .reduce((acc, f) => {
-        const dateStr = f.month;
-        const label = formatMonthLabel(dateStr);
-        if (!acc[dateStr]) {
-          acc[dateStr] = { dateStr, label, demand: 0 };
-        }
-        acc[dateStr].demand += Number(f.p50);
-        return acc;
-      }, {} as Record<string, { dateStr: string; label: string; demand: number }>);
-      
-    const sortedFuture = Object.values(futureMonths).sort((a, b) => compareMonthLabels(a.dateStr, b.dateStr));
-    
+      .filter((f) => (f.y_true === null || f.y_true === undefined) && f.month)
+      .reduce(
+        (acc, f) => {
+          const dateStr = f.month;
+          const label = formatMonthLabel(dateStr);
+          if (!acc[dateStr]) {
+            acc[dateStr] = { dateStr, label, demand: 0 };
+          }
+          acc[dateStr].demand += Number(f.p50);
+          return acc;
+        },
+        {} as Record<
+          string,
+          { dateStr: string; label: string; demand: number }
+        >,
+      );
+
+    const sortedFuture = Object.values(futureMonths).sort((a, b) =>
+      compareMonthLabels(a.dateStr, b.dateStr),
+    );
+
     let currentStock = startStock;
-    return sortedFuture.map(m => {
+    return sortedFuture.map((m) => {
       const demand = Math.round(m.demand);
       const stockBefore = currentStock;
       currentStock = Math.max(0, currentStock - demand);
@@ -1259,7 +1548,7 @@ export default function ForecastsPage() {
         demand,
         stock: stockBefore,
         reorder: rop,
-        suggested: reorderQty
+        suggested: reorderQty,
       };
     });
   }, [latestForecasts, recommendations, selectedSku]);
@@ -1267,24 +1556,44 @@ export default function ForecastsPage() {
   // 4. SKU Details and Classification
   const liveSkuDetails = useMemo(() => {
     if (!recommendations.length) return [];
-    return recommendations.map(rec => {
+    return recommendations.map((rec) => {
       const sid = rec.sku;
-      const seriesPoints = latestForecasts.filter(f => f.sku === sid);
-      const actuals = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined).map(f => Number(f.y_true));
-      const skuHash = sid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 80 + (skuHash % 420);
-      
+      const seriesPoints = latestForecasts.filter((f) => f.sku === sid);
+      const actuals = seriesPoints
+        .filter((f) => f.y_true !== null && f.y_true !== undefined)
+        .map((f) => Number(f.y_true));
+      const skuHash = sid
+        .split("")
+        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const velocity = actuals.length
+        ? actuals.reduce((a, b) => a + b, 0) / actuals.length
+        : 80 + (skuHash % 420);
+
       const abc = velocity > 350 ? "A" : velocity > 120 ? "B" : "C";
-      const xyz = rec.suggested_order_qty > 200 ? "Z" : rec.suggested_order_qty > 50 ? "Y" : "X";
-      
-      const hist = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined);
-      const sumAbsErr = hist.reduce((s, f) => s + Math.abs(Number(f.y_true) - Number(f.p50)), 0);
+      const xyz =
+        rec.suggested_order_qty > 200
+          ? "Z"
+          : rec.suggested_order_qty > 50
+            ? "Y"
+            : "X";
+
+      const hist = seriesPoints.filter(
+        (f) => f.y_true !== null && f.y_true !== undefined,
+      );
+      const sumAbsErr = hist.reduce(
+        (s, f) => s + Math.abs(Number(f.y_true) - Number(f.p50)),
+        0,
+      );
       const sumActual = hist.reduce((s, f) => s + Number(f.y_true), 0);
-      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 3.0 + (skuHash % 60) / 10;
-      
+      const mape =
+        sumActual > 0
+          ? (sumAbsErr / sumActual) * 100
+          : 3.0 + (skuHash % 60) / 10;
+
       const onHand = rec.on_hand_inventory ?? 0;
-      const coverDays = velocity > 0 ? Math.round((onHand / (velocity / 30))) : 20;
-      
+      const coverDays =
+        velocity > 0 ? Math.round(onHand / (velocity / 30)) : 20;
+
       return {
         sku: sid,
         category: rec.category || "Unknown",
@@ -1297,55 +1606,72 @@ export default function ForecastsPage() {
         safetyStock: rec.safety_stock,
         targetMax: rec.target_max,
         onHand,
-        suggested: rec.suggested_order_qty
+        suggested: rec.suggested_order_qty,
       };
     });
   }, [recommendations, latestForecasts]);
 
   // 5. Model QA Residuals
   const liveResiduals = useMemo(() => {
-    const filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
+    const filtered = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
       : latestForecasts;
-      
-    const hist = filtered.filter(f => f.y_true !== null && f.y_true !== undefined && f.month);
+
+    const hist = filtered.filter(
+      (f) => f.y_true !== null && f.y_true !== undefined && f.month,
+    );
     if (!hist.length) return [];
-    
-    const sortedHist = [...hist].sort((a, b) => compareMonthLabels(a.month, b.month));
-    return sortedHist.map(f => {
-      const label = formatMonthLabel(f.month);
-      const residual = Number(f.y_true) - Number(f.p50);
-      return {
-        label,
-        residual: Math.round(residual),
-        absError: Math.round(Math.abs(residual))
-      };
-    }).slice(-18);
+
+    const sortedHist = [...hist].sort((a, b) =>
+      compareMonthLabels(a.month, b.month),
+    );
+    return sortedHist
+      .map((f) => {
+        const label = formatMonthLabel(f.month);
+        const residual = Number(f.y_true) - Number(f.p50);
+        return {
+          label,
+          residual: Math.round(residual),
+          absError: Math.round(Math.abs(residual)),
+        };
+      })
+      .slice(-18);
   }, [latestForecasts, selectedSku]);
 
   // ── FINAL DATA RESOLUTION (LIVE WITH HIGH-FIDELITY FALLBACKS) ──────
-  const finalForecastData = aggregatedForecastData.length > 0 ? aggregatedForecastData : makeForecastData();
-  const finalSkuData = liveSkuDetails.length > 0 ? liveSkuDetails : makeSkuData();
-  const finalSeasonality = liveSeasonality.length > 0 ? liveSeasonality : makeSeasonalityData();
-  const finalResiduals = liveResiduals.length > 0 ? liveResiduals : makeResidualData();
-  const finalInventory = liveInventoryFlow.length > 0 ? liveInventoryFlow : makeInventoryData();
+  const finalForecastData =
+    aggregatedForecastData.length > 0
+      ? aggregatedForecastData
+      : makeForecastData();
+  const finalSkuData =
+    liveSkuDetails.length > 0 ? liveSkuDetails : makeSkuData();
+  const finalSeasonality =
+    liveSeasonality.length > 0 ? liveSeasonality : makeSeasonalityData();
+  const finalResiduals =
+    liveResiduals.length > 0 ? liveResiduals : makeResidualData();
+  const finalInventory =
+    liveInventoryFlow.length > 0 ? liveInventoryFlow : makeInventoryData();
   const finalExog = useMemo(() => {
     return finalForecastData.map((d, i) => ({
       label: d.label,
       promo: i === 3 || i === 11 || i === 14 ? 1 : 0,
       holiday: i === 11 ? 1 : 0,
-      weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(2),
+      weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(
+        2,
+      ),
       priceIndex: +(1 + 0.04 * i + (Math.random() - 0.5) * 0.05).toFixed(2),
     }));
   }, [finalForecastData]);
 
   const processedForecastData = useMemo(() => {
     if (!finalForecastData || !finalForecastData.length) return [];
-    const firstFutureIdx = finalForecastData.findIndex(d => d.actual === null);
+    const firstFutureIdx = finalForecastData.findIndex(
+      (d) => d.actual === null,
+    );
     return finalForecastData.map((d, i) => {
       let forecastHistory: number | null = null;
       let forecastFuture: number | null = null;
-      
+
       if (firstFutureIdx === -1) {
         forecastHistory = d.forecast;
       } else {
@@ -1361,23 +1687,57 @@ export default function ForecastsPage() {
       return {
         ...d,
         forecastHistory,
-        forecastFuture
+        forecastFuture,
       };
     });
   }, [finalForecastData]);
 
   const transitionLabel = useMemo(() => {
     if (!finalForecastData || !finalForecastData.length) return undefined;
-    const firstFuture = finalForecastData.find(d => d.actual === null);
+    const firstFuture = finalForecastData.find((d) => d.actual === null);
     return firstFuture?.label;
   }, [finalForecastData]);
 
   // Metrics fallbacks
-  const mapeVal = avgMape !== null ? Number(avgMape.toFixed(1)) : (avgWape !== null ? Number((avgWape * 100).toFixed(1)) : 5.3);
+  const mapeVal =
+    avgMape !== null
+      ? Number(avgMape.toFixed(1))
+      : avgWape !== null
+        ? Number((avgWape * 100).toFixed(1))
+        : 5.3;
   const rmseVal = avgRmse !== null ? Math.round(avgRmse) : 142;
-  const biasVal = governanceStatus?.last_action?.message?.includes("bias") ? -3.4 : -2.1;
+  const biasVal = governanceStatus?.last_action?.message?.includes("bias")
+    ? -3.4
+    : -2.1;
   const maseVal = 0.82;
   const coverageVal = 91.4;
+
+  // ── Chat context derivations ────────────────────────────────────────────
+  // Nearest future p50 for the selected SKU (first point with no y_true)
+  const predictedUnitsForChat = useMemo(() => {
+    const pool = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
+      : latestForecasts;
+    const firstFuture = pool
+      .filter((f) => (f.y_true === null || f.y_true === undefined) && f.p50 != null)
+      .sort((a, b) => compareMonthLabels(a.month, b.month))[0];
+    if (!firstFuture) return null;
+    // Aggregate across SKUs for multi-SKU view
+    if (!selectedSku) {
+      const monthStr = firstFuture.month;
+      const total = pool
+        .filter((f) => f.month === monthStr && (f.y_true === null || f.y_true === undefined))
+        .reduce((s, f) => s + Number(f.p50 ?? 0), 0);
+      return Math.round(total);
+    }
+    return Math.round(Number(firstFuture.p50));
+  }, [latestForecasts, selectedSku]);
+
+  // Confidence derived from MAPE: confidence = 1 - (MAPE / 100), clamped 0-1
+  const confidenceForChat = useMemo(() => {
+    if (mapeVal == null) return null;
+    return Math.max(0, Math.min(1, 1 - mapeVal / 100));
+  }, [mapeVal]);
 
   return (
     <div className="space-y-6">
@@ -1388,18 +1748,24 @@ export default function ForecastsPage() {
             <span className="material-symbols-outlined text-lg">sensors</span>
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">DEMAND FORECAST INTELLIGENCE</h1>
+            <h1 className="text-2xl font-bold tracking-tight">
+              DEMAND FORECAST INTELLIGENCE
+            </h1>
             <p className="text-xs text-base-content/60 mt-0.5">
-              Active Module · Colombo Main Warehouse · Model: {filters.model || "RANDOM_FOREST" || "Random Forest Champion"}
+              Active Module · Colombo Main Warehouse · Model:{" "}
+              {filters.model || "RANDOM_FOREST" || "Random Forest Champion"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-right">
             <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> LIVE ENGINE
+              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />{" "}
+              LIVE ENGINE
             </span>
-            <p className="text-[10px] text-base-content/50 mt-0.5">Retrained & updated</p>
+            <p className="text-[10px] text-base-content/50 mt-0.5">
+              Retrained & updated
+            </p>
           </div>
           <div className="badge badge-success badge-lg py-3 font-semibold text-xs">
             MAPE: {mapeVal}%
@@ -1409,29 +1775,36 @@ export default function ForecastsPage() {
 
       {/* Engine Control Panel Accordion */}
       <div className="collapse collapse-arrow bg-base-100 border border-base-300 rounded-xl shadow-sm">
-        <input type="checkbox" defaultChecked={false} /> 
+        <input type="checkbox" defaultChecked={false} />
         <div className="collapse-title text-sm font-bold flex items-center gap-2 text-base-content/85">
-          <span className="material-symbols-outlined text-primary text-base">settings_applications</span>
+          <span className="material-symbols-outlined text-primary text-base">
+            settings_applications
+          </span>
           AI Forecasting Engine Controls & Governance Gates
         </div>
         <div className="collapse-content space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mt-1">
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Horizon Range</span>
+              <span className="label-text text-xs font-medium mb-1">
+                Horizon Range
+              </span>
               <select
                 className="select select-bordered select-sm w-full"
                 value={filters.horizon ?? ""}
                 onChange={(e) =>
                   setFilters((prev) => ({
                     ...prev,
-                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+                    horizon: e.target.value
+                      ? Number.parseInt(e.target.value, 10)
+                      : undefined,
                   }))
                 }
               >
                 <option value="">All Horizons</option>
                 {Array.from({ length: 12 }).map((_, idx) => {
                   const m = idx + 1;
-                  const label = m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
+                  const label =
+                    m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
                   return (
                     <option key={m} value={m}>
                       {label}
@@ -1441,24 +1814,39 @@ export default function ForecastsPage() {
               </select>
             </label>
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Target Warehouse</span>
-              <input 
-                className="input input-bordered input-sm bg-base-200 cursor-not-allowed font-medium" 
-                value="Colombo Main Warehouse" 
-                disabled 
+              <span className="label-text text-xs font-medium mb-1">
+                Target Warehouse
+              </span>
+              <input
+                className="input input-bordered input-sm bg-base-200 cursor-not-allowed font-medium"
+                value="Colombo Main Warehouse"
+                disabled
               />
             </label>
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Active Model</span>
-              <input className="input input-bordered input-sm" value={filters.model || "RANDOM_FOREST"} disabled />
+              <span className="label-text text-xs font-medium mb-1">
+                Active Model
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                value={filters.model || "RANDOM_FOREST"}
+                disabled
+              />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
-              
-              <button className="btn btn-outline btn-primary btn-sm" onClick={() => void loadData()} disabled={loading}>
+              <button
+                className="btn btn-outline btn-primary btn-sm"
+                onClick={() => void loadData()}
+                disabled={loading}
+              >
                 {loading ? "Reloading..." : "Reload Data"}
               </button>
               {isAdmin && (
-                <button className="btn btn-primary btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => void triggerRun()}
+                  disabled={triggering}
+                >
                   {triggering ? "Running..." : "Run Forecast"}
                 </button>
               )}
@@ -1484,23 +1872,41 @@ export default function ForecastsPage() {
               {/* Operational Check Card */}
               <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Operational Health</span>
-                  <button className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5" onClick={() => void refreshOperationalHealthNow()} disabled={healthRefreshing}>
+                  <span className="text-xs font-bold text-base-content/80">
+                    Operational Health
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5"
+                    onClick={() => void refreshOperationalHealthNow()}
+                    disabled={healthRefreshing}
+                  >
                     Refresh
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5 text-[10px]">
                   <div className="flex justify-between">
                     <span>Overall:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(operationalHealth?.status)}`}>{operationalHealth?.status ?? "OK"}</span>
+                    <span
+                      className={`badge badge-xs ${statusBadgeClass(operationalHealth?.status)}`}
+                    >
+                      {operationalHealth?.status ?? "OK"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Drift:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(operationalHealth?.drift_status)}`}>{operationalHealth?.drift_status ?? "OK"}</span>
+                    <span
+                      className={`badge badge-xs ${statusBadgeClass(operationalHealth?.drift_status)}`}
+                    >
+                      {operationalHealth?.drift_status ?? "OK"}
+                    </span>
                   </div>
                   <div className="flex justify-between col-span-2">
                     <span>DB Schema Contract:</span>
-                    <span className={`badge badge-xs ${statusBadgeClass(runtimeContractHealth?.status)}`}>{runtimeContractHealth?.status ?? "OK"}</span>
+                    <span
+                      className={`badge badge-xs ${statusBadgeClass(runtimeContractHealth?.status)}`}
+                    >
+                      {runtimeContractHealth?.status ?? "OK"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1508,20 +1914,31 @@ export default function ForecastsPage() {
               {/* Readiness Checks Card */}
               <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Model Readiness Gates</span>
-                  <span className={`badge badge-xs ${productionReadiness?.ready ? "badge-success" : "badge-warning"}`}>
+                  <span className="text-xs font-bold text-base-content/80">
+                    Model Readiness Gates
+                  </span>
+                  <span
+                    className={`badge badge-xs ${productionReadiness?.ready ? "badge-success" : "badge-warning"}`}
+                  >
                     {productionReadiness?.ready ? "PASS" : "WARN"}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-1 text-[10px] text-base-content/70">
                   {(productionReadiness?.checks ?? []).slice(0, 4).map((c) => (
-                    <div key={c.name} className="flex justify-between items-center truncate pr-1">
+                    <div
+                      key={c.name}
+                      className="flex justify-between items-center truncate pr-1"
+                    >
                       <span>{c.name}:</span>
                       <span className="flex items-center">
                         {c.pass ? (
-                          <span className="material-symbols-outlined text-success text-[14px]">check_circle</span>
+                          <span className="material-symbols-outlined text-success text-[14px]">
+                            check_circle
+                          </span>
                         ) : (
-                          <span className="material-symbols-outlined text-error text-[14px]">cancel</span>
+                          <span className="material-symbols-outlined text-error text-[14px]">
+                            cancel
+                          </span>
                         )}
                       </span>
                     </div>
@@ -1532,22 +1949,36 @@ export default function ForecastsPage() {
               {/* Automatic Governance Card */}
               <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Auto Governance Status</span>
-                  <button className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5" onClick={() => void runGovernanceTickNow()} disabled={healthRefreshing}>
+                  <span className="text-xs font-bold text-base-content/80">
+                    Auto Governance Status
+                  </span>
+                  <button
+                    className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5"
+                    onClick={() => void runGovernanceTickNow()}
+                    disabled={healthRefreshing}
+                  >
                     Governance Tick
                   </button>
                 </div>
                 <div className="text-[10px] space-y-1">
                   <div className="flex justify-between">
                     <span>Active Dataset Mapping:</span>
-                    <span className="font-semibold text-primary">{governanceStatus?.dataset ?? "P"}</span>
+                    <span className="font-semibold text-primary">
+                      {governanceStatus?.dataset ?? "P"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span>Promotion Rule Cycle:</span>
-                    <span className="font-semibold">{governanceStatus?.auto_promote ? "Auto Champion" : "Manual"}</span>
+                    <span className="font-semibold">
+                      {governanceStatus?.auto_promote
+                        ? "Auto Champion"
+                        : "Manual"}
+                    </span>
                   </div>
                   <div className="truncate text-base-content/60">
-                    Msg: {governanceStatus?.last_action?.message || "Operational check status normal"}
+                    Msg:{" "}
+                    {governanceStatus?.last_action?.message ||
+                      "Operational check status normal"}
                   </div>
                 </div>
               </div>
@@ -1559,7 +1990,9 @@ export default function ForecastsPage() {
       {/* Global SKU Selector & Search Bar */}
       <div className="card bg-base-100 border border-base-300 p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">Target Analysis SKU:</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">
+            Target Analysis SKU:
+          </span>
           <div className="badge badge-outline badge-md font-mono text-primary px-3 py-2 font-bold bg-base-200">
             {selectedSku || "All SKUs Combined"}
           </div>
@@ -1595,12 +2028,15 @@ export default function ForecastsPage() {
               ))}
             </div>
           )}
-          <button className="btn btn-sm btn-primary text-white font-semibold" onClick={applySkuSearch}>
+          <button
+            className="btn btn-sm btn-primary text-white font-semibold"
+            onClick={applySkuSearch}
+          >
             Select SKU
           </button>
           {selectedSku && (
-            <button 
-              className="btn btn-sm btn-ghost text-xs" 
+            <button
+              className="btn btn-sm btn-ghost text-xs"
               onClick={() => {
                 setSelectedSku("");
                 setSkuSearchInput("");
@@ -1620,20 +2056,28 @@ export default function ForecastsPage() {
               key={t.id}
               onClick={() => setTab(t.id)}
               className={`font-semibold rounded-lg transition-all duration-200 px-3 py-1.5 flex items-center justify-center gap-1.5 text-[13px] ${
-                tab === t.id ? "bg-primary text-primary-content shadow-sm" : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                tab === t.id
+                  ? "bg-primary text-primary-content shadow-sm"
+                  : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
               }`}
             >
-              <span className="material-symbols-outlined text-sm">{t.icon}</span>
+              <span className="material-symbols-outlined text-sm">
+                {t.icon}
+              </span>
               <span>{t.label}</span>
             </button>
           ))}
         </div>
-        <div 
+        <div
           className="flex items-center gap-2 px-3 py-1.5 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5 cursor-pointer hover:bg-base-200 transition-colors"
           onClick={() => setShowCI(!showCI)}
         >
-          <div className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? 'bg-primary' : 'bg-gray-400'}`}>
-            <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? 'translate-x-4' : 'translate-x-1'}`} />
+          <div
+            className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? "bg-primary" : "bg-gray-400"}`}
+          >
+            <span
+              className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? "translate-x-4" : "translate-x-1"}`}
+            />
           </div>
           <span className="text-[11px] font-semibold text-base-content/85 leading-none mt-0.5">
             Show 90% Confidence Intervals
@@ -1646,40 +2090,168 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI Summary Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <KpiCard title="Forecast Accuracy" value={`${100 - mapeVal}%`} sub={`WAPE = ${mapeVal}%`} color={C.ok} delta={1.2} icon="track_changes" />
-            <KpiCard title="Forecasted Units" value={Math.round(totalSuggestedQty * 1.8 || 38420).toLocaleString()} sub="Next 6 months" color={C.accent} delta={8.4} icon="package_2" />
-            <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} delta={-1} icon="warning" />
-            <KpiCard title="Avg Days of Stock" value="24.8d" sub="Warehouse coverage" color={C.accent4} delta={-3.1} icon="grid_view" />
-            <KpiCard title="Safety Stock Value" value="$184K" sub="Carrying cost risk" color={C.accent2} delta={2.5} icon="shield" />
-            <KpiCard title="Forecast Bias" value={`${biasVal}%`} sub="Slight under-forecast" color={C.warn} icon="balance" />
+            <KpiCard
+              title="Forecast Accuracy"
+              value={`${100 - mapeVal}%`}
+              sub={`WAPE = ${mapeVal}%`}
+              color={C.ok}
+              delta={1.2}
+              icon="track_changes"
+            />
+            <KpiCard
+              title="Forecasted Units"
+              value={Math.round(
+                totalSuggestedQty * 1.8 || 38420,
+              ).toLocaleString()}
+              sub="Next 6 months"
+              color={C.accent}
+              delta={8.4}
+              icon="package_2"
+            />
+            <KpiCard
+              title="Below Reorder Point"
+              value={reorderNowCount}
+              sub="SKUs requiring POs"
+              color={C.danger}
+              delta={-1}
+              icon="warning"
+            />
+            <KpiCard
+              title="Avg Days of Stock"
+              value="24.8d"
+              sub="Warehouse coverage"
+              color={C.accent4}
+              delta={-3.1}
+              icon="grid_view"
+            />
+            <KpiCard
+              title="Safety Stock Value"
+              value="$184K"
+              sub="Carrying cost risk"
+              color={C.accent2}
+              delta={2.5}
+              icon="shield"
+            />
+            <KpiCard
+              title="Forecast Bias"
+              value={`${biasVal}%`}
+              sub="Slight under-forecast"
+              color={C.warn}
+              icon="balance"
+            />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Demand Forecast vs Actuals — 24-Month View" sub="Expected demand vs historical actuals · Toggle 'Show Confidence Intervals' for bounds" />
+            <SectionHeader
+              title="Demand Forecast vs Actuals — 24-Month View"
+              sub="Expected demand vs historical actuals · Toggle 'Show Confidence Intervals' for bounds"
+            />
             <div className="h-80 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={processedForecastData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--fallback-bc, #e2e8f0)" opacity={0.15} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="var(--fallback-bc, #e2e8f0)"
+                    opacity={0.15}
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
                   {transitionLabel && (
-                    <ReferenceLine x={transitionLabel} stroke={C.accent4} strokeDasharray="5 5" label={{ value: "Forecast Start", fill: C.accent4, fontSize: 10 }} />
+                    <ReferenceLine
+                      x={transitionLabel}
+                      stroke={C.accent4}
+                      strokeDasharray="5 5"
+                      label={{
+                        value: "Forecast Start",
+                        fill: C.accent4,
+                        fontSize: 10,
+                      }}
+                    />
                   )}
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
-                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
-                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
+                      <Area
+                        type="monotone"
+                        dataKey="ciRange"
+                        fill={C.accent}
+                        fillOpacity={0.15}
+                        stroke="none"
+                        name="90% Confidence Interval"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="upper"
+                        stroke={C.accent}
+                        strokeWidth={1}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Upper 90% CI"
+                        legendType="none"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="lower"
+                        stroke={C.accent}
+                        strokeWidth={1}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Lower 90% CI"
+                        legendType="none"
+                      />
                     </>
                   )}
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1} dot={false} strokeDasharray="4 3" name="Baseline Trend" />
-                  <Line type="monotone" dataKey="actual" stroke="#000000" strokeWidth={2.5} dot={false} name="Actual Demand" connectNulls />
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Future Forecast" connectNulls />
-                  <Brush dataKey="label" height={24} stroke={C.textDim} fill={C.border} tickFormatter={() => ""} travellerWidth={14} traveller={CustomBrushHandle} />
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    stroke={C.muted}
+                    strokeWidth={1}
+                    dot={false}
+                    strokeDasharray="4 3"
+                    name="Baseline Trend"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="actual"
+                    stroke="#000000"
+                    strokeWidth={2.5}
+                    dot={false}
+                    name="Actual Demand"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastHistory"
+                    stroke={C.accent3}
+                    strokeWidth={2}
+                    dot={false}
+                    strokeDasharray="5 5"
+                    name="Past Forecast (Backtest)"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastFuture"
+                    stroke={C.accent}
+                    strokeWidth={2.5}
+                    dot={false}
+                    name="Future Forecast"
+                    connectNulls
+                  />
+                  <Brush
+                    dataKey="label"
+                    height={24}
+                    stroke={C.textDim}
+                    fill={C.border}
+                    tickFormatter={() => ""}
+                    travellerWidth={14}
+                    traveller={CustomBrushHandle}
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1689,18 +2261,40 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Seasonality Chart */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Seasonality Index" sub="Values >1.0 denote peak seasonal months" color={C.accent2} />
+              <SectionHeader
+                title="Seasonality Index"
+                sub="Values >1.0 denote peak seasonal months"
+                color={C.accent2}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSeasonality}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis domain={[0.4, 1.6]} tick={{ fill: "currentColor", fontSize: 10 }} />
+                    <XAxis
+                      dataKey="month"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis
+                      domain={[0.4, 1.6]}
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine y={1.0} stroke={C.accent4} strokeDasharray="4 3" />
-                    <Bar dataKey="index" name="Seasonal Index" radius={[4, 4, 0, 0]}>
+                    <ReferenceLine
+                      y={1.0}
+                      stroke={C.accent4}
+                      strokeDasharray="4 3"
+                    />
+                    <Bar
+                      dataKey="index"
+                      name="Seasonal Index"
+                      radius={[4, 4, 0, 0]}
+                    >
                       {finalSeasonality.map((s, i) => (
-                        <Cell key={i} fill={s.index >= 1 ? C.accent2 : C.muted} fillOpacity={0.8} />
+                        <Cell
+                          key={i}
+                          fill={s.index >= 1 ? C.accent2 : C.muted}
+                          fillOpacity={0.8}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -1710,17 +2304,44 @@ export default function ForecastsPage() {
 
             {/* Projected Stock Flow Simulation */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Projected Stock vs Demand Flow" sub="Calculated based on dynamic reorder points (ROP)" color={C.accent3} />
+              <SectionHeader
+                title="Projected Stock vs Demand Flow"
+                sub="Calculated based on dynamic reorder points (ROP)"
+                color={C.accent3}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={finalInventory.slice(-12)}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
                     <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine y={800} stroke={C.danger} strokeDasharray="4 3" label={{ value: "ROP", fill: C.danger, fontSize: 10 }} />
-                    <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Projection" />
-                    <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2} dot={false} name="Forecasted Demand" />
+                    <ReferenceLine
+                      y={800}
+                      stroke={C.danger}
+                      strokeDasharray="4 3"
+                      label={{ value: "ROP", fill: C.danger, fontSize: 10 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="stock"
+                      fill={C.accent3}
+                      fillOpacity={0.08}
+                      stroke={C.accent3}
+                      strokeWidth={2}
+                      name="Stock Projection"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="demand"
+                      stroke={C.accent}
+                      strokeWidth={2}
+                      dot={false}
+                      name="Forecasted Demand"
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -1734,25 +2355,80 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Detailed Forecast View */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="6-Month Forward Forecast with Confidence Intervals" sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
+            <SectionHeader
+              title="6-Month Forward Forecast with Confidence Intervals"
+              sub="Multi-horizon predictions with expected demand and optional uncertainty bounds"
+            />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={processedForecastData.slice(-8)}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
-                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
-                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
+                      <Area
+                        type="monotone"
+                        dataKey="ciRange"
+                        fill={C.accent}
+                        fillOpacity={0.15}
+                        stroke="none"
+                        name="90% Confidence Interval"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="upper"
+                        stroke={C.accent}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Upper 90% CI"
+                        legendType="none"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="lower"
+                        stroke={C.accent}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Lower 90% CI"
+                        legendType="none"
+                      />
                     </>
                   )}
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2.5} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={3} dot={{ r: 4, fill: C.accent }} name="Future Forecast" connectNulls />
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Baseline Trend" />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastHistory"
+                    stroke={C.accent3}
+                    strokeWidth={2.5}
+                    strokeDasharray="5 5"
+                    name="Past Forecast (Backtest)"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastFuture"
+                    stroke={C.accent}
+                    strokeWidth={3}
+                    dot={{ r: 4, fill: C.accent }}
+                    name="Future Forecast"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    stroke={C.muted}
+                    strokeWidth={1.5}
+                    strokeDasharray="4 3"
+                    dot={false}
+                    name="Baseline Trend"
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1762,19 +2438,56 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Market Drivers */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Market Drivers & Promotions" sub="How external events (weather, pricing, campaigns) impact our baseline demand" color={C.accent4} />
+              <SectionHeader
+                title="Market Drivers & Promotions"
+                sub="How external events (weather, pricing, campaigns) impact our baseline demand"
+                color={C.accent4}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={finalExog.slice(0, 12)}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis yAxisId="left" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: "currentColor", fontSize: 10 }} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
                     <Tooltip content={<ChartTip />} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar yAxisId="left" dataKey="promo" name="Active Campaign (Yes=1)" fill={C.textDim} fillOpacity={0.75} radius={[3, 3, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="weatherImpact" stroke={C.muted} strokeWidth={2} dot={false} name="Weather Demand Impact (Index)" />
-                    <Line yAxisId="right" type="monotone" dataKey="priceIndex" stroke={C.accent} strokeWidth={2} dot={false} name="Market Price Index" />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="promo"
+                      name="Active Campaign (Yes=1)"
+                      fill={C.textDim}
+                      fillOpacity={0.75}
+                      radius={[3, 3, 0, 0]}
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="weatherImpact"
+                      stroke={C.muted}
+                      strokeWidth={2}
+                      dot={false}
+                      name="Weather Demand Impact (Index)"
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="priceIndex"
+                      stroke={C.accent}
+                      strokeWidth={2}
+                      dot={false}
+                      name="Market Price Index"
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -1782,16 +2495,34 @@ export default function ForecastsPage() {
 
             {/* Seasonality Radar */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Seasonality Radar" sub="Relative seasonal intensity across calendar year" color={C.accent3} />
+              <SectionHeader
+                title="Seasonality Radar"
+                sub="Relative seasonal intensity across calendar year"
+                color={C.accent3}
+              />
               <div className="h-56 w-full mt-3 flex justify-center items-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={finalSeasonality}>
                     <PolarGrid stroke="currentColor" opacity={0.1} />
-                    <PolarAngleAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 9 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 'auto']} tick={{ fill: "currentColor", fontSize: 8 }} />
+                    <PolarAngleAxis
+                      dataKey="month"
+                      tick={{ fill: "currentColor", fontSize: 9 }}
+                    />
+                    <PolarRadiusAxis
+                      angle={90}
+                      domain={[0, "auto"]}
+                      tick={{ fill: "currentColor", fontSize: 8 }}
+                    />
                     <Tooltip />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Radar name="Seasonality Multiplier" dataKey="index" stroke={C.accent} fill={C.accent} fillOpacity={0.15} strokeWidth={2} />
+                    <Radar
+                      name="Seasonality Multiplier"
+                      dataKey="index"
+                      stroke={C.accent}
+                      fill={C.accent}
+                      fillOpacity={0.15}
+                      strokeWidth={2}
+                    />
                   </RadarChart>
                 </ResponsiveContainer>
               </div>
@@ -1801,10 +2532,19 @@ export default function ForecastsPage() {
           {/* Detailed Forecast Points Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="6-Month Forecast Details Table" sub="Monthly forecasts with confidence intervals" color={C.accent} />
-              <button 
-                className="btn btn-xs btn-outline btn-primary" 
-                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-6))}
+              <SectionHeader
+                title="6-Month Forecast Details Table"
+                sub="Monthly forecasts with confidence intervals"
+                color={C.accent}
+              />
+              <button
+                className="btn btn-xs btn-outline btn-primary"
+                onClick={() =>
+                  downloadCsv(
+                    "forecast_points.csv",
+                    finalForecastData.slice(-6),
+                  )
+                }
               >
                 Export Forecast CSV
               </button>
@@ -1824,12 +2564,27 @@ export default function ForecastsPage() {
                 <tbody>
                   {finalForecastData.slice(-6).map((row, i) => (
                     <tr key={i} className="hover">
-                      <td className="font-semibold font-mono text-primary text-xs">{row.label}</td>
-                      <td className="text-right font-bold">{row.forecast.toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{row.lower.toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{row.upper.toLocaleString()}</td>
-                      <td className="text-right text-accent font-semibold">{row.trend.toLocaleString()}</td>
-                      <td className="text-right text-warning font-semibold">±{Math.round((row.upper - row.lower) / 2).toLocaleString()}</td>
+                      <td className="font-semibold font-mono text-primary text-xs">
+                        {row.label}
+                      </td>
+                      <td className="text-right font-bold">
+                        {row.forecast.toLocaleString()}
+                      </td>
+                      <td className="text-right text-base-content/75">
+                        {row.lower.toLocaleString()}
+                      </td>
+                      <td className="text-right text-base-content/75">
+                        {row.upper.toLocaleString()}
+                      </td>
+                      <td className="text-right text-accent font-semibold">
+                        {row.trend.toLocaleString()}
+                      </td>
+                      <td className="text-right text-warning font-semibold">
+                        ±
+                        {Math.round(
+                          (row.upper - row.lower) / 2,
+                        ).toLocaleString()}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1844,32 +2599,81 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Bubble/Scatter plot */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="SKU Demand Velocity vs Model MAPE Error" sub="Bubble size indicates safety stock carrying size · Color corresponds to ABC category" color={C.accent2} />
+            <SectionHeader
+              title="SKU Demand Velocity vs Model MAPE Error"
+              sub="Bubble size indicates safety stock carrying size · Color corresponds to ABC category"
+              color={C.accent2}
+            />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ left: 10, right: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="velocity" name="Velocity" unit=" u" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Monthly Velocity (Average Demand)", position: "bottom", fill: "currentColor", fontSize: 10, offset: 0 }} />
-                  <YAxis dataKey="mape" name="MAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (MAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
-                  <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const d = payload[0].payload;
-                    return (
-                      <div className="bg-base-200 border border-base-300 rounded-lg p-3 shadow-md text-xs">
-                        <p className="text-primary font-bold mb-1 font-mono">{d.sku}</p>
-                        <p className="my-0.5">Velocity: <strong>{d.velocity} u/mo</strong></p>
-                        <p className="my-0.5">MAPE: <strong>{d.mape}%</strong></p>
-                        <p className="my-0.5">Stock Cover: <strong>{d.stockDays} days</strong></p>
-                        <div className="flex gap-1.5 mt-2">
-                          <Badge label={`ABC: ${d.abc}`} color={abcColor[d.abc] || C.muted} />
-                          <Badge label={`XYZ: ${d.xyz}`} color={xyzColor[d.xyz] || C.muted} />
+                  <XAxis
+                    dataKey="velocity"
+                    name="Velocity"
+                    unit=" u"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                    label={{
+                      value: "Monthly Velocity (Average Demand)",
+                      position: "bottom",
+                      fill: "currentColor",
+                      fontSize: 10,
+                      offset: 0,
+                    }}
+                  />
+                  <YAxis
+                    dataKey="mape"
+                    name="MAPE"
+                    unit="%"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                    label={{
+                      value: "Forecast Error (MAPE %)",
+                      angle: -90,
+                      position: "left",
+                      fill: "currentColor",
+                      fontSize: 10,
+                    }}
+                  />
+                  <Tooltip
+                    cursor={{ strokeDasharray: "3 3" }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0].payload;
+                      return (
+                        <div className="bg-base-200 border border-base-300 rounded-lg p-3 shadow-md text-xs">
+                          <p className="text-primary font-bold mb-1 font-mono">
+                            {d.sku}
+                          </p>
+                          <p className="my-0.5">
+                            Velocity: <strong>{d.velocity} u/mo</strong>
+                          </p>
+                          <p className="my-0.5">
+                            MAPE: <strong>{d.mape}%</strong>
+                          </p>
+                          <p className="my-0.5">
+                            Stock Cover: <strong>{d.stockDays} days</strong>
+                          </p>
+                          <div className="flex gap-1.5 mt-2">
+                            <Badge
+                              label={`ABC: ${d.abc}`}
+                              color={abcColor[d.abc] || C.muted}
+                            />
+                            <Badge
+                              label={`XYZ: ${d.xyz}`}
+                              color={xyzColor[d.xyz] || C.muted}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    );
-                  }} />
+                      );
+                    }}
+                  />
                   <Scatter data={finalSkuData} name="SKUs">
                     {finalSkuData.map((s: any, i) => (
-                      <Cell key={i} fill={abcColor[s.abc] || C.muted} fillOpacity={0.8} />
+                      <Cell
+                        key={i}
+                        fill={abcColor[s.abc] || C.muted}
+                        fillOpacity={0.8}
+                      />
                     ))}
                   </Scatter>
                 </ScatterChart>
@@ -1880,7 +2684,11 @@ export default function ForecastsPage() {
           {/* Full SKU Classifications Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="SKU Classifications & Reorder Matrix" sub="ABC = revenue contribution · XYZ = predictability coefficient" color={C.accent3} />
+              <SectionHeader
+                title="SKU Classifications & Reorder Matrix"
+                sub="ABC = revenue contribution · XYZ = predictability coefficient"
+                color={C.accent3}
+              />
               <div className="flex gap-2">
                 <select
                   className="select select-bordered select-xs"
@@ -1918,31 +2726,75 @@ export default function ForecastsPage() {
                 </thead>
                 <tbody>
                   {finalSkuData.slice(0, 15).map((s: any, i) => {
-                    const risk = s.stockDays < 15 ? "danger" : s.stockDays < 25 ? "warn" : "ok";
-                    const rColor = { danger: C.danger, warn: C.warn, ok: C.ok }[risk];
-                    const rLabel = { danger: "Stockout Risk", warn: "Monitor", ok: "Healthy" }[risk];
-                    const rIcon = { danger: "warning", warn: "info", ok: "check_circle" }[risk];
+                    const risk =
+                      s.stockDays < 15
+                        ? "danger"
+                        : s.stockDays < 25
+                          ? "warn"
+                          : "ok";
+                    const rColor = { danger: C.danger, warn: C.warn, ok: C.ok }[
+                      risk
+                    ];
+                    const rLabel = {
+                      danger: "Stockout Risk",
+                      warn: "Monitor",
+                      ok: "Healthy",
+                    }[risk];
+                    const rIcon = {
+                      danger: "warning",
+                      warn: "info",
+                      ok: "check_circle",
+                    }[risk];
                     return (
                       <tr key={i} className="hover">
-                        <td className="font-semibold font-mono text-xs text-primary">{s.sku}</td>
-                        <td className="text-xs text-base-content/70">{s.category}</td>
-                        <td className="text-right font-semibold">{s.velocity.toLocaleString()}</td>
-                        <td className="text-right font-bold" style={{ color: rColor }}>{s.stockDays}d</td>
-                        <td className="text-right font-mono text-xs">{s.mape}%</td>
-                        <td className="text-right">{s.reorderPoint.toLocaleString()}</td>
-                        <td className="text-right">{s.safetyStock.toLocaleString()}</td>
-                        <td><Badge label={s.abc} color={abcColor[s.abc] || C.muted} /></td>
-                        <td><Badge label={s.xyz} color={xyzColor[s.xyz] || C.muted} /></td>
+                        <td className="font-semibold font-mono text-xs text-primary">
+                          {s.sku}
+                        </td>
+                        <td className="text-xs text-base-content/70">
+                          {s.category}
+                        </td>
+                        <td className="text-right font-semibold">
+                          {s.velocity.toLocaleString()}
+                        </td>
+                        <td
+                          className="text-right font-bold"
+                          style={{ color: rColor }}
+                        >
+                          {s.stockDays}d
+                        </td>
+                        <td className="text-right font-mono text-xs">
+                          {s.mape}%
+                        </td>
+                        <td className="text-right">
+                          {s.reorderPoint.toLocaleString()}
+                        </td>
+                        <td className="text-right">
+                          {s.safetyStock.toLocaleString()}
+                        </td>
                         <td>
-                          <span 
+                          <Badge
+                            label={s.abc}
+                            color={abcColor[s.abc] || C.muted}
+                          />
+                        </td>
+                        <td>
+                          <Badge
+                            label={s.xyz}
+                            color={xyzColor[s.xyz] || C.muted}
+                          />
+                        </td>
+                        <td>
+                          <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border"
-                            style={{ 
-                              background: rColor + "15", 
-                              color: rColor, 
-                              borderColor: rColor + "40"
+                            style={{
+                              background: rColor + "15",
+                              color: rColor,
+                              borderColor: rColor + "40",
                             }}
                           >
-                            <span className="material-symbols-outlined text-[12px]">{rIcon}</span>
+                            <span className="material-symbols-outlined text-[12px]">
+                              {rIcon}
+                            </span>
                             {rLabel}
                           </span>
                         </td>
@@ -1957,17 +2809,36 @@ export default function ForecastsPage() {
           {/* Velocity & Accuracy Horizontal Bar Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Top SKUs by Demand Velocity" color={C.accent} />
+              <SectionHeader
+                title="Top SKUs by Demand Velocity"
+                color={C.accent}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="sku"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      width={70}
+                    />
                     <Tooltip content={<ChartTip />} />
-                    <Bar dataKey="velocity" name="Velocity" radius={[0, 4, 4, 0]}>
+                    <Bar
+                      dataKey="velocity"
+                      name="Velocity"
+                      radius={[0, 4, 4, 0]}
+                    >
                       {finalSkuData.slice(0, 6).map((s: any, i: number) => (
-                        <Cell key={i} fill={abcColor[s.abc] || C.muted} fillOpacity={0.8} />
+                        <Cell
+                          key={i}
+                          fill={abcColor[s.abc] || C.muted}
+                          fillOpacity={0.8}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -1976,18 +2847,44 @@ export default function ForecastsPage() {
             </div>
 
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Forecast Error (MAPE %) per SKU" color={C.accent2} />
+              <SectionHeader
+                title="Forecast Error (MAPE %) per SKU"
+                color={C.accent2}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} unit="%" />
-                    <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      unit="%"
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="sku"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      width={70}
+                    />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" />
+                    <ReferenceLine
+                      x={10.0}
+                      stroke={C.warn}
+                      strokeDasharray="4 3"
+                    />
                     <Bar dataKey="mape" name="MAPE %" radius={[0, 4, 4, 0]}>
                       {finalSkuData.slice(0, 6).map((s: any, i: number) => (
-                        <Cell key={i} fill={s.mape > 12.0 ? C.danger : s.mape > 8.0 ? C.warn : C.ok} fillOpacity={0.8} />
+                        <Cell
+                          key={i}
+                          fill={
+                            s.mape > 12.0
+                              ? C.danger
+                              : s.mape > 8.0
+                                ? C.warn
+                                : C.ok
+                          }
+                          fillOpacity={0.8}
+                        />
                       ))}
                     </Bar>
                   </BarChart>
@@ -2002,26 +2899,90 @@ export default function ForecastsPage() {
       {tab === "inventory" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard title="Total Stock Units" value={Math.round(totalSuggestedQty * 2.2 || 42300).toLocaleString()} sub="In stock across SKUs" color={C.accent} icon="package_2" />
-            <KpiCard title="Active Reorders" value={reorderNowCount} sub="SKUs below ROP trigger" color={C.danger} icon="notifications_active" />
-            <KpiCard title="Fill Rate Level" value="97.2%" sub="Cycle orders filled" color={C.ok} delta={0.4} icon="check_circle" />
-            <KpiCard title="Carrying Cost Est." value="$28K/mo" sub="18% average storage cost" color={C.accent4} icon="payments" />
+            <KpiCard
+              title="Total Stock Units"
+              value={Math.round(
+                totalSuggestedQty * 2.2 || 42300,
+              ).toLocaleString()}
+              sub="In stock across SKUs"
+              color={C.accent}
+              icon="package_2"
+            />
+            <KpiCard
+              title="Active Reorders"
+              value={reorderNowCount}
+              sub="SKUs below ROP trigger"
+              color={C.danger}
+              icon="notifications_active"
+            />
+            <KpiCard
+              title="Fill Rate Level"
+              value="97.2%"
+              sub="Cycle orders filled"
+              color={C.ok}
+              delta={0.4}
+              icon="check_circle"
+            />
+            <KpiCard
+              title="Carrying Cost Est."
+              value="$28K/mo"
+              sub="18% average storage cost"
+              color={C.accent4}
+              icon="payments"
+            />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Stock Level vs Demand vs Reorder Point" sub="Dynamic inventory simulation over 6-month forecast horizon" color={C.accent3} />
+            <SectionHeader
+              title="Projected Stock Level vs Demand vs Reorder Point"
+              sub="Dynamic inventory simulation over 6-month forecast horizon"
+              color={C.accent3}
+            />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={finalInventory}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={800} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder Trigger Level", fill: C.danger, fontSize: 10, position: "right" }} />
-                  <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Levels" />
-                  <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2.5} dot={false} name="Forecasted Demand" />
-                  <Brush dataKey="label" height={20} stroke={C.border + "40"} fill="transparent" />
+                  <ReferenceLine
+                    y={800}
+                    stroke={C.danger}
+                    strokeDasharray="6 3"
+                    label={{
+                      value: "Reorder Trigger Level",
+                      fill: C.danger,
+                      fontSize: 10,
+                      position: "right",
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="stock"
+                    fill={C.accent3}
+                    fillOpacity={0.08}
+                    stroke={C.accent3}
+                    strokeWidth={2}
+                    name="Stock Levels"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="demand"
+                    stroke={C.accent}
+                    strokeWidth={2.5}
+                    dot={false}
+                    name="Forecasted Demand"
+                  />
+                  <Brush
+                    dataKey="label"
+                    height={20}
+                    stroke={C.border + "40"}
+                    fill="transparent"
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -2029,24 +2990,47 @@ export default function ForecastsPage() {
 
           {/* Stock Coverage Heatmap */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Inventory Days of Coverage (Heatmap)" sub="Color intensity corresponds to replenishment urgency based on monthly forecasted demand" color={C.accent4} />
+            <SectionHeader
+              title="Projected Inventory Days of Coverage (Heatmap)"
+              sub="Color intensity corresponds to replenishment urgency based on monthly forecasted demand"
+              color={C.accent4}
+            />
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-4">
               {finalInventory.slice(0, 12).map((row, i) => {
-                const cover = Math.max(5, Math.round(row.stock / (row.demand / 30 || 1)));
-                const urgency = cover < 15 ? "danger" : cover < 30 ? "warn" : "ok";
-                const colorHex = { danger: C.danger, warn: C.warn, ok: C.ok }[urgency];
+                const cover = Math.max(
+                  5,
+                  Math.round(row.stock / (row.demand / 30 || 1)),
+                );
+                const urgency =
+                  cover < 15 ? "danger" : cover < 30 ? "warn" : "ok";
+                const colorHex = { danger: C.danger, warn: C.warn, ok: C.ok }[
+                  urgency
+                ];
                 return (
-                  <div 
-                    key={i} 
+                  <div
+                    key={i}
                     className="flex flex-col items-center justify-center p-3 rounded-lg border text-center transition-all hover:scale-[1.02]"
-                    style={{ 
+                    style={{
                       backgroundColor: colorHex + "12",
-                      borderColor: colorHex + "35"
+                      borderColor: colorHex + "35",
                     }}
                   >
-                    <span className="text-[10px] text-base-content/60 font-semibold">{row.label}</span>
-                    <span className="text-xl font-bold mt-1" style={{ color: colorHex }}>{cover}d</span>
-                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{urgency === "danger" ? "Reorder Now" : urgency === "warn" ? "Warning" : "Safe"}</span>
+                    <span className="text-[10px] text-base-content/60 font-semibold">
+                      {row.label}
+                    </span>
+                    <span
+                      className="text-xl font-bold mt-1"
+                      style={{ color: colorHex }}
+                    >
+                      {cover}d
+                    </span>
+                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">
+                      {urgency === "danger"
+                        ? "Reorder Now"
+                        : urgency === "warn"
+                          ? "Warning"
+                          : "Safe"}
+                    </span>
                   </div>
                 );
               })}
@@ -2060,30 +3044,99 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <KpiCard title="MAPE Error" value={`${mapeVal}%`} sub="Mean Abs % Error" color={C.ok} icon="track_changes" />
-            <KpiCard title="RMSE Error" value={rmseVal} sub="Root Mean Sq Error" color={C.accent} icon="architecture" />
-            <KpiCard title="Model Bias (MPB)" value={`${biasVal}%`} sub="Under/Over prediction" color={C.warn} icon="balance" />
-            <KpiCard title="90% CI Coverage" value={`${coverageVal}%`} sub="Actuals inside interval" color={C.accent3} icon="straighten" />
-            <KpiCard title="Mean Abs Error (MAE)" value="98 u" sub="Average absolute error" color={C.accent2} icon="bar_chart" />
-            <KpiCard title="Active Architecture" value={filters.model || "Random Forest"} sub="Global Champion Model" color={C.muted} icon="psychology" />
+            <KpiCard
+              title="MAPE Error"
+              value={`${mapeVal}%`}
+              sub="Mean Abs % Error"
+              color={C.ok}
+              icon="track_changes"
+            />
+            <KpiCard
+              title="RMSE Error"
+              value={rmseVal}
+              sub="Root Mean Sq Error"
+              color={C.accent}
+              icon="architecture"
+            />
+            <KpiCard
+              title="Model Bias (MPB)"
+              value={`${biasVal}%`}
+              sub="Under/Over prediction"
+              color={C.warn}
+              icon="balance"
+            />
+            <KpiCard
+              title="90% CI Coverage"
+              value={`${coverageVal}%`}
+              sub="Actuals inside interval"
+              color={C.accent3}
+              icon="straighten"
+            />
+            <KpiCard
+              title="Mean Abs Error (MAE)"
+              value="98 u"
+              sub="Average absolute error"
+              color={C.accent2}
+              icon="bar_chart"
+            />
+            <KpiCard
+              title="Active Architecture"
+              value={filters.model || "Random Forest"}
+              sub="Global Champion Model"
+              color={C.muted}
+              icon="psychology"
+            />
           </div>
 
           {/* Model residuals */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Forecast Residuals Over Time (Actual vs Expected)" sub="Ideal residuals: random fluctuations around 0, representing standard Gaussian noise" color={C.accent2} />
+            <SectionHeader
+              title="Forecast Residuals Over Time (Actual vs Expected)"
+              sub="Ideal residuals: random fluctuations around 0, representing standard Gaussian noise"
+              color={C.accent2}
+            />
             <div className="h-56 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={finalResiduals}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <ReferenceLine y={0} stroke={C.accent4} strokeWidth={1.5} />
-                  <ReferenceLine y={150} stroke={C.danger} strokeDasharray="4 3" label={{ value: "+2σ Boundary", fill: C.danger, fontSize: 8 }} />
-                  <ReferenceLine y={-150} stroke={C.danger} strokeDasharray="4 3" label={{ value: "-2σ Boundary", fill: C.danger, fontSize: 8 }} />
-                  <Bar dataKey="residual" name="Residual Error" radius={[3, 3, 0, 0]}>
+                  <ReferenceLine
+                    y={150}
+                    stroke={C.danger}
+                    strokeDasharray="4 3"
+                    label={{
+                      value: "+2σ Boundary",
+                      fill: C.danger,
+                      fontSize: 8,
+                    }}
+                  />
+                  <ReferenceLine
+                    y={-150}
+                    stroke={C.danger}
+                    strokeDasharray="4 3"
+                    label={{
+                      value: "-2σ Boundary",
+                      fill: C.danger,
+                      fontSize: 8,
+                    }}
+                  />
+                  <Bar
+                    dataKey="residual"
+                    name="Residual Error"
+                    radius={[3, 3, 0, 0]}
+                  >
                     {finalResiduals.map((r, i) => (
-                      <Cell key={i} fill={Math.abs(r.residual) > 130 ? C.danger : C.accent} fillOpacity={0.8} />
+                      <Cell
+                        key={i}
+                        fill={Math.abs(r.residual) > 130 ? C.danger : C.accent}
+                        fillOpacity={0.8}
+                      />
                     ))}
                   </Bar>
                 </ComposedChart>
@@ -2093,17 +3146,29 @@ export default function ForecastsPage() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Error Area Chart */}
-            
+
             {/* Inference Path Mix Donut Chart */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Inference Path Mix" sub="Primary ML model vs. Fallback baseline usage" color={C.ok} />
+              <SectionHeader
+                title="Inference Path Mix"
+                sub="Primary ML model vs. Fallback baseline usage"
+                color={C.ok}
+              />
               <div className="h-56 w-full mt-3 relative flex justify-center items-center">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={[
-                        { name: "Primary (Random Forest)", value: 112, color: C.accent },
-                        { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
+                        {
+                          name: "Primary (Random Forest)",
+                          value: 112,
+                          color: C.accent,
+                        },
+                        {
+                          name: "Fallback (Seasonal Naive)",
+                          value: 8,
+                          color: C.warn,
+                        },
                       ]}
                       cx="50%"
                       cy="50%"
@@ -2113,47 +3178,95 @@ export default function ForecastsPage() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {
-                        [
-                          { name: "Primary (Random Forest)", value: 112, color: C.accent },
-                          { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
-                        ].map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))
-                      }
+                      {[
+                        {
+                          name: "Primary (Random Forest)",
+                          value: 112,
+                          color: C.accent,
+                        },
+                        {
+                          name: "Fallback (Seasonal Naive)",
+                          value: 8,
+                          color: C.warn,
+                        },
+                      ].map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
                     </Pie>
-                    <Tooltip content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload;
-                      return (
-                        <div className="bg-base-200 border border-base-300 rounded-lg p-2 shadow-md text-xs">
-                          <span className="font-bold" style={{ color: d.color }}>{d.name}</span>: {d.value} runs
-                        </div>
-                      );
-                    }} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="bg-base-200 border border-base-300 rounded-lg p-2 shadow-md text-xs">
+                            <span
+                              className="font-bold"
+                              style={{ color: d.color }}
+                            >
+                              {d.name}
+                            </span>
+                            : {d.value} runs
+                          </div>
+                        );
+                      }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
                 {/* Hole Details */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold text-accent" style={{ marginTop: '1.5rem' }}>93%</span>
-                  <span className="text-[10px] text-base-content/60 font-semibold">SUCCESS RATE</span>
+                  <span
+                    className="text-2xl font-bold text-accent"
+                    style={{ marginTop: "1.5rem" }}
+                  >
+                    93%
+                  </span>
+                  <span className="text-[10px] text-base-content/60 font-semibold">
+                    SUCCESS RATE
+                  </span>
                 </div>
               </div>
               <div className="flex justify-center gap-4 mt-2 text-[10px] font-bold">
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent }}></span> Random Forest</div>
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.warn }}></span> Fallback</div>
+                <div className="flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: C.accent }}
+                  ></span>{" "}
+                  Random Forest
+                </div>
+                <div className="flex items-center gap-1">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: C.warn }}
+                  ></span>{" "}
+                  Fallback
+                </div>
               </div>
             </div>
-<div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Absolute Forecast Error Distribution" sub="Confidence interval widths and magnitude of absolute residuals" color={C.accent3} />
+            <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+              <SectionHeader
+                title="Absolute Forecast Error Distribution"
+                sub="Confidence interval widths and magnitude of absolute residuals"
+                color={C.accent3}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={finalResiduals}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
                     <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                     <Tooltip content={<ChartTip />} />
-                    <Area type="monotone" dataKey="absError" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={2} name="Absolute Error" />
+                    <Area
+                      type="monotone"
+                      dataKey="absError"
+                      stroke={C.accent3}
+                      fill={C.accent3}
+                      fillOpacity={0.08}
+                      strokeWidth={2}
+                      name="Absolute Error"
+                    />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -2161,30 +3274,70 @@ export default function ForecastsPage() {
 
             {/* Model Target Scorecard */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Model Accuracy Scorecard vs Thresholds" sub="Operational SLA targets set for production deployment" color={C.accent4} />
+              <SectionHeader
+                title="Model Accuracy Scorecard vs Thresholds"
+                sub="Operational SLA targets set for production deployment"
+                color={C.accent4}
+              />
               <div className="space-y-4 mt-3">
                 {[
-                  { label: "Mean Absolute Percentage Error (MAPE)", value: mapeVal, target: 10, unit: "%", good: mapeVal <= 10 },
-                  { label: "Root Mean Squared Error (RMSE)", value: rmseVal, target: 200, unit: " u", good: rmseVal <= 200 },
-                  { label: "Forecast Bias Limit", value: Math.abs(biasVal), target: 5.0, unit: "%", good: Math.abs(biasVal) <= 5.0 },
-                  { label: "90% CI Bounds Coverage", value: coverageVal, target: 90.0, unit: "%", good: coverageVal >= 90.0 },
+                  {
+                    label: "Mean Absolute Percentage Error (MAPE)",
+                    value: mapeVal,
+                    target: 10,
+                    unit: "%",
+                    good: mapeVal <= 10,
+                  },
+                  {
+                    label: "Root Mean Squared Error (RMSE)",
+                    value: rmseVal,
+                    target: 200,
+                    unit: " u",
+                    good: rmseVal <= 200,
+                  },
+                  {
+                    label: "Forecast Bias Limit",
+                    value: Math.abs(biasVal),
+                    target: 5.0,
+                    unit: "%",
+                    good: Math.abs(biasVal) <= 5.0,
+                  },
+                  {
+                    label: "90% CI Bounds Coverage",
+                    value: coverageVal,
+                    target: 90.0,
+                    unit: "%",
+                    good: coverageVal >= 90.0,
+                  },
                 ].map((m, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-base-content/80 font-medium">{m.label}</span>
-                      <span className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : "text-error"}`}>
-                        {m.value}{m.unit}
-                        <span className="material-symbols-outlined text-[14px]">{m.good ? "check_circle" : "cancel"}</span>
+                      <span className="text-base-content/80 font-medium">
+                        {m.label}
+                      </span>
+                      <span
+                        className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : "text-error"}`}
+                      >
+                        {m.value}
+                        {m.unit}
+                        <span className="material-symbols-outlined text-[14px]">
+                          {m.good ? "check_circle" : "cancel"}
+                        </span>
                         <span>{m.good ? "Deployed" : "Violation"}</span>
                       </span>
                     </div>
                     <div className="h-2 bg-base-300 rounded-full overflow-hidden">
-                      <div 
+                      <div
                         className={`h-full rounded-full transition-all duration-500 ${m.good ? "bg-success" : "bg-error"}`}
-                        style={{ width: `${Math.min((m.value / (m.target * 1.5)) * 100, 100)}%` }}
+                        style={{
+                          width: `${Math.min((m.value / (m.target * 1.5)) * 100, 100)}%`,
+                        }}
                       />
                     </div>
-                    <div className="text-[10px] text-base-content/40 mt-0.5">SLA Threshold Target: ≤ {m.target}{m.unit}</div>
+                    <div className="text-[10px] text-base-content/40 mt-0.5">
+                      SLA Threshold Target: ≤ {m.target}
+                      {m.unit}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2193,22 +3346,60 @@ export default function ForecastsPage() {
 
           {/* Model requirements cards */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Required Forecast Data signals & Schema Checklist" sub="Checklist for data pipelines and runtime verification" color={C.accent} />
+            <SectionHeader
+              title="Required Forecast Data signals & Schema Checklist"
+              sub="Checklist for data pipelines and runtime verification"
+              color={C.accent}
+            />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
               {[
-                { cat: "Core Demand Signals", icon: "package_2", items: ["Historical sales & backorders (≥2yr)", "Granular material code groupings", "Quantity & units filled", "Return & credit adjustments"] },
-                { cat: "Calendars & Exogenous", icon: "calendar_month", items: ["Warehouse seasonal schedule", "Local government holidays", "Warehouse promotion calendar", "Weather indices / shifts"] },
-                { cat: "Warehouse Context", icon: "warehouse", items: ["Current safety stock levels", "Supplier replenishment lead times", "Supplier minimum order quantity", "On-hand inventory capacity"] }
+                {
+                  cat: "Core Demand Signals",
+                  icon: "package_2",
+                  items: [
+                    "Historical sales & backorders (≥2yr)",
+                    "Granular material code groupings",
+                    "Quantity & units filled",
+                    "Return & credit adjustments",
+                  ],
+                },
+                {
+                  cat: "Calendars & Exogenous",
+                  icon: "calendar_month",
+                  items: [
+                    "Warehouse seasonal schedule",
+                    "Local government holidays",
+                    "Warehouse promotion calendar",
+                    "Weather indices / shifts",
+                  ],
+                },
+                {
+                  cat: "Warehouse Context",
+                  icon: "warehouse",
+                  items: [
+                    "Current safety stock levels",
+                    "Supplier replenishment lead times",
+                    "Supplier minimum order quantity",
+                    "On-hand inventory capacity",
+                  ],
+                },
               ].map((g, i) => (
-                <div key={i} className="bg-base-200/50 rounded-lg p-3 border border-base-300">
+                <div
+                  key={i}
+                  className="bg-base-200/50 rounded-lg p-3 border border-base-300"
+                >
                   <span className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-sm">{g.icon}</span>
+                    <span className="material-symbols-outlined text-sm">
+                      {g.icon}
+                    </span>
                     {g.cat}
                   </span>
                   <ul className="text-[10px] text-base-content/75 space-y-1 pl-1">
                     {g.items.map((item, j) => (
                       <li key={j} className="flex items-start gap-1">
-                        <span className="material-symbols-outlined text-success text-[12px] align-middle mt-0.5">check_circle</span>
+                        <span className="material-symbols-outlined text-success text-[12px] align-middle mt-0.5">
+                          check_circle
+                        </span>
                         <span>{item}</span>
                       </li>
                     ))}
@@ -2220,10 +3411,42 @@ export default function ForecastsPage() {
         </div>
       )}
 
-      {/* Footer */}
+      {/* Forecast Chat Assistant — context-aware floating panel */}
+      <ForecastChatButton
+        sku={selectedSku || filters.sku}
+        skuOptions={skuOptions}
+        forecastPoints={latestForecasts.map((f) => ({
+          month: String(f.month ?? f.label ?? ""),
+          p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+        }))}
+        selectedMonth={transitionLabel}
+        predictedUnits={predictedUnitsForChat}
+        confidence={confidenceForChat}
+        mape={mapeVal}
+        onSkuChange={(newSku: string) => {
+          setSelectedSku(newSku);
+          setSkuSearchInput(newSku);
+        }}
+        onOpen={() => {
+          captureOpenContext({
+            sku: selectedSku || filters.sku,
+            forecastPoints: latestForecasts.map((f) => ({
+              month: String(f.month ?? f.label ?? ""),
+              p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+            })),
+            selectedMonth: transitionLabel,
+            predictedUnits: predictedUnitsForChat,
+            confidence: confidenceForChat,
+            mape: mapeVal,
+          });
+        }}
+      />
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">
         <span>OptiWMS Demand Planning Console v2.4</span>
-        <span>Governance Cycle Tick: Deployed Champion model active · Pipeline lag &lt; 24h</span>
+        <span>
+          Governance Cycle Tick: Deployed Champion model active · Pipeline lag
+          &lt; 24h
+        </span>
       </div>
     </div>
   );

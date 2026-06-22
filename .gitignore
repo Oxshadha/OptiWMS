@@ -22,6 +22,11 @@ out/
 .env.production.local
 .env.*.local
 
+# Python virtual environments
+.venv/
+venv/
+ENV/
+
 # IDE
 .vscode/
 .idea/
@@ -50,8 +55,11 @@ forecast_service.db
 *.sqlite
 *.sqlite3
 
+
+
 # Model artifacts (large files - consider separate storage)
 # Ai miroservices/modeling/outputs/artifacts/**/*.pkl  # Uncomment if too large
+# Ai microservices/modeling/.venv/
 
 # Logs and temporary files
 logs/
