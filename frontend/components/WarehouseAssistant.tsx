@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import clsx from "clsx";
@@ -16,14 +16,14 @@ import {
   Sparkles,
   Warehouse,
   X,
+  FileSpreadsheet,
+  Download,
+  AlertCircle
 } from "lucide-react";
 import {
   askWarehouseAI,
-  askDataAnalytics,
-  queryWmsDatabase,
   WarehouseAIRole,
   WarehouseAISource,
-  DataAnalyticsResponse,
 } from "@/services/aiService";
 
 type ChatMessage = {
@@ -37,6 +37,19 @@ type ChatMessage = {
   error?: string;
   answer?: string;       // Conversational summary or download-link markdown
   download_url?: string; // Report mode: PDF link
+};
+
+const getBaseUrl = () => {
+  const envUrl = process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL;
+  if (envUrl) {
+    try {
+      const urlObj = new URL(envUrl);
+      return `${urlObj.protocol}//${urlObj.host}`;
+    } catch (e) {
+      // fallback
+    }
+  }
+  return "http://localhost:8000";
 };
 
 type WarehouseAssistantProps = {
@@ -55,37 +68,18 @@ export function WarehouseAssistant({
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState<{ sop: boolean; data: boolean }>({
-    sop: false,
-    data: false,
-  });
-  const [currentTab, setCurrentTab] = useState<"sop" | "data">("sop");
-  const [chatHistories, setChatHistories] = useState<{
-    sop: ChatMessage[];
-    data: ChatMessage[];
-  }>({
-    sop: [
-      {
-        id: "assistant-welcome-sop",
-        role: "assistant",
-        content:
-          userRole === "manager"
-            ? "Hello! I can help with SOP lookups, operational summaries, and source-backed answers. What would you like to know?"
-            : "Hello! Ask me about tasks, SOP steps, or SKU locations.",
-      },
-    ],
-    data: [
-      {
-        id: "assistant-welcome-data",
-        role: "assistant",
-        content:
-          "Hello! I can query your WMS data, generate reports, and visualise trends. What would you like to explore?",
-      },
-    ],
-  });
+  const [loading, setLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(() => [
+    {
+      id: "assistant-welcome",
+      role: "assistant",
+      content:
+        userRole === "manager"
+          ? "Hello! I can assist you with SOP lookups, standard operating procedures, WMS inventory/order analytics, or PDF report generation. What would you like to ask?"
+          : "Hello! I can guide you through warehouse SOPs, find item/SKU locations, and list safety checklist steps. What do you need help with?",
+    },
+  ]);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  const chatHistory = chatHistories[currentTab];
 
   useEffect(() => {
     if (userRole === "manager") {
@@ -101,7 +95,7 @@ export function WarehouseAssistant({
 
   const submitQuery = async (nextQuery: string) => {
     const trimmedQuery = nextQuery.trim();
-    if (!trimmedQuery || loading[currentTab]) return;
+    if (!trimmedQuery || loading) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -109,106 +103,50 @@ export function WarehouseAssistant({
       content: trimmedQuery,
     };
 
-    setChatHistories((prev) => ({
-      ...prev,
-      [currentTab]: [...prev[currentTab], userMessage],
-    }));
+    setChatHistory((prev) => [...prev, userMessage]);
     setQuery("");
-    setLoading((prev) => ({ ...prev, [currentTab]: true }));
+    setLoading(true);
 
     try {
-      if (currentTab === "sop") {
-        const response = await askWarehouseAI(trimmedQuery, userRole);
-        setChatHistories((prev) => ({
-          ...prev,
-          sop: [
-            ...prev.sop,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: response.answer,
-              sources: response.sources,
-            },
-          ],
-        }));
-      } else {
-        let response: DataAnalyticsResponse =
-          await askDataAnalytics(trimmedQuery);
+      const response = await askWarehouseAI(trimmedQuery, userRole);
 
-        if (
-          response.sql &&
-          !response.data &&
-          !response.chart &&
-          !response.error &&
-          !response.download_url
-        ) {
-          try {
-            const exec = await queryWmsDatabase(response.sql);
-            response = {
-              ...response,
-              data: exec.data ?? response.data,
-              chart: exec.chart ?? response.chart,
-              error: exec.error ?? response.error,
-            };
-          } catch (err) {
-            response = {
-              ...response,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }
+      // Derive text content for message bubble
+      const content = response.error
+        ? response.error
+        : response.answer
+          ? response.answer
+          : response.chart || (response.data && response.data.length > 0)
+            ? ""
+            : "No details returned.";
 
-        const hasData = response.data && response.data.length > 0;
-        const hasChart = !!response.chart;
-        const hasAnswer = !!response.answer;
-
-        // Derive the text to show in the message bubble:
-        //  - In Report mode: the answer contains the download markdown link
-        //  - In Conversational mode: the answer is the natural-language summary
-        //  - Fallback: generic message
-        const content = response.error
-          ? response.error
-          : hasAnswer
-            ? response.answer!
-            : hasChart || hasData
-              ? ""
-              : "No data available for this query.";
-
-        setChatHistories((prev) => ({
-          ...prev,
-          data: [
-            ...prev.data,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content,
-              sql: response.sql,
-              data: response.data,
-              chart: response.chart,
-              error: response.error,
-              answer: response.answer,
-              download_url: response.download_url,
-            },
-          ],
-        }));
-      }
-    } catch (error) {
-      setChatHistories((prev) => ({
+      setChatHistory((prev) => [
         ...prev,
-        [currentTab]: [
-          ...prev[currentTab],
-          {
-            id: `assistant-error-${Date.now()}`,
-            role: "assistant",
-            content:
-              error instanceof Error
-                ? error.message
-                : "Something went wrong. Please try again.",
-          },
-        ],
-      }));
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content,
+          sources: response.sources,
+          sql: response.sql,
+          data: response.data,
+          chart: response.chart,
+          error: response.error,
+          download_url: response.download_url,
+        },
+      ]);
+    } catch (error) {
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? error.message
+              : "Something went wrong. Please try again.",
+        },
+      ]);
     } finally {
-      setLoading((prev) => ({ ...prev, [currentTab]: false }));
+      setLoading(false);
     }
   };
 
@@ -217,36 +155,38 @@ export function WarehouseAssistant({
     await submitQuery(query);
   };
 
+  const handleSuggestionClick = async (suggestion: string) => {
+    await submitQuery(suggestion);
+  };
+
   // ── Full page ─────────────────────────────────────────────────────────────
   if (fullPage) {
     return (
-      <div className="flex flex-col h-full overflow-hidden bg-base-100 p-6">
-        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-base-200 bg-white shadow-lg overflow-hidden">
+      <div className="flex flex-col h-full overflow-hidden bg-slate-50 p-6">
+        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
           <AssistantHeader
-            title="Warehouse Assist"
-            subtitle="Full-screen assistant"
-            icon={<Warehouse className="h-5 w-5" />}
+            title="Warehouse Assistant"
+            subtitle="Unified SOP & Data Analytics"
+            icon={<Warehouse className="h-5 w-5 text-primary" />}
             onClose={() => router.back()}
-            currentTab={currentTab}
-            onTabChange={setCurrentTab}
           />
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/50">
             <AssistantBody
               userRole={userRole}
               chatHistory={chatHistory}
-              loading={loading[currentTab]}
-              currentTab={currentTab}
+              loading={loading}
+              onSuggestionClick={handleSuggestionClick}
             />
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 bg-white border-t border-slate-100">
             <AssistantComposer
               inputRef={inputRef}
               query={query}
-              loading={loading[currentTab]}
+              loading={loading}
               placeholder={
-                currentTab === "sop"
-                  ? "Ask about SOPs, safety checks, or warehouse exceptions…"
-                  : "Ask about your WMS data…"
+                userRole === "manager"
+                  ? "Ask about SOPs, inventory counts, pending orders, or request reports..."
+                  : "Ask about SKU locations, safety protocols, or task steps..."
               }
               onQueryChange={setQuery}
               onSubmit={handleSubmit}
@@ -265,7 +205,7 @@ export function WarehouseAssistant({
         aria-label="Open warehouse assistant"
         onClick={() => setIsOpen((current) => !current)}
         className={clsx(
-          "btn btn-ghost btn-circle border border-base-300 bg-base-100/80 text-base-content shadow-sm backdrop-blur",
+          "btn btn-ghost btn-circle border border-base-300 bg-base-100/80 text-base-content shadow-sm backdrop-blur transition-all duration-300 hover:scale-105 active:scale-95",
           isOpen && "border-primary/40 bg-primary/10 text-primary",
         )}
         title="Warehouse assistant"
@@ -287,40 +227,39 @@ export function WarehouseAssistant({
           />
           <div
             className={clsx(
-              "fixed bottom-6 right-6 z-50 hidden w-[26rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[42rem] lg:flex-col",
+              "fixed bottom-6 right-6 z-50 hidden w-[28rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[44rem] lg:flex-col transition-all duration-300",
               managerOffsetClassName,
             )}
           >
             <AssistantHeader
-              title="Warehouse Assist"
-              subtitle="SOP and warehouse queries"
-              icon={<Warehouse className="h-5 w-5" />}
+              title="Warehouse Assistant"
+              subtitle="Unified SOP & Data Analytics"
+              icon={<Warehouse className="h-5 w-5 text-primary" />}
               onClose={() => setIsOpen(false)}
-              currentTab={currentTab}
-              onTabChange={setCurrentTab}
             />
-            <div className="shrink-0 px-4 pt-2 pb-1">
+            <div className="shrink-0 px-5 pt-3 pb-1 bg-white flex justify-between items-center border-b border-slate-100">
+              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">AI Operations Hub</span>
               <Link
                 href="/admin/assistant"
-                className="text-xs text-primary hover:underline"
+                className="text-xs font-semibold text-primary hover:text-primary-focus transition hover:underline"
               >
-                Open full screen ↗
+                Full screen ↗
               </Link>
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/50">
               <AssistantBody
                 userRole={userRole}
                 chatHistory={chatHistory}
-                loading={loading[currentTab]}
-                currentTab={currentTab}
+                loading={loading}
+                onSuggestionClick={handleSuggestionClick}
               />
             </div>
-            <div className="shrink-0">
+            <div className="shrink-0 bg-white border-t border-slate-100">
               <AssistantComposer
                 inputRef={inputRef}
                 query={query}
-                loading={loading[currentTab]}
-                placeholder="Ask about SOPs, safety checks, or warehouse exceptions…"
+                loading={loading}
+                placeholder="Ask about SOPs, database metrics, or reports..."
                 onQueryChange={setQuery}
                 onSubmit={handleSubmit}
               />
@@ -338,7 +277,7 @@ export function WarehouseAssistant({
         type="button"
         aria-label="Open warehouse assistant"
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-gradient-to-br from-primary to-accent text-white shadow-[0_18px_40px_rgba(207,15,71,0.32)] ring-4 ring-white/30 transition-transform active:scale-95"
+        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-gradient-to-br from-primary to-accent text-white shadow-[0_18px_40px_rgba(207,15,71,0.32)] ring-4 ring-white/30 transition-transform hover:scale-105 active:scale-95"
       >
         <MessageSquare className="h-7 w-7" />
       </button>
@@ -346,42 +285,43 @@ export function WarehouseAssistant({
       {isOpen && (
         <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(207,15,71,0.10),_transparent_35%),linear-gradient(180deg,_#fff6f8_0%,_#fff1f4_100%)] text-base-content">
           <AssistantHeader
-            title="Warehouse Assist"
-            subtitle="SOP and warehouse queries"
-            icon={<Bot className="h-5 w-5" />}
+            title="Warehouse Assistant"
+            subtitle="Unified SOP & Data Analytics"
+            icon={<Bot className="h-5 w-5 text-primary" />}
             onClose={() => setIsOpen(false)}
-            currentTab={currentTab}
-            onTabChange={setCurrentTab}
           />
-          <div className="shrink-0 flex items-center gap-3 px-4 pt-2 pb-1">
-            <button
-              type="button"
-              className="flex h-12 flex-1 items-center justify-center gap-3 rounded-2xl border border-primary/20 bg-primary/10 text-primary font-semibold shadow"
-            >
-              <Mic className="h-5 w-5" />
-              Voice input
-            </button>
+          <div className="shrink-0 flex items-center justify-between px-5 pt-3 pb-1 border-b border-rose-100/50 bg-white/50 backdrop-blur">
+            <span className="text-xs font-semibold text-rose-500 uppercase tracking-wider">Worker Support</span>
             <Link
               href="/admin/assistant"
-              className="text-sm text-primary font-medium hover:underline whitespace-nowrap"
+              className="text-sm font-semibold text-primary hover:underline"
             >
               Full screen ↗
             </Link>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/30">
             <AssistantBody
               userRole={userRole}
               chatHistory={chatHistory}
-              loading={loading[currentTab]}
-              currentTab={currentTab}
+              loading={loading}
+              onSuggestionClick={handleSuggestionClick}
             />
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 bg-white border-t border-slate-100 pb-safe">
+            <div className="px-4 pt-2">
+              <button
+                type="button"
+                className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-primary/20 bg-primary/10 text-primary font-semibold shadow-sm hover:bg-primary/15 transition duration-200"
+              >
+                <Mic className="h-5 w-5" />
+                Voice input
+              </button>
+            </div>
             <AssistantComposer
               inputRef={inputRef}
               query={query}
-              loading={loading[currentTab]}
-              placeholder="Ask about SKU location, SOP steps, or a task…"
+              loading={loading}
+              placeholder="Ask about SKU locations, protocols..."
               onQueryChange={setQuery}
               onSubmit={handleSubmit}
               mobile
@@ -402,58 +342,30 @@ function AssistantHeader({
   subtitle,
   icon,
   onClose,
-  currentTab,
-  onTabChange,
 }: {
   title: string;
   subtitle: string;
   icon: React.ReactNode;
   onClose: () => void;
-  currentTab: "sop" | "data";
-  onTabChange: (tab: "sop" | "data") => void;
 }) {
   return (
-    <div className="shrink-0 border-b border-base-200 bg-white/85 px-4 py-4 backdrop-blur">
+    <div className="shrink-0 border-b border-slate-200 bg-white/95 px-5 py-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 ring-1 ring-slate-200/50">
             {icon}
           </div>
           <div>
-            <h2 className="text-base font-semibold">{title}</h2>
-            <p className="text-xs text-slate-500">{subtitle}</p>
+            <h2 className="text-base font-bold text-slate-800 tracking-tight">{title}</h2>
+            <p className="text-xs text-slate-500 font-medium">{subtitle}</p>
           </div>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-700 hover:scale-105 active:scale-95"
         >
-          <X className="h-5 w-5" />
-        </button>
-      </div>
-      <div className="mt-4 flex gap-2">
-        <button
-          onClick={() => onTabChange("sop")}
-          className={clsx(
-            "rounded-lg px-3 py-1 text-sm font-medium transition",
-            currentTab === "sop"
-              ? "bg-primary text-primary-content"
-              : "bg-base-200 text-base-content hover:bg-base-300",
-          )}
-        >
-          SOP Assistant
-        </button>
-        <button
-          onClick={() => onTabChange("data")}
-          className={clsx(
-            "rounded-lg px-3 py-1 text-sm font-medium transition",
-            currentTab === "data"
-              ? "bg-primary text-primary-content"
-              : "bg-base-200 text-base-content hover:bg-base-300",
-          )}
-        >
-          Data &amp; Analytics
+          <X className="h-4.5 w-4.5" />
         </button>
       </div>
     </div>
@@ -464,12 +376,12 @@ function AssistantBody({
   userRole,
   chatHistory,
   loading,
-  currentTab,
+  onSuggestionClick,
 }: {
   userRole: WarehouseAIRole;
   chatHistory: ChatMessage[];
   loading: boolean;
-  currentTab: "sop" | "data";
+  onSuggestionClick: (suggestion: string) => void;
 }) {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -477,8 +389,23 @@ function AssistantBody({
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, loading]);
 
+  const managerSuggestions = [
+    "Show me current stock levels for SKU-001",
+    "List products with stock below reorder level",
+    "Generate report for top 10 products by movement",
+    "What is the safety SOP for chemical handling?",
+  ];
+
+  const workerSuggestions = [
+    "Where is SKU-001 stored?",
+    "What is the damaged product SOP?",
+    "What are the steps for shift handover?",
+  ];
+
+  const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+
   return (
-    <div className="px-4 py-4 space-y-4">
+    <div className="px-5 py-5 space-y-5">
       {chatHistory.map((message) => (
         <div
           key={message.id}
@@ -489,72 +416,72 @@ function AssistantBody({
         >
           <div
             className={clsx(
-              "max-w-[90%] rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm",
+              "max-w-[92%] rounded-[1.5rem] px-5 py-4 text-[13.5px] leading-relaxed shadow-sm transition-all duration-200",
               message.role === "user"
-                ? "bg-primary text-primary-content"
-                : "border border-base-200 bg-base-100 text-base-content",
+                ? "bg-primary text-primary-content rounded-tr-none"
+                : "border border-slate-200/80 bg-white text-slate-800 rounded-tl-none",
             )}
           >
-            {/* Text content — skip if empty (chart/data-only messages) */}
+            {/* Text content */}
             {message.content &&
               (message.role === "assistant" ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
                     p: ({ children }) => (
-                      <p className="mb-2 last:mb-0 whitespace-pre-wrap">
+                      <p className="mb-3 last:mb-0 whitespace-pre-wrap text-slate-700">
                         {children}
                       </p>
                     ),
                     ul: ({ children }) => (
-                      <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">
+                      <ul className="mb-3 list-disc space-y-1.5 pl-5 last:mb-0 text-slate-600">
                         {children}
                       </ul>
                     ),
                     ol: ({ children }) => (
-                      <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">
+                      <ol className="mb-3 list-decimal space-y-1.5 pl-5 last:mb-0 text-slate-600">
                         {children}
                       </ol>
                     ),
-                    li: ({ children }) => <li>{children}</li>,
+                    li: ({ children }) => <li className="pl-0.5">{children}</li>,
                     strong: ({ children }) => (
-                      <strong className="font-semibold text-slate-900">
+                      <strong className="font-bold text-slate-900 bg-slate-50 px-1 rounded">
                         {children}
                       </strong>
+                    ),
+                    code: ({ children }) => (
+                      <code className="bg-slate-100 text-slate-800 px-1 py-0.5 rounded font-mono text-xs font-semibold">
+                        {children}
+                      </code>
                     ),
                   }}
                 >
                   {message.content}
                 </ReactMarkdown>
               ) : (
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <p className="whitespace-pre-wrap font-medium">{message.content}</p>
               ))}
 
-            {/* Sources */}
+            {/* Citations/Sources */}
             {message.sources && message.sources.length > 0 && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                  Sources
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Verifiable SOP Documents
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {message.sources.map((source) =>
                     source.href ? (
                       <Link
                         key={`${message.id}-${source.label}`}
                         href={source.href}
-                        className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition hover:bg-primary/15"
+                        className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary transition hover:bg-primary/10"
                       >
                         {source.label}
                       </Link>
                     ) : (
                       <span
                         key={`${message.id}-${source.label}`}
-                        className="rounded-full border border-base-200 bg-base-200 px-3 py-1 text-xs font-medium text-base-content"
+                        className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600"
                       >
                         {source.label}
                       </span>
@@ -564,95 +491,110 @@ function AssistantBody({
               </div>
             )}
 
-            {/* Data table */}
+            {/* Generated SQL Accordion */}
+            {message.sql && (
+              <details className="group mt-4 border-t border-slate-100 pt-3">
+                <summary className="flex cursor-pointer items-center justify-between text-[11px] font-semibold text-slate-400 hover:text-slate-600 select-none">
+                  <span>WMS DATABASE QUERY LOG</span>
+                  <span className="transition-transform duration-200 group-open:rotate-180">
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </span>
+                </summary>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100 bg-slate-50 p-3.5">
+                  <pre className="font-mono text-xs text-slate-600 whitespace-pre">
+                    <code>{message.sql}</code>
+                  </pre>
+                </div>
+              </details>
+            )}
+
+            {/* Database Output Records Table */}
             {message.data && message.data.length > 0 && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                  Results
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-xs">
-                    <thead>
-                      <tr className="bg-base-200">
-                        {Object.keys(message.data[0]).map((key) => (
-                          <th
-                            key={key}
-                            className="px-2 py-1 text-left font-medium"
-                          >
-                            {key}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {message.data.slice(0, 10).map((row, index) => (
-                        <tr key={index} className="border-t border-base-200">
-                          {Object.values(row).map((value, i) => (
-                            <td key={i} className="px-2 py-1">
-                              {String(value)}
-                            </td>
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <FileSpreadsheet className="h-4.5 w-4.5 text-slate-400" />
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    WMS Database Records ({message.data.length} rows)
+                  </p>
+                </div>
+                <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-slate-100 text-xs">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          {Object.keys(message.data[0]).map((key) => (
+                            <th
+                              key={key}
+                              className="px-3 py-2 text-left font-bold text-slate-500 uppercase tracking-wider"
+                            >
+                              {key}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {message.data.length > 10 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Showing 10 of {message.data.length} rows.
-                    </p>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {message.data.slice(0, 8).map((row, index) => (
+                          <tr key={index} className="hover:bg-slate-50/50">
+                            {Object.values(row).map((value, i) => (
+                              <td key={i} className="px-3 py-2 text-slate-600 font-medium">
+                                {value === null ? (
+                                  <span className="text-slate-300">null</span>
+                                ) : (
+                                  String(value)
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {message.data.length > 8 && (
+                    <div className="border-t border-slate-100 bg-slate-50 px-3 py-1.5 text-center">
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        Showing top 8 of {message.data.length} records.
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Chart */}
+            {/* Auto Generated Charts */}
             {message.chart && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <div className="overflow-hidden rounded-2xl border border-base-200 bg-base-200 p-2">
+              <div className="mt-4 border-t border-slate-100 pt-3">
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-100 p-1">
                   <img
                     src={message.chart}
-                    alt="Analytics chart"
-                    className="w-full rounded-lg"
+                    alt="Auto-generated WMS Analytics Chart"
+                    className="w-full rounded-lg shadow-inner"
                   />
                 </div>
               </div>
             )}
 
-            {/* Error */}
+            {/* Report Build error block */}
             {message.error && (
-              <div
-                className={clsx(
-                  "border-t border-red-200 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="text-xs text-red-600">{message.error}</p>
+              <div className="mt-4 border-t border-rose-100 pt-3 flex gap-2 items-start bg-rose-50/50 p-2.5 rounded-xl border border-rose-100">
+                <AlertCircle className="h-4.5 w-4.5 text-rose-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[10px] font-bold text-rose-600 uppercase tracking-wider">Operational Error</p>
+                  <p className="text-xs text-rose-700 font-semibold">{message.error}</p>
+                </div>
               </div>
             )}
 
-            {/* PDF Download button — rendered when download_url is present */}
+            {/* Report PDF download widget */}
             {message.download_url && (
-              <div className={clsx("border-t border-indigo-100 pt-3", message.content && "mt-3")}>
+              <div className="mt-4 border-t border-indigo-100 pt-3">
                 <a
-                  href={`${process.env.NEXT_PUBLIC_WAREHOUSE_AI_BASE || "http://localhost:8000"}${message.download_url}`}
+                  href={`${getBaseUrl()}${message.download_url}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   download
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-indigo-700 active:scale-95"
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-indigo-700 active:scale-95 transition-all duration-200"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
-                  </svg>
+                  <Download className="h-4 w-4" />
                   Download PDF Report
                 </a>
               </div>
@@ -661,20 +603,33 @@ function AssistantBody({
         </div>
       ))}
 
+      {chatHistory.length === 1 && !loading && (
+        <div className="bg-slate-50 border border-slate-200/50 p-4.5 rounded-2xl">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2.5">Suggested Questions</p>
+          <div className="flex flex-col gap-2">
+            {suggestions.map((suggestion, i) => (
+              <button
+                key={i}
+                onClick={() => onSuggestionClick(suggestion)}
+                className="text-left text-xs text-slate-600 font-semibold hover:text-primary bg-white hover:bg-slate-100/50 border border-slate-200 px-3.5 py-2.5 rounded-xl transition duration-150 shadow-sm active:scale-[0.99]"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {loading && (
         <div className="flex justify-start">
-          <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-100 px-4 py-3 text-sm text-slate-500 shadow-sm">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-[13px] text-slate-500 shadow-sm">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <div className="flex gap-1">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:120ms]" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:240ms]" />
+            <div className="flex gap-0.5">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:120ms]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:240ms]" />
             </div>
-            <span>
-              {currentTab === "sop"
-                ? "Looking through the SOPs…"
-                : "Fetching data…"}
-            </span>
+            <span className="font-semibold text-slate-400">Processing requests...</span>
           </div>
         </div>
       )}
@@ -705,11 +660,11 @@ function AssistantComposer({
     <form
       onSubmit={(event) => void onSubmit(event)}
       className={clsx(
-        "border-t border-base-200 bg-base-100/90 p-4 backdrop-blur",
-        mobile && "bg-base-100/95",
+        "border-t border-slate-200 bg-slate-50/80 p-4.5 backdrop-blur",
+        mobile && "bg-white",
       )}
     >
-      <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-200 p-2 shadow-sm">
+      <div className="flex items-center gap-3 rounded-[1.5rem] border border-slate-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all duration-200">
         <input
           ref={inputRef}
           type="text"
@@ -717,14 +672,14 @@ function AssistantComposer({
           onChange={(event) => onQueryChange(event.target.value)}
           disabled={loading}
           placeholder={placeholder}
-          className="w-full bg-transparent px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+          className="w-full bg-transparent px-3.5 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 font-medium"
         />
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-content shadow transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-content shadow transition-all duration-200 hover:scale-105 active:scale-95 disabled:scale-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <SendHorizonal className="h-4 w-4" />
+          <SendHorizonal className="h-4.5 w-4.5" />
         </button>
       </div>
     </form>
