@@ -626,55 +626,6 @@ export function CreateInboundOrderModal({
         setRecommendationsByItem(new Map());
       } finally {
         setRecommendationLoading(false);
-      }        return;
-      }
-
-      setRecommendationLoading(true);
-      setRecommendationError(null);
-
-      try {
-<<<<<<< HEAD
-        await Promise.all(
-          formData.items.map((item, idx) =>
-            orderItemsApi.create(createdOrder.id, {
-              materialId: item.productId,
-              quantity: item.quantityOrdered,
-              locationCode:
-                item.locationCode ||
-                recommendationsByItem.get(idx)?.recommended_location_code.split(" ")[0] ||
-                undefined,
-              batchNumber: item.batchNumber || undefined,
-              manufactureDate: item.manufactureDate || undefined,
-              expiryDate: item.expiryDate || undefined,
-            })
-          )
-        );
-      } catch (itemError) {
-        logger.error("Failed to create order items:", itemError);
-        setError("Order created but failed to add items. Please edit the order to add items.");
-      }
-=======
-        const response = await AISlottingService.recommendPlacement({
-          warehouse_id: formData.warehouseId,
-          items: buildRecommendationRequestItems(),
-          population_size: 20,
-          generations: 50,
-          mutation_rate: 0.05,
-          top_k_alternatives: 3,
-        });
->>>>>>> dev
-
-        const recommendationMap = new Map<number, SlottingRecommendationItemResponse>();
-        response.recommendations.forEach((recommendation, index) => {
-          recommendationMap.set(index, recommendation);
-        });
-        setRecommendationsByItem(recommendationMap);
-      } catch (err) {
-        logger.error("Failed to load slotting recommendations:", err);
-        setRecommendationError(err instanceof Error ? err.message : "Failed to generate AI location recommendations.");
-        setRecommendationsByItem(new Map());
-      } finally {
-        setRecommendationLoading(false);
       }
     };
 
