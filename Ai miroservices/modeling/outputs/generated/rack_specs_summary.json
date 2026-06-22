@@ -1,0 +1,31 @@
+{
+  "total_locations": 1642,
+  "total_levels": 614,
+  "areas": {
+    "RM": {
+      "racks": 40,
+      "locations": 520
+    },
+    "FG": {
+      "racks": 60,
+      "locations": 780
+    },
+    "PK": {
+      "racks": 15,
+      "locations": 135
+    },
+    "PA": {
+      "racks": 15,
+      "locations": 135
+    },
+    "RC": {
+      "racks": 6,
+      "locations": 36
+    },
+    "SH": {
+      "racks": 6,
+      "locations": 36
+    }
+  },
+  "storage_types": 7
+}

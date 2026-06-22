@@ -1,0 +1,27 @@
+{
+  "total_skus": 391,
+  "fg_count": 103,
+  "rm_count": 288,
+  "storage_type_counts": {
+    "CARTON": 258,
+    "DRUM": 76,
+    "BAG": 31,
+    "ROLL": 24,
+    "IBC": 2
+  },
+  "hazard_counts": {
+    "NONE": 350,
+    "FLAMMABLE": 24,
+    "CORROSIVE": 17
+  },
+  "weight_stats": {
+    "min": 0.05,
+    "max": 248.84,
+    "mean": 38.0808695652174
+  },
+  "volume_stats": {
+    "min": 299.83,
+    "max": 320462.65,
+    "mean": 46836.18445012788
+  }
+}
