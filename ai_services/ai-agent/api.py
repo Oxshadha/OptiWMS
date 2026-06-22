@@ -1,16 +1,21 @@
 import os
 from pathlib import Path
 from typing import Optional, List
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from agent import load_agent, ask
+from agent import load_agent, ask, init_chat_db, get_db_session, ChatSession, ChatMessage
 from explain_router import router as explain_router
 
 app = FastAPI(title="OptiWMS Agent API")
 chain = load_agent()
+
+@app.on_event("startup")
+def startup_event():
+    init_chat_db()
 
 allowed_origins = os.getenv(
     "AI_AGENT_ALLOWED_ORIGINS",
@@ -39,6 +44,8 @@ class QuestionRequest(BaseModel):
     question: Optional[str] = None
     context: Optional[str] = None
     timestamp: Optional[str] = None
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 class DataResponse(BaseModel):
     mode: Optional[str] = None
@@ -49,6 +56,21 @@ class DataResponse(BaseModel):
     answer: Optional[str] = None       # Conversational summary, download link, or SOP answer
     download_url: Optional[str] = None  # Set in Report mode
     sources: Optional[List[str]] = None  # SOP sources
+    session_id: Optional[str] = None
+
+class SessionSummary(BaseModel):
+    id: str
+    user_id: str
+    title: str
+    created_at: datetime
+
+class MessageDetail(BaseModel):
+    id: str
+    session_id: str
+    sender: str
+    text_content: Optional[str] = None
+    metadata: Optional[dict] = None
+    timestamp: datetime
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -65,7 +87,12 @@ def ask_question(request: QuestionRequest):
         raise HTTPException(status_code=400, detail="A message is required.")
     
     try:
-        res = ask(chain, question)
+        res = ask(
+            chain, 
+            question, 
+            user_id=request.user_id, 
+            session_id=request.session_id
+        )
         return DataResponse(
             mode=res.get("mode"),
             sql=res.get("sql"),
@@ -75,9 +102,47 @@ def ask_question(request: QuestionRequest):
             answer=res.get("answer"),
             download_url=res.get("download_url"),
             sources=res.get("sources"),
+            session_id=res.get("session_id"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── History routes ────────────────────────────────────────────────────────────
+@app.get("/history/{user_id}", response_model=List[SessionSummary])
+def get_user_history(user_id: str):
+    try:
+        with get_db_session() as db:
+            sessions = db.query(ChatSession).filter(ChatSession.user_id == user_id).order_by(ChatSession.created_at.desc()).all()
+            return [
+                SessionSummary(
+                    id=s.id,
+                    user_id=s.user_id,
+                    title=s.title,
+                    created_at=s.created_at
+                ) for s in sessions
+            ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.get("/history/session/{session_id}", response_model=List[MessageDetail])
+def get_session_history(session_id: str):
+    try:
+        with get_db_session() as db:
+            messages = db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc()).all()
+            return [
+                MessageDetail(
+                     id=m.id,
+                     session_id=m.session_id,
+                     sender=m.sender,
+                     text_content=m.text_content,
+                     metadata=m.chat_metadata,
+                     timestamp=m.timestamp
+                ) for m in messages
+            ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
 # ── PDF download endpoint ─────────────────────────────────────────────────────

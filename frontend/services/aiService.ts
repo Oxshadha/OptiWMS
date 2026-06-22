@@ -14,10 +14,11 @@ export interface WarehouseAIResponse {
   chart?: string;
   error?: string;
   download_url?: string;
+  session_id?: string;
   raw?: unknown;
 }
 
-const DEFAULT_TIMEOUT_MS = 45000; // Unified endpoint can perform database calls, so give it more time
+const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_AI_ENDPOINT =
   process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://localhost:8000/ask";
 
@@ -71,7 +72,9 @@ function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Warehouse
 
 export async function askWarehouseAI(
   query: string,
-  role: WarehouseAIRole
+  role: WarehouseAIRole,
+  user_id?: string,
+  session_id?: string
 ): Promise<WarehouseAIResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -86,6 +89,8 @@ export async function askWarehouseAI(
         message: query,
         context: role,
         timestamp: new Date(),
+        user_id,
+        session_id,
       }),
       signal: controller.signal,
     });
@@ -122,6 +127,7 @@ export async function askWarehouseAI(
       chart: typeof data.chart === "string" ? data.chart : undefined,
       error: typeof data.error === "string" ? data.error : undefined,
       download_url: typeof data.download_url === "string" ? data.download_url : undefined,
+      session_id: typeof data.session_id === "string" ? data.session_id : undefined,
       raw: data,
     };
   } catch (error) {
@@ -143,4 +149,22 @@ export async function askWarehouseAI(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function getChatHistory(userId: string): Promise<any[]> {
+  const urlUrl = DEFAULT_AI_ENDPOINT.substring(0, DEFAULT_AI_ENDPOINT.lastIndexOf("/"));
+  const response = await fetch(`${urlUrl}/history/${encodeURIComponent(userId)}`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch chat history.");
+  }
+  return response.json();
+}
+
+export async function getSessionMessages(sessionId: string): Promise<any[]> {
+  const urlUrl = DEFAULT_AI_ENDPOINT.substring(0, DEFAULT_AI_ENDPOINT.lastIndexOf("/"));
+  const response = await fetch(`${urlUrl}/history/session/${encodeURIComponent(sessionId)}`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch session messages.");
+  }
+  return response.json();
 }

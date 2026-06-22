@@ -9,7 +9,8 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, text, inspect, Column, String, DateTime, ForeignKey, JSON, Text
+from sqlalchemy.orm import declarative_base, sessionmaker
 from google import genai
 from google.api_core.exceptions import ResourceExhausted
 
@@ -72,6 +73,46 @@ DATABASE_URL = (
 REPORTS_DIR = Path(__file__).parent / "reports"
 REPORTS_DIR.mkdir(exist_ok=True)
 
+def get_engine():
+    return create_engine(DATABASE_URL)
+
+Base = declarative_base()
+
+class ChatSession(Base):
+    __tablename__ = 'chat_sessions'
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(255), nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ChatMessage(Base):
+    __tablename__ = 'chat_messages'
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    session_id = Column(String(36), ForeignKey('chat_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+    sender = Column(String(10), nullable=False) # "user" or "ai"
+    text_content = Column(Text, nullable=True)
+    chat_metadata = Column("metadata", JSON, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+
+def init_chat_db():
+    try:
+        engine = get_engine()
+        Base.metadata.create_all(engine)
+        print("Chat history tables successfully initialized or checked.")
+    except Exception as e:
+        print(f"Error initializing chat history tables: {e}")
+
+from contextlib import contextmanager
+@contextmanager
+def get_db_session():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
 # ── Colour palette ────────────────────────────────────────────────────────────
 _NAVY   = colors.HexColor("#0F1E3C")   # primary headings / header bar
 _INDIGO = colors.HexColor("#3B4FD9")   # accent / links
@@ -83,8 +124,6 @@ _WHITE  = colors.white
 # ── Schema cache ──────────────────────────────────────────────────────────────
 _schema_cache: dict = {}
 
-def get_engine():
-    return create_engine(DATABASE_URL)
 
 
 def get_schema_description(engine) -> str:
@@ -804,7 +843,7 @@ Answer ONLY with 'SOP' or 'DATA'. Do not add any explanation or other text."""
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
-def ask(chain, question: str) -> dict:
+def ask(chain, question: str, user_id: str = None, session_id: str = None) -> dict:
     mode = classify_question(question)
 
     if mode == "SOP":
@@ -814,7 +853,7 @@ def ask(chain, question: str) -> dict:
             os.path.basename(doc.metadata["source"])
             for doc in result["source_documents"]
         ]))
-        return {
+        res = {
             "mode": "SOP",
             "answer": answer,
             "sources": sources
@@ -822,7 +861,7 @@ def ask(chain, question: str) -> dict:
     else:
         df, sql, chart, error, answer, download_url = ask_database(question)
         data = df.to_dict(orient="records") if df is not None else None
-        return {
+        res = {
             "mode": "DATA",
             "sql": sql,
             "data": data,
@@ -831,3 +870,56 @@ def ask(chain, question: str) -> dict:
             "answer": answer,
             "download_url": download_url
         }
+
+    # ── Database Persistence ──────────────────────────────────────────────────
+    if user_id:
+        try:
+            with get_db_session() as db:
+                # 1. Resolve or create ChatSession
+                if not session_id:
+                    title = question[:80] + "..." if len(question) > 80 else question
+                    session = ChatSession(user_id=user_id, title=title)
+                    db.add(session)
+                    db.commit()
+                    db.refresh(session)
+                    session_id = session.id
+                else:
+                    session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+                    if not session:
+                        title = question[:80] + "..." if len(question) > 80 else question
+                        session = ChatSession(id=session_id, user_id=user_id, title=title)
+                        db.add(session)
+                        db.commit()
+
+                # 2. Save User Message
+                user_msg = ChatMessage(
+                    session_id=session_id,
+                    sender="user",
+                    text_content=question
+                )
+                db.add(user_msg)
+
+                # 3. Save AI Message
+                ai_text = res.get("error") if res.get("error") else res.get("answer", "")
+                ai_metadata = {
+                    "mode": res.get("mode"),
+                    "sources": res.get("sources"),
+                    "sql": res.get("sql"),
+                    "data": res.get("data"),
+                    "chart": res.get("chart"),
+                    "error": res.get("error"),
+                    "download_url": res.get("download_url")
+                }
+                ai_msg = ChatMessage(
+                    session_id=session_id,
+                    sender="ai",
+                    text_content=ai_text,
+                    chat_metadata=ai_metadata
+                )
+                db.add(ai_msg)
+                db.commit()
+                res["session_id"] = session_id
+        except Exception as db_err:
+            print(f"Failed to persist chat history: {db_err}")
+
+    return res

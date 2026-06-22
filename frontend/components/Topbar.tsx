@@ -512,6 +512,7 @@ export function Topbar() {
 
         <WarehouseAssistant
           userRole="manager"
+          userId={admin?.id}
         />
 
         <div className="relative profile-dropdown">
