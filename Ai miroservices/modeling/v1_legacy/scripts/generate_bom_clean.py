@@ -19,11 +19,25 @@ FOUNDATION_BOM_PATH = GENERATED_DIR / "fg_rm_foundation_bom.csv"
 CANONICAL_RM_PATH = OUT_DIR / "real_source" / "active_stock_canonical.csv"
 SEED = 42
 
+# FMCG yield priors by material family (mean, std) — manufacturing scrap/waste
+YIELD_PRIORS = {
+    "SOLVENT": (0.94, 0.02),
+    "SURFACTANT": (0.95, 0.02),
+    "COLORANT": (0.96, 0.015),
+    "ACID_BASE": (0.93, 0.025),
+    "STARCH_GUM": (0.97, 0.015),
+    "OIL_WAX": (0.95, 0.02),
+    "ACTIVE": (0.96, 0.02),
+    "FRAGRANCE_COOLANT": (0.94, 0.025),
+    "PACKAGING": (0.98, 0.01),
+    "GENERAL": (0.95, 0.03),
+}
+
 FG_CODE_MAP = {
-    "SOAP": [f"FG{i:03d}" for i in range(1, 16)],      # 15 soaps
-    "FACEWASH": [f"FG{i:03d}" for i in range(34, 44)],  # 10 liquid washes
-    "SHAMPOO": [f"FG{i:03d}" for i in range(16, 34)],   # 18 shampoos
-    "CREAM": [f"FG{i:03d}" for i in range(64, 76)],     # 12 lotions/creams
+    "SOAP": [f"FG{i:03d}" for i in range(1, 16)],
+    "FACEWASH": [f"FG{i:03d}" for i in range(34, 44)],
+    "SHAMPOO": [f"FG{i:03d}" for i in range(16, 34)],
+    "CREAM": [f"FG{i:03d}" for i in range(64, 76)],
 }
 
 MISSING_FG_CATEGORIES = {
@@ -45,9 +59,26 @@ CATEGORY_RM_FAMILIES = {
 }
 
 
+def yield_for_family(family: str) -> tuple[float, float]:
+    return YIELD_PRIORS.get(family, YIELD_PRIORS["GENERAL"])
+
+
+def attach_yield_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Add yield_factor_mean/std per BOM line for MRP gross-requirement inflation."""
+    out = df.copy()
+    means, stds = [], []
+    for fam in out["rm_family"]:
+        mu, sigma = yield_for_family(str(fam))
+        means.append(mu)
+        stds.append(sigma)
+    out["yield_factor_mean"] = means
+    out["yield_factor_std"] = stds
+    return out
+
+
 def load_rm_lookup() -> dict[str, list[int]]:
-    """Build family -> list of material_codes from canonical."""
     from rule_based_synthetic_generator import infer_material_family
+
     canonical = pd.read_csv(CANONICAL_RM_PATH)
     lookup: dict[str, list[int]] = {}
     for _, row in canonical.iterrows():
@@ -59,7 +90,6 @@ def load_rm_lookup() -> dict[str, list[int]]:
 
 
 def remap_foundation_bom() -> pd.DataFrame:
-    """Remap SOAP_001 -> FG001 style codes."""
     bom = pd.read_csv(FOUNDATION_BOM_PATH)
     rows = []
 
@@ -84,7 +114,6 @@ def remap_foundation_bom() -> pd.DataFrame:
 
 
 def generate_missing_boms(rm_lookup: dict[str, list[int]], rng: np.random.Generator) -> pd.DataFrame:
-    """Generate BOM entries for FG categories not in foundation BOM."""
     rows = []
 
     for category, fg_codes in MISSING_FG_CATEGORIES.items():
@@ -93,7 +122,9 @@ def generate_missing_boms(rm_lookup: dict[str, list[int]], rng: np.random.Genera
             n_components = rng.integers(3, 6)
             chosen_families = list(rng.choice(families, size=min(n_components, len(families)), replace=False))
             if len(chosen_families) < n_components:
-                chosen_families += list(rng.choice(families, size=n_components - len(chosen_families), replace=True))
+                chosen_families += list(
+                    rng.choice(families, size=n_components - len(chosen_families), replace=True)
+                )
 
             raw_weights = rng.dirichlet(np.ones(len(chosen_families)))
             for fam, coef in zip(chosen_families, raw_weights):
@@ -111,11 +142,9 @@ def generate_missing_boms(rm_lookup: dict[str, list[int]], rng: np.random.Genera
 
 
 def generate_sql_seed(bom_df: pd.DataFrame, out_path: Path) -> None:
-    """Generate SQL INSERT statements for V55 BOM schema."""
     lines = [
         "-- Auto-generated BOM seed data for V55 schema",
         "-- Requires materials table to be populated first",
-        "-- Run after product/material seeding",
         "",
         "DO $$ DECLARE",
         "  v_bom_id UUID;",
@@ -139,7 +168,9 @@ def generate_sql_seed(bom_df: pd.DataFrame, out_path: Path) -> None:
             family = comp["rm_family"]
             lines.append(f"    SELECT id INTO v_comp_id FROM materials WHERE material_code = '{rm_code}' LIMIT 1;")
             lines.append("    IF v_comp_id IS NOT NULL THEN")
-            lines.append(f"      INSERT INTO bom_components (bom_header_id, component_material_id, component_type, qty_per_parent, uom)")
+            lines.append(
+                f"      INSERT INTO bom_components (bom_header_id, component_material_id, component_type, qty_per_parent, uom)"
+            )
             lines.append(f"      VALUES (v_bom_id, v_comp_id, '{family}', {coef}, 'kg');")
             lines.append("    END IF;")
 
@@ -147,7 +178,6 @@ def generate_sql_seed(bom_df: pd.DataFrame, out_path: Path) -> None:
         lines.append("")
 
     lines.append("END $$;")
-
     out_path.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -159,6 +189,7 @@ def main() -> None:
     remapped = remap_foundation_bom()
     generated = generate_missing_boms(rm_lookup, rng)
     full_bom = pd.concat([remapped, generated], ignore_index=True)
+    full_bom = attach_yield_columns(full_bom)
 
     bom_path = GENERATED_DIR / "bom_clean.csv"
     full_bom.to_csv(bom_path, index=False)
@@ -174,6 +205,7 @@ def main() -> None:
         "generated_entries": len(generated),
         "category_counts": full_bom["fg_category"].value_counts().to_dict(),
         "avg_components_per_fg": round(len(full_bom) / full_bom["fg_code"].nunique(), 2),
+        "yield_columns": ["yield_factor_mean", "yield_factor_std"],
     }
     summary_path = GENERATED_DIR / "bom_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -181,8 +213,6 @@ def main() -> None:
     print(f"Clean BOM: {bom_path} ({len(full_bom)} entries, {full_bom['fg_code'].nunique()} FGs)")
     print(f"SQL seed: {sql_path}")
     print(f"Summary: {summary_path}")
-    for cat, cnt in full_bom["fg_category"].value_counts().items():
-        print(f"  {cat}: {cnt} entries")
 
 
 if __name__ == "__main__":
