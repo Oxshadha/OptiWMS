@@ -1,0 +1,20 @@
+{
+  "total_bom_entries": 411,
+  "fg_count": 103,
+  "rm_count": 167,
+  "remapped_entries": 220,
+  "generated_entries": 191,
+  "category_counts": {
+    "SHAMPOO": 72,
+    "SOAP": 60,
+    "Diaper": 49,
+    "CREAM": 48,
+    "FACEWASH": 40,
+    "Home Care": 37,
+    "Sanitary": 33,
+    "Baby Care": 32,
+    "Talc": 21,
+    "Combo": 19
+  },
+  "avg_components_per_fg": 3.99
+}
