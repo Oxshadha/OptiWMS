@@ -29,8 +29,12 @@ export function LogisticAgentDashboard({ warehouseId }: LogisticAgentDashboardPr
       setPerformance(performanceData);
       setHealth(healthData);
       setLastRefresh(new Date());
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load logistic agent data:", err);
+      // If the error is an authentication redirect, don't show the scary Logistic Agent error
+      if (err?.message?.includes("Session expired") || err?.message?.includes("Not authenticated")) {
+        return; 
+      }
       setError("Failed to connect to Logistic Agent. Make sure it's running on port 3001.");
     } finally {
       setIsLoading(false);
