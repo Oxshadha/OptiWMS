@@ -113,13 +113,24 @@ def get_db_session():
     finally:
         db.close()
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-_NAVY   = colors.HexColor("#0F1E3C")   # primary headings / header bar
-_INDIGO = colors.HexColor("#3B4FD9")   # accent / links
-_SLATE  = colors.HexColor("#4B5563")   # body text
-_MUTED  = colors.HexColor("#9CA3AF")   # captions / footers
-_LIGHT  = colors.HexColor("#F1F5F9")   # table zebra rows
-_WHITE  = colors.white
+# ── Colour palette (matching Java export format) ──────────────────────────────
+_DARK_CHARCOAL = colors.HexColor("#222831")   # main headings & text
+_PINKISH_RED   = colors.HexColor("#D10654")   # chart bars & metrics
+_LIGHT_BG      = colors.HexColor("#F8FAFC")   # table header background
+_BORDER_GRAY   = colors.HexColor("#E2E8F0")   # horizontal rules and borders
+_GRID_GRAY     = colors.HexColor("#F1F5F9")   # vertical table grid dividers
+_WHITE         = colors.white
+
+def get_logo_image():
+    cwd = Path(__file__).parent
+    candidates = [
+        cwd.parent.parent / "frontend/public/assets/logos/logo with tagline.png",
+        cwd / "frontend/public/assets/logos/logo with tagline.png"
+    ]
+    for p in candidates:
+        if p.exists():
+            return str(p)
+    return None
 
 # ── Schema cache ──────────────────────────────────────────────────────────────
 _schema_cache: dict = {}
@@ -209,7 +220,7 @@ def generate_chart(df: pd.DataFrame) -> str | None:
                 sns.lineplot(
                     data=df_plot.sort_values(by=date_col),
                     x=date_col, y=metric_col, marker="o", ax=ax,
-                    color="#3B4FD9",
+                    color="#D10654",
                 )
                 ax.set_title(f"{metric_col} over time", fontsize=13, color="#0F1E3C", pad=12)
                 ax.set_xlabel(date_col); ax.set_ylabel(metric_col)
@@ -229,7 +240,7 @@ def generate_chart(df: pd.DataFrame) -> str | None:
                     )
                 sns.barplot(
                     data=df_plot, x=cat_col, y=metric_col, ax=ax,
-                    color="#3B4FD9",
+                    color="#D10654",
                 )
                 ax.set_title(f"{metric_col} by {cat_col}", fontsize=13, color="#0F1E3C", pad=12)
                 ax.set_xlabel(cat_col); ax.set_ylabel(metric_col)
@@ -241,7 +252,7 @@ def generate_chart(df: pd.DataFrame) -> str | None:
             metric_col = numeric_cols[0]
             df_plot = df_display[metric_col].dropna()
             if len(df_plot) >= 5:
-                sns.histplot(data=df_plot, kde=True, ax=ax, color="#3B4FD9")
+                sns.histplot(data=df_plot, kde=True, ax=ax, color="#D10654")
                 ax.set_title(f"Distribution of {metric_col}", fontsize=13, color="#0F1E3C", pad=12)
                 ax.set_xlabel(metric_col); ax.set_ylabel("Count")
                 plt.tight_layout()
@@ -407,32 +418,44 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         file_name += ".pdf"
     out_path = REPORTS_DIR / file_name
 
+    # Matching Java margins (40 pt left/right, 36 pt top/bottom)
+    # Total A4 width: 595. Printable width: 515.
     doc = SimpleDocTemplate(
         str(out_path),
         pagesize=A4,
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=2.5 * cm,
-        bottomMargin=2 * cm,
+        leftMargin=40,
+        rightMargin=40,
+        topMargin=36,
+        bottomMargin=36,
     )
 
     styles = getSampleStyleSheet()
 
-    # ── Custom paragraph styles ───────────────────────────────────────────────
+    # ── Custom paragraph styles (Matching Java colors and sizes) ──────────────
+    s_brand = ParagraphStyle(
+        "Brand",
+        parent=styles["Normal"],
+        fontSize=23,
+        leading=27,
+        textColor=_DARK_CHARCOAL,
+        fontName="Helvetica-Bold",
+        spaceAfter=4,
+    )
     s_title = ParagraphStyle(
         "ReportTitle",
-        parent=styles["Title"],
-        fontSize=24,
-        textColor=_WHITE,
-        spaceAfter=4,
-        alignment=TA_LEFT,
+        parent=styles["Normal"],
+        fontSize=16,
+        leading=20,
+        textColor=_DARK_CHARCOAL,
         fontName="Helvetica-Bold",
+        spaceAfter=4,
     )
     s_subtitle = ParagraphStyle(
         "ReportSubtitle",
         parent=styles["Normal"],
         fontSize=11,
-        textColor=colors.HexColor("#CBD5E1"),
+        leading=15,
+        textColor=_DARK_CHARCOAL,
         spaceAfter=0,
         alignment=TA_LEFT,
         fontName="Helvetica",
@@ -440,17 +463,16 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
     s_meta = ParagraphStyle(
         "Meta",
         parent=styles["Normal"],
-        fontSize=8,
-        textColor=_MUTED,
-        spaceAfter=0,
-        alignment=TA_RIGHT,
+        fontSize=10.5,
+        leading=14,
+        textColor=_DARK_CHARCOAL,
         fontName="Helvetica",
     )
     s_h2 = ParagraphStyle(
         "H2",
         parent=styles["Heading2"],
-        fontSize=13,
-        textColor=_NAVY,
+        fontSize=12,
+        textColor=_DARK_CHARCOAL,
         spaceBefore=14,
         spaceAfter=4,
         fontName="Helvetica-Bold",
@@ -460,7 +482,7 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         "Body",
         parent=styles["Normal"],
         fontSize=10,
-        textColor=_SLATE,
+        textColor=_DARK_CHARCOAL,
         leading=15,
         spaceAfter=6,
         fontName="Helvetica",
@@ -476,7 +498,7 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         "Caption",
         parent=styles["Normal"],
         fontSize=8,
-        textColor=_MUTED,
+        textColor=_DARK_CHARCOAL,
         alignment=TA_CENTER,
         fontName="Helvetica-Oblique",
         spaceAfter=4,
@@ -485,55 +507,69 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         "Footer",
         parent=styles["Normal"],
         fontSize=8,
-        textColor=_MUTED,
+        textColor=_DARK_CHARCOAL,
         alignment=TA_CENTER,
         fontName="Helvetica",
     )
 
     story = []
 
-    # ── Header banner ─────────────────────────────────────────────────────────
-    header_data = [[
+    # ── Header Layout (Matching Java PDF style with Logo) ─────────────────────
+    logo_path = get_logo_image()
+    
+    text_content = [
+        Paragraph("OptiWMS", s_brand),
         Paragraph(report.get("title", "Warehouse Report"), s_title),
-        Paragraph(report.get("generated_at", ""), s_meta),
-    ]]
-    header_table = Table(header_data, colWidths=[13 * cm, 4.5 * cm])
+        Paragraph(f"Generated At: {report.get('generated_at', '')}", s_meta),
+    ]
+    
+    if report.get("subtitle"):
+        text_content.append(Spacer(1, 4))
+        text_content.append(Paragraph(report["subtitle"], s_subtitle))
+        
+    if logo_path:
+        # Scale to width 220f (7.7 cm) and height 72f (2.54 cm) max maintaining aspect ratio
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(logo_path) as img:
+                img_w, img_h = img.size
+            box_w = 220
+            box_h = 72
+            scale = min(box_w / img_w, box_h / img_h)
+            draw_w = img_w * scale
+            draw_h = img_h * scale
+            logo_img = RLImage(logo_path, width=draw_w, height=draw_h)
+        except Exception:
+            # Fallback if PIL fails
+            logo_img = RLImage(logo_path, width=6.5 * cm, height=2.1 * cm)
+        header_data = [[logo_img, text_content]]
+        header_table = Table(header_data, colWidths=[220, 295])
+    else:
+        header_data = [[text_content]]
+        header_table = Table(header_data, colWidths=[515])
+        
     header_table.setStyle(TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, -1), _NAVY),
-        ("TOPPADDING",   (0, 0), (-1, -1), 18),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 18),
-        ("LEFTPADDING",  (0, 0), (-1, -1), 14),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 14),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("ROUNDEDCORNERS", [6, 6, 6, 6]),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(header_table)
-
-    # Subtitle row
-    if report.get("subtitle"):
-        sub_data = [[Paragraph(report["subtitle"], s_subtitle)]]
-        sub_table = Table(sub_data, colWidths=[17.5 * cm])
-        sub_table.setStyle(TableStyle([
-            ("BACKGROUND",   (0, 0), (-1, -1), _NAVY),
-            ("TOPPADDING",   (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING",(0, 0), (-1, -1), 14),
-            ("LEFTPADDING",  (0, 0), (-1, -1), 14),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 14),
-        ]))
-        story.append(sub_table)
-
-    story.append(Spacer(1, 0.5 * cm))
+    
+    # Separator Line: Horizontal divider line in `#E2E8F0`
+    story.append(HRFlowable(width="100%", thickness=1, color=_BORDER_GRAY, spaceAfter=15))
 
     # ── Summary ───────────────────────────────────────────────────────────────
     if report.get("summary"):
         story.append(Paragraph("Executive Summary", s_h2))
-        story.append(HRFlowable(width="100%", thickness=1, color=_INDIGO, spaceAfter=6))
+        story.append(HRFlowable(width="100%", thickness=1, color=_BORDER_GRAY, spaceAfter=6))
         story.append(Paragraph(report["summary"], s_body))
 
     # ── Sections ──────────────────────────────────────────────────────────────
     for section in report.get("sections", []):
         story.append(Paragraph(section.get("heading", ""), s_h2))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGHT, spaceAfter=4))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER_GRAY, spaceAfter=4))
         story.append(Paragraph(section.get("content", ""), s_body))
 
     # ── Tables ────────────────────────────────────────────────────────────────
@@ -547,7 +583,7 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
 
         story.append(Spacer(1, 0.3 * cm))
         story.append(Paragraph(title, s_h2))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGHT, spaceAfter=6))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER_GRAY, spaceAfter=6))
 
         header_row = [Paragraph(f"<b>{c}</b>", s_body) for c in columns]
         data_rows = [
@@ -556,22 +592,26 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         ]
         table_data = [header_row] + data_rows
 
-        col_width = 17.5 * cm / max(len(columns), 1)
+        # Fit columns to full printable width of 515 points
+        col_width = 515.0 / max(len(columns), 1)
         tbl_widget = Table(table_data, colWidths=[col_width] * len(columns), repeatRows=1)
 
         tbl_style = [
-            ("BACKGROUND",   (0, 0), (-1, 0), _NAVY),
-            ("TEXTCOLOR",    (0, 0), (-1, 0), _WHITE),
+            ("BACKGROUND",   (0, 0), (-1, 0), _LIGHT_BG),
+            ("TEXTCOLOR",    (0, 0), (-1, 0), _DARK_CHARCOAL),
             ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE",     (0, 0), (-1, 0), 9),
-            ("TOPPADDING",   (0, 0), (-1, 0), 8),
-            ("BOTTOMPADDING",(0, 0), (-1, 0), 8),
-            ("GRID",         (0, 0), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
-            ("FONTSIZE",     (0, 1), (-1, -1), 9),
-            ("TOPPADDING",   (0, 1), (-1, -1), 5),
-            ("BOTTOMPADDING",(0, 1), (-1, -1), 5),
+            ("FONTSIZE",     (0, 0), (-1, 0), 8.5),
+            ("TOPPADDING",   (0, 0), (-1, 0), 6),
+            ("BOTTOMPADDING",(0, 0), (-1, 0), 6),
+            ("LINEBELOW",    (0, 0), (-1, 0), 1, _BORDER_GRAY),
+            ("LINEBELOW",    (0, 1), (-1, -1), 0.5, _BORDER_GRAY),
+            ("LINEAFTER",    (0, 0), (-2, -1), 0.5, _GRID_GRAY),
+            ("TEXTCOLOR",    (0, 1), (-1, -1), _DARK_CHARCOAL),
+            ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE",     (0, 1), (-1, -1), 8.5),
+            ("TOPPADDING",   (0, 1), (-1, -1), 4),
+            ("BOTTOMPADDING",(0, 1), (-1, -1), 4),
             ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_WHITE, _LIGHT]),
         ]
         tbl_widget.setStyle(TableStyle(tbl_style))
         story.append(tbl_widget)
@@ -585,8 +625,8 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         chart_bytes = _build_chart_bytes_from_df(df)
         if chart_bytes:
             story.append(Paragraph("Data Visualisation", s_h2))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGHT, spaceAfter=6))
-            img = RLImage(io.BytesIO(chart_bytes), width=16 * cm, height=8 * cm)
+            story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER_GRAY, spaceAfter=6))
+            img = RLImage(io.BytesIO(chart_bytes), width=18 * cm, height=8 * cm)
             story.append(img)
             story.append(Paragraph("Auto-generated chart from query results.", s_caption))
             charts_added += 1
@@ -596,8 +636,8 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
         chart_bytes = _build_chart_bytes_from_spec(chart_spec)
         if chart_bytes:
             story.append(Paragraph(chart_spec.get("title", "Chart"), s_h2))
-            story.append(HRFlowable(width="100%", thickness=0.5, color=_LIGHT, spaceAfter=6))
-            img = RLImage(io.BytesIO(chart_bytes), width=16 * cm, height=8 * cm)
+            story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER_GRAY, spaceAfter=6))
+            img = RLImage(io.BytesIO(chart_bytes), width=18 * cm, height=8 * cm)
             story.append(img)
             charts_added += 1
 
@@ -605,7 +645,7 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
     insights = report.get("key_insights", [])
     if insights:
         story.append(Paragraph("Key Insights", s_h2))
-        story.append(HRFlowable(width="100%", thickness=1, color=_INDIGO, spaceAfter=6))
+        story.append(HRFlowable(width="100%", thickness=1, color=_BORDER_GRAY, spaceAfter=6))
         for insight in insights:
             story.append(Paragraph(f"• {insight}", s_bullet))
         story.append(Spacer(1, 0.3 * cm))
@@ -614,14 +654,14 @@ def build_pdf_report(report: dict, df: pd.DataFrame | None) -> Path:
     recs = report.get("recommendations", [])
     if recs:
         story.append(Paragraph("Recommendations", s_h2))
-        story.append(HRFlowable(width="100%", thickness=1, color=_INDIGO, spaceAfter=6))
+        story.append(HRFlowable(width="100%", thickness=1, color=_BORDER_GRAY, spaceAfter=6))
         for i, rec in enumerate(recs, 1):
             story.append(Paragraph(f"{i}. {rec}", s_bullet))
         story.append(Spacer(1, 0.3 * cm))
 
     # ── Footer ────────────────────────────────────────────────────────────────
     story.append(Spacer(1, 0.5 * cm))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=_MUTED, spaceAfter=4))
+    story.append(HRFlowable(width="100%", thickness=0.5, color=_BORDER_GRAY, spaceAfter=4))
     story.append(Paragraph(
         f"Generated by OptiWMS Warehouse Assistant · {report.get('generated_at', '')}",
         s_footer,
@@ -657,7 +697,7 @@ def _build_chart_bytes_from_df(df: pd.DataFrame) -> bytes | None:
             df_plot = df_display.dropna(subset=[date_col, metric_col])
             if len(df_plot) >= 2:
                 sns.lineplot(data=df_plot.sort_values(by=date_col), x=date_col, y=metric_col,
-                             marker="o", ax=ax, color="#3B4FD9")
+                             marker="o", ax=ax, color="#D10654")
                 ax.set_title(f"{metric_col} over time", fontsize=13, color="#0F1E3C")
                 ax.xaxis.set_tick_params(rotation=45)
                 plt.tight_layout()
@@ -669,7 +709,7 @@ def _build_chart_bytes_from_df(df: pd.DataFrame) -> bytes | None:
             if len(df_plot) >= 2:
                 if df_plot[cat_col].nunique() > 15:
                     df_plot = df_plot.groupby(cat_col, as_index=False)[metric_col].sum().nlargest(15, metric_col)
-                sns.barplot(data=df_plot, x=cat_col, y=metric_col, ax=ax, color="#3B4FD9")
+                sns.barplot(data=df_plot, x=cat_col, y=metric_col, ax=ax, color="#D10654")
                 ax.set_title(f"{metric_col} by {cat_col}", fontsize=13, color="#0F1E3C")
                 ax.xaxis.set_tick_params(rotation=45)
                 plt.tight_layout()
@@ -700,10 +740,10 @@ def _build_chart_bytes_from_spec(spec: dict) -> bytes | None:
             ax.pie(y_values, labels=x_labels, autopct="%1.1f%%",
                    colors=sns.color_palette("Blues_d", len(x_labels)))
         elif chart_type == "line":
-            ax.plot(x_labels, y_values, marker="o", color="#3B4FD9")
+            ax.plot(x_labels, y_values, marker="o", color="#D10654")
             ax.xaxis.set_tick_params(rotation=45)
         else:  # bar (default)
-            ax.bar(x_labels, y_values, color="#3B4FD9")
+            ax.bar(x_labels, y_values, color="#D10654")
             ax.xaxis.set_tick_params(rotation=45)
 
         ax.set_title(title, fontsize=13, color="#0F1E3C", pad=12)

@@ -145,6 +145,21 @@ def get_session_history(session_id: str):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
+@app.delete("/history/session/{session_id}", status_code=204)
+def delete_chat_session(session_id: str):
+    try:
+        with get_db_session() as db:
+            session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+            if not session:
+                raise HTTPException(status_code=404, detail="Chat session not found.")
+            db.delete(session)
+            db.commit()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
 # ── PDF download endpoint ─────────────────────────────────────────────────────
 @app.get("/download/{filename}")
 def download_report(filename: str):
