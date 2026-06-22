@@ -16,5 +16,9 @@
     "Talc": 21,
     "Combo": 19
   },
-  "avg_components_per_fg": 3.99
+  "avg_components_per_fg": 3.99,
+  "yield_columns": [
+    "yield_factor_mean",
+    "yield_factor_std"
+  ]
 }

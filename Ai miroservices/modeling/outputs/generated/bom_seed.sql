@@ -1,6 +1,5 @@
 -- Auto-generated BOM seed data for V55 schema
 -- Requires materials table to be populated first
--- Run after product/material seeding
 
 DO $$ DECLARE
   v_bom_id UUID;
