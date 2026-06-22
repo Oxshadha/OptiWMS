@@ -34,7 +34,7 @@ def main():
         model_name = "LIGHTGBM"
         dir_name = "lightgbm_h1"
         
-    TARGET_DIR = f"/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/artifacts/P/{dir_name}/production"
+    TARGET_DIR = os.path.join("..", "..", "outputs", "artifacts", "P", dir_name, "production")
     os.makedirs(TARGET_DIR, exist_ok=True)
     
     # Map to target metadata format

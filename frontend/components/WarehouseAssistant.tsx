@@ -35,6 +35,8 @@ type ChatMessage = {
   data?: Record<string, unknown>[];
   chart?: string;
   error?: string;
+  answer?: string;       // Conversational summary or download-link markdown
+  download_url?: string; // Report mode: PDF link
 };
 
 type WarehouseAssistantProps = {
@@ -137,7 +139,8 @@ export function WarehouseAssistant({
           response.sql &&
           !response.data &&
           !response.chart &&
-          !response.error
+          !response.error &&
+          !response.download_url
         ) {
           try {
             const exec = await queryWmsDatabase(response.sql);
@@ -157,6 +160,19 @@ export function WarehouseAssistant({
 
         const hasData = response.data && response.data.length > 0;
         const hasChart = !!response.chart;
+        const hasAnswer = !!response.answer;
+
+        // Derive the text to show in the message bubble:
+        //  - In Report mode: the answer contains the download markdown link
+        //  - In Conversational mode: the answer is the natural-language summary
+        //  - Fallback: generic message
+        const content = response.error
+          ? response.error
+          : hasAnswer
+            ? response.answer!
+            : hasChart || hasData
+              ? ""
+              : "No data available for this query.";
 
         setChatHistories((prev) => ({
           ...prev,
@@ -165,16 +181,13 @@ export function WarehouseAssistant({
             {
               id: `assistant-${Date.now()}`,
               role: "assistant",
-              // Only show a content message for errors or when there's genuinely nothing to display
-              content: response.error
-                ? response.error
-                : hasChart || hasData
-                  ? ""
-                  : "No data available for this query.",
+              content,
               sql: response.sql,
               data: response.data,
               chart: response.chart,
               error: response.error,
+              answer: response.answer,
+              download_url: response.download_url,
             },
           ],
         }));
@@ -624,6 +637,24 @@ function AssistantBody({
                 )}
               >
                 <p className="text-xs text-red-600">{message.error}</p>
+              </div>
+            )}
+
+            {/* PDF Download button — rendered when download_url is present */}
+            {message.download_url && (
+              <div className={clsx("border-t border-indigo-100 pt-3", message.content && "mt-3")}>
+                <a
+                  href={`${process.env.NEXT_PUBLIC_WAREHOUSE_AI_BASE || "http://localhost:8000"}${message.download_url}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-indigo-700 active:scale-95"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16" />
+                  </svg>
+                  Download PDF Report
+                </a>
               </div>
             )}
           </div>

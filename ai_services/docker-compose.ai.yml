@@ -49,17 +49,28 @@ services:
       - GOVERNANCE_AUTO_ROLLBACK=${GOVERNANCE_AUTO_ROLLBACK:-true}
       - GOVERNANCE_ROLLBACK_MODEL_NAME=${GOVERNANCE_ROLLBACK_MODEL_NAME:-ARIMA}
       - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
+      # --- SHAP EXPLAINABILITY CONFIGURATION ---
+      - SHAP_EXPLAINER_ENABLED=${SHAP_EXPLAINER_ENABLED:-true}
+      - SHAP_MAX_FEATURES_TO_RETURN=${SHAP_MAX_FEATURES_TO_RETURN:-5}
+      - SHAP_BACKGROUND_DATA_SAMPLES=${SHAP_BACKGROUND_DATA_SAMPLES:-100}
+      - SHAP_OUTPUT_FILE=${SHAP_OUTPUT_FILE:-dashboard_shap_attributions.csv}
     ports:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/health', timeout=3)",
+        ]
       interval: 20s
       timeout: 5s
       retries: 5
       start_period: 20s
     volumes:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR:-/reports}:ro
-      - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
+      - ../Ai miroservices/outputs/artifacts:/model-artifacts:ro
       - forecast-service-data:/data
 
   orchestrator-service:
@@ -80,7 +91,13 @@ services:
     ports:
       - "${ORCHESTRATOR_SERVICE_PORT}:${ORCHESTRATOR_SERVICE_PORT}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8092/health', timeout=3)",
+        ]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -103,11 +120,37 @@ services:
     ports:
       - "${SLOTTING_SERVICE_PORT:-8093}:${SLOTTING_SERVICE_PORT:-8093}"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=3)"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8093/health', timeout=3)",
+        ]
       interval: 20s
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # ai-agent:                                                                         # Disabled: run locally with `uvicorn` instead
+  #   build:
+  #     context: ./ai-agent
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - SERVICE_NAME=ai-agent
+  #     - SERVICE_PORT=${AI_AGENT_SERVICE_PORT:-8094}
+  #     - AI_ENV=${AI_ENV}
+  #     - LOG_LEVEL=${LOG_LEVEL}
+  #     - AI_AGENT_ALLOWED_ORIGINS=${AI_AGENT_ALLOWED_ORIGINS}
+  #   ports:
+  #     - "${AI_AGENT_SERVICE_PORT:-8094}:${AI_AGENT_SERVICE_PORT:-8094}"
+  #   healthcheck:
+  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=3)"]
+  #     interval: 20s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 20s
 
 volumes:
   forecast-service-data:
