@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { SummaryCards } from "@/components/SummaryCards";
 import { StatusChip } from "@/components/StatusChip";
@@ -39,12 +40,24 @@ export default function SOPsPage() {
   const canEdit = hasPermission(ADMIN_ROUTES.SOPS, "edit");
   const canDelete = hasPermission(ADMIN_ROUTES.SOPS, "delete");
 
+  const searchParams = useSearchParams();
+
   useEffect(() => {
     const loadSops = async () => {
       try {
         setLoading(true);
-        const data = await sopsApi.getAll();
-        setSops(data as SOP[]);
+        const [dbSops, systemSops] = await Promise.all([
+          sopsApi.getAll(),
+          fetch("/api/system-sops")
+            .then((res) => (res.ok ? res.json() : []))
+            .catch(() => []),
+        ]);
+
+        const combined = [
+          ...dbSops.map((s: any) => ({ ...s, isSystem: false })),
+          ...systemSops.map((s: any) => ({ ...s, isSystem: true })),
+        ];
+        setSops(combined as SOP[]);
       } catch {
         showToast.error("Failed to load SOPs");
         setSops([]);
@@ -56,6 +69,13 @@ export default function SOPsPage() {
     void loadSops();
   }, []);
 
+  useEffect(() => {
+    const search = searchParams.get("search");
+    if (search) {
+      setSearchQuery(search);
+    }
+  }, [searchParams]);
+
   const summary = {
     totalSOPs: sops.length,
     activeSOPs: sops.filter((s) => s.status === "active").length,
@@ -64,12 +84,16 @@ export default function SOPsPage() {
   };
 
   const filteredSOPs = sops.filter((sop) => {
-    const query = searchQuery.trim().toLowerCase();
+    let query = searchQuery.trim().toLowerCase();
+    if (query.endsWith(".txt")) {
+      query = query.slice(0, -4);
+    }
     const matchesSearch =
       !query ||
       sop.title.toLowerCase().includes(query) ||
       sop.content.toLowerCase().includes(query) ||
-      sop.category.toLowerCase().includes(query);
+      sop.category.toLowerCase().includes(query) ||
+      sop.id.toLowerCase().includes(query.replace(/\s+/g, "-"));
     const matchesCategory =
       categoryFilter === "all" || sop.category === categoryFilter;
     const matchesStatus = statusFilter === "all" || sop.status === statusFilter;
@@ -108,16 +132,24 @@ export default function SOPsPage() {
       key: "title",
       label: "Title",
       render: (sop: SOP) => (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelectedSOP(sop);
-            setShowDetailModal(true);
-          }}
-          className="font-semibold text-primary hover:underline text-left"
-        >
-          {sop.title}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSOP(sop);
+              setShowDetailModal(true);
+            }}
+            className="font-semibold text-primary hover:underline text-left"
+          >
+            {sop.title}
+          </button>
+          {sop.isSystem && (
+            <span className="badge badge-sm badge-info gap-1 py-1.5 px-2">
+              <span className="material-symbols-outlined text-[12px]">smart_toy</span>
+              Reference
+            </span>
+          )}
+        </div>
       ),
       sortable: true,
     },
@@ -188,7 +220,7 @@ export default function SOPsPage() {
             Download SOP
           </button>
         </li>
-        {canEdit && (
+        {canEdit && !sop.isSystem && (
           <li>
             <button
               onClick={(e) => {
@@ -202,7 +234,7 @@ export default function SOPsPage() {
             </button>
           </li>
         )}
-        {canDelete && (
+        {canDelete && !sop.isSystem && (
           <li>
             <button
               className="text-error"

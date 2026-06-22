@@ -168,3 +168,13 @@ export async function getSessionMessages(sessionId: string): Promise<any[]> {
   }
   return response.json();
 }
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  const urlUrl = DEFAULT_AI_ENDPOINT.substring(0, DEFAULT_AI_ENDPOINT.lastIndexOf("/"));
+  const response = await fetch(`${urlUrl}/history/session/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error("Failed to delete chat session.");
+  }
+}
