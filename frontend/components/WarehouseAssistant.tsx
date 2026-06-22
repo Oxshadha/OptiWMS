@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import {
   askWarehouseAI,
+  getChatHistory,
+  getSessionMessages,
   WarehouseAIRole,
   WarehouseAISource,
 } from "@/services/aiService";
@@ -57,6 +59,7 @@ type WarehouseAssistantProps = {
   managerOffsetClassName?: string;
   onManagerOpenChange?: (isOpen: boolean) => void;
   fullPage?: boolean;
+  userId?: string;
 };
 
 export function WarehouseAssistant({
@@ -64,6 +67,7 @@ export function WarehouseAssistant({
   managerOffsetClassName,
   onManagerOpenChange,
   fullPage = false,
+  userId,
 }: WarehouseAssistantProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -81,6 +85,12 @@ export function WarehouseAssistant({
   ]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // Chat History states
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   useEffect(() => {
     if (userRole === "manager") {
       onManagerOpenChange?.(isOpen);
@@ -92,6 +102,80 @@ export function WarehouseAssistant({
       inputRef.current?.focus();
     }
   }, [isOpen]);
+
+  // Load chat session history when history drawer is opened
+  useEffect(() => {
+    if (userId && showHistory) {
+      const loadHistory = async () => {
+        try {
+          setLoadingHistory(true);
+          const history = await getChatHistory(userId);
+          setHistoryList(history);
+        } catch (err) {
+          console.error("Failed to load chat history", err);
+        } finally {
+          setLoadingHistory(false);
+        }
+      };
+      void loadHistory();
+    }
+  }, [userId, showHistory]);
+
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      setLoading(true);
+      const messages = await getSessionMessages(sessionId);
+      
+      const formattedHistory = messages.map((m: any) => {
+        const metadata = m.metadata || {};
+        return {
+          id: m.id,
+          role: m.sender === "user" ? ("user" as const) : ("assistant" as const),
+          content: m.text_content || "",
+          sources: metadata.sources,
+          sql: metadata.sql,
+          data: metadata.data,
+          chart: metadata.chart,
+          error: metadata.error,
+          download_url: metadata.download_url,
+        };
+      });
+
+      if (formattedHistory.length === 0) {
+        setChatHistory([
+          {
+            id: "assistant-welcome",
+            role: "assistant",
+            content: "Welcome to this chat session.",
+          }
+        ]);
+      } else {
+        setChatHistory(formattedHistory);
+      }
+      
+      setCurrentSessionId(sessionId);
+      setShowHistory(false);
+    } catch (err) {
+      console.error("Failed to load session messages", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNewChat = () => {
+    setChatHistory([
+      {
+        id: "assistant-welcome",
+        role: "assistant",
+        content:
+          userRole === "manager"
+            ? "Hello! I can assist you with SOP lookups, standard operating procedures, WMS inventory/order analytics, or PDF report generation. What would you like to ask?"
+            : "Hello! I can guide you through warehouse SOPs, find item/SKU locations, and list safety checklist steps. What do you need help with?",
+      },
+    ]);
+    setCurrentSessionId(undefined);
+    setShowHistory(false);
+  };
 
   const submitQuery = async (nextQuery: string) => {
     const trimmedQuery = nextQuery.trim();
@@ -108,7 +192,7 @@ export function WarehouseAssistant({
     setLoading(true);
 
     try {
-      const response = await askWarehouseAI(trimmedQuery, userRole);
+      const response = await askWarehouseAI(trimmedQuery, userRole, userId, currentSessionId);
 
       // Derive text content for message bubble
       const content = response.error
@@ -133,6 +217,10 @@ export function WarehouseAssistant({
           download_url: response.download_url,
         },
       ]);
+
+      if (response.session_id) {
+        setCurrentSessionId(response.session_id);
+      }
     } catch (error) {
       setChatHistory((prev) => [
         ...prev,
@@ -162,14 +250,28 @@ export function WarehouseAssistant({
   // ── Full page ─────────────────────────────────────────────────────────────
   if (fullPage) {
     return (
-      <div className="flex flex-col h-full overflow-hidden bg-slate-50 p-6">
-        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden">
+      <div className="flex flex-col h-full overflow-hidden bg-slate-50 p-6 relative">
+        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-slate-200 bg-white shadow-lg overflow-hidden relative">
           <AssistantHeader
             title="Warehouse Assistant"
             subtitle="Unified SOP & Data Analytics"
             icon={<Warehouse className="h-5 w-5 text-primary" />}
             onClose={() => router.back()}
+            userId={userId}
+            onToggleHistory={() => setShowHistory(!showHistory)}
           />
+          
+          {/* History Overlay Drawer */}
+          <HistoryOverlay
+            showHistory={showHistory}
+            loadingHistory={loadingHistory}
+            historyList={historyList}
+            currentSessionId={currentSessionId}
+            onClose={() => setShowHistory(false)}
+            onSelectSession={handleSelectSession}
+            onNewChat={handleNewChat}
+          />
+
           <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50/50">
             <AssistantBody
               userRole={userRole}
@@ -227,7 +329,7 @@ export function WarehouseAssistant({
           />
           <div
             className={clsx(
-              "fixed bottom-6 right-6 z-50 hidden w-[28rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[44rem] lg:flex-col transition-all duration-300",
+              "fixed bottom-6 right-6 z-50 hidden w-[28rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-slate-200 bg-white text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[44rem] lg:flex-col transition-all duration-300 relative",
               managerOffsetClassName,
             )}
           >
@@ -236,7 +338,21 @@ export function WarehouseAssistant({
               subtitle="Unified SOP & Data Analytics"
               icon={<Warehouse className="h-5 w-5 text-primary" />}
               onClose={() => setIsOpen(false)}
+              userId={userId}
+              onToggleHistory={() => setShowHistory(!showHistory)}
             />
+
+            {/* History Overlay Drawer */}
+            <HistoryOverlay
+              showHistory={showHistory}
+              loadingHistory={loadingHistory}
+              historyList={historyList}
+              currentSessionId={currentSessionId}
+              onClose={() => setShowHistory(false)}
+              onSelectSession={handleSelectSession}
+              onNewChat={handleNewChat}
+            />
+
             <div className="shrink-0 px-5 pt-3 pb-1 bg-white flex justify-between items-center border-b border-slate-100">
               <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">AI Operations Hub</span>
               <Link
@@ -283,13 +399,27 @@ export function WarehouseAssistant({
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(207,15,71,0.10),_transparent_35%),linear-gradient(180deg,_#fff6f8_0%,_#fff1f4_100%)] text-base-content">
+        <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(207,15,71,0.10),_transparent_35%),linear-gradient(180deg,_#fff6f8_0%,_#fff1f4_100%)] text-base-content relative">
           <AssistantHeader
             title="Warehouse Assistant"
             subtitle="Unified SOP & Data Analytics"
             icon={<Bot className="h-5 w-5 text-primary" />}
             onClose={() => setIsOpen(false)}
+            userId={userId}
+            onToggleHistory={() => setShowHistory(!showHistory)}
           />
+
+          {/* History Overlay Drawer */}
+          <HistoryOverlay
+            showHistory={showHistory}
+            loadingHistory={loadingHistory}
+            historyList={historyList}
+            currentSessionId={currentSessionId}
+            onClose={() => setShowHistory(false)}
+            onSelectSession={handleSelectSession}
+            onNewChat={handleNewChat}
+          />
+
           <div className="shrink-0 flex items-center justify-between px-5 pt-3 pb-1 border-b border-rose-100/50 bg-white/50 backdrop-blur">
             <span className="text-xs font-semibold text-rose-500 uppercase tracking-wider">Worker Support</span>
             <Link
@@ -342,11 +472,15 @@ function AssistantHeader({
   subtitle,
   icon,
   onClose,
+  userId,
+  onToggleHistory,
 }: {
   title: string;
   subtitle: string;
   icon: React.ReactNode;
   onClose: () => void;
+  userId?: string;
+  onToggleHistory?: () => void;
 }) {
   return (
     <div className="shrink-0 border-b border-slate-200 bg-white/95 px-5 py-4 shadow-sm">
@@ -360,13 +494,116 @@ function AssistantHeader({
             <p className="text-xs text-slate-500 font-medium">{subtitle}</p>
           </div>
         </div>
+        <div className="flex items-center gap-1.5">
+          {userId && onToggleHistory && (
+            <button
+              onClick={onToggleHistory}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-700 hover:scale-105 active:scale-95"
+              title="Chat History"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-700 hover:scale-105 active:scale-95"
+          >
+            <X className="h-4.5 w-4.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryOverlay({
+  showHistory,
+  loadingHistory,
+  historyList,
+  currentSessionId,
+  onClose,
+  onSelectSession,
+  onNewChat,
+}: {
+  showHistory: boolean;
+  loadingHistory: boolean;
+  historyList: any[];
+  currentSessionId?: string;
+  onClose: () => void;
+  onSelectSession: (id: string) => void;
+  onNewChat: () => void;
+}) {
+  if (!showHistory) return null;
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col bg-white transition-all duration-300">
+      <div className="shrink-0 border-b border-slate-200 bg-white/95 px-5 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="text-sm font-bold text-slate-800 tracking-tight">Recent Chats</span>
+        </div>
         <button
-          type="button"
           onClick={onClose}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-700 hover:scale-105 active:scale-95"
+          className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
         >
-          <X className="h-4.5 w-4.5" />
+          <X className="h-4 w-4" />
         </button>
+      </div>
+      <div className="p-4 shrink-0">
+        <button
+          onClick={onNewChat}
+          className="flex w-full h-11 items-center justify-center gap-2 rounded-xl bg-primary text-primary-content text-xs font-bold shadow-sm transition hover:bg-primary-focus active:scale-95"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          New Chat Thread
+        </button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-2">
+        {loadingHistory ? (
+          <div className="flex flex-col items-center justify-center py-10 space-y-2">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            <span className="text-xs text-slate-400 font-semibold">Loading history...</span>
+          </div>
+        ) : historyList.length === 0 ? (
+          <div className="text-center py-10 text-xs text-slate-400 font-semibold">
+            No past chat threads found.
+          </div>
+        ) : (
+          historyList.map((session) => (
+            <button
+              key={session.id}
+              onClick={() => onSelectSession(session.id)}
+              className={clsx(
+                "flex w-full items-start gap-3 rounded-xl border p-3 text-left transition duration-150 hover:bg-slate-50 active:scale-[0.99]",
+                currentSessionId === session.id
+                  ? "border-primary/30 bg-primary/5 text-primary"
+                  : "border-slate-100 bg-white text-slate-700 hover:border-slate-200"
+              )}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5 text-slate-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="truncate text-xs font-bold">{session.title}</p>
+                <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                  {new Date(session.created_at).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })}
+                </p>
+              </div>
+            </button>
+          ))
+        )}
       </div>
     </div>
   );
@@ -688,8 +925,10 @@ function AssistantComposer({
 
 export function WarehouseAssistantFullPage({
   userRole,
+  userId,
 }: {
   userRole: WarehouseAIRole;
+  userId?: string;
 }) {
-  return <WarehouseAssistant userRole={userRole} fullPage />;
+  return <WarehouseAssistant userRole={userRole} fullPage userId={userId} />;
 }

@@ -765,7 +765,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
-      <WarehouseAssistant userRole="worker" />
+      <WarehouseAssistant userRole="worker" userId={worker?.id} />
 
       {/* Bottom Navigation - Always visible on mobile */}
       <nav className="bg-base-100 border-t border-base-300 px-2 py-2 safe-area-bottom fixed bottom-0 left-0 right-0 z-30">
