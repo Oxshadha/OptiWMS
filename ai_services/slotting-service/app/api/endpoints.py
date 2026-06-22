@@ -106,6 +106,47 @@ class SlottingOptimizationResponse(BaseModel):
     warehouse_id: str
     best_fitness: float
     assignments: List[SlottingAssignmentResponse] = []
+
+
+class PlanReserveAssignmentResponse(BaseModel):
+    location_code: str
+    reserve_pallet_positions: int = 1
+    reserve_zone_hint: str = "deep_reserve"
+
+
+class PlanAssignmentItemResponse(BaseModel):
+    material_id: str
+    material_code: str
+    recommended_primary_location_code: Optional[str] = None
+    recommended_primary_location_id: Optional[str] = None
+    final_primary_location_code: Optional[str] = None
+    active_pick_pallet_positions: int = 1
+    required_reserve_pallet_positions: int = 0
+    max_stock_pallet_positions: int = 1
+    reserve_locations: List[PlanReserveAssignmentResponse] = []
+    distance_saved_meters: float = 0
+    zone_upgrade: Optional[str] = None
+    move_reason: str = ""
+    gain_score: float = 0
+    relocation_applied: bool = False
+    status: str = "PROPOSED"
+
+
+class PlanOptimizeRequestBody(BaseModel):
+    warehouse_id: str
+    relocation_budget_pct: float = 30.0
+    materials: List[dict] = []
+    locations: List[dict] = []
+    locked_material_ids: List[str] = []
+    use_milp_a_class: bool = False
+
+
+class PlanOptimizeResponseBody(BaseModel):
+    warehouse_id: str
+    algorithm: str
+    assignments: List[PlanAssignmentItemResponse] = []
+    total_moves_proposed: int = 0
+    relocation_moves_applied: int = 0
  
 
 def _stable_location_id(location_code: str) -> str:
@@ -405,8 +446,72 @@ def optimize_slotting(request: SlottingOptimizationRequest):
  
     finally:
         db.close()
- 
- 
+
+
+@router.post("/plan/optimize", response_model=PlanOptimizeResponseBody)
+def optimize_plan_endpoint(request: PlanOptimizeRequestBody):
+  """Deterministic quarterly plan optimizer — returns assignments only (backend persists)."""
+  try:
+      from app.services.plan_optimizer import (
+          PlanOptimizeRequest,
+          PlanMaterialInput,
+          PlanLocationInput,
+          optimize_plan,
+      )
+  except ImportError as exc:
+      logger.error("plan_optimizer unavailable: %s", exc)
+      return PlanOptimizeResponseBody(
+          warehouse_id=request.warehouse_id,
+          algorithm="HEURISTIC_V1",
+          assignments=[],
+      )
+
+  materials = [PlanMaterialInput(**m) for m in request.materials]
+  locations = [PlanLocationInput(**loc) for loc in request.locations]
+  result = optimize_plan(PlanOptimizeRequest(
+      warehouse_id=request.warehouse_id,
+      relocation_budget_pct=request.relocation_budget_pct,
+      materials=materials,
+      locations=locations,
+      locked_material_ids=request.locked_material_ids,
+      use_milp_a_class=request.use_milp_a_class,
+  ))
+
+  return PlanOptimizeResponseBody(
+      warehouse_id=result.warehouse_id,
+      algorithm=result.algorithm,
+      total_moves_proposed=result.total_moves_proposed,
+      relocation_moves_applied=result.relocation_moves_applied,
+      assignments=[
+          PlanAssignmentItemResponse(
+              material_id=a.material_id,
+              material_code=a.material_code,
+              recommended_primary_location_code=a.recommended_primary_location_code,
+              recommended_primary_location_id=a.recommended_primary_location_id,
+              final_primary_location_code=a.final_primary_location_code,
+              active_pick_pallet_positions=a.active_pick_pallet_positions,
+              required_reserve_pallet_positions=a.required_reserve_pallet_positions,
+              max_stock_pallet_positions=a.max_stock_pallet_positions,
+              reserve_locations=[
+                  PlanReserveAssignmentResponse(
+                      location_code=r.location_code,
+                      reserve_pallet_positions=r.reserve_pallet_positions,
+                      reserve_zone_hint=r.reserve_zone_hint,
+                  )
+                  for r in a.reserve_locations
+              ],
+              distance_saved_meters=a.distance_saved_meters,
+              zone_upgrade=a.zone_upgrade,
+              move_reason=a.move_reason,
+              gain_score=a.gain_score,
+              relocation_applied=a.relocation_applied,
+              status=a.status,
+          )
+          for a in result.assignments
+      ],
+  )
+
+
 @router.get("/health")
 def slotting_health():
     return {
