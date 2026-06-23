@@ -59,17 +59,17 @@ function hasCompleteDimensions(material: Material): boolean {
     material.widthCm != null &&
     material.heightCm != null &&
     material.weightKg != null &&
-    material.weightKg > 1 &&
+    material.weightKg > 0 &&
     material.volumeCm3 != null &&
-    material.volumeCm3 > 1000 &&
+    material.volumeCm3 > 0 &&
     material.palletSpaces != null &&
-    material.palletSpaces > 1
+    material.palletSpaces > 0
   );
 }
 
 function dimCell(value: number | null | undefined, material: Material) {
   const incomplete = !hasCompleteDimensions(material);
-  const missing = value == null || (incomplete && value <= 1);
+  const missing = value == null || (incomplete && value <= 0);
   return (
     <span className={missing ? "text-warning font-semibold" : "text-base-content/60"}>
       {value != null ? value : "—"}

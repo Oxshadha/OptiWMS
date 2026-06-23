@@ -131,11 +131,11 @@ public class MaterialIssueStatsService {
 
         List<MaterialEntity> sortedByVolume = materials.stream()
                 .sorted(Comparator.comparingLong(
-                        (MaterialEntity m) -> rollupTotals.getOrDefault(m.getId(), new long[]{0})[0]).reversed())
+                        (MaterialEntity m) -> rollupTotals.getOrDefault(m.getId(), new long[]{0, 0})[0]).reversed())
                 .toList();
 
         long totalVolume = sortedByVolume.stream()
-                .mapToLong(m -> rollupTotals.getOrDefault(m.getId(), new long[]{0})[0])
+                .mapToLong(m -> rollupTotals.getOrDefault(m.getId(), new long[]{0, 0})[0])
                 .sum();
 
         Map<UUID, String> abc = new HashMap<>();
@@ -146,7 +146,7 @@ public class MaterialIssueStatsService {
         } else {
             double cumulative = 0;
             for (MaterialEntity m : sortedByVolume) {
-                long vol = rollupTotals.getOrDefault(m.getId(), new long[]{0})[0];
+                long vol = rollupTotals.getOrDefault(m.getId(), new long[]{0, 0})[0];
                 cumulative += vol;
                 double pct = cumulative / totalVolume;
                 if (pct <= 0.80) {
@@ -161,7 +161,7 @@ public class MaterialIssueStatsService {
 
         List<MaterialEntity> sortedByCount = materials.stream()
                 .sorted(Comparator.comparingInt(
-                        (MaterialEntity m) -> (int) rollupTotals.getOrDefault(m.getId(), new long[]{0})[1]).reversed())
+                        (MaterialEntity m) -> (int) rollupTotals.getOrDefault(m.getId(), new long[]{0, 0})[1]).reversed())
                 .toList();
 
         int n = sortedByCount.size();
