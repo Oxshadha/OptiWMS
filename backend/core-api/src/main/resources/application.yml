@@ -65,6 +65,8 @@ ai:
   services:
     forecast-base-url: http://localhost:8091
     orchestrator-base-url: http://localhost:8092
+    slotting-base-url: http://localhost:8093
+    slotting-enabled: false
     auth-token: ${AI_SERVICES_AUTH_TOKEN:}
   monitoring:
     enabled: false

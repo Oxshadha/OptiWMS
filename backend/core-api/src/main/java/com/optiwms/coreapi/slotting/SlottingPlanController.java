@@ -32,7 +32,8 @@ public class SlottingPlanController {
                 body.planCode(),
                 body.relocationBudgetPct() != null ? BigDecimal.valueOf(body.relocationBudgetPct()) : null,
                 body.createdBy(),
-                body.notes()));
+                body.notes(),
+                body.useMilpAClass()));
         return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(plan));
     }
 
@@ -150,7 +151,8 @@ public class SlottingPlanController {
             String planCode,
             Double relocationBudgetPct,
             String createdBy,
-            String notes) {}
+            String notes,
+            Boolean useMilpAClass) {}
 
     public record UpdateLineDto(
             Integer expectedVersion,

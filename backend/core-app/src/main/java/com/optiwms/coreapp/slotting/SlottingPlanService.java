@@ -8,8 +8,6 @@ import com.optiwms.infra.master.MaterialDefaultLocationRepository;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.slotting.*;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +32,7 @@ public class SlottingPlanService {
     private final LocationRepository locationRepository;
     private final MaterialDefaultLocationRepository defaultLocationRepository;
     private final MaterialDefaultLocationService defaultLocationService;
+    private final SlottingPlanClient slottingPlanClient;
 
     public SlottingPlanService(
             SlottingPlanRepository planRepository,
@@ -44,7 +43,8 @@ public class SlottingPlanService {
             MaterialRepository materialRepository,
             LocationRepository locationRepository,
             MaterialDefaultLocationRepository defaultLocationRepository,
-            MaterialDefaultLocationService defaultLocationService) {
+            MaterialDefaultLocationService defaultLocationService,
+            SlottingPlanClient slottingPlanClient) {
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -54,6 +54,7 @@ public class SlottingPlanService {
         this.locationRepository = locationRepository;
         this.defaultLocationRepository = defaultLocationRepository;
         this.defaultLocationService = defaultLocationService;
+        this.slottingPlanClient = slottingPlanClient;
     }
 
     @Transactional
@@ -88,7 +89,8 @@ public class SlottingPlanService {
         plan.setNotes(request.notes());
         plan = planRepository.save(plan);
 
-        runOptimization(plan, Collections.emptySet(), Collections.emptyList());
+        runOptimization(plan, Collections.emptySet(), Collections.emptyList(),
+                request.useMilpAClass() == null || request.useMilpAClass());
         return planRepository.findById(plan.getId()).orElse(plan);
     }
 
@@ -165,7 +167,7 @@ public class SlottingPlanService {
             }
         }
 
-        runOptimization(plan, locked, existing);
+        runOptimization(plan, locked, existing, true);
 
         plan.setStatus("DRAFT");
         plan.setVersion(plan.getVersion() + 1);
@@ -234,7 +236,8 @@ public class SlottingPlanService {
     private void runOptimization(
             SlottingPlanEntity plan,
             Set<UUID> lockedMaterialIds,
-            List<SlottingPlanLineEntity> existingLines) {
+            List<SlottingPlanLineEntity> existingLines,
+            boolean useMilpAClass) {
 
         UUID warehouseId = plan.getWarehouseId();
         List<LocationEntity> locations = locationRepository.findByWarehouseIdAndIsActive(warehouseId, true);
@@ -254,6 +257,7 @@ public class SlottingPlanService {
 
         SlottingPlanOptimizer optimizer = new SlottingPlanOptimizer();
         List<SlottingPlanOptimizer.OptimizedLine> allOptimized = new ArrayList<>();
+        List<SlottingPlanOptimizer.MaterialCandidate> allCandidates = new ArrayList<>();
 
         for (String typeFilter : List.of("raw_material", "packaging_material", "product")) {
             List<SlottingPlanOptimizer.MaterialCandidate> candidates = materials.stream()
@@ -263,6 +267,7 @@ public class SlottingPlanService {
             if (candidates.isEmpty()) {
                 continue;
             }
+            allCandidates.addAll(candidates);
             SlottingPlanOptimizer.OptimizerInput input = new SlottingPlanOptimizer.OptimizerInput(
                     typeFilter,
                     candidates,
@@ -274,6 +279,25 @@ public class SlottingPlanService {
                     plan.getRelocationBudgetPct(),
                     anchor);
             allOptimized.addAll(optimizer.optimize(input).lines());
+        }
+
+        if (slottingPlanClient.isEnabled() && slottingPlanClient.isHealthy() && useMilpAClass) {
+            List<SlottingPlanOptimizer.OptimizedLine> javaBaseline = new ArrayList<>(allOptimized);
+            SlottingPlanClient.PlanOptimizeRequest pyReq = SlottingPlanClient.buildRequest(
+                    warehouseId,
+                    plan.getRelocationBudgetPct(),
+                    true,
+                    allCandidates,
+                    locations,
+                    incumbent,
+                    lockedMaterialIds);
+            slottingPlanClient.optimize(pyReq).ifPresent(pyRes -> {
+                allOptimized.clear();
+                allOptimized.addAll(slottingPlanClient.mergePythonAssignments(javaBaseline, pyRes));
+                plan.setAlgorithm(pyRes.algorithm != null ? pyRes.algorithm : "HEURISTIC_MILP_V1");
+            });
+        } else if (!useMilpAClass) {
+            plan.setAlgorithm("HEURISTIC_V1");
         }
 
         persistOptimizedLines(plan, allOptimized, lockedMaterialIds, existingLines);
@@ -440,7 +464,8 @@ public class SlottingPlanService {
             String planCode,
             BigDecimal relocationBudgetPct,
             String createdBy,
-            String notes) {}
+            String notes,
+            Boolean useMilpAClass) {}
 
     public record UpdateLineRequest(
             Integer expectedVersion,

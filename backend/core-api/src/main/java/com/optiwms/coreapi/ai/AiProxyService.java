@@ -29,6 +29,9 @@ public class AiProxyService {
     @Value("${ai.services.orchestrator-base-url:http://localhost:8084}")
     private String orchestratorBaseUrl;
 
+    @Value("${ai.services.slotting-base-url:http://localhost:8093}")
+    private String slottingBaseUrl;
+
     @Value("${ai.services.auth-token:}")
     private String authToken;
 
@@ -54,6 +57,7 @@ public class AiProxyService {
         out.put("forecast", getSimple(forecastBaseUrl + "/health"));
         out.put("forecast_runtime_contract", getSimple(forecastBaseUrl + "/health/runtime-contract"));
         out.put("orchestrator", getSimple(orchestratorBaseUrl + "/health"));
+        out.put("slotting", getSimple(slottingBaseUrl + "/health"));
         return out;
     }
 
