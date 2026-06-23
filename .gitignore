@@ -233,3 +233,6 @@ Ai miroservices/modeling/v2_m5_clean/__pycache__/
 ai-services/forecast-service/artifacts/
 
 Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
+
+# Legacy root docs and scripts
+archive_scripts_and_docs/
