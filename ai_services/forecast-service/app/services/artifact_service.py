@@ -77,6 +77,12 @@ def _load_boosting_model_cached(model_name: str, model_path: str, _mtime_ns: int
         reg.load_model(str(p))
         return reg
     if model_name in {"LIGHTGBM", "RANDOM_FOREST"}:
+        p = Path(model_path)
+        if p.suffix == ".txt":
+            import lightgbm as lgb
+
+            booster = lgb.Booster(model_file=str(p))
+            return booster
         return _load_pickle_model_cached(model_path, _mtime_ns)
     raise ValueError(f"Unsupported boosting model: {model_name}")
 
@@ -143,12 +149,20 @@ def load_boosting_artifact(dataset: str, model_name: str, horizon: int, stage: s
     elif model_upper == "CATBOOST":
         model_path = path / "model.cbm"
     elif model_upper in {"LIGHTGBM", "RANDOM_FOREST"}:
-        model_path = path / "model.pkl"
+        pkl_path = path / "model.pkl"
+        txt_path = path / "model.txt"
+        if pkl_path.exists():
+            model_path = pkl_path
+        elif txt_path.exists():
+            model_path = txt_path
+        else:
+            raise FileNotFoundError(f"Missing artifact: {pkl_path} or {txt_path}")
     else:
         raise ValueError(f"Unsupported boosting model: {model_name}")
     if not model_path.exists():
         raise FileNotFoundError(f"Missing artifact: {model_path}")
-    reg = _load_boosting_model_cached(model_upper, str(model_path), model_path.stat().st_mtime_ns)
+    mtime_ns = model_path.stat().st_mtime_ns
+    reg = _load_boosting_model_cached(model_upper, str(model_path), mtime_ns)
     return reg, metadata
 
 
@@ -174,11 +188,22 @@ def _align_model_columns(frame: pd.DataFrame, model_cols: list[str]) -> pd.DataF
 
 
 def _predict_boosting_from_frame(reg, metadata: dict[str, Any], model_name: str, frame: pd.DataFrame):
-    if model_name.upper() in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
-        feature_columns = metadata.get("feature_columns") or []
-        x = pd.get_dummies(frame, columns=[c for c in ["fg_code", "fg_category"] if c in frame.columns], drop_first=False)
-        x = x.reindex(columns=feature_columns, fill_value=0)
-        return reg.predict(x)
+    model_upper = model_name.upper()
+    if model_upper in {"XGBOOST", "LIGHTGBM", "RANDOM_FOREST"}:
+        feature_columns = metadata.get("feature_columns") or metadata.get("model_cols") or []
+        if feature_columns and any(c.startswith("fg_code_") or c.startswith("fg_category_") for c in feature_columns):
+            x = pd.get_dummies(frame, columns=[c for c in ["fg_code", "fg_category"] if c in frame.columns], drop_first=False)
+            x = x.reindex(columns=feature_columns, fill_value=0)
+            preds = reg.predict(x)
+        elif hasattr(reg, "predict"):
+            preds = reg.predict(frame)
+        else:
+            preds = reg.predict(frame.values)
+        if metadata.get("use_log_target"):
+            import numpy as np
+
+            preds = np.expm1(preds)
+        return preds
     return reg.predict(frame)
 
 

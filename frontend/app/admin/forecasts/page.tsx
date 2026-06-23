@@ -84,67 +84,15 @@ function sine(i: number, amp: number, period: number, phase = 0) {
   return amp * Math.sin((2 * Math.PI * (i + phase)) / period);
 }
 
-function makeForecastData() {
-  return MONTHS.map((label, i) => {
-    const trend = 1200 + i * 18;
-    const seasonal = sine(i, 320, 12);
-    const noise = (Math.random() - 0.5) * 120;
-    const actual = i < 18 ? Math.round(trend + seasonal + noise) : null;
-    const forecast = Math.round(trend + seasonal + (Math.random() - 0.5) * 60);
-    const upper = forecast + Math.round(120 + i * 2);
-    const lower = forecast - Math.round(100 + i * 2);
-    return { label, actual, forecast, upper, lower, ciRange: [lower, upper], trend: Math.round(trend) };
-  });
-}
-
-function makeSkuData() {
-  const skus = ["SKU-300001", "SKU-300002", "SKU-300003", "SKU-300004", "SKU-300005", "SKU-300006"];
-  return skus.map((sku, si) => ({
-    sku,
-    velocity: Math.round(400 + si * 130 + Math.random() * 80),
-    stockDays: Math.round(8 + Math.random() * 40),
-    mape: +(3 + Math.random() * 8).toFixed(1),
-    abc: ["A", "A", "B", "B", "C", "C"][si],
-    xyz: ["X", "Y", "X", "Z", "Y", "Z"][si],
-    reorderPoint: Math.round(200 + si * 60),
-    safetyStock: Math.round(80 + si * 20),
-  }));
-}
-
-function makeSeasonalityData() {
-  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return names.map((m, i) => ({
-    month: m,
-    index: +(0.75 + 0.5 * Math.sin((2 * Math.PI * i) / 12 - 1)).toFixed(2),
-    sales: Math.round(1200 + 400 * Math.sin((2 * Math.PI * i) / 12 - 1)),
-  }));
-}
-
-function makeResidualData() {
-  return MONTHS.slice(0, 18).map((label, i) => ({
-    label,
-    residual: Math.round((Math.random() - 0.5) * 180),
-    absError: Math.round(Math.random() * 150),
-  }));
-}
-
-function makeInventoryData() {
-  return MONTHS.slice(0, 18).map((label, i) => {
-    const demand = Math.round(1200 + sine(i, 300, 12) + (Math.random() - 0.5) * 100);
-    const stock = Math.max(0, Math.round(3000 - i * 40 + sine(i, 500, 6) + (Math.random() - 0.5) * 200));
-    return { label, demand, stock, reorder: 800 };
-  });
-}
-
-function makeExogData() {
-  return MONTHS.map((label, i) => ({
-    label,
-    promo: i === 3 || i === 11 || i === 14 ? 1 : 0,
-    holiday: i === 11 ? 1 : 0,
-    weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(2),
-    priceIndex: +(1 + 0.04 * i + (Math.random() - 0.5) * 0.05).toFixed(2),
-  }));
-}
+const EMPTY_FORECAST: Array<{
+  label: string;
+  actual: number | null;
+  forecast: number | null;
+  upper: number | null;
+  lower: number | null;
+  ciRange: number[] | null;
+  trend: number | null;
+}> = [];
 
 const CustomBrushHandle = (props: any) => {
   const { x, y, width, height } = props;
@@ -822,6 +770,37 @@ export default function ForecastsPage() {
     return values.reduce((s, v) => s + v, 0) / values.length;
   }, [filteredMetrics]);
 
+  const avgBias = useMemo(() => {
+    const values = filteredMetrics
+      .map((m) => m.Bias)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!values.length) return null;
+    return values.reduce((s, v) => s + v, 0) / values.length;
+  }, [filteredMetrics]);
+
+  const avgMase = useMemo(() => {
+    const values = filteredMetrics
+      .map((m) => m.MASE_mean)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!values.length) return null;
+    return values.reduce((s, v) => s + v, 0) / values.length;
+  }, [filteredMetrics]);
+
+  const avgCoverage = useMemo(() => {
+    const rows = latestForecasts.filter(
+      (f) =>
+        f.y_true !== null &&
+        f.y_true !== undefined &&
+        f.p10 !== null &&
+        f.p10 !== undefined &&
+        f.p90 !== null &&
+        f.p90 !== undefined
+    );
+    if (!rows.length) return null;
+    const inside = rows.filter((f) => Number(f.y_true) >= Number(f.p10) && Number(f.y_true) <= Number(f.p90)).length;
+    return (inside / rows.length) * 100;
+  }, [latestForecasts]);
+
   const avgActualDemand = useMemo(() => {
     const actualValues = latestForecasts
       .map((row) => row.y_true)
@@ -1323,21 +1302,23 @@ export default function ForecastsPage() {
     }).slice(-18);
   }, [latestForecasts, selectedSku]);
 
-  // ── FINAL DATA RESOLUTION (LIVE WITH HIGH-FIDELITY FALLBACKS) ──────
-  const finalForecastData = aggregatedForecastData.length > 0 ? aggregatedForecastData : makeForecastData();
-  const finalSkuData = liveSkuDetails.length > 0 ? liveSkuDetails : makeSkuData();
-  const finalSeasonality = liveSeasonality.length > 0 ? liveSeasonality : makeSeasonalityData();
-  const finalResiduals = liveResiduals.length > 0 ? liveResiduals : makeResidualData();
-  const finalInventory = liveInventoryFlow.length > 0 ? liveInventoryFlow : makeInventoryData();
+  // ── FINAL DATA RESOLUTION (live API only — no synthetic fallbacks) ──────
+  const finalForecastData = aggregatedForecastData.length > 0 ? aggregatedForecastData : EMPTY_FORECAST;
+  const finalSkuData = liveSkuDetails;
+  const finalSeasonality = liveSeasonality;
+  const finalResiduals = liveResiduals;
+  const finalInventory = liveInventoryFlow;
+  const hasLiveForecastData = aggregatedForecastData.length > 0;
   const finalExog = useMemo(() => {
+    if (!hasLiveForecastData) return [];
     return finalForecastData.map((d, i) => ({
       label: d.label,
-      promo: i === 3 || i === 11 || i === 14 ? 1 : 0,
-      holiday: i === 11 ? 1 : 0,
-      weatherImpact: +(0.85 + sine(i, 0.12, 12) + Math.random() * 0.05).toFixed(2),
-      priceIndex: +(1 + 0.04 * i + (Math.random() - 0.5) * 0.05).toFixed(2),
+      promo: 0,
+      holiday: 0,
+      weatherImpact: null as number | null,
+      priceIndex: null as number | null,
     }));
-  }, [finalForecastData]);
+  }, [finalForecastData, hasLiveForecastData]);
 
   const processedForecastData = useMemo(() => {
     if (!finalForecastData || !finalForecastData.length) return [];
@@ -1372,12 +1353,12 @@ export default function ForecastsPage() {
     return firstFuture?.label;
   }, [finalForecastData]);
 
-  // Metrics fallbacks
-  const mapeVal = avgMape !== null ? Number(avgMape.toFixed(1)) : (avgWape !== null ? Number((avgWape * 100).toFixed(1)) : 5.3);
-  const rmseVal = avgRmse !== null ? Math.round(avgRmse) : 142;
-  const biasVal = governanceStatus?.last_action?.message?.includes("bias") ? -3.4 : -2.1;
-  const maseVal = 0.82;
-  const coverageVal = 91.4;
+  const mapeVal = avgMape !== null ? Number(avgMape.toFixed(1)) : (avgWape !== null ? Number((avgWape * 100).toFixed(1)) : null);
+  const rmseVal = avgRmse !== null ? Math.round(avgRmse) : null;
+  const biasVal = avgBias !== null ? Number(avgBias.toFixed(1)) : null;
+  const maseVal = avgMase !== null ? Number(avgMase.toFixed(2)) : null;
+  const coverageVal = avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
+  const fmtMetric = (v: number | null, suffix = "") => (v === null ? "—" : `${v}${suffix}`);
 
   return (
     <div className="space-y-6">
@@ -1390,7 +1371,7 @@ export default function ForecastsPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">DEMAND FORECAST INTELLIGENCE</h1>
             <p className="text-xs text-base-content/60 mt-0.5">
-              Active Module · Colombo Main Warehouse · Model: {filters.model || "RANDOM_FOREST" || "Random Forest Champion"}
+              Active Module · Colombo Main Warehouse · Model: {filters.model || "LIGHTGBM"}
             </p>
           </div>
         </div>
@@ -1402,10 +1383,20 @@ export default function ForecastsPage() {
             <p className="text-[10px] text-base-content/50 mt-0.5">Retrained & updated</p>
           </div>
           <div className="badge badge-success badge-lg py-3 font-semibold text-xs">
-            MAPE: {mapeVal}%
+            MAPE: {fmtMetric(mapeVal, "%")}
           </div>
         </div>
       </div>
+
+      {!hasLiveForecastData && !loading && (
+        <div className="alert alert-warning text-sm">
+          <span className="material-symbols-outlined">info</span>
+          <span>
+            No published forecast series yet. Run the forecast engine (admin) or wait for the next publish job.
+            Charts show empty until live <code>forecast_results</code> are available.
+          </span>
+        </div>
+      )}
 
       {/* Engine Control Panel Accordion */}
       <div className="collapse collapse-arrow bg-base-100 border border-base-300 rounded-xl shadow-sm">
@@ -1450,7 +1441,7 @@ export default function ForecastsPage() {
             </label>
             <label className="form-control">
               <span className="label-text text-xs font-medium mb-1">Active Model</span>
-              <input className="input input-bordered input-sm" value={filters.model || "RANDOM_FOREST"} disabled />
+              <input className="input input-bordered input-sm" value={filters.model || "LIGHTGBM"} disabled />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
               
@@ -1646,11 +1637,11 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI Summary Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <KpiCard title="Forecast Accuracy" value={`${100 - mapeVal}%`} sub={`WAPE = ${mapeVal}%`} color={C.ok} delta={1.2} icon="track_changes" />
+            <KpiCard title="Forecast Accuracy" value={mapeVal !== null ? `${(100 - mapeVal).toFixed(1)}%` : "—"} sub={mapeVal !== null ? `WAPE = ${mapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={Math.round(totalSuggestedQty * 1.8 || 38420).toLocaleString()} sub="Next 6 months" color={C.accent} delta={8.4} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} delta={-1} icon="warning" />
             <KpiCard title="Avg Days of Stock" value="24.8d" sub="Warehouse coverage" color={C.accent4} delta={-3.1} icon="grid_view" />
-            <KpiCard title="Forecast Bias" value={`${biasVal}%`} sub="Slight under-forecast" color={C.warn} icon="balance" />
+            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="From published metrics" color={C.warn} icon="balance" />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
@@ -2060,11 +2051,10 @@ export default function ForecastsPage() {
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
             <KpiCard title="MAPE Error" value={`${mapeVal}%`} sub="Mean Abs % Error" color={C.ok} icon="track_changes" />
-            <KpiCard title="RMSE Error" value={rmseVal} sub="Root Mean Sq Error" color={C.accent} icon="architecture" />
-            <KpiCard title="Model Bias (MPB)" value={`${biasVal}%`} sub="Under/Over prediction" color={C.warn} icon="balance" />
-            <KpiCard title="90% CI Coverage" value={`${coverageVal}%`} sub="Actuals inside interval" color={C.accent3} icon="straighten" />
-            <KpiCard title="Mean Abs Error (MAE)" value="98 u" sub="Average absolute error" color={C.accent2} icon="bar_chart" />
-            <KpiCard title="Active Architecture" value={filters.model || "Random Forest"} sub="Global Champion Model" color={C.muted} icon="psychology" />
+            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub="Root Mean Sq Error" color={C.accent} icon="architecture" />
+            <KpiCard title="Model Bias (MPB)" value={fmtMetric(biasVal, "%")} sub="Under/Over prediction" color={C.warn} icon="balance" />
+            <KpiCard title="90% CI Coverage" value={fmtMetric(coverageVal, "%")} sub="Actuals inside interval" color={C.accent3} icon="straighten" />
+            <KpiCard title="Active Architecture" value={filters.model || "LIGHTGBM"} sub="Global Champion Model" color={C.muted} icon="psychology" />
           </div>
 
           {/* Model residuals */}
@@ -2163,26 +2153,30 @@ export default function ForecastsPage() {
               <SectionHeader title="Model Accuracy Scorecard vs Thresholds" sub="Operational SLA targets set for production deployment" color={C.accent4} />
               <div className="space-y-4 mt-3">
                 {[
-                  { label: "Mean Absolute Percentage Error (MAPE)", value: mapeVal, target: 10, unit: "%", good: mapeVal <= 10 },
-                  { label: "Root Mean Squared Error (RMSE)", value: rmseVal, target: 200, unit: " u", good: rmseVal <= 200 },
-                  { label: "Forecast Bias Limit", value: Math.abs(biasVal), target: 5.0, unit: "%", good: Math.abs(biasVal) <= 5.0 },
-                  { label: "90% CI Bounds Coverage", value: coverageVal, target: 90.0, unit: "%", good: coverageVal >= 90.0 },
+                  { label: "Mean Absolute Percentage Error (MAPE)", value: mapeVal, target: 10, unit: "%", good: mapeVal !== null && mapeVal <= 10 },
+                  { label: "Root Mean Squared Error (RMSE)", value: rmseVal, target: 200, unit: " u", good: rmseVal !== null && rmseVal <= 200 },
+                  { label: "Forecast Bias Limit", value: biasVal !== null ? Math.abs(biasVal) : null, target: 5.0, unit: "%", good: biasVal !== null && Math.abs(biasVal) <= 5.0 },
+                  { label: "90% CI Bounds Coverage", value: coverageVal, target: 90.0, unit: "%", good: coverageVal !== null && coverageVal >= 90.0 },
                 ].map((m, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex justify-between items-center mb-1">
                       <span className="text-base-content/80 font-medium">{m.label}</span>
-                      <span className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : "text-error"}`}>
-                        {m.value}{m.unit}
-                        <span className="material-symbols-outlined text-[14px]">{m.good ? "check_circle" : "cancel"}</span>
-                        <span>{m.good ? "Deployed" : "Violation"}</span>
+                      <span className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : m.value === null ? "text-base-content/50" : "text-error"}`}>
+                        {m.value === null ? "—" : `${m.value}${m.unit}`}
+                        {m.value !== null && (
+                          <span className="material-symbols-outlined text-[14px]">{m.good ? "check_circle" : "cancel"}</span>
+                        )}
+                        <span>{m.value === null ? "No data" : m.good ? "Deployed" : "Violation"}</span>
                       </span>
                     </div>
+                    {m.value !== null && (
                     <div className="h-2 bg-base-300 rounded-full overflow-hidden">
                       <div 
                         className={`h-full rounded-full transition-all duration-500 ${m.good ? "bg-success" : "bg-error"}`}
                         style={{ width: `${Math.min((m.value / (m.target * 1.5)) * 100, 100)}%` }}
                       />
                     </div>
+                    )}
                     <div className="text-[10px] text-base-content/40 mt-0.5">SLA Threshold Target: ≤ {m.target}{m.unit}</div>
                   </div>
                 ))}
