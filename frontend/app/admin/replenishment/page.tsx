@@ -4,21 +4,25 @@ import React, { useState } from 'react';
 import clsx from 'clsx';
 import ReplenishmentDashboard from './components/ReplenishmentDashboard';
 import StorageOptimizerDashboard from './components/StorageOptimizerDashboard';
+import { IntelligentEngineHubStrip } from './components/IntelligentEngineHubStrip';
 
 export default function ReplenishmentPage() {
     const [activeTab, setActiveTab] = useState<'replenishment' | 'storage'>('replenishment');
 
     return (
         <div className="p-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-4 gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-base-content">Intelligent Replenishment Engine</h1>
+                    <h1 className="text-3xl font-bold text-base-content">Warehouse Intelligent Engine</h1>
                     <p className="text-sm text-base-content/60 mt-2 max-w-4xl">
-                        AI-driven inventory advisory balancing daily stockouts, holding costs, and long-term storage constraints.
+                        Forecast-driven replenishment, quarterly slotting, and storage optimisation — unified hub.
                     </p>
                 </div>
-                
-                {/* Tab Navigation */}
+            </div>
+
+            <IntelligentEngineHubStrip />
+
+            <div className="flex justify-end mb-8">
                 <div className="bg-base-200 dark:bg-base-300 p-1 rounded-xl inline-flex shadow-sm">
                     <button 
                         onClick={() => setActiveTab('replenishment')}

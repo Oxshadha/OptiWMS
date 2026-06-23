@@ -104,4 +104,17 @@ export const materialsApi = {
     formData.append('file', file);
     return apiClient.postFormData<ImportResponse>('/master/materials/inventory/import', formData);
   },
+
+  importDimensionsCsv: async (file: File): Promise<DimensionImportResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.postFormData<DimensionImportResponse>('/master/materials/import-dimensions', formData);
+  },
 };
+
+export interface DimensionImportResponse {
+  updated: number;
+  skipped: number;
+  errors: number;
+  message: string;
+}

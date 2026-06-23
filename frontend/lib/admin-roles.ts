@@ -52,6 +52,8 @@ export const ADMIN_ROUTES = {
   LABOR_PRODUCTIVITY: '/admin/labor-productivity',
   REPLENISHMENT: '/admin/replenishment',
   STORAGE_OPTIMIZER: '/admin/replenishment/storage',
+  SLOTTING_PLANS: '/admin/slotting-plans',
+  AI_SLOTTING: '/admin/ai-slotting',
 } as const;
 
 export type AdminRoute = typeof ADMIN_ROUTES[keyof typeof ADMIN_ROUTES];
@@ -95,6 +97,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
   },
   warehouse_manager: {
     // Warehouse Manager: Operational focus - day-to-day warehouse operations
@@ -132,6 +136,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'approve']), // Can review and approve replenishment plans
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'approve']), // Can execute moves
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'approve']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view', 'create', 'edit', 'approve']),
   },
   inbound_coordinator: {
     // Inbound Coordinator: focused on inbound receipt coordination, dock scheduling, and ERP integration
@@ -168,6 +174,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view']), // View only
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view']), // View only
+    [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view']),
+    [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view']),
   },
 };
 

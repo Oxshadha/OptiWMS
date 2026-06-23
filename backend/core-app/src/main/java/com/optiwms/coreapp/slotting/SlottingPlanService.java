@@ -33,6 +33,7 @@ public class SlottingPlanService {
     private final MaterialDefaultLocationRepository defaultLocationRepository;
     private final MaterialDefaultLocationService defaultLocationService;
     private final SlottingPlanClient slottingPlanClient;
+    private final SlottingReadinessService readinessService;
 
     public SlottingPlanService(
             SlottingPlanRepository planRepository,
@@ -44,7 +45,8 @@ public class SlottingPlanService {
             LocationRepository locationRepository,
             MaterialDefaultLocationRepository defaultLocationRepository,
             MaterialDefaultLocationService defaultLocationService,
-            SlottingPlanClient slottingPlanClient) {
+            SlottingPlanClient slottingPlanClient,
+            SlottingReadinessService readinessService) {
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -55,11 +57,13 @@ public class SlottingPlanService {
         this.defaultLocationRepository = defaultLocationRepository;
         this.defaultLocationService = defaultLocationService;
         this.slottingPlanClient = slottingPlanClient;
+        this.readinessService = readinessService;
     }
 
     @Transactional
     public SlottingPlanEntity createPlan(CreatePlanRequest request) {
         UUID warehouseId = request.warehouseId();
+        readinessService.assertReady(warehouseId);
         OffsetDateTime statsAt = issueStatsService.refreshForWarehouse(warehouseId);
 
         int months = request.validMonths() != null ? request.validMonths() : 6;
@@ -101,6 +105,10 @@ public class SlottingPlanService {
 
     public Optional<SlottingPlanEntity> getActivePlan(UUID warehouseId) {
         return planRepository.findFirstByWarehouseIdAndStatusOrderByApprovedAtDesc(warehouseId, "ACTIVE");
+    }
+
+    public List<SlottingPlanEntity> listPlans(UUID warehouseId) {
+        return planRepository.findByWarehouseIdOrderByCreatedAtDesc(warehouseId);
     }
 
     public List<SlottingPlanLineEntity> getLines(UUID planId) {
@@ -403,7 +411,9 @@ public class SlottingPlanService {
                 fms,
                 vol,
                 cnt,
-                m.getWeightKg());
+                m.getWeightKg(),
+                m.getVolumeCm3(),
+                m.getPalletSpaces());
     }
 
     private Map<UUID, String> loadIncumbentPrimary(UUID warehouseId) {

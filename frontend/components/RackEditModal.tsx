@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
-import { locationsApi } from "@/lib/api/locations";
+import { locationsApi, type Location } from "@/lib/api/locations";
 import { logger } from "@/lib/utils/logger";
 
 interface RackEditModalProps {
@@ -11,6 +12,50 @@ interface RackEditModalProps {
   rack: RackUnit | null;
   warehouseId: string;
   onUpdate: (updatedRack: RackUnit) => void;
+}
+
+type LevelSummary = {
+  level: number;
+  binCount: number;
+  maxWeightKg: number | null;
+  maxVolumeCm3: number | null;
+  maxUnits: number | null;
+  utilizationPct: number | null;
+};
+
+function buildLevelSummary(locations: Location[]): LevelSummary[] {
+  const byLevel = new Map<number, Location[]>();
+  for (const loc of locations) {
+    const level = loc.levelNumber ?? 1;
+    if (!byLevel.has(level)) byLevel.set(level, []);
+    byLevel.get(level)!.push(loc);
+  }
+  const summaries: LevelSummary[] = [];
+  for (let level = 1; level <= 5; level++) {
+    const bins = byLevel.get(level) ?? [];
+    if (bins.length === 0) {
+      summaries.push({ level, binCount: 0, maxWeightKg: null, maxVolumeCm3: null, maxUnits: null, utilizationPct: null });
+      continue;
+    }
+    const maxWeight = Math.max(...bins.map((b) => b.maxWeightKg ?? 0));
+    const maxVolume = Math.max(...bins.map((b) => b.maxVolumeCm3 ?? 0));
+    const maxUnits = Math.max(...bins.map((b) => b.capacity ?? 0));
+    const utilSamples = bins
+      .filter((b) => b.maxPalletCapacity && b.maxPalletCapacity > 0)
+      .map((b) => ((b.currentPalletCount ?? 0) / b.maxPalletCapacity!) * 100);
+    const utilizationPct = utilSamples.length
+      ? Math.round(utilSamples.reduce((a, b) => a + b, 0) / utilSamples.length)
+      : null;
+    summaries.push({
+      level,
+      binCount: bins.length,
+      maxWeightKg: maxWeight || null,
+      maxVolumeCm3: maxVolume || null,
+      maxUnits: maxUnits || null,
+      utilizationPct,
+    });
+  }
+  return summaries;
 }
 
 export function RackEditModal({
@@ -25,6 +70,8 @@ export function RackEditModal({
   const [notes, setNotes] = useState("");
   const [amalgamatedClass, setAmalgamatedClass] = useState("CM");
   const [isSaving, setIsSaving] = useState(false);
+  const [levelSummary, setLevelSummary] = useState<LevelSummary[]>([]);
+  const [loadingCaps, setLoadingCaps] = useState(false);
 
   useEffect(() => {
     if (rack) {
@@ -34,6 +81,41 @@ export function RackEditModal({
       setAmalgamatedClass((rack.amalgamatedClass || "CM").toUpperCase());
     }
   }, [rack]);
+
+  useEffect(() => {
+    if (!isOpen || !rack || !warehouseId) {
+      setLevelSummary([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadingCaps(true);
+        const parts = rack.id.split("-");
+        if (parts.length < 3) return;
+        const [area, row, bay] = parts;
+        const allLocations = await locationsApi.getByWarehouse(warehouseId);
+        const rackLocations = allLocations.filter((loc) => {
+          const locRow = loc.rowNumber?.padStart(2, "0") || "";
+          const locBay = loc.bayNumber?.padStart(2, "0") || "";
+          return loc.area === area && locRow === row.padStart(2, "0") && locBay === bay.padStart(2, "0");
+        });
+        if (!cancelled) setLevelSummary(buildLevelSummary(rackLocations));
+      } catch (e) {
+        logger.error("Failed to load rack capacity summary", e);
+      } finally {
+        if (!cancelled) setLoadingCaps(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, rack, warehouseId]);
+
+  const hasMissingCaps = useMemo(
+    () => levelSummary.some((l) => l.binCount > 0 && (l.maxWeightKg == null || l.maxVolumeCm3 == null)),
+    [levelSummary]
+  );
 
   if (!isOpen || !rack) return null;
 
@@ -265,6 +347,54 @@ export function RackEditModal({
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Read-only L1–L5 capacity summary */}
+          <div className="border border-base-300 rounded-lg p-4 bg-base-200/40">
+            <div className="flex items-center justify-between mb-2">
+              <span className="label-text font-medium">Level capacity (read-only)</span>
+              <Link
+                href="/admin/warehouses"
+                className="link link-primary text-xs"
+              >
+                Edit capacity in Slotting Planner →
+              </Link>
+            </div>
+            {loadingCaps ? (
+              <span className="loading loading-spinner loading-sm" />
+            ) : (
+              <>
+                {hasMissingCaps && (
+                  <p className="text-xs text-warning mb-2">Some levels are missing weight/volume caps.</p>
+                )}
+                <div className="overflow-x-auto">
+                  <table className="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Level</th>
+                        <th>Bins</th>
+                        <th>Max wt (kg)</th>
+                        <th>Max vol (cm³)</th>
+                        <th>Max units</th>
+                        <th>Util %</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {levelSummary.map((row) => (
+                        <tr key={row.level}>
+                          <td>L{row.level}</td>
+                          <td>{row.binCount || "—"}</td>
+                          <td>{row.maxWeightKg ?? "—"}</td>
+                          <td>{row.maxVolumeCm3 != null ? row.maxVolumeCm3.toLocaleString() : "—"}</td>
+                          <td>{row.maxUnits ?? "—"}</td>
+                          <td>{row.utilizationPct != null ? `${row.utilizationPct}%` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Description */}

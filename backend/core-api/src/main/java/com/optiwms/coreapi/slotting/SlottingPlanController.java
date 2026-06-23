@@ -23,6 +23,13 @@ public class SlottingPlanController {
         this.slottingPlanService = slottingPlanService;
     }
 
+    @GetMapping
+    public List<SlottingPlanSummaryDto> listPlans(@RequestParam UUID warehouseId) {
+        return slottingPlanService.listPlans(warehouseId).stream()
+                .map(this::toSummary)
+                .toList();
+    }
+
     @PostMapping
     public ResponseEntity<SlottingPlanSummaryDto> createPlan(@RequestBody CreatePlanDto body) {
         SlottingPlanEntity plan = slottingPlanService.createPlan(new SlottingPlanService.CreatePlanRequest(
@@ -37,16 +44,16 @@ public class SlottingPlanController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(plan));
     }
 
-    @GetMapping("/{id}")
-    public SlottingPlanSummaryDto getPlan(@PathVariable UUID id) {
-        return toSummary(slottingPlanService.getPlan(id));
-    }
-
     @GetMapping("/active")
     public ResponseEntity<SlottingPlanSummaryDto> getActivePlan(@RequestParam UUID warehouseId) {
         return slottingPlanService.getActivePlan(warehouseId)
                 .map(p -> ResponseEntity.ok(toSummary(p)))
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/{id}")
+    public SlottingPlanSummaryDto getPlan(@PathVariable UUID id) {
+        return toSummary(slottingPlanService.getPlan(id));
     }
 
     @GetMapping("/{id}/lines")

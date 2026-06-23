@@ -112,6 +112,8 @@ public class SlottingPlanClient {
             p.issue_volume = m.issueVolume();
             p.issue_count = m.issueCount();
             p.weight_kg = m.weightKg() != null ? m.weightKg().doubleValue() : null;
+            p.volume_cm3 = m.volumeCm3() != null ? m.volumeCm3().doubleValue() : null;
+            p.pallet_spaces = m.palletSpaces() != null ? m.palletSpaces().doubleValue() : null;
             p.incumbent_primary_location_code = incumbentPrimary.get(m.materialId());
             p.locked = lockedMaterialIds.contains(m.materialId());
             req.materials.add(p);
@@ -129,6 +131,9 @@ public class SlottingPlanClient {
             l.coordinate_x = loc.getCoordinateX() != null ? loc.getCoordinateX().doubleValue() : 0;
             l.coordinate_y = loc.getCoordinateY() != null ? loc.getCoordinateY().doubleValue() : 0;
             l.max_weight_kg = loc.getMaxWeightKg() != null ? loc.getMaxWeightKg().doubleValue() : null;
+            l.max_volume_cm3 = loc.getMaxVolumeCm3() != null ? loc.getMaxVolumeCm3().doubleValue() : null;
+            l.capacity = loc.getCapacity() != null ? loc.getCapacity().doubleValue() : null;
+            l.max_pallet_capacity = loc.getMaxPalletCapacity();
             l.is_active = Boolean.TRUE.equals(loc.getIsActive());
             req.locations.add(l);
         }
@@ -223,6 +228,8 @@ public class SlottingPlanClient {
         public double issue_volume;
         public int issue_count;
         public Double weight_kg;
+        public Double volume_cm3;
+        public Double pallet_spaces;
         public String incumbent_primary_location_code;
         public boolean locked;
     }
@@ -237,6 +244,9 @@ public class SlottingPlanClient {
         public double coordinate_x;
         public double coordinate_y;
         public Double max_weight_kg;
+        public Double max_volume_cm3;
+        public Double capacity;
+        public Integer max_pallet_capacity;
         public boolean is_active;
     }
 

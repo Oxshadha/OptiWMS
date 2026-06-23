@@ -19,6 +19,8 @@ class PlanMaterialInput(BaseModel):
     issue_volume: float = 0
     issue_count: int = 0
     weight_kg: Optional[float] = None
+    volume_cm3: Optional[float] = None
+    pallet_spaces: Optional[float] = None
     incumbent_primary_location_code: Optional[str] = None
     locked: bool = False
 
@@ -33,6 +35,9 @@ class PlanLocationInput(BaseModel):
     coordinate_x: float = 0
     coordinate_y: float = 0
     max_weight_kg: Optional[float] = None
+    max_volume_cm3: Optional[float] = None
+    capacity: Optional[float] = None
+    max_pallet_capacity: Optional[int] = None
     is_active: bool = True
 
 
@@ -100,9 +105,23 @@ def _pick_face_score(loc: PlanLocationInput, pick_face: bool) -> int:
 
 
 def _compatible(loc_class: Optional[str], sku_class: str) -> bool:
-    if not loc_class:
+    if not loc_class or not sku_class:
+        return True
+    if len(loc_class) < 1 or len(sku_class) < 1:
         return True
     return loc_class == sku_class or loc_class[0] == sku_class[0]
+
+
+def _fits_physical(loc: PlanLocationInput, material: PlanMaterialInput, active_pp: int = 1) -> bool:
+    if material.weight_kg and loc.max_weight_kg and material.weight_kg > loc.max_weight_kg:
+        return False
+    if material.volume_cm3 and loc.max_volume_cm3 and material.volume_cm3 > loc.max_volume_cm3:
+        return False
+    if loc.max_pallet_capacity and active_pp > loc.max_pallet_capacity:
+        return False
+    if loc.capacity and material.pallet_spaces and material.pallet_spaces > loc.capacity:
+        return False
+    return True
 
 
 def _max_stock_pp(material: PlanMaterialInput) -> int:
@@ -153,7 +172,7 @@ def _milp_refine_a_class(
         for j, loc in enumerate(golden):
             if not _compatible(loc.amalgamated_class, mat.amalgamated_class):
                 continue
-            if mat.weight_kg and loc.max_weight_kg and mat.weight_kg > loc.max_weight_kg:
+            if not _fits_physical(loc, mat):
                 continue
             x[i, j] = pulp.LpVariable(f"x_{i}_{j}", cat=pulp.LpBinary)
 
@@ -245,12 +264,14 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
             continue
 
         primary = None
+        max_pp = _max_stock_pp(material)
+        active_pp = _active_pick_pp(material, max_pp)
         for loc in pick_pool:
             if loc.location_code in assigned_primary:
                 continue
             if not _compatible(loc.amalgamated_class, material.amalgamated_class):
                 continue
-            if material.weight_kg and loc.max_weight_kg and material.weight_kg > loc.max_weight_kg:
+            if not _fits_physical(loc, material, active_pp):
                 continue
             if _pick_face_score(loc, True) > 2:
                 continue
@@ -261,21 +282,25 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
             for loc in pick_pool:
                 if loc.location_code in assigned_primary:
                     continue
-                if _compatible(loc.amalgamated_class, material.amalgamated_class):
-                    primary = loc
-                    break
+                if not _compatible(loc.amalgamated_class, material.amalgamated_class):
+                    continue
+                if not _fits_physical(loc, material, active_pp):
+                    continue
+                primary = loc
+                break
 
         if primary:
             assigned_primary.add(primary.location_code)
 
-        max_pp = _max_stock_pp(material)
-        active_pp = _active_pick_pp(material, max_pp)
         reserve_pp = max(0, max_pp - active_pp)
         reserves = []
         if reserve_pp > 0:
             for loc in reserve_pool:
-                if _compatible(loc.amalgamated_class, material.amalgamated_class):
-                    reserves.append({
+                if not _compatible(loc.amalgamated_class, material.amalgamated_class):
+                    continue
+                if not _fits_physical(loc, material, reserve_pp):
+                    continue
+                reserves.append({
                         "location_code": loc.location_code,
                         "reserve_pallet_positions": reserve_pp,
                         "reserve_zone_hint": "deep_reserve",
