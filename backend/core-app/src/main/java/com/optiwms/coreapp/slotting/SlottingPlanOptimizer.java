@@ -68,17 +68,20 @@ public class SlottingPlanOptimizer {
             }
             String amalgamated = material.amalgamatedClass();
             LocationEntity primary = findBestLocation(
-                    eligible, amalgamated, assignedPrimary, material, true, input.dispatchAnchor());
+                    eligible, amalgamated, assignedPrimary, material, true, input.dispatchAnchor(), input.demandProfiles());
             if (primary == null) {
                 primary = findBestLocation(
-                        eligible, amalgamated, assignedPrimary, material, false, input.dispatchAnchor());
+                        eligible, amalgamated, assignedPrimary, material, false, input.dispatchAnchor(), input.demandProfiles());
+            }
+            if (primary == null && placementPlanner != null && input.warehouseId() != null) {
+                primary = tryReclaimForRisingSku(input, material, assignedPrimary, eligible);
             }
             if (primary != null) {
                 assignedPrimary.add(primary.getLocationCode());
             }
 
-            int maxPp = computeMaxStockPp(material);
-            int activePp = computeActivePickPp(material, maxPp);
+            int maxPp = computeMaxStockPp(material, input.demandProfiles());
+            int activePp = computeActivePickPp(material, maxPp, input.demandProfiles());
             int reservePp = Math.max(0, maxPp - activePp);
 
             List<ReserveSlot> reserves = new ArrayList<>();
@@ -106,7 +109,7 @@ public class SlottingPlanOptimizer {
                 if (reserves.isEmpty()) {
                     Set<String> usedReserve = new HashSet<>();
                     LocationEntity reserveLoc = findBestLocation(
-                            reservePool, amalgamated, usedReserve, material, false, input.dispatchAnchor());
+                            reservePool, amalgamated, usedReserve, material, false, input.dispatchAnchor(), input.demandProfiles());
                     if (reserveLoc != null) {
                         reserves.add(new ReserveSlot(reserveLoc.getLocationCode(), reservePp, "deep_reserve"));
                     }
@@ -320,7 +323,8 @@ public class SlottingPlanOptimizer {
             Set<String> used,
             MaterialCandidate material,
             boolean pickFace,
-            double[] anchor) {
+            double[] anchor,
+            Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles) {
 
         for (LocationEntity loc : pool) {
             if (used.contains(loc.getLocationCode())) {
@@ -329,7 +333,7 @@ public class SlottingPlanOptimizer {
             if (!isCompatibleAmalgamated(loc.getAmalgamatedClass(), amalgamated)) {
                 continue;
             }
-            if (!supportsPhysicalFit(loc, material)) {
+            if (!supportsPhysicalFit(loc, material, demandProfiles)) {
                 continue;
             }
             if (pickFace && pickFaceScore(loc, true) > 2) {
@@ -379,14 +383,15 @@ public class SlottingPlanOptimizer {
                 || locationClass.charAt(0) == skuClass.charAt(0);
     }
 
-    private boolean supportsPhysicalFit(LocationEntity loc, MaterialCandidate material) {
+    private boolean supportsPhysicalFit(LocationEntity loc, MaterialCandidate material,
+                                        Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles) {
         if (!supportsWeight(loc, material)) {
             return false;
         }
         if (!supportsVolume(loc, material)) {
             return false;
         }
-        return supportsPalletCapacity(loc, material);
+        return supportsPalletCapacity(loc, material, demandProfiles);
     }
 
     private boolean supportsWeight(LocationEntity loc, MaterialCandidate material) {
@@ -420,8 +425,9 @@ public class SlottingPlanOptimizer {
         return material.volumeCm3().doubleValue() <= loc.getMaxVolumeCm3().doubleValue();
     }
 
-    private boolean supportsPalletCapacity(LocationEntity loc, MaterialCandidate material) {
-        int activePp = computeActivePickPp(material, computeMaxStockPp(material));
+    private boolean supportsPalletCapacity(LocationEntity loc, MaterialCandidate material,
+                                           Map<UUID, DemandSpacePlanningService.DemandProfile> profiles) {
+        int activePp = computeActivePickPp(material, computeMaxStockPp(material, profiles), profiles);
         Integer maxPallet = loc.getMaxPalletCapacity();
         if (maxPallet != null && maxPallet > 0 && activePp > maxPallet) {
             return false;
@@ -459,17 +465,55 @@ public class SlottingPlanOptimizer {
         return loc != null ? distanceToDispatch(loc, anchor) : 0;
     }
 
-    private int computeMaxStockPp(MaterialCandidate m) {
+    private int computeMaxStockPp(MaterialCandidate m, Map<UUID, DemandSpacePlanningService.DemandProfile> profiles) {
+        if (profiles != null) {
+            DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
+            if (profile != null && profile.requiredPalletPositions() > 0) {
+                return profile.requiredPalletPositions();
+            }
+        }
         long monthly = Math.max(1, m.issueVolume() / 12);
         int weeks = "packaging_material".equals(m.materialType()) ? 2 : 4;
         return (int) Math.max(1, Math.ceil(monthly * weeks / 4.0));
     }
 
-    private int computeActivePickPp(MaterialCandidate m, int maxPp) {
+    private int computeActivePickPp(MaterialCandidate m, int maxPp,
+                                      Map<UUID, DemandSpacePlanningService.DemandProfile> profiles) {
+        if (profiles != null) {
+            DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
+            if (profile != null && profile.activePickPalletPositions() > 0) {
+                return Math.min(profile.activePickPalletPositions(), maxPp);
+            }
+        }
         int weeks = "packaging_material".equals(m.materialType()) ? 2 : 2;
         long monthly = Math.max(1, m.issueVolume() / 12);
         int active = (int) Math.max(1, Math.ceil(monthly * weeks / 4.0));
         return Math.min(active, maxPp);
+    }
+
+    private LocationEntity tryReclaimForRisingSku(
+            OptimizerInput input,
+            MaterialCandidate material,
+            Set<String> assignedPrimary,
+            List<LocationEntity> eligible) {
+        DemandSpacePlanningService.DemandProfile profile = input.demandProfiles() != null
+                ? input.demandProfiles().get(material.materialId()) : null;
+        if (profile == null || profile.demandTrend() != DemandSpacePlanningService.DemandTrend.RISING) {
+            return null;
+        }
+        List<StockPlacementPlanner.ReclaimBin> reclaimed = placementPlanner.planReclaim(
+                input.warehouseId(),
+                input.demandProfiles(),
+                1,
+                assignedPrimary);
+        for (StockPlacementPlanner.ReclaimBin bin : reclaimed) {
+            LocationEntity loc = input.locationIndex().get(bin.locationCode());
+            if (loc != null && !assignedPrimary.contains(loc.getLocationCode())) {
+                assignedPrimary.add(loc.getLocationCode());
+                return loc;
+            }
+        }
+        return null;
     }
 
     private double computeGainScore(
@@ -555,7 +599,8 @@ public class SlottingPlanOptimizer {
             List<SlottingPlanLineEntity> existingLines,
             BigDecimal relocationBudgetPct,
             double[] dispatchAnchor,
-            UUID warehouseId) {}
+            UUID warehouseId,
+            Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles) {}
 
     public record OptimizedLine(
             MaterialCandidate material,

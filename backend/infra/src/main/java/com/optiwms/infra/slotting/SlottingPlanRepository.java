@@ -15,4 +15,6 @@ public interface SlottingPlanRepository extends JpaRepository<SlottingPlanEntity
             UUID warehouseId, String status);
 
     boolean existsByWarehouseIdAndPlanCode(UUID warehouseId, String planCode);
+
+    Optional<SlottingPlanEntity> findByWarehouseIdAndPlanCode(UUID warehouseId, String planCode);
 }

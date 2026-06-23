@@ -68,6 +68,16 @@ public class SlottingPlanEntity {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "execution_status", length = 32)
+    private String executionStatus;
+
+    @Column(name = "execution_transfer_id")
+    @JdbcTypeCode(SqlTypes.UUID)
+    private UUID executionTransferId;
+
+    @Column(name = "transfers_created", nullable = false)
+    private Integer transfersCreated;
+
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
 
@@ -99,6 +109,12 @@ public class SlottingPlanEntity {
         }
         if (totalDistanceSavedMeters == null) {
             totalDistanceSavedMeters = BigDecimal.ZERO;
+        }
+        if (executionStatus == null) {
+            executionStatus = "NONE";
+        }
+        if (transfersCreated == null) {
+            transfersCreated = 0;
         }
     }
 
@@ -141,6 +157,12 @@ public class SlottingPlanEntity {
     public void setSourceStatsAt(OffsetDateTime sourceStatsAt) { this.sourceStatsAt = sourceStatsAt; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public String getExecutionStatus() { return executionStatus; }
+    public void setExecutionStatus(String executionStatus) { this.executionStatus = executionStatus; }
+    public UUID getExecutionTransferId() { return executionTransferId; }
+    public void setExecutionTransferId(UUID executionTransferId) { this.executionTransferId = executionTransferId; }
+    public Integer getTransfersCreated() { return transfersCreated; }
+    public void setTransfersCreated(Integer transfersCreated) { this.transfersCreated = transfersCreated; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }

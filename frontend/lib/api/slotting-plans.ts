@@ -18,6 +18,9 @@ export interface SlottingPlanSummary {
   approvedAt?: string;
   sourceStatsAt?: string;
   notes?: string;
+  executionStatus?: string;
+  executionTransferId?: string | null;
+  transfersCreated?: number;
 }
 
 export interface ReserveLocation {

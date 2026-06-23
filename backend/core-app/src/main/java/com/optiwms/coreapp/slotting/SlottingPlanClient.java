@@ -92,7 +92,29 @@ public class SlottingPlanClient {
             List<LocationEntity> locations,
             Map<UUID, String> incumbentPrimary,
             Set<UUID> lockedMaterialIds) {
+        return buildRequest(
+                warehouseId,
+                relocationBudgetPct,
+                useMilpAClass,
+                materials,
+                locations,
+                incumbentPrimary,
+                lockedMaterialIds,
+                Map.of());
+    }
 
+    public static PlanOptimizeRequest buildRequest(
+            UUID warehouseId,
+            BigDecimal relocationBudgetPct,
+            boolean useMilpAClass,
+            List<SlottingPlanOptimizer.MaterialCandidate> materials,
+            List<LocationEntity> locations,
+            Map<UUID, String> incumbentPrimary,
+            Set<UUID> lockedMaterialIds,
+            Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles) {
+
+        Map<UUID, DemandSpacePlanningService.DemandProfile> profiles =
+                demandProfiles != null ? demandProfiles : Map.of();
         PlanOptimizeRequest req = new PlanOptimizeRequest();
         req.warehouse_id = warehouseId.toString();
         req.relocation_budget_pct = relocationBudgetPct != null
@@ -116,6 +138,13 @@ public class SlottingPlanClient {
             p.pallet_spaces = m.palletSpaces() != null ? m.palletSpaces().doubleValue() : null;
             p.incumbent_primary_location_code = incumbentPrimary.get(m.materialId());
             p.locked = lockedMaterialIds.contains(m.materialId());
+            DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
+            if (profile != null) {
+                p.required_pallets = profile.requiredPalletPositions();
+                p.demand_trend = profile.demandTrend().name();
+                p.min_stock_units = profile.minStockUnits() != null
+                        ? profile.minStockUnits().doubleValue() : null;
+            }
             req.materials.add(p);
         }
 
@@ -232,6 +261,9 @@ public class SlottingPlanClient {
         public Double pallet_spaces;
         public String incumbent_primary_location_code;
         public boolean locked;
+        public Integer required_pallets;
+        public String demand_trend;
+        public Double min_stock_units;
     }
 
     public static class PlanLocationPayload {

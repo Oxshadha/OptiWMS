@@ -114,7 +114,10 @@ public class SlottingPlanController {
                 plan.getApprovedBy(),
                 plan.getApprovedAt() != null ? plan.getApprovedAt().toString() : null,
                 plan.getSourceStatsAt() != null ? plan.getSourceStatsAt().toString() : null,
-                plan.getNotes());
+                plan.getNotes(),
+                plan.getExecutionStatus(),
+                plan.getExecutionTransferId() != null ? plan.getExecutionTransferId().toString() : null,
+                plan.getTransfersCreated());
     }
 
     private SlottingPlanLineDto toLineDto(SlottingPlanLineEntity line) {
@@ -199,7 +202,10 @@ public class SlottingPlanController {
             String approvedBy,
             String approvedAt,
             String sourceStatsAt,
-            String notes) {}
+            String notes,
+            String executionStatus,
+            String executionTransferId,
+            Integer transfersCreated) {}
 
     public record ReserveLocationDto(
             String locationCode,
