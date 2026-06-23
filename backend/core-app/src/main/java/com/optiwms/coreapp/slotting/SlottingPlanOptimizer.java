@@ -292,7 +292,7 @@ public class SlottingPlanOptimizer {
             if (!isCompatibleAmalgamated(loc.getAmalgamatedClass(), amalgamated)) {
                 continue;
             }
-            if (!supportsWeight(loc, material)) {
+            if (!supportsPhysicalFit(loc, material)) {
                 continue;
             }
             if (pickFace && pickFaceScore(loc, true) > 2) {
@@ -332,18 +332,52 @@ public class SlottingPlanOptimizer {
         if (locationClass == null || locationClass.isBlank()) {
             return true;
         }
-        if (skuClass == null) {
+        if (skuClass == null || skuClass.isBlank()) {
+            return true;
+        }
+        if (locationClass.length() < 1 || skuClass.length() < 1) {
             return true;
         }
         return locationClass.equals(skuClass)
                 || locationClass.charAt(0) == skuClass.charAt(0);
     }
 
+    private boolean supportsPhysicalFit(LocationEntity loc, MaterialCandidate material) {
+        if (!supportsWeight(loc, material)) {
+            return false;
+        }
+        if (!supportsVolume(loc, material)) {
+            return false;
+        }
+        return supportsPalletCapacity(loc, material);
+    }
+
     private boolean supportsWeight(LocationEntity loc, MaterialCandidate material) {
         if (material.weightKg() == null || loc.getMaxWeightKg() == null) {
-            return true;
+            return material.weightKg() == null || loc.getMaxWeightKg() != null;
         }
         return material.weightKg().doubleValue() <= loc.getMaxWeightKg().doubleValue();
+    }
+
+    private boolean supportsVolume(LocationEntity loc, MaterialCandidate material) {
+        if (material.volumeCm3() == null || loc.getMaxVolumeCm3() == null) {
+            return true;
+        }
+        return material.volumeCm3().doubleValue() <= loc.getMaxVolumeCm3().doubleValue();
+    }
+
+    private boolean supportsPalletCapacity(LocationEntity loc, MaterialCandidate material) {
+        int activePp = computeActivePickPp(material, computeMaxStockPp(material));
+        Integer maxPallet = loc.getMaxPalletCapacity();
+        if (maxPallet != null && maxPallet > 0 && activePp > maxPallet) {
+            return false;
+        }
+        if (loc.getCapacity() != null && loc.getCapacity().doubleValue() > 0
+                && material.palletSpaces() != null
+                && material.palletSpaces().doubleValue() > loc.getCapacity().doubleValue()) {
+            return false;
+        }
+        return true;
     }
 
     private int pickFaceScore(LocationEntity loc, boolean preferPickFace) {
@@ -450,7 +484,9 @@ public class SlottingPlanOptimizer {
             String fmsClass,
             long issueVolume,
             int issueCount,
-            BigDecimal weightKg) {}
+            BigDecimal weightKg,
+            BigDecimal volumeCm3,
+            BigDecimal palletSpaces) {}
 
     public record ReserveSlot(String locationCode, int palletPositions, String zoneHint) {}
 

@@ -448,6 +448,125 @@ def optimize_slotting(request: SlottingOptimizationRequest):
         db.close()
 
 
+class WmsMaterialInput(BaseModel):
+    material_id: str
+    material_code: str
+    weight_kg: float
+    volume_cm3: float
+    length_cm: Optional[float] = None
+    width_cm: Optional[float] = None
+    height_cm: Optional[float] = None
+    pallet_spaces: float = 1
+    abc_class: Optional[str] = "C"
+    fms_class: Optional[str] = "S"
+    velocity: float = 0
+
+
+class WmsLocationInput(BaseModel):
+    location_id: str
+    location_code: str
+    max_weight_kg: float
+    max_volume_cm3: float
+    capacity: Optional[float] = None
+    max_pallet_capacity: Optional[int] = None
+    coordinate_x: float = 0
+    coordinate_y: float = 0
+    amalgamated_class: Optional[str] = None
+    level_number: Optional[int] = None
+
+
+class WmsOptimizeRequest(BaseModel):
+    warehouse_id: str
+    population_size: int = 50
+    generations: int = 100
+    mutation_rate: float = 0.2
+    materials: List[WmsMaterialInput] = []
+    locations: List[WmsLocationInput] = []
+
+
+@router.post("/optimize-wms", response_model=SlottingOptimizationResponse)
+def optimize_slotting_wms(request: WmsOptimizeRequest):
+    """GA optimization using WMS-provided materials and locations (no local SQLite DB)."""
+    missing_dims = sum(
+        1 for m in request.materials
+        if m.weight_kg <= 1 or m.volume_cm3 <= 1000
+    )
+    if missing_dims > 0:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=400,
+            detail=f"{missing_dims} materials missing dimensions",
+        )
+    if not request.materials:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="No materials provided")
+    if not request.locations:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="No locations with capacity constraints provided")
+
+    try:
+        from app.services.slotting import run_slotting_optimization, Location, SKU
+    except ImportError as exc:
+        logger.error("Bulk slotting modules unavailable: %s", exc)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Slotting GA modules unavailable") from exc
+
+    locations = [
+        Location(
+            id=loc.location_id,
+            zone=(loc.amalgamated_class or "A")[:1],
+            aisle="1",
+            rack=str(loc.level_number or 1),
+            bin="1",
+            max_weight=loc.max_weight_kg,
+            max_volume=loc.max_volume_cm3,
+            allowed_hazard_classes=["none"],
+            distance_to_dispatch=(loc.coordinate_x ** 2 + loc.coordinate_y ** 2) ** 0.5,
+        )
+        for loc in request.locations
+    ]
+
+    skus = [
+        SKU(
+            id=mat.material_id,
+            weight=mat.weight_kg,
+            volume=mat.volume_cm3,
+            hazard_class=None,
+            stackability_score=5,
+            velocity=mat.velocity or 10.0,
+        )
+        for mat in request.materials
+    ]
+
+    best_chromosome = run_slotting_optimization(
+        skus=skus,
+        locations=locations,
+        population_size=request.population_size,
+        generations=request.generations,
+        mutation_rate=request.mutation_rate,
+    )
+
+    loc_by_id = {loc.location_id: loc for loc in request.locations}
+    mat_by_id = {mat.material_id: mat for mat in request.materials}
+
+    assignments = [
+        SlottingAssignmentResponse(
+            material_id=gene.sku_id,
+            material_code=mat_by_id[gene.sku_id].material_code if gene.sku_id in mat_by_id else gene.sku_id,
+            location_id=gene.location_id,
+            location_code=loc_by_id[gene.location_id].location_code if gene.location_id in loc_by_id else gene.location_id,
+        )
+        for gene in best_chromosome.genes
+        if gene.sku_id in mat_by_id and gene.location_id in loc_by_id
+    ]
+
+    return SlottingOptimizationResponse(
+        warehouse_id=request.warehouse_id,
+        best_fitness=round(best_chromosome.fitness, 2),
+        assignments=assignments,
+    )
+
+
 @router.post("/plan/optimize", response_model=PlanOptimizeResponseBody)
 def optimize_plan_endpoint(request: PlanOptimizeRequestBody):
   """Deterministic quarterly plan optimizer — returns assignments only (backend persists)."""

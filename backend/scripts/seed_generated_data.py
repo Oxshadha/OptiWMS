@@ -56,9 +56,9 @@ def seed_product_dimensions(engine, warehouse_id: str):
             conn.execute(text("""
                 INSERT INTO materials (id, material_code, description, material_type, category,
                     storage_type, length_cm, width_cm, height_cm, weight_kg, volume_cm3,
-                    units_per_pallet, hazard_class, hazardous)
+                    units_per_pallet, pallet_spaces, hazard_class, hazardous)
                 VALUES (:id, :code, :name, :type, :cat, :st, :l, :w, :h, :wt, :vol,
-                    :upp, :haz, :is_haz)
+                    :upp, :upp, :haz, :is_haz)
                 ON CONFLICT (material_code) DO UPDATE SET
                     storage_type = EXCLUDED.storage_type,
                     length_cm = EXCLUDED.length_cm,
@@ -67,6 +67,7 @@ def seed_product_dimensions(engine, warehouse_id: str):
                     weight_kg = EXCLUDED.weight_kg,
                     volume_cm3 = EXCLUDED.volume_cm3,
                     units_per_pallet = EXCLUDED.units_per_pallet,
+                    pallet_spaces = EXCLUDED.units_per_pallet,
                     hazard_class = EXCLUDED.hazard_class
             """), {
                 "id": mat_id,

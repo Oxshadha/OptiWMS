@@ -354,9 +354,9 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   <thead>
                     <tr>
                       <th>Level</th>
-                      <th>Units</th>
-                      <th>Weight kg</th>
-                      <th>Volume cm3</th>
+                      <th>Max units</th>
+                      <th>Max weight (kg)</th>
+                      <th>Max volume (cm³)</th>
                       <th>LPN</th>
                     </tr>
                   </thead>
