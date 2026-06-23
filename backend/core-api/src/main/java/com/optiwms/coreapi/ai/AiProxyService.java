@@ -152,6 +152,14 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String mode, String warehouseId) {
+        ResponseEntity<Object> orchestratorResult = triggerForecastRunViaOrchestrator(dataset, modelName, mode, warehouseId);
+        if (orchestratorResult.getStatusCode().is2xxSuccessful()) {
+            return orchestratorResult;
+        }
+        return triggerForecastRunViaForecastService(dataset, modelName, mode, warehouseId, orchestratorResult);
+    }
+
+    private ResponseEntity<Object> triggerForecastRunViaOrchestrator(String dataset, String modelName, String mode, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
                 .queryParam("model_name", modelName)
@@ -166,7 +174,7 @@ public class AiProxyService {
             ResponseEntity<Map> response = restTemplate.exchange(ub.toUriString(), HttpMethod.POST, request, Map.class);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } catch (ResourceAccessException ex) {
-            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
                     "ok", false,
                     "reason", "orchestrator_timeout",
                     "message", "Forecast trigger timed out while waiting for orchestrator.",
@@ -183,6 +191,90 @@ public class AiProxyService {
                     "error", ex.getResponseBodyAsString()
             ));
         }
+    }
+
+    private ResponseEntity<Object> triggerForecastRunViaForecastService(
+            String dataset,
+            String modelName,
+            String mode,
+            String warehouseId,
+            ResponseEntity<Object> orchestratorFailure
+    ) {
+        String publishMode = (mode == null || mode.isBlank()) ? "online" : mode;
+        Map<String, Object> createBody = new HashMap<>();
+        createBody.put("dataset", dataset);
+        createBody.put("model_name", modelName);
+        createBody.put("model_version", "v1");
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            createBody.put("warehouse_id", warehouseId);
+        }
+
+        try {
+            HttpEntity<Map<String, Object>> createRequest = new HttpEntity<>(createBody, headers());
+            ResponseEntity<Map> createResponse = restTemplate.exchange(
+                    forecastBaseUrl + "/runs",
+                    HttpMethod.POST,
+                    createRequest,
+                    Map.class
+            );
+            Map<?, ?> createPayload = createResponse.getBody();
+            if (createPayload == null || createPayload.get("id") == null) {
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                        "ok", false,
+                        "reason", "forecast_create_failed",
+                        "message", "Forecast service did not return a run id.",
+                        "orchestrator_failure", orchestratorFailure.getBody()
+                ));
+            }
+
+            Number runId = (Number) createPayload.get("id");
+            UriComponentsBuilder publishUrl = UriComponentsBuilder
+                    .fromHttpUrl(forecastBaseUrl + "/runs/" + runId.longValue() + "/publish")
+                    .queryParam("mode", publishMode)
+                    .queryParam("async_run", "true");
+
+            HttpEntity<String> publishRequest = new HttpEntity<>(headers());
+            ResponseEntity<Map> publishResponse = restTemplate.exchange(
+                    publishUrl.toUriString(),
+                    HttpMethod.POST,
+                    publishRequest,
+                    Map.class
+            );
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("ok", true);
+            body.put("job", "forecast-run");
+            body.put("run_id", runId.longValue());
+            body.put("status", publishResponse.getBody() != null
+                    ? publishResponse.getBody().getOrDefault("status", "publishing")
+                    : "publishing");
+            body.put("mode_requested", publishMode);
+            body.put("fallback", "forecast_service_direct");
+            body.put("orchestrator_failure", orchestratorFailure.getBody());
+            body.put("publish_result", publishResponse.getBody());
+            return ResponseEntity.status(publishResponse.getStatusCode()).body(body);
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", "forecast_timeout",
+                    "message", "Forecast trigger failed: orchestrator unavailable and direct forecast-service call timed out.",
+                    "orchestrator_failure", orchestratorFailure.getBody(),
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", "forecast_http_error",
+                    "message", "Forecast trigger failed: orchestrator unavailable and direct forecast-service call failed.",
+                    "orchestrator_failure", orchestratorFailure.getBody(),
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        }
+    }
+
+    public ResponseEntity<Object> getGatewayModels() {
+        return exchangeGetSafe(forecastBaseUrl + "/gateway/models", "forecast");
     }
 
     public ResponseEntity<Object> triggerForecastRunWithGuard(
