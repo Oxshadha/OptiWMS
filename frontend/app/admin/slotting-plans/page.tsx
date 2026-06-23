@@ -32,6 +32,18 @@ export default function SlottingPlansPage() {
     [plans, selectedPlanId]
   );
 
+  const lineSummary = useMemo(() => {
+    const total = lines.length;
+    const movesProposed = lines.filter((line) => line.relocationFlag).length;
+    const movesApplied = lines.filter((line) => line.relocationApplied).length;
+    const distanceSaved = lines.reduce(
+      (sum, line) => sum + (line.relocationApplied ? line.distanceSavedMeters ?? 0 : 0),
+      0
+    );
+    const moveLimit = Math.floor(total * (relocationBudgetPct / 100));
+    return { total, movesProposed, movesApplied, distanceSaved, moveLimit };
+  }, [lines, relocationBudgetPct]);
+
   useEffect(() => {
     void warehousesApi.getAll().then((wh) => {
       setWarehouses(wh);
@@ -149,50 +161,94 @@ export default function SlottingPlansPage() {
         </div>
       )}
 
-      <div className="card bg-base-100 border border-base-300 p-4 flex flex-wrap gap-4 items-end">
-        <div className="form-control">
-          <label className="label"><span className="label-text">Warehouse</span></label>
-          <select
-            className="select select-bordered"
-            value={warehouseId}
-            onChange={(e) => {
-              setWarehouseId(e.target.value);
-              setSelectedPlanId(null);
-            }}
-          >
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
+      <div className="grid grid-cols-1 xl:grid-cols-4 gap-4">
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Materials in plan</p>
+          <p className="text-2xl font-bold mt-1">{lineSummary.total || "—"}</p>
+          <p className="text-xs text-base-content/60 mt-1">SKUs evaluated in the selected plan</p>
         </div>
-        <div className="form-control">
-          <label className="label"><span className="label-text">Relocation budget %</span></label>
-          <input
-            type="number"
-            className="input input-bordered w-24"
-            value={relocationBudgetPct}
-            onChange={(e) => setRelocationBudgetPct(Number(e.target.value))}
-          />
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Moves proposed</p>
+          <p className="text-2xl font-bold mt-1">{lineSummary.movesProposed}</p>
+          <p className="text-xs text-base-content/60 mt-1">Items the optimizer wants to relocate</p>
         </div>
-        <label className="label cursor-pointer gap-2">
-          <input type="checkbox" className="checkbox" checked={useMilp} onChange={(e) => setUseMilp(e.target.checked)} />
-          <span className="label-text">MILP for A-class</span>
-        </label>
-        <button
-          className="btn btn-primary"
-          disabled={loading || !readiness?.ready}
-          onClick={() => void handleCreatePlan()}
-        >
-          Generate plan
-        </button>
-        {selectedPlan && selectedPlan.status === "DRAFT" && (
-          <button className="btn btn-success" disabled={loading} onClick={() => void handleApprove()}>
-            Approve plan
-          </button>
-        )}
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Move limit</p>
+          <p className="text-2xl font-bold mt-1">{lineSummary.moveLimit}</p>
+          <p className="text-xs text-base-content/60 mt-1">
+            {relocationBudgetPct}% budget caps how many SKUs may move in one cycle
+          </p>
+        </div>
+        <div className="card bg-base-100 border border-base-300 p-4">
+          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Distance saved</p>
+          <p className="text-2xl font-bold mt-1">{lineSummary.distanceSaved.toFixed(0)} m</p>
+          <p className="text-xs text-base-content/60 mt-1">Estimated from applied relocations</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="card bg-base-100 border border-base-300 p-4">
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(220px,260px)_minmax(140px,180px)_minmax(220px,320px)_1fr] gap-4 items-end">
+            <div className="form-control">
+              <label className="label"><span className="label-text">Warehouse</span></label>
+              <select
+                className="select select-bordered min-w-56"
+                value={warehouseId}
+                onChange={(e) => {
+                  setWarehouseId(e.target.value);
+                  setSelectedPlanId(null);
+                }}
+              >
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text">Move limit (%)</span>
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                className="input input-bordered w-28"
+                value={relocationBudgetPct}
+                onChange={(e) => setRelocationBudgetPct(Number(e.target.value))}
+              />
+            </div>
+            <div className="form-control">
+              <label className="label"><span className="label-text">Manager impact</span></label>
+              <div className="rounded-lg border border-base-300 bg-base-200 px-3 py-[0.7rem] text-sm">
+                Up to <strong>{lineSummary.moveLimit}</strong> of <strong>{lineSummary.total || 0}</strong> SKUs may move
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-start xl:justify-end items-end gap-3">
+              <label className="label cursor-pointer gap-2 justify-start mb-0">
+                <input type="checkbox" className="checkbox" checked={useMilp} onChange={(e) => setUseMilp(e.target.checked)} />
+                <span className="label-text whitespace-nowrap">Use MILP for A-class SKUs</span>
+              </label>
+              <button
+                className="btn btn-primary"
+                disabled={loading || !readiness?.ready}
+                onClick={() => void handleCreatePlan()}
+              >
+                Generate plan
+              </button>
+              {selectedPlan && selectedPlan.status === "DRAFT" && (
+                <button className="btn btn-success" disabled={loading} onClick={() => void handleApprove()}>
+                  Approve plan
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="text-xs text-base-content/60">
+            Limits disruption by capping how many SKUs this plan may relocate in one cycle.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="card bg-base-100 border border-base-300 p-4 lg:col-span-1 max-h-[480px] overflow-y-auto">
           <h2 className="font-semibold mb-3">Plan history</h2>
           {plans.length === 0 ? (
@@ -227,30 +283,36 @@ export default function SlottingPlansPage() {
           <h2 className="font-semibold mb-3">
             {selectedPlan ? `Lines — ${selectedPlan.planCode}` : "Select a plan"}
           </h2>
-          <div className="overflow-x-auto max-h-[420px]">
-            <table className="table table-sm">
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>Current</th>
-                  <th>Recommended</th>
-                  <th>Move?</th>
-                  <th>Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line) => (
-                  <tr key={line.id}>
-                    <td className="font-mono text-xs">{line.materialCode}</td>
-                    <td className="font-mono text-xs">{line.currentPrimaryLocation ?? "—"}</td>
-                    <td className="font-mono text-xs text-primary">{line.finalPrimaryLocation ?? line.recommendedPrimaryLocation ?? "—"}</td>
-                    <td>{line.relocationFlag ? "Yes" : "—"}</td>
-                    <td className="text-xs max-w-[200px] truncate">{line.moveReason}</td>
+          {selectedPlan ? (
+            <div className="overflow-x-auto max-h-[520px]">
+              <table className="table table-sm">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th>Current</th>
+                    <th>Recommended</th>
+                    <th>Move?</th>
+                    <th>Reason</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="font-mono text-xs">{line.materialCode}</td>
+                      <td className="font-mono text-xs">{line.currentPrimaryLocation ?? "—"}</td>
+                      <td className="font-mono text-xs text-primary">{line.finalPrimaryLocation ?? line.recommendedPrimaryLocation ?? "—"}</td>
+                      <td>{line.relocationFlag ? "Yes" : "—"}</td>
+                      <td className="text-xs max-w-[260px] truncate">{line.moveReason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-base-300 p-8 text-sm text-base-content/60">
+              Pick a plan from history or generate a new one to review recommended moves.
+            </div>
+          )}
         </div>
       </div>
     </div>
