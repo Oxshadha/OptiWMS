@@ -272,8 +272,8 @@ export default function ForecastsPage() {
     sku?: string;
     warehouseId: string;
   }>({
-    dataset: DEFAULT_DATASET,
-    model: DEFAULT_MODEL,
+    dataset: DEFAULT_DATASET || "P",
+    model: DEFAULT_MODEL || "LIGHTGBM",
     split: EVAL_SPLIT,
     horizon: undefined,
     sku: "",
@@ -359,9 +359,35 @@ export default function ForecastsPage() {
     return { dataset: String(latest.dataset), model: String(latest.model) };
   };
 
-  const resolveBinding = async () => {
-    // Force transition to the new Champion Model (Random Forest)
-    return { dataset: "P", model: "RANDOM_FOREST" };
+  const resolveBinding = async (): Promise<{ dataset: string; model: string }> => {
+    const championDataset = DEFAULT_DATASET || "P";
+    const championModel = (DEFAULT_MODEL || "LIGHTGBM").toUpperCase();
+
+    try {
+      const models = await aiForecastApi.getGatewayModels();
+      const name = models?.champion?.name;
+      if (name) {
+        return { dataset: championDataset, model: String(name).toUpperCase() };
+      }
+    } catch (gatewayError) {
+      logger.warn("[ForecastsPage] Gateway models unavailable, using configured champion:", gatewayError);
+    }
+
+    try {
+      const forecastRes = await aiForecastApi.getForecasts({
+        dataset: championDataset,
+        model: championModel,
+        warehouseId: effectiveWarehouseId,
+      });
+      const binding = pickLatestBinding(forecastRes.items ?? []);
+      if (binding) {
+        return binding;
+      }
+    } catch (forecastError) {
+      logger.warn("[ForecastsPage] Champion forecast lookup failed:", forecastError);
+    }
+
+    return { dataset: championDataset, model: championModel };
   };
 
   const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
@@ -1309,6 +1335,30 @@ export default function ForecastsPage() {
   const finalResiduals = liveResiduals;
   const finalInventory = liveInventoryFlow;
   const hasLiveForecastData = aggregatedForecastData.length > 0;
+  const hasBacktestActuals = useMemo(
+    () => latestForecasts.some((f) => f.y_true !== null && f.y_true !== undefined),
+    [latestForecasts]
+  );
+  const forecastedUnits6Mo = useMemo(() => {
+    const rows = latestForecasts.filter(
+      (f) => f.horizon <= 6 && (f.y_true === null || f.y_true === undefined)
+    );
+    if (!rows.length) return null;
+    return Math.round(rows.reduce((s, f) => s + Number(f.p50 || 0), 0));
+  }, [latestForecasts]);
+  const avgStockCoverDays = useMemo(() => {
+    if (!liveSkuDetails.length) return null;
+    const vals = liveSkuDetails.map((s) => s.stockDays).filter((d) => Number.isFinite(d) && d > 0);
+    if (!vals.length) return null;
+    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  }, [liveSkuDetails]);
+  const totalOnHandUnits = useMemo(() => {
+    const vals = recommendations
+      .map((r) => r.on_hand_inventory)
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+    if (!vals.length) return null;
+    return Math.round(vals.reduce((a, b) => a + b, 0));
+  }, [recommendations]);
   const finalExog = useMemo(() => {
     if (!hasLiveForecastData) return [];
     return finalForecastData.map((d, i) => ({
@@ -1394,6 +1444,17 @@ export default function ForecastsPage() {
           <span>
             No published forecast series yet. Run the forecast engine (admin) or wait for the next publish job.
             Charts show empty until live <code>forecast_results</code> are available.
+          </span>
+        </div>
+      )}
+
+      {hasLiveForecastData && (
+        <div className="alert alert-info text-sm">
+          <span className="material-symbols-outlined">science</span>
+          <span>
+            <strong>Pilot data mode.</strong> Forecasts are live online inference ({filters.model || "LIGHTGBM"}).
+            Intervals are ±10% of P50 (not v6 quantile models yet). Metrics (MAPE/RMSE) come from a static test CSV, not this run.
+            {!hasBacktestActuals && " No historical actuals (y_true) — seasonality, residuals, and CI coverage charts stay empty until backtest rows are published."}
           </span>
         </div>
       )}
@@ -1638,16 +1699,19 @@ export default function ForecastsPage() {
           {/* KPI Summary Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={mapeVal !== null ? `${(100 - mapeVal).toFixed(1)}%` : "—"} sub={mapeVal !== null ? `WAPE = ${mapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
-            <KpiCard title="Forecasted Units" value={Math.round(totalSuggestedQty * 1.8 || 38420).toLocaleString()} sub="Next 6 months" color={C.accent} delta={8.4} icon="package_2" />
-            <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} delta={-1} icon="warning" />
-            <KpiCard title="Avg Days of Stock" value="24.8d" sub="Warehouse coverage" color={C.accent4} delta={-3.1} icon="grid_view" />
-            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="From published metrics" color={C.warn} icon="balance" />
+            <KpiCard title="Forecasted Units" value={forecastedUnits6Mo !== null ? forecastedUnits6Mo.toLocaleString() : "—"} sub="Sum P50 horizons 1–6" color={C.accent} icon="package_2" />
+            <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} icon="warning" />
+            <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent4} icon="grid_view" />
+            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="From static test metrics CSV" color={C.warn} icon="balance" />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Demand Forecast vs Actuals — 24-Month View" sub="Expected demand vs historical actuals · Toggle 'Show Confidence Intervals' for bounds" />
+            <SectionHeader title="Demand Forecast vs Actuals — 24-Month View" sub={hasBacktestActuals ? "Expected demand vs historical actuals" : "Online horizon forecast only (H+1…H+12) — no historical actuals in this publish"} />
             <div className="h-80 w-full mt-3">
+              {processedForecastData.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-base-content/60">No forecast points for this SKU / filter.</div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={processedForecastData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--fallback-bc, #e2e8f0)" opacity={0.15} />
@@ -1672,6 +1736,7 @@ export default function ForecastsPage() {
                   <Brush dataKey="label" height={24} stroke={C.textDim} fill={C.border} tickFormatter={() => ""} travellerWidth={14} traveller={CustomBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -1681,6 +1746,11 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Seasonality Index" sub="Values >1.0 denote peak seasonal months" color={C.accent2} />
               <div className="h-56 w-full mt-3">
+                {finalSeasonality.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
+                    Needs monthly actuals (y_true) per calendar month. Online publishes use H+1 labels only.
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSeasonality}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
@@ -1695,6 +1765,7 @@ export default function ForecastsPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -1754,19 +1825,9 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Market Drivers & Promotions" sub="How external events (weather, pricing, campaigns) impact our baseline demand" color={C.accent4} />
               <div className="h-56 w-full mt-3">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={finalExog.slice(0, 12)}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis yAxisId="left" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis yAxisId="right" orientation="right" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <Tooltip content={<ChartTip />} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Bar yAxisId="left" dataKey="promo" name="Active Campaign (Yes=1)" fill={C.textDim} fillOpacity={0.75} radius={[3, 3, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="weatherImpact" stroke={C.muted} strokeWidth={2} dot={false} name="Weather Demand Impact (Index)" />
-                    <Line yAxisId="right" type="monotone" dataKey="priceIndex" stroke={C.accent} strokeWidth={2} dot={false} name="Market Price Index" />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
+                  Exogenous drivers (promo, weather, price) are not published with online runs yet.
+                </div>
               </div>
             </div>
 
@@ -1774,6 +1835,11 @@ export default function ForecastsPage() {
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Seasonality Radar" sub="Relative seasonal intensity across calendar year" color={C.accent3} />
               <div className="h-56 w-full mt-3 flex justify-center items-center">
+                {finalSeasonality.length === 0 ? (
+                  <div className="text-sm text-base-content/60 px-4 text-center">
+                    Needs ≥12 months of actual demand per SKU. Not available from H+1 online publish.
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <RadarChart data={finalSeasonality}>
                     <PolarGrid stroke="currentColor" opacity={0.1} />
@@ -1784,6 +1850,7 @@ export default function ForecastsPage() {
                     <Radar name="Seasonality Multiplier" dataKey="index" stroke={C.accent} fill={C.accent} fillOpacity={0.15} strokeWidth={2} />
                   </RadarChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -1992,10 +2059,10 @@ export default function ForecastsPage() {
       {tab === "inventory" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard title="Total Stock Units" value={Math.round(totalSuggestedQty * 2.2 || 42300).toLocaleString()} sub="In stock across SKUs" color={C.accent} icon="package_2" />
+            <KpiCard title="Total Stock Units" value={totalOnHandUnits !== null ? totalOnHandUnits.toLocaleString() : "—"} sub="On-hand from recommendations" color={C.accent} icon="package_2" />
             <KpiCard title="Active Reorders" value={reorderNowCount} sub="SKUs below ROP trigger" color={C.danger} icon="notifications_active" />
-            <KpiCard title="Fill Rate Level" value="97.2%" sub="Cycle orders filled" color={C.ok} delta={0.4} icon="check_circle" />
-            <KpiCard title="Carrying Cost Est." value="$28K/mo" sub="18% average storage cost" color={C.accent4} icon="payments" />
+            <KpiCard title="Fill Rate Level" value="—" sub="Not wired to WMS outbound yet" color={C.ok} icon="check_circle" />
+            <KpiCard title="Carrying Cost Est." value="—" sub="Not wired to finance module yet" color={C.accent4} icon="payments" />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
@@ -2050,10 +2117,10 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <KpiCard title="MAPE Error" value={`${mapeVal}%`} sub="Mean Abs % Error" color={C.ok} icon="track_changes" />
-            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub="Root Mean Sq Error" color={C.accent} icon="architecture" />
-            <KpiCard title="Model Bias (MPB)" value={fmtMetric(biasVal, "%")} sub="Under/Over prediction" color={C.warn} icon="balance" />
-            <KpiCard title="90% CI Coverage" value={fmtMetric(coverageVal, "%")} sub="Actuals inside interval" color={C.accent3} icon="straighten" />
+            <KpiCard title="MAPE Error" value={fmtMetric(mapeVal, "%")} sub="Static test CSV (not v6 training ~7.7% WAPE)" color={C.ok} icon="track_changes" />
+            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub="Static test CSV — M5-scale, not current SKUs" color={C.accent} icon="architecture" />
+            <KpiCard title="Model Bias (MPB)" value={fmtMetric(biasVal, "%")} sub="Static test CSV" color={C.warn} icon="balance" />
+            <KpiCard title="90% CI Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside P10–P90" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
             <KpiCard title="Active Architecture" value={filters.model || "LIGHTGBM"} sub="Global Champion Model" color={C.muted} icon="psychology" />
           </div>
 
@@ -2061,6 +2128,11 @@ export default function ForecastsPage() {
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <SectionHeader title="Forecast Residuals Over Time (Actual vs Expected)" sub="Ideal residuals: random fluctuations around 0, representing standard Gaussian noise" color={C.accent2} />
             <div className="h-56 w-full mt-3">
+              {finalResiduals.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
+                  Residuals need published rows with y_true (actual demand). Online runs store forecasts only.
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={finalResiduals}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
@@ -2077,6 +2149,7 @@ export default function ForecastsPage() {
                   </Bar>
                 </ComposedChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -2090,10 +2163,7 @@ export default function ForecastsPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={[
-                        { name: "Primary (Random Forest)", value: 112, color: C.accent },
-                        { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
-                      ]}
+                      data={inferenceMix.donut.filter((d) => d.value > 0)}
                       cx="50%"
                       cy="50%"
                       innerRadius={65}
@@ -2102,14 +2172,9 @@ export default function ForecastsPage() {
                       dataKey="value"
                       stroke="none"
                     >
-                      {
-                        [
-                          { name: "Primary (Random Forest)", value: 112, color: C.accent },
-                          { name: "Fallback (Seasonal Naive)", value: 8, color: C.warn }
-                        ].map((entry, index) => (
+                      {inferenceMix.donut.filter((d) => d.value > 0).map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))
-                      }
+                        ))}
                     </Pie>
                     <Tooltip content={({ active, payload }) => {
                       if (!active || !payload?.length) return null;
@@ -2124,18 +2189,23 @@ export default function ForecastsPage() {
                 </ResponsiveContainer>
                 {/* Hole Details */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold text-accent" style={{ marginTop: '1.5rem' }}>93%</span>
+                  <span className="text-2xl font-bold text-accent" style={{ marginTop: '1.5rem' }}>{inferenceMix.primaryRatePct}%</span>
                   <span className="text-[10px] text-base-content/60 font-semibold">SUCCESS RATE</span>
                 </div>
               </div>
               <div className="flex justify-center gap-4 mt-2 text-[10px] font-bold">
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent }}></span> Random Forest</div>
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.warn }}></span> Fallback</div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent3 }}></span> {inferenceMix.primaryModelName}</div>
+                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent4 }}></span> {inferenceMix.fallbackLabel}</div>
               </div>
             </div>
 <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Absolute Forecast Error Distribution" sub="Confidence interval widths and magnitude of absolute residuals" color={C.accent3} />
               <div className="h-56 w-full mt-3">
+                {finalResiduals.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
+                    Error distribution needs backtest rows with actuals vs forecast.
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={finalResiduals}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
@@ -2145,6 +2215,7 @@ export default function ForecastsPage() {
                     <Area type="monotone" dataKey="absError" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={2} name="Absolute Error" />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
 

@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     ops_alert_include_details: bool = True
     governance_enabled: bool = False
     governance_interval_seconds: float = 180.0
-    governance_dataset: str = "B"
+    governance_dataset: str = "P"
     governance_model_name: str = "LIGHTGBM"
     governance_split: str = "test"
     governance_inference_window: int = 200
