@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"
     inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
-    champion_models_json: str = "{}"
+    champion_models_json: str = '{"P": "LIGHTGBM"}'
     fallback_classical_model: str = "ARIMA"
     publish_queue_poll_interval_seconds: float = 1.0
     publish_min_prediction_rows: int = 1
@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     governance_enabled: bool = False
     governance_interval_seconds: float = 180.0
     governance_dataset: str = "B"
-    governance_model_name: str = "CATBOOST"
+    governance_model_name: str = "LIGHTGBM"
     governance_split: str = "test"
     governance_inference_window: int = 200
     governance_soak_hours: int = 24
