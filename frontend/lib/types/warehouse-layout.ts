@@ -9,10 +9,16 @@ export interface LocationBin {
   id: string; // "ST-01-004-03-A"
   level: number; // 1 to 5 (1 = Floor, 5 = Top)
   status: BinStatus;
+  maxPalletCapacity?: number;
+  palletCount?: number;
+  levelWeightCapacityKg?: number;
+  levelWeightUsedKg?: number;
   inventory?: {
     sku: string;
     quantity: number;
     weight: number;
+    unitsPerPallet?: number;
+    palletWeightKg?: number;
     receivedAt?: string; // For "recently received" pulsing animation
   };
 }

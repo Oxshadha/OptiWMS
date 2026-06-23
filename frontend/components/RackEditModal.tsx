@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RackUnit, RackStatus } from "@/lib/types/warehouse-layout";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { logger } from "@/lib/utils/logger";
+import { locationMatchesRack, parseRackId } from "@/lib/utils/location-identity";
 
 interface RackEditModalProps {
   isOpen: boolean;
@@ -91,15 +92,10 @@ export function RackEditModal({
     (async () => {
       try {
         setLoadingCaps(true);
-        const parts = rack.id.split("-");
-        if (parts.length < 3) return;
-        const [area, row, bay] = parts;
+        const parsed = parseRackId(rack.id);
+        if (!parsed) return;
         const allLocations = await locationsApi.getByWarehouse(warehouseId);
-        const rackLocations = allLocations.filter((loc) => {
-          const locRow = loc.rowNumber?.padStart(2, "0") || "";
-          const locBay = loc.bayNumber?.padStart(2, "0") || "";
-          return loc.area === area && locRow === row.padStart(2, "0") && locBay === bay.padStart(2, "0");
-        });
+        const rackLocations = allLocations.filter((loc) => locationMatchesRack(loc, rack.id));
         if (!cancelled) setLevelSummary(buildLevelSummary(rackLocations));
       } catch (e) {
         logger.error("Failed to load rack capacity summary", e);
@@ -127,30 +123,17 @@ export function RackEditModal({
       
       // Rack ID is in format "area-row-bay" (e.g., "A-01-01")
       // We need to find all locations in this rack and update them
-      const parts = rack.id.split('-');
-      if (parts.length < 3) {
+      const parsed = parseRackId(rack.id);
+      if (!parsed) {
         throw new Error(`Invalid rack ID format: ${rack.id}. Expected format: area-row-bay`);
       }
-      
-      const area = parts[0];
-      const row = parts[1];
-      const bay = parts[2];
-      
-      logger.debug("Parsed rack ID:", { area, row, bay });
-      
-      // Get all locations for this warehouse
+
+      logger.debug("Parsed rack ID:", parsed);
+
       const allLocations = await locationsApi.getByWarehouse(warehouseId);
       logger.debug(`Found ${allLocations.length} total locations for warehouse`);
-      
-      // Find all locations that belong to this rack (same area, row, bay)
-      // Normalize row and bay numbers (handle leading zeros)
-      const rackLocations = allLocations.filter((loc) => {
-        const locRow = loc.rowNumber?.padStart(2, '0') || '';
-        const locBay = loc.bayNumber?.padStart(2, '0') || '';
-        const matchRow = locRow === row || locRow === row.padStart(2, '0');
-        const matchBay = locBay === bay || locBay === bay.padStart(2, '0');
-        return loc.area === area && matchRow && matchBay;
-      });
+
+      const rackLocations = allLocations.filter((loc) => locationMatchesRack(loc, rack.id));
       
       logger.debug(`Found ${rackLocations.length} locations for rack ${rack.id}`);
       

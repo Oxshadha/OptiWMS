@@ -1,11 +1,15 @@
 package com.optiwms.coreapi.master;
 
+import com.optiwms.coreapp.master.BinOccupancyService;
 import com.optiwms.coreapp.master.LocationService;
+import com.optiwms.coreapp.master.StockPlacementPlanner;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -13,9 +17,16 @@ import java.util.UUID;
 public class LocationController {
 
     private final LocationService locationService;
+    private final BinOccupancyService binOccupancyService;
+    private final StockPlacementPlanner stockPlacementPlanner;
 
-    public LocationController(LocationService locationService) {
+    public LocationController(
+            LocationService locationService,
+            BinOccupancyService binOccupancyService,
+            StockPlacementPlanner stockPlacementPlanner) {
         this.locationService = locationService;
+        this.binOccupancyService = binOccupancyService;
+        this.stockPlacementPlanner = stockPlacementPlanner;
     }
 
     @GetMapping
@@ -76,6 +87,33 @@ public class LocationController {
     public ResponseEntity<List<LocationDto>> getStorageLocationsByWarehouse(@PathVariable UUID warehouseId) {
         var locations = locationService.findStorageLocationsByWarehouse(warehouseId);
         return ResponseEntity.ok(locations.stream().map(this::toDto).toList());
+    }
+
+    @GetMapping("/warehouse/{warehouseId}/rack-occupancy")
+    public ResponseEntity<List<BinOccupancyDto>> getWarehouseRackOccupancy(@PathVariable UUID warehouseId) {
+        return ResponseEntity.ok(binOccupancyService.getWarehouseRackOccupancy(warehouseId).stream()
+                .map(this::toOccupancyDto)
+                .toList());
+    }
+
+    @PostMapping("/warehouse/{warehouseId}/reconcile-level-usage")
+    public ResponseEntity<Map<String, Object>> reconcileLevelUsage(@PathVariable UUID warehouseId) {
+        int updated = binOccupancyService.reconcileWarehouseLevelUsage(warehouseId);
+        return ResponseEntity.ok(Map.of("warehouseId", warehouseId.toString(), "updatedRecords", updated));
+    }
+
+    @PostMapping("/placement-plan")
+    public ResponseEntity<PlacementPlanDto> createPlacementPlan(@RequestBody PlacementPlanRequest request) {
+        Set<String> exclude = request.excludeLocationCodes() != null
+                ? new HashSet<>(request.excludeLocationCodes())
+                : Set.of();
+        StockPlacementPlanner.PlacementPlan plan = stockPlacementPlanner.planPlacement(
+                UUID.fromString(request.warehouseId()),
+                UUID.fromString(request.materialId()),
+                request.totalQuantity(),
+                request.preferredLocationCode(),
+                exclude);
+        return ResponseEntity.ok(toPlacementPlanDto(plan));
     }
 
     @GetMapping("/available")
@@ -370,5 +408,86 @@ public class LocationController {
             Integer startRow,
             Integer startBay
     ) {}
+
+    private BinOccupancyDto toOccupancyDto(BinOccupancyService.BinOccupancyDto dto) {
+        return new BinOccupancyDto(
+                dto.locationId().toString(),
+                dto.locationCode(),
+                dto.rackId(),
+                dto.area(),
+                dto.rowNumber(),
+                dto.bayNumber(),
+                dto.levelNumber(),
+                dto.binPosition(),
+                dto.quantity(),
+                dto.materialCode(),
+                dto.unitsPerPallet() != null ? dto.unitsPerPallet().doubleValue() : null,
+                dto.palletCount(),
+                dto.binWeightKg() != null ? dto.binWeightKg().doubleValue() : null,
+                dto.palletWeightKg() != null ? dto.palletWeightKg().doubleValue() : null,
+                dto.maxPalletCapacity(),
+                dto.maxWeightKg() != null ? dto.maxWeightKg().doubleValue() : null,
+                dto.levelWeightCapacityKg() != null ? dto.levelWeightCapacityKg().doubleValue() : null,
+                dto.levelWeightUsedKg() != null ? dto.levelWeightUsedKg().doubleValue() : null,
+                dto.levelPalletCapacity());
+    }
+
+    private PlacementPlanDto toPlacementPlanDto(StockPlacementPlanner.PlacementPlan plan) {
+        return new PlacementPlanDto(
+                plan.requiredPallets(),
+                plan.assignedPallets(),
+                plan.remainingPallets(),
+                plan.lines().stream()
+                        .map(line -> new PlacementLineDto(
+                                line.locationCode(),
+                                line.palletCount(),
+                                line.quantityAllocated(),
+                                line.rackId(),
+                                line.levelNumber()))
+                        .toList(),
+                plan.notes());
+    }
+
+    public record BinOccupancyDto(
+            String locationId,
+            String locationCode,
+            String rackId,
+            String area,
+            String rowNumber,
+            String bayNumber,
+            Integer levelNumber,
+            String binPosition,
+            int quantity,
+            String materialCode,
+            Double unitsPerPallet,
+            int palletCount,
+            Double binWeightKg,
+            Double palletWeightKg,
+            int maxPalletCapacity,
+            Double maxWeightKg,
+            Double levelWeightCapacityKg,
+            Double levelWeightUsedKg,
+            Integer levelPalletCapacity) {}
+
+    public record PlacementPlanRequest(
+            String warehouseId,
+            String materialId,
+            int totalQuantity,
+            String preferredLocationCode,
+            List<String> excludeLocationCodes) {}
+
+    public record PlacementLineDto(
+            String locationCode,
+            int palletCount,
+            int quantityAllocated,
+            String rackId,
+            Integer levelNumber) {}
+
+    public record PlacementPlanDto(
+            int requiredPallets,
+            int assignedPallets,
+            int remainingPallets,
+            List<PlacementLineDto> lines,
+            List<String> notes) {}
 
 }

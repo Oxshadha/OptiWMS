@@ -1,5 +1,7 @@
 package com.optiwms.coreapp.operations;
 
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
+import com.optiwms.coreapp.master.StockPlacementPlanner;
 import com.optiwms.coreapp.inventory.InventoryService;
 import com.optiwms.coreapp.master.LocationService;
 import com.optiwms.coreapp.master.MaterialService;
@@ -21,14 +23,20 @@ public class PutawayCapacityPlanningService {
     private final InventoryService inventoryService;
     private final LocationService locationService;
     private final MaterialService materialService;
+    private final StockPlacementPlanner stockPlacementPlanner;
+    private final HandlingUnitCapacityService handlingUnitCapacityService;
 
     public PutawayCapacityPlanningService(
             InventoryService inventoryService,
             LocationService locationService,
-            MaterialService materialService) {
+            MaterialService materialService,
+            StockPlacementPlanner stockPlacementPlanner,
+            HandlingUnitCapacityService handlingUnitCapacityService) {
         this.inventoryService = inventoryService;
         this.locationService = locationService;
         this.materialService = materialService;
+        this.stockPlacementPlanner = stockPlacementPlanner;
+        this.handlingUnitCapacityService = handlingUnitCapacityService;
     }
 
     public SplitPlanResult suggestSplitPlan(
@@ -41,6 +49,36 @@ public class PutawayCapacityPlanningService {
         }
 
         Material inboundMaterial = materialService.findById(materialId);
+        BigDecimal unitsPerPalletEarly = inboundMaterial.getPalletSpaces();
+        if (unitsPerPalletEarly != null && unitsPerPalletEarly.compareTo(BigDecimal.ZERO) > 0) {
+            StockPlacementPlanner.PlacementPlan placementPlan = stockPlacementPlanner.planPlacement(
+                    warehouseId,
+                    materialId,
+                    totalQuantity,
+                    preferredLocationCode,
+                    Set.of());
+            if (!placementPlan.lines().isEmpty()) {
+                List<SplitPlanLine> planLines = placementPlan.lines().stream()
+                        .map(line -> new SplitPlanLine(
+                                line.locationCode(),
+                                line.quantityAllocated(),
+                                "Pallet slot " + line.palletCount() + " on rack " + line.rackId(),
+                                null))
+                        .toList();
+                int allocated = planLines.stream().mapToInt(SplitPlanLine::allocatedQuantity).sum();
+                return new SplitPlanResult(
+                        placementPlan.remainingPallets() <= 0,
+                        totalQuantity,
+                        allocated,
+                        totalQuantity - allocated,
+                        placementPlan.requiredPallets(),
+                        placementPlan.assignedPallets(),
+                        unitsPerPalletEarly.stripTrailingZeros().toPlainString(),
+                        planLines,
+                        placementPlan.notes());
+            }
+        }
+
         List<InventoryItem> warehouseInventory = inventoryService.findByWarehouse(warehouseId);
         Map<String, List<InventoryItem>> inventoryByLocation = warehouseInventory.stream()
                 .filter(item -> item.getLocationCode() != null && !item.getLocationCode().isBlank())
@@ -285,7 +323,15 @@ public class PutawayCapacityPlanningService {
         }
 
         if (location.getMaxWeightKg() != null && location.getMaxWeightKg().compareTo(BigDecimal.ZERO) > 0) {
-            if (inboundMaterial.getWeightKg() == null
+            BigDecimal palletWeight = handlingUnitCapacityService.resolvePalletWeightKg(
+                    inboundMaterial.getWeightKg(),
+                    inboundMaterial.getPalletSpaces(),
+                    inboundMaterial.getMaxPalletWeightKg());
+            if (currentQty == 0 && palletWeight.compareTo(BigDecimal.ZERO) > 0
+                    && palletWeight.compareTo(location.getMaxWeightKg()) > 0) {
+                allocatable = 0;
+                blockedByWeight = true;
+            } else if (inboundMaterial.getWeightKg() == null
                     || inboundMaterial.getWeightKg().compareTo(BigDecimal.ZERO) <= 0) {
                 allocatable = 0;
                 missingWeightMetric = true;

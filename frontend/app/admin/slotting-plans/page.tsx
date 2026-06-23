@@ -5,6 +5,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import { useAdmin } from "@/contexts/AdminContext";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
+import { locationsApi, type Location } from "@/lib/api/locations";
 import {
   slottingPlansApi,
   type SlottingPlanLine,
@@ -12,6 +13,67 @@ import {
   type SlottingReadiness,
 } from "@/lib/api/slotting-plans";
 import { statusBadgeClass } from "../replenishment/components/IntelligentEngineHubStrip";
+import {
+  buildLocationIndex,
+  buildWarehouseLayoutUrl,
+  resolveLocationPresentation,
+} from "@/lib/utils/location-identity";
+
+function moveBadge(line: SlottingPlanLine) {
+  if (line.relocationApplied) {
+    return <span className="badge badge-success badge-sm">Applied</span>;
+  }
+  if (line.relocationFlag) {
+    return <span className="badge badge-warning badge-sm">Proposed</span>;
+  }
+  return <span className="text-base-content/40">—</span>;
+}
+
+function reasonBadge(reason?: string) {
+  if (!reason?.trim()) return <span className="text-base-content/40">—</span>;
+  const lower = reason.toLowerCase();
+  const tone = lower.includes("zone")
+    ? "badge-info"
+    : lower.includes("distance") || lower.includes("pick")
+      ? "badge-primary"
+      : lower.includes("capacity") || lower.includes("volume")
+        ? "badge-secondary"
+        : "badge-ghost";
+  return (
+    <span className={clsx("badge badge-sm max-w-[220px] truncate", tone)} title={reason}>
+      {reason}
+    </span>
+  );
+}
+
+function LocationCell({
+  code,
+  locationIndex,
+  warehouseId,
+}: {
+  code: string | null | undefined;
+  locationIndex: Map<string, Location>;
+  warehouseId: string;
+}) {
+  const presentation = resolveLocationPresentation(code, locationIndex);
+  if (!presentation) return <span className="text-base-content/40">—</span>;
+  return (
+    <div className="space-y-1">
+      <div className="font-mono text-xs font-semibold">{presentation.rackId}</div>
+      <div className="text-xs text-base-content/70">
+        {presentation.binLabel}
+        <span className="text-base-content/40 mx-1">·</span>
+        <span className="font-mono">{presentation.locationCode}</span>
+      </div>
+      <Link
+        href={buildWarehouseLayoutUrl(warehouseId, presentation.rackId)}
+        className="link link-primary text-xs"
+      >
+        View in layout
+      </Link>
+    </div>
+  );
+}
 
 export default function SlottingPlansPage() {
   const { admin } = useAdmin();
@@ -26,6 +88,13 @@ export default function SlottingPlansPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [onlyMoved, setOnlyMoved] = useState(false);
+  const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
+
+  const locationIndex = useMemo(
+    () => buildLocationIndex(warehouseLocations),
+    [warehouseLocations]
+  );
 
   const selectedPlan = useMemo(
     () => plans.find((p) => p.id === selectedPlanId) ?? null,
@@ -43,6 +112,11 @@ export default function SlottingPlansPage() {
     const moveLimit = Math.floor(total * (relocationBudgetPct / 100));
     return { total, movesProposed, movesApplied, distanceSaved, moveLimit };
   }, [lines, relocationBudgetPct]);
+
+  const visibleLines = useMemo(
+    () => (onlyMoved ? lines.filter((line) => line.relocationFlag) : lines),
+    [lines, onlyMoved]
+  );
 
   useEffect(() => {
     void warehousesApi.getAll().then((wh) => {
@@ -74,6 +148,25 @@ export default function SlottingPlansPage() {
         if (!cancelled) setLoading(false);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId]);
+
+  useEffect(() => {
+    if (!warehouseId) {
+      setWarehouseLocations([]);
+      return;
+    }
+    let cancelled = false;
+    void locationsApi
+      .getStorageLocationsByWarehouse(warehouseId)
+      .then((locs) => {
+        if (!cancelled) setWarehouseLocations(locs);
+      })
+      .catch(() => {
+        if (!cancelled) setWarehouseLocations([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -280,31 +373,121 @@ export default function SlottingPlansPage() {
         </div>
 
         <div className="card bg-base-100 border border-base-300 p-4 lg:col-span-2">
-          <h2 className="font-semibold mb-3">
-            {selectedPlan ? `Lines — ${selectedPlan.planCode}` : "Select a plan"}
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <h2 className="font-semibold">
+              {selectedPlan ? `Lines — ${selectedPlan.planCode}` : "Select a plan"}
+            </h2>
+            {selectedPlan && (
+              <label className="label cursor-pointer gap-2 py-0">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm"
+                  checked={onlyMoved}
+                  onChange={(e) => setOnlyMoved(e.target.checked)}
+                />
+                <span className="label-text text-sm">Only moved items</span>
+              </label>
+            )}
+          </div>
           {selectedPlan ? (
             <div className="overflow-x-auto max-h-[520px]">
               <table className="table table-sm">
                 <thead>
                   <tr>
                     <th>SKU</th>
-                    <th>Current</th>
-                    <th>Recommended</th>
-                    <th>Move?</th>
+                    <th>Current rack / bin</th>
+                    <th>Recommended rack / bin</th>
+                    <th>Move</th>
                     <th>Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="font-mono text-xs">{line.materialCode}</td>
-                      <td className="font-mono text-xs">{line.currentPrimaryLocation ?? "—"}</td>
-                      <td className="font-mono text-xs text-primary">{line.finalPrimaryLocation ?? line.recommendedPrimaryLocation ?? "—"}</td>
-                      <td>{line.relocationFlag ? "Yes" : "—"}</td>
-                      <td className="text-xs max-w-[260px] truncate">{line.moveReason}</td>
+                  {visibleLines.map((line) => {
+                    const placements = line.placementLines?.length
+                      ? line.placementLines
+                      : line.reserveLocations.map((r) => ({
+                          locationCode: r.finalLocationCode ?? r.locationCode,
+                          palletCount: r.palletPositions,
+                          quantityAllocated: 0,
+                          rackId: null as string | null,
+                          levelNumber: null as number | null,
+                        }));
+                    const clusterRacks = [
+                      ...new Set(
+                        placements
+                          .map((p) => {
+                            const pres = resolveLocationPresentation(p.locationCode, locationIndex);
+                            return pres?.rackId;
+                          })
+                          .filter(Boolean)
+                      ),
+                    ];
+                    return (
+                      <>
+                        <tr key={line.id} className={line.relocationFlag ? "bg-warning/5" : undefined}>
+                          <td className="font-mono text-xs">{line.materialCode}</td>
+                          <td>
+                            <LocationCell
+                              code={line.currentPrimaryLocation}
+                              locationIndex={locationIndex}
+                              warehouseId={warehouseId}
+                            />
+                          </td>
+                          <td>
+                            <LocationCell
+                              code={line.finalPrimaryLocation ?? line.recommendedPrimaryLocation}
+                              locationIndex={locationIndex}
+                              warehouseId={warehouseId}
+                            />
+                          </td>
+                          <td>{moveBadge(line)}</td>
+                          <td>{reasonBadge(line.moveReason)}</td>
+                        </tr>
+                        {placements.length > 0 && (
+                          <tr key={`${line.id}-placements`} className="bg-base-200/40">
+                            <td colSpan={5} className="py-2">
+                              <div className="text-xs text-base-content/70 mb-1">
+                                <strong>{placements.length}</strong> reserve bin
+                                {placements.length === 1 ? "" : "s"}
+                                {clusterRacks.length > 0 && (
+                                  <span>
+                                    {" "}
+                                    across racks{" "}
+                                    <span className="font-mono">{clusterRacks.join(", ")}</span>
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {placements.map((p) => {
+                                  const pres = resolveLocationPresentation(p.locationCode, locationIndex);
+                                  return (
+                                    <Link
+                                      key={`${line.id}-${p.locationCode}`}
+                                      href={buildWarehouseLayoutUrl(
+                                        warehouseId,
+                                        pres?.rackId ?? p.rackId ?? undefined
+                                      )}
+                                      className="badge badge-outline badge-sm font-mono hover:badge-primary"
+                                    >
+                                      {p.locationCode} · {p.palletCount} pallet
+                                      {p.palletCount === 1 ? "" : "s"}
+                                    </Link>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    );
+                  })}
+                  {visibleLines.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="text-center text-sm text-base-content/50 py-6">
+                        {onlyMoved ? "No proposed moves in this plan." : "No lines in this plan."}
+                      </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
