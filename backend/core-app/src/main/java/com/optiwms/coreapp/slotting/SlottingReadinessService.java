@@ -100,8 +100,8 @@ public class SlottingReadinessService {
         return isPositive(m.getLengthCm())
                 && isPositive(m.getWidthCm())
                 && isPositive(m.getHeightCm())
-                && m.getWeightKg() != null && m.getWeightKg().doubleValue() > 1
-                && m.getVolumeCm3() != null && m.getVolumeCm3().doubleValue() > 1000
+                && isPositive(m.getWeightKg())
+                && isPositive(m.getVolumeCm3())
                 && isPositive(m.getPalletSpaces());
     }
 

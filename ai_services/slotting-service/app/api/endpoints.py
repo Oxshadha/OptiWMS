@@ -489,7 +489,7 @@ def optimize_slotting_wms(request: WmsOptimizeRequest):
     """GA optimization using WMS-provided materials and locations (no local SQLite DB)."""
     missing_dims = sum(
         1 for m in request.materials
-        if m.weight_kg <= 1 or m.volume_cm3 <= 1000
+        if m.weight_kg <= 0 or m.volume_cm3 <= 0 or m.pallet_spaces <= 0
     )
     if missing_dims > 0:
         from fastapi import HTTPException
