@@ -90,7 +90,10 @@ export default function SlottingPlansPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [onlyMoved, setOnlyMoved] = useState(false);
+  const [directApply, setDirectApply] = useState(false);
   const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
+
+  const isAdmin = admin?.role === "admin";
 
   const locationIndex = useMemo(
     () => buildLocationIndex(warehouseLocations),
@@ -211,8 +214,13 @@ export default function SlottingPlansPage() {
       setLoading(true);
       const plan = await slottingPlansApi.approve(selectedPlan.id, {
         approvedBy: admin?.email ?? "manager",
+        directApply: isAdmin && directApply,
       });
-      if (plan.transfersCreated && plan.transfersCreated > 0) {
+      if (plan.executionStatus === "DIRECT_APPLIED") {
+        setInfo(
+          "Plan approved with direct location apply (admin demo). Inventory and default locations updated immediately — refresh warehouse layout to see changes."
+        );
+      } else if (plan.transfersCreated && plan.transfersCreated > 0) {
         setInfo(
           `Plan approved. ${plan.transfersCreated} stock transfer job(s) created (${plan.executionStatus ?? "PENDING_MOVES"}). Forklift tasks are queued — inventory updates when moves complete.`
         );
@@ -344,9 +352,31 @@ export default function SlottingPlansPage() {
                 Generate plan
               </button>
               {selectedPlan && selectedPlan.status === "DRAFT" && (
-                <button className="btn btn-success" disabled={loading} onClick={() => void handleApprove()}>
-                  Approve plan
-                </button>
+                <>
+                  {isAdmin && (
+                    <label
+                      className="label cursor-pointer gap-2 justify-start mb-0 border border-warning/40 rounded-lg px-3 py-2 bg-warning/5"
+                      title="Skips stock transfer jobs and updates inventory location_code immediately"
+                    >
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-warning checkbox-sm"
+                        checked={directApply}
+                        onChange={(e) => setDirectApply(e.target.checked)}
+                      />
+                      <span className="label-text text-xs">
+                        Direct apply <span className="opacity-60">(admin demo)</span>
+                      </span>
+                    </label>
+                  )}
+                  <button
+                    className={directApply && isAdmin ? "btn btn-warning" : "btn btn-success"}
+                    disabled={loading}
+                    onClick={() => void handleApprove()}
+                  >
+                    {directApply && isAdmin ? "Approve & apply directly" : "Approve plan"}
+                  </button>
+                </>
               )}
               {selectedPlan?.executionTransferId && (
                 <Link

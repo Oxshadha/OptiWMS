@@ -6,7 +6,10 @@ import com.optiwms.infra.slotting.SlottingPlanLineEntity;
 import com.optiwms.infra.slotting.SlottingPlanReserveLineEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -90,9 +93,29 @@ public class SlottingPlanController {
     }
 
     @PostMapping("/{id}/approve")
-    public SlottingPlanSummaryDto approve(@PathVariable UUID id, @RequestBody ApprovePlanDto body) {
+    public SlottingPlanSummaryDto approve(
+            @PathVariable UUID id,
+            @RequestBody ApprovePlanDto body,
+            Authentication authentication) {
+        if (Boolean.TRUE.equals(body.directApply()) && !isAdmin(authentication)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN, "Direct location apply is restricted to administrators");
+        }
         return toSummary(slottingPlanService.approve(
-                id, new SlottingPlanService.ApprovePlanRequest(body.approvedBy())));
+                id, new SlottingPlanService.ApprovePlanRequest(body.approvedBy(), body.directApply())));
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+        for (GrantedAuthority authority : authentication.getAuthorities()) {
+            String role = authority.getAuthority();
+            if ("ROLE_ADMIN".equals(role) || "admin".equalsIgnoreCase(role)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private SlottingPlanSummaryDto toSummary(SlottingPlanEntity plan) {
@@ -183,7 +206,7 @@ public class SlottingPlanController {
 
     public record ReoptimizeDto(Integer expectedVersion, List<String> lockedLineIds) {}
 
-    public record ApprovePlanDto(String approvedBy) {}
+    public record ApprovePlanDto(String approvedBy, Boolean directApply) {}
 
     public record SlottingPlanSummaryDto(
             String id,
