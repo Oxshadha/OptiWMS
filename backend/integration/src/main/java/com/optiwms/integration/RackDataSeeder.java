@@ -368,6 +368,10 @@ public class RackDataSeeder implements CommandLineRunner {
     /**
      * Maps legacy multi-letter area codes to single-letter location code prefixes
      * required by DB constraint chk_location_code_format.
+     *
+     * Note: the {@code area} column keeps the manager-facing zone code (e.g. FG).
+     * Rack/layout UIs derive rack IDs from area+row+bay; only {@code location_code}
+     * uses the canonical single-letter prefix below.
      */
     private String toLocationAreaCode(String areaCode) {
         if (areaCode == null || areaCode.isBlank()) {

@@ -66,6 +66,44 @@ export interface UpdateLocationRequest {
   maxLpnCount?: number;
 }
 
+export interface BinOccupancy {
+  locationId: string;
+  locationCode: string;
+  rackId: string;
+  area?: string;
+  rowNumber?: string;
+  bayNumber?: string;
+  levelNumber?: number;
+  binPosition?: string;
+  quantity: number;
+  materialCode?: string | null;
+  unitsPerPallet?: number | null;
+  palletCount: number;
+  binWeightKg?: number | null;
+  palletWeightKg?: number | null;
+  maxPalletCapacity: number;
+  maxWeightKg?: number | null;
+  levelWeightCapacityKg?: number | null;
+  levelWeightUsedKg?: number | null;
+  levelPalletCapacity?: number | null;
+}
+
+export interface PlacementLine {
+  locationCode: string;
+  palletCount: number;
+  quantityAllocated: number;
+  rackId?: string | null;
+  levelNumber?: number | null;
+}
+
+export interface PlacementPlan {
+  requiredPallets: number;
+  assignedPallets: number;
+  remainingPallets: number;
+  lines: PlacementLine[];
+  notes: string[];
+}
+
 export interface UpdateRackRequest {
   rackStatus?: string;
   amalgamatedClass?: string;
@@ -140,6 +178,20 @@ export const locationsApi = {
    */
   getStorageLocationsByWarehouse: async (warehouseId: string): Promise<Location[]> => {
     return apiClient.get<Location[]>(`/master/locations/warehouse/${warehouseId}/storage-only`);
+  },
+
+  getRackOccupancy: async (warehouseId: string): Promise<BinOccupancy[]> => {
+    return apiClient.get<BinOccupancy[]>(`/master/locations/warehouse/${warehouseId}/rack-occupancy`);
+  },
+
+  createPlacementPlan: async (body: {
+    warehouseId: string;
+    materialId: string;
+    totalQuantity: number;
+    preferredLocationCode?: string;
+    excludeLocationCodes?: string[];
+  }): Promise<PlacementPlan> => {
+    return apiClient.post<PlacementPlan>("/master/locations/placement-plan", body);
   },
 
   getHierarchyByWarehouse: async (warehouseId: string): Promise<LocationHierarchy> => {

@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.slotting;
 
+import com.optiwms.coreapp.master.StockPlacementPlanner;
 import com.optiwms.infra.master.LocationEntity;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.slotting.MaterialIssueStatsRollupEntity;
@@ -19,6 +20,20 @@ public class SlottingPlanOptimizer {
     private static final Set<String> RM_AREAS = Set.of("RM", "RAW", "RAW_MATERIAL");
     private static final Set<String> PM_AREAS = Set.of("PM", "PACK", "PACKING", "PACKAGING");
     private static final Set<String> FG_AREAS = Set.of("FG", "FINISHED", "PRODUCT", "A", "B", "C", "D");
+
+    private final com.optiwms.coreapp.master.HandlingUnitCapacityService capacityService;
+    private final com.optiwms.coreapp.master.StockPlacementPlanner placementPlanner;
+
+    public SlottingPlanOptimizer() {
+        this(null, null);
+    }
+
+    public SlottingPlanOptimizer(
+            com.optiwms.coreapp.master.HandlingUnitCapacityService capacityService,
+            com.optiwms.coreapp.master.StockPlacementPlanner placementPlanner) {
+        this.capacityService = capacityService;
+        this.placementPlanner = placementPlanner;
+    }
 
     public OptimizerResult optimize(OptimizerInput input) {
         List<LocationEntity> eligible = input.locations().stream()
@@ -68,11 +83,33 @@ public class SlottingPlanOptimizer {
 
             List<ReserveSlot> reserves = new ArrayList<>();
             if (reservePp > 0) {
-                Set<String> usedReserve = new HashSet<>();
-                LocationEntity reserveLoc = findBestLocation(
-                        reservePool, amalgamated, usedReserve, material, false, input.dispatchAnchor());
-                if (reserveLoc != null) {
-                    reserves.add(new ReserveSlot(reserveLoc.getLocationCode(), reservePp, "deep_reserve"));
+                String anchorCode = primary != null
+                        ? primary.getLocationCode()
+                        : input.incumbentPrimary().get(material.materialId());
+                if (placementPlanner != null && input.warehouseId() != null) {
+                    Set<String> exclude = new HashSet<>(assignedPrimary);
+                    int unitsPerPallet = material.palletSpaces() != null
+                            ? material.palletSpaces().setScale(0, RoundingMode.CEILING).intValue()
+                            : 1;
+                    int reserveQty = Math.max(reservePp * Math.max(unitsPerPallet, 1), reservePp);
+                    StockPlacementPlanner.PlacementPlan placementPlan = placementPlanner.planPlacement(
+                            input.warehouseId(),
+                            material.materialId(),
+                            reserveQty,
+                            anchorCode,
+                            exclude);
+                    for (StockPlacementPlanner.PlacementLine line : placementPlan.lines()) {
+                        reserves.add(new ReserveSlot(line.locationCode(), line.palletCount(), "reserve_cluster"));
+                        assignedPrimary.add(line.locationCode());
+                    }
+                }
+                if (reserves.isEmpty()) {
+                    Set<String> usedReserve = new HashSet<>();
+                    LocationEntity reserveLoc = findBestLocation(
+                            reservePool, amalgamated, usedReserve, material, false, input.dispatchAnchor());
+                    if (reserveLoc != null) {
+                        reserves.add(new ReserveSlot(reserveLoc.getLocationCode(), reservePp, "deep_reserve"));
+                    }
                 }
             }
 
@@ -353,10 +390,27 @@ public class SlottingPlanOptimizer {
     }
 
     private boolean supportsWeight(LocationEntity loc, MaterialCandidate material) {
-        if (material.weightKg() == null || loc.getMaxWeightKg() == null) {
-            return material.weightKg() == null || loc.getMaxWeightKg() != null;
+        BigDecimal palletWeight = resolvePalletWeightKg(material);
+        if (palletWeight == null || palletWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            return loc.getMaxWeightKg() != null || material.weightKg() == null;
         }
-        return material.weightKg().doubleValue() <= loc.getMaxWeightKg().doubleValue();
+        if (loc.getMaxWeightKg() == null) {
+            return true;
+        }
+        return palletWeight.compareTo(loc.getMaxWeightKg()) <= 0;
+    }
+
+    private BigDecimal resolvePalletWeightKg(MaterialCandidate material) {
+        if (material.maxPalletWeightKg() != null
+                && material.maxPalletWeightKg().compareTo(BigDecimal.ZERO) > 0) {
+            return material.maxPalletWeightKg();
+        }
+        if (material.weightKg() != null
+                && material.palletSpaces() != null
+                && material.palletSpaces().compareTo(BigDecimal.ZERO) > 0) {
+            return material.weightKg().multiply(material.palletSpaces());
+        }
+        return material.weightKg();
     }
 
     private boolean supportsVolume(LocationEntity loc, MaterialCandidate material) {
@@ -486,7 +540,8 @@ public class SlottingPlanOptimizer {
             int issueCount,
             BigDecimal weightKg,
             BigDecimal volumeCm3,
-            BigDecimal palletSpaces) {}
+            BigDecimal palletSpaces,
+            BigDecimal maxPalletWeightKg) {}
 
     public record ReserveSlot(String locationCode, int palletPositions, String zoneHint) {}
 
@@ -499,7 +554,8 @@ public class SlottingPlanOptimizer {
             Set<UUID> lockedMaterialIds,
             List<SlottingPlanLineEntity> existingLines,
             BigDecimal relocationBudgetPct,
-            double[] dispatchAnchor) {}
+            double[] dispatchAnchor,
+            UUID warehouseId) {}
 
     public record OptimizedLine(
             MaterialCandidate material,

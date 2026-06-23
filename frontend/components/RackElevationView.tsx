@@ -1,6 +1,7 @@
 "use client";
 
 import { RackUnit, LocationBin } from "@/lib/types/warehouse-layout";
+import { binPalletFillPercent, levelBeamLabel } from "@/lib/utils/bin-occupancy";
 import clsx from "clsx";
 
 interface RackElevationViewProps {
@@ -21,12 +22,8 @@ export function RackElevationView({
   onEdit,
 }: RackElevationViewProps) {
   const POSITIONS: Array<"A" | "B"> = ["A", "B"];
-  const MAX_BIN_CAPACITY = 100;
 
-  const getBinOccupancy = (bin: LocationBin): number => {
-    if (!bin.inventory) return 0;
-    return Math.min(((bin.inventory.quantity || 0) / MAX_BIN_CAPACITY) * 100, 100);
-  };
+  const getBinOccupancy = (bin: LocationBin): number => binPalletFillPercent(bin);
 
   // Map bin status to colors (matches WarehouseLayout.tsx level segments exactly)
   // If rack is in maintenance/out_of_service, ALL bins show rack status color (rack is empty)
@@ -185,9 +182,34 @@ export function RackElevationView({
           )}
           <div className="flex flex-col gap-1.5">
             {allLevels.map((level) => {
+              const levelBins = rack.bins.filter((b) => b.level === level);
+              const beamBin = levelBins.find((b) => b.levelWeightCapacityKg != null) ?? levelBins[0];
+              const beamLabel = beamBin ? levelBeamLabel(beamBin) : null;
+              const beamPct = beamBin?.levelWeightCapacityKg
+                ? Math.min(
+                    ((beamBin.levelWeightUsedKg ?? 0) / beamBin.levelWeightCapacityKg) * 100,
+                    100
+                  )
+                : 0;
               return (
                 <div key={`${rack.id}-${level}`} className="rounded-lg border border-base-300 bg-base-100 p-3">
-                  <div className="text-xs font-bold mb-2">Level {level}</div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-xs font-bold">Level {level}</div>
+                    {beamLabel && (
+                      <div className="text-[10px] text-base-content/70">{beamLabel}</div>
+                    )}
+                  </div>
+                  {beamLabel && (
+                    <div className="mb-2 h-1.5 rounded-full bg-base-200 overflow-hidden">
+                      <div
+                        className={clsx(
+                          "h-full rounded-full",
+                          beamPct >= 90 ? "bg-error" : beamPct >= 70 ? "bg-warning" : "bg-primary"
+                        )}
+                        style={{ width: `${beamPct}%` }}
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     {POSITIONS.map((position) => {
                       const displayBin = binForLevelPosition(level, position);
@@ -241,8 +263,9 @@ export function RackElevationView({
                               <>
                                 <div className="font-semibold truncate">{displayBin.inventory.sku}</div>
                                 <div>Qty: {Math.ceil(displayBin.inventory.quantity || 0)}</div>
+                                <div>Pallets: {displayBin.palletCount ?? 1}/{displayBin.maxPalletCapacity ?? 1}</div>
                                 <div>Fill: {Math.round(getBinOccupancy(displayBin))}%</div>
-                                <div>Weight: {displayBin.inventory.weight} kg</div>
+                                <div>Weight: {Math.round(displayBin.inventory.weight || 0)} kg</div>
                                 {hasRecentReceipt(displayBin) && <span className="badge badge-warning badge-xs mt-1">New</span>}
                               </>
                             ) : (

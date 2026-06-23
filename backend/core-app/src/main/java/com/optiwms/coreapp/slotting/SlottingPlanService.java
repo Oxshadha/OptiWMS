@@ -1,6 +1,8 @@
 package com.optiwms.coreapp.slotting;
 
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
 import com.optiwms.coreapp.master.MaterialDefaultLocationService;
+import com.optiwms.coreapp.master.StockPlacementPlanner;
 import com.optiwms.infra.master.LocationEntity;
 import com.optiwms.infra.master.LocationRepository;
 import com.optiwms.infra.master.MaterialDefaultLocationEntity;
@@ -34,6 +36,8 @@ public class SlottingPlanService {
     private final MaterialDefaultLocationService defaultLocationService;
     private final SlottingPlanClient slottingPlanClient;
     private final SlottingReadinessService readinessService;
+    private final HandlingUnitCapacityService handlingUnitCapacityService;
+    private final StockPlacementPlanner stockPlacementPlanner;
 
     public SlottingPlanService(
             SlottingPlanRepository planRepository,
@@ -46,7 +50,9 @@ public class SlottingPlanService {
             MaterialDefaultLocationRepository defaultLocationRepository,
             MaterialDefaultLocationService defaultLocationService,
             SlottingPlanClient slottingPlanClient,
-            SlottingReadinessService readinessService) {
+            SlottingReadinessService readinessService,
+            HandlingUnitCapacityService handlingUnitCapacityService,
+            StockPlacementPlanner stockPlacementPlanner) {
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -58,6 +64,8 @@ public class SlottingPlanService {
         this.defaultLocationService = defaultLocationService;
         this.slottingPlanClient = slottingPlanClient;
         this.readinessService = readinessService;
+        this.handlingUnitCapacityService = handlingUnitCapacityService;
+        this.stockPlacementPlanner = stockPlacementPlanner;
     }
 
     @Transactional
@@ -263,7 +271,7 @@ public class SlottingPlanService {
                 .filter(m -> isSlottingType(m.getMaterialType()))
                 .toList();
 
-        SlottingPlanOptimizer optimizer = new SlottingPlanOptimizer();
+        SlottingPlanOptimizer optimizer = new SlottingPlanOptimizer(handlingUnitCapacityService, stockPlacementPlanner);
         List<SlottingPlanOptimizer.OptimizedLine> allOptimized = new ArrayList<>();
         List<SlottingPlanOptimizer.MaterialCandidate> allCandidates = new ArrayList<>();
 
@@ -285,7 +293,8 @@ public class SlottingPlanService {
                     lockedMaterialIds,
                     existingLines,
                     plan.getRelocationBudgetPct(),
-                    anchor);
+                    anchor,
+                    warehouseId);
             allOptimized.addAll(optimizer.optimize(input).lines());
         }
 
@@ -413,7 +422,8 @@ public class SlottingPlanService {
                 cnt,
                 m.getWeightKg(),
                 m.getVolumeCm3(),
-                m.getPalletSpaces());
+                m.getPalletSpaces(),
+                m.getMaxPalletWeightKg());
     }
 
     private Map<UUID, String> loadIncumbentPrimary(UUID warehouseId) {

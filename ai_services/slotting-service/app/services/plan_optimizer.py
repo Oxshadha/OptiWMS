@@ -112,10 +112,28 @@ def _compatible(loc_class: Optional[str], sku_class: str) -> bool:
     return loc_class == sku_class or loc_class[0] == sku_class[0]
 
 
+def _level_beam_capacity_kg(level_number: int) -> float:
+    if level_number <= 3:
+        return 500.0
+    if level_number <= 5:
+        return 300.0
+    return 400.0
+
+
+def _pallet_weight_kg(material: PlanMaterialInput) -> float:
+    if material.weight_kg and material.pallet_spaces and material.pallet_spaces > 0:
+        return material.weight_kg * material.pallet_spaces
+    return material.weight_kg or 0.0
+
+
 def _fits_physical(loc: PlanLocationInput, material: PlanMaterialInput, active_pp: int = 1) -> bool:
-    if material.weight_kg and loc.max_weight_kg and material.weight_kg > loc.max_weight_kg:
+    pallet_weight = _pallet_weight_kg(material)
+    if pallet_weight > 0 and loc.max_weight_kg and pallet_weight > loc.max_weight_kg:
         return False
-    if material.volume_cm3 and loc.max_volume_cm3 and material.volume_cm3 > loc.max_volume_cm3:
+    pallet_volume = None
+    if material.volume_cm3 and material.pallet_spaces:
+        pallet_volume = material.volume_cm3 * material.pallet_spaces
+    if pallet_volume and loc.max_volume_cm3 and pallet_volume > loc.max_volume_cm3:
         return False
     if loc.max_pallet_capacity and active_pp > loc.max_pallet_capacity:
         return False

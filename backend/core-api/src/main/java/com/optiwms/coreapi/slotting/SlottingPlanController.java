@@ -127,6 +127,16 @@ public class SlottingPlanController {
                         r.getReservePalletPositions(),
                         r.getReserveZoneHint()))
                 .toList();
+        List<PlacementLineDto> placementLines = reserves.stream()
+                .map(r -> new PlacementLineDto(
+                        r.getFinalReserveLocationCode() != null
+                                ? r.getFinalReserveLocationCode()
+                                : r.getRecommendedReserveLocationCode(),
+                        r.getReservePalletPositions() != null ? r.getReservePalletPositions() : 1,
+                        0,
+                        null,
+                        null))
+                .toList();
 
         return new SlottingPlanLineDto(
                 line.getId().toString(),
@@ -140,6 +150,7 @@ public class SlottingPlanController {
                 line.getRequiredReservePalletPositions(),
                 line.getMaxStockPalletPositions(),
                 reserveDtos,
+                placementLines,
                 line.getDistanceSavedMeters() != null ? line.getDistanceSavedMeters().doubleValue() : null,
                 line.getZoneUpgrade(),
                 line.getMoveReason(),
@@ -196,6 +207,13 @@ public class SlottingPlanController {
             Integer palletPositions,
             String zoneHint) {}
 
+    public record PlacementLineDto(
+            String locationCode,
+            int palletCount,
+            int quantityAllocated,
+            String rackId,
+            Integer levelNumber) {}
+
     public record SlottingPlanLineDto(
             String id,
             String materialId,
@@ -208,6 +226,7 @@ public class SlottingPlanController {
             Integer requiredReservePalletPositions,
             Integer maxStockPalletPositions,
             List<ReserveLocationDto> reserveLocations,
+            List<PlacementLineDto> placementLines,
             Double distanceSavedMeters,
             String zoneUpgrade,
             String moveReason,

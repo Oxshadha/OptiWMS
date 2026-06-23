@@ -8,6 +8,7 @@ import {
   LocationBin,
 } from "@/lib/types/warehouse-layout";
 import { analyticsApi, LocationVelocity } from "@/lib/api/analytics";
+import { binPalletFillPercent } from "@/lib/utils/bin-occupancy";
 import { logger } from "@/lib/utils/logger";
 
 interface WarehouseLayoutProps {
@@ -151,9 +152,8 @@ export function WarehouseLayoutVisualization({
   // Calculate bin occupancy percentage (based on quantity vs max capacity)
   // Assuming max capacity of 100 units per bin (can be made configurable)
   const getBinOccupancy = (bin: LocationBin | undefined): number => {
-    if (!bin || !bin.inventory) return 0;
-    const maxCapacity = 100; // Default max capacity per bin
-    return Math.min((bin.inventory.quantity / maxCapacity) * 100, 100);
+    if (!bin) return 0;
+    return binPalletFillPercent(bin);
   };
 
   // Get color based on occupancy percentage (matches legend)

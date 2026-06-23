@@ -27,6 +27,14 @@ export interface ReserveLocation {
   zoneHint?: string;
 }
 
+export interface PlacementLine {
+  locationCode: string;
+  palletCount: number;
+  quantityAllocated: number;
+  rackId?: string | null;
+  levelNumber?: number | null;
+}
+
 export interface SlottingPlanLine {
   id: string;
   materialId: string;
@@ -39,6 +47,7 @@ export interface SlottingPlanLine {
   requiredReservePalletPositions: number;
   maxStockPalletPositions: number;
   reserveLocations: ReserveLocation[];
+  placementLines?: PlacementLine[];
   distanceSavedMeters?: number;
   zoneUpgrade?: string;
   moveReason?: string;
