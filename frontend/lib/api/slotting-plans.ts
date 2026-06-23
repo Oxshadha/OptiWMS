@@ -96,7 +96,10 @@ export const slottingPlansApi = {
   reoptimize: (planId: string, body: { expectedVersion: number; lockedLineIds?: string[] }): Promise<SlottingPlanSummary> =>
     apiClient.post<SlottingPlanSummary>(`/v1/slotting/plans/${planId}/reoptimize`, body),
 
-  approve: (planId: string, body: { approvedBy: string }): Promise<SlottingPlanSummary> =>
+  approve: (
+    planId: string,
+    body: { approvedBy: string; directApply?: boolean }
+  ): Promise<SlottingPlanSummary> =>
     apiClient.post<SlottingPlanSummary>(`/v1/slotting/plans/${planId}/approve`, body),
 
   updateLine: (

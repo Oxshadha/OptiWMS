@@ -57,6 +57,21 @@ public class SlottingPlanExecutionService {
 
     @Transactional
     public ExecutionResult executeApprovedPlan(SlottingPlanEntity plan, List<SlottingPlanLineEntity> lines) {
+        return executeApprovedPlan(plan, lines, false);
+    }
+
+    /**
+     * @param directApply when true (admin demo), updates inventory location_code immediately — no stock transfers.
+     */
+    @Transactional
+    public ExecutionResult executeApprovedPlan(
+            SlottingPlanEntity plan,
+            List<SlottingPlanLineEntity> lines,
+            boolean directApply) {
+        if (directApply) {
+            return executeDirectApply(plan, lines);
+        }
+
         UUID warehouseId = plan.getWarehouseId();
         List<StockTransferLine> transferLines = new ArrayList<>();
         int lineNo = 1;
@@ -148,6 +163,51 @@ public class SlottingPlanExecutionService {
         StockTransfer released = stockTransferService.releaseForSlotting(created.getId());
 
         return new ExecutionResult(1, released.getId(), "PENDING_MOVES", transferLines.size());
+    }
+
+    private ExecutionResult executeDirectApply(SlottingPlanEntity plan, List<SlottingPlanLineEntity> lines) {
+        UUID warehouseId = plan.getWarehouseId();
+
+        for (SlottingPlanLineEntity line : lines) {
+            String targetPrimary = resolvePrimary(line);
+            if (targetPrimary == null) {
+                continue;
+            }
+
+            defaultLocationService.assignDefaultLocation(
+                    line.getMaterialId(),
+                    warehouseId,
+                    targetPrimary,
+                    1,
+                    line.getMaterialType(),
+                    true);
+
+            List<SlottingPlanReserveLineEntity> reserves =
+                    reserveLineRepository.findByPlanLineIdOrderBySequenceNoAsc(line.getId());
+            int priority = 2;
+            for (SlottingPlanReserveLineEntity reserve : reserves) {
+                String reserveCode = reserve.getFinalReserveLocationCode() != null
+                        ? reserve.getFinalReserveLocationCode()
+                        : reserve.getRecommendedReserveLocationCode();
+                if (reserveCode != null) {
+                    defaultLocationService.assignDefaultLocation(
+                            line.getMaterialId(),
+                            warehouseId,
+                            reserveCode,
+                            priority++,
+                            line.getMaterialType(),
+                            true);
+                }
+            }
+
+            line.setStatus("APPLIED");
+            if (Boolean.TRUE.equals(line.getRelocationFlag())) {
+                line.setRelocationApplied(true);
+            }
+            lineRepository.save(line);
+        }
+
+        return new ExecutionResult(0, null, "DIRECT_APPLIED", 0);
     }
 
     private String resolvePrimary(SlottingPlanLineEntity line) {

@@ -207,8 +207,9 @@ public class SlottingPlanService {
         List<SlottingPlanLineEntity> lines = lineRepository.findByPlanIdOrderByMaterialCodeAsc(planId);
         UUID warehouseId = plan.getWarehouseId();
 
+        boolean directApply = Boolean.TRUE.equals(request.directApply());
         SlottingPlanExecutionService.ExecutionResult execution =
-                executionService.executeApprovedPlan(plan, lines);
+                executionService.executeApprovedPlan(plan, lines, directApply);
 
         planRepository.findFirstByWarehouseIdAndStatusOrderByApprovedAtDesc(warehouseId, "ACTIVE")
                 .ifPresent(active -> {
@@ -507,5 +508,5 @@ public class SlottingPlanService {
 
     public record ReoptimizeRequest(Integer expectedVersion, List<UUID> lockedLineIds) {}
 
-    public record ApprovePlanRequest(String approvedBy) {}
+    public record ApprovePlanRequest(String approvedBy, Boolean directApply) {}
 }
