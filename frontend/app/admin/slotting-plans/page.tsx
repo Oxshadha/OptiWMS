@@ -13,6 +13,7 @@ import {
   type SlottingReadiness,
 } from "@/lib/api/slotting-plans";
 import { statusBadgeClass } from "../replenishment/components/IntelligentEngineHubStrip";
+import { DemandShiftInsights } from "../replenishment/components/DemandShiftInsights";
 import {
   buildLocationIndex,
   buildWarehouseLayoutUrl,
@@ -208,10 +209,16 @@ export default function SlottingPlansPage() {
     if (!selectedPlan) return;
     try {
       setLoading(true);
-      await slottingPlansApi.approve(selectedPlan.id, {
+      const plan = await slottingPlansApi.approve(selectedPlan.id, {
         approvedBy: admin?.email ?? "manager",
       });
-      setInfo("Plan approved and applied");
+      if (plan.transfersCreated && plan.transfersCreated > 0) {
+        setInfo(
+          `Plan approved. ${plan.transfersCreated} stock transfer job(s) created (${plan.executionStatus ?? "PENDING_MOVES"}). Forklift tasks are queued — inventory updates when moves complete.`
+        );
+      } else {
+        setInfo("Plan approved — target default locations updated. No physical relocations required.");
+      }
       await loadPlans(warehouseId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to approve plan");
@@ -280,6 +287,14 @@ export default function SlottingPlansPage() {
       </div>
 
       <div className="card bg-base-100 border border-base-300 p-4">
+        <h2 className="font-semibold mb-2">Demand Shift Insights</h2>
+        <p className="text-xs text-base-content/60 mb-4">
+          Forward-looking space targets from 6-month forecast P50/P90, MOQ, ROP, and lead-time guardrails.
+        </p>
+        <DemandShiftInsights warehouseId={warehouseId || undefined} />
+      </div>
+
+      <div className="card bg-base-100 border border-base-300 p-4">
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(220px,260px)_minmax(140px,180px)_minmax(220px,320px)_1fr] gap-4 items-end">
             <div className="form-control">
@@ -333,6 +348,14 @@ export default function SlottingPlansPage() {
                   Approve plan
                 </button>
               )}
+              {selectedPlan?.executionTransferId && (
+                <Link
+                  href="/admin/stock-transfers"
+                  className="btn btn-outline btn-sm"
+                >
+                  View transfer jobs
+                </Link>
+              )}
             </div>
           </div>
           <div className="text-xs text-base-content/60">
@@ -364,6 +387,9 @@ export default function SlottingPlansPage() {
                     </div>
                     <p className="text-xs text-base-content/60 mt-1">
                       {p.validFrom} → {p.validTo}
+                      {p.executionStatus && p.executionStatus !== "NONE" && (
+                        <> · {p.executionStatus}</>
+                      )}
                     </p>
                   </button>
                 </li>

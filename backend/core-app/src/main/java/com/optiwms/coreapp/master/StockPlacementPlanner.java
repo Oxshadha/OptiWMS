@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.master;
 
+import com.optiwms.coreapp.slotting.DemandSpacePlanningService;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.LocationEntity;
@@ -112,6 +113,82 @@ public class StockPlacementPlanner {
                 lines,
                 notes);
     }
+
+    /**
+     * Reclaim bins from falling-demand SKUs that hold stock above ROP + safety minimum.
+     */
+    public List<ReclaimBin> planReclaim(
+            UUID warehouseId,
+            Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles,
+            int binsNeeded,
+            Set<String> excludeLocationCodes) {
+        if (binsNeeded <= 0 || demandProfiles == null || demandProfiles.isEmpty()) {
+            return List.of();
+        }
+
+        List<ReclaimCandidate> candidates = new ArrayList<>();
+        for (DemandSpacePlanningService.DemandProfile profile : demandProfiles.values()) {
+            if (profile.demandTrend() != DemandSpacePlanningService.DemandTrend.FALLING
+                    || profile.reclaimablePositions() <= 0) {
+                continue;
+            }
+            int minUnits = profile.minStockUnits().setScale(0, RoundingMode.CEILING).intValue();
+            List<InventoryItemEntity> stock = inventoryRepository.findByMaterialIdAndWarehouseId(
+                    profile.materialId(), warehouseId);
+            for (InventoryItemEntity item : stock) {
+                if (item.getQuantity() == null || item.getQuantity() <= 0 || item.getLocationCode() == null) {
+                    continue;
+                }
+                if (excludeLocationCodes != null && excludeLocationCodes.contains(item.getLocationCode())) {
+                    continue;
+                }
+                if (item.getQuantity() <= minUnits) {
+                    continue;
+                }
+                candidates.add(new ReclaimCandidate(
+                        item.getLocationCode(),
+                        profile.materialId(),
+                        profile.materialCode(),
+                        item.getQuantity() - minUnits,
+                        profile.reclaimablePositions()));
+            }
+        }
+
+        candidates.sort(Comparator
+                .comparingInt(ReclaimCandidate::excessUnits).reversed()
+                .thenComparing(ReclaimCandidate::reclaimablePositions, Comparator.reverseOrder()));
+
+        List<ReclaimBin> reclaimed = new ArrayList<>();
+        Set<String> used = new HashSet<>();
+        for (ReclaimCandidate candidate : candidates) {
+            if (reclaimed.size() >= binsNeeded) {
+                break;
+            }
+            if (used.contains(candidate.locationCode())) {
+                continue;
+            }
+            used.add(candidate.locationCode());
+            reclaimed.add(new ReclaimBin(
+                    candidate.locationCode(),
+                    candidate.materialId(),
+                    candidate.materialCode(),
+                    "Reclaim from falling-demand SKU above ROP"));
+        }
+        return reclaimed;
+    }
+
+    private record ReclaimCandidate(
+            String locationCode,
+            UUID materialId,
+            String materialCode,
+            int excessUnits,
+            int reclaimablePositions) {}
+
+    public record ReclaimBin(
+            String locationCode,
+            UUID sourceMaterialId,
+            String sourceMaterialCode,
+            String rationale) {}
 
     private boolean isRackAvailable(LocationEntity location) {
         String status = location.getRackStatus() != null ? location.getRackStatus().toLowerCase() : "active";

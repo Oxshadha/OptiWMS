@@ -38,6 +38,8 @@ public class SlottingPlanService {
     private final SlottingReadinessService readinessService;
     private final HandlingUnitCapacityService handlingUnitCapacityService;
     private final StockPlacementPlanner stockPlacementPlanner;
+    private final DemandSpacePlanningService demandSpacePlanningService;
+    private final SlottingPlanExecutionService executionService;
 
     public SlottingPlanService(
             SlottingPlanRepository planRepository,
@@ -52,7 +54,9 @@ public class SlottingPlanService {
             SlottingPlanClient slottingPlanClient,
             SlottingReadinessService readinessService,
             HandlingUnitCapacityService handlingUnitCapacityService,
-            StockPlacementPlanner stockPlacementPlanner) {
+            StockPlacementPlanner stockPlacementPlanner,
+            DemandSpacePlanningService demandSpacePlanningService,
+            SlottingPlanExecutionService executionService) {
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -66,6 +70,8 @@ public class SlottingPlanService {
         this.readinessService = readinessService;
         this.handlingUnitCapacityService = handlingUnitCapacityService;
         this.stockPlacementPlanner = stockPlacementPlanner;
+        this.demandSpacePlanningService = demandSpacePlanningService;
+        this.executionService = executionService;
     }
 
     @Transactional
@@ -82,9 +88,7 @@ public class SlottingPlanService {
                 ? request.planCode()
                 : "SLOT-" + validFrom.getYear() + "-H" + ((validFrom.getMonthValue() - 1) / 6 + 1);
 
-        if (planRepository.existsByWarehouseIdAndPlanCode(warehouseId, planCode)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Plan code already exists: " + planCode);
-        }
+        planCode = resolveUniquePlanCode(warehouseId, planCode);
 
         SlottingPlanEntity plan = new SlottingPlanEntity();
         plan.setWarehouseId(warehouseId);
@@ -203,39 +207,8 @@ public class SlottingPlanService {
         List<SlottingPlanLineEntity> lines = lineRepository.findByPlanIdOrderByMaterialCodeAsc(planId);
         UUID warehouseId = plan.getWarehouseId();
 
-        for (SlottingPlanLineEntity line : lines) {
-            String primary = line.getFinalPrimaryLocationCode() != null
-                    ? line.getFinalPrimaryLocationCode()
-                    : line.getRecommendedPrimaryLocationCode();
-            if (primary == null) {
-                continue;
-            }
-            defaultLocationService.assignDefaultLocation(
-                    line.getMaterialId(),
-                    warehouseId,
-                    primary,
-                    1,
-                    line.getMaterialType());
-
-            List<SlottingPlanReserveLineEntity> reserves =
-                    reserveLineRepository.findByPlanLineIdOrderBySequenceNoAsc(line.getId());
-            int priority = 2;
-            for (SlottingPlanReserveLineEntity reserve : reserves) {
-                String reserveCode = reserve.getFinalReserveLocationCode() != null
-                        ? reserve.getFinalReserveLocationCode()
-                        : reserve.getRecommendedReserveLocationCode();
-                if (reserveCode != null) {
-                    defaultLocationService.assignDefaultLocation(
-                            line.getMaterialId(),
-                            warehouseId,
-                            reserveCode,
-                            priority++,
-                            line.getMaterialType());
-                }
-            }
-            line.setStatus("APPLIED");
-            lineRepository.save(line);
-        }
+        SlottingPlanExecutionService.ExecutionResult execution =
+                executionService.executeApprovedPlan(plan, lines);
 
         planRepository.findFirstByWarehouseIdAndStatusOrderByApprovedAtDesc(warehouseId, "ACTIVE")
                 .ifPresent(active -> {
@@ -246,7 +219,26 @@ public class SlottingPlanService {
         plan.setStatus("ACTIVE");
         plan.setApprovedBy(request.approvedBy());
         plan.setApprovedAt(OffsetDateTime.now());
+        plan.setExecutionStatus(execution.executionStatus());
+        plan.setExecutionTransferId(execution.transferId());
+        plan.setTransfersCreated(execution.transfersCreated());
         return planRepository.save(plan);
+    }
+
+    private String resolveUniquePlanCode(UUID warehouseId, String baseCode) {
+        if (!planRepository.existsByWarehouseIdAndPlanCode(warehouseId, baseCode)) {
+            return baseCode;
+        }
+        String stem = baseCode.replaceFirst("-v\\d+$", "");
+        int version = 2;
+        while (version < 100) {
+            String candidate = stem + "-v" + version;
+            if (!planRepository.existsByWarehouseIdAndPlanCode(warehouseId, candidate)) {
+                return candidate;
+            }
+            version++;
+        }
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Could not allocate unique plan code for: " + baseCode);
     }
 
     private void runOptimization(
@@ -271,6 +263,10 @@ public class SlottingPlanService {
                 .filter(m -> isSlottingType(m.getMaterialType()))
                 .toList();
 
+        Set<UUID> materialIds = materials.stream().map(MaterialEntity::getId).collect(Collectors.toSet());
+        Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles =
+                demandSpacePlanningService.buildProfiles(warehouseId, materialIds);
+
         SlottingPlanOptimizer optimizer = new SlottingPlanOptimizer(handlingUnitCapacityService, stockPlacementPlanner);
         List<SlottingPlanOptimizer.OptimizedLine> allOptimized = new ArrayList<>();
         List<SlottingPlanOptimizer.MaterialCandidate> allCandidates = new ArrayList<>();
@@ -294,7 +290,8 @@ public class SlottingPlanService {
                     existingLines,
                     plan.getRelocationBudgetPct(),
                     anchor,
-                    warehouseId);
+                    warehouseId,
+                    demandProfiles);
             allOptimized.addAll(optimizer.optimize(input).lines());
         }
 
@@ -307,7 +304,8 @@ public class SlottingPlanService {
                     allCandidates,
                     locations,
                     incumbent,
-                    lockedMaterialIds);
+                    lockedMaterialIds,
+                    demandProfiles);
             slottingPlanClient.optimize(pyReq).ifPresent(pyRes -> {
                 allOptimized.clear();
                 allOptimized.addAll(slottingPlanClient.mergePythonAssignments(javaBaseline, pyRes));
@@ -317,14 +315,15 @@ public class SlottingPlanService {
             plan.setAlgorithm("HEURISTIC_V1");
         }
 
-        persistOptimizedLines(plan, allOptimized, lockedMaterialIds, existingLines);
+        persistOptimizedLines(plan, allOptimized, lockedMaterialIds, existingLines, demandProfiles);
     }
 
     private void persistOptimizedLines(
             SlottingPlanEntity plan,
             List<SlottingPlanOptimizer.OptimizedLine> optimized,
             Set<UUID> lockedMaterialIds,
-            List<SlottingPlanLineEntity> existingLines) {
+            List<SlottingPlanLineEntity> existingLines,
+            Map<UUID, DemandSpacePlanningService.DemandProfile> demandProfiles) {
 
         Map<UUID, SlottingPlanLineEntity> existingByMaterial = existingLines.stream()
                 .collect(Collectors.toMap(SlottingPlanLineEntity::getMaterialId, l -> l, (a, b) -> a));
@@ -371,7 +370,9 @@ public class SlottingPlanService {
             line.setRelocationFlag(opt.relocationFlag());
             line.setObjectiveCost(opt.gainScore());
             line.setStatus(opt.status());
-            line.setConstraintSnapshot(buildSnapshot(opt.material()));
+            line.setConstraintSnapshot(buildSnapshot(
+                    opt.material(),
+                    demandProfiles.get(opt.material().materialId())));
 
             if (opt.relocationFlag()) {
                 movesProposed++;
@@ -446,7 +447,18 @@ public class SlottingPlanService {
         return new double[]{minX, minY};
     }
 
-    private String buildSnapshot(SlottingPlanOptimizer.MaterialCandidate m) {
+    private String buildSnapshot(SlottingPlanOptimizer.MaterialCandidate m,
+                                 DemandSpacePlanningService.DemandProfile profile) {
+        if (profile != null) {
+            return String.format(
+                    "{\"abc_class\":\"%s\",\"fms_class\":\"%s\",\"amalgamated_class\":\"%s\",\"issue_volume\":%d,\"issue_frequency\":%d,"
+                            + "\"demand_trend\":\"%s\",\"forecast_p50\":%s,\"required_pallets\":%d,\"stockout_risk\":%.2f}",
+                    m.abcClass(), m.fmsClass(), m.amalgamatedClass(), m.issueVolume(), m.issueCount(),
+                    profile.demandTrend().name(),
+                    profile.forecastP50Units().setScale(0, RoundingMode.HALF_UP),
+                    profile.requiredPalletPositions(),
+                    profile.stockoutRiskScore());
+        }
         return String.format(
                 "{\"abc_class\":\"%s\",\"fms_class\":\"%s\",\"amalgamated_class\":\"%s\",\"issue_volume\":%d,\"issue_frequency\":%d}",
                 m.abcClass(), m.fmsClass(), m.amalgamatedClass(), m.issueVolume(), m.issueCount());

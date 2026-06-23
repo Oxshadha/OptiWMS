@@ -3,17 +3,33 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import clsx from "clsx";
+import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { slottingPlansApi, type SlottingPlanSummary, type SlottingReadiness } from "@/lib/api/slotting-plans";
+import { DemandShiftInsights } from "./DemandShiftInsights";
 
 type HubStripProps = {
   warehouseId?: string;
 };
 
-export function IntelligentEngineHubStrip({ warehouseId }: HubStripProps) {
+export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubStripProps) {
   const [loading, setLoading] = useState(true);
   const [activePlan, setActivePlan] = useState<SlottingPlanSummary | null>(null);
   const [readiness, setReadiness] = useState<SlottingReadiness | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseId, setWarehouseId] = useState(warehouseIdProp ?? "");
+
+  useEffect(() => {
+    void warehousesApi.getAll().then(setWarehouses).catch(() => setWarehouses([]));
+  }, []);
+
+  useEffect(() => {
+    if (warehouseIdProp) {
+      setWarehouseId(warehouseIdProp);
+    } else if (!warehouseId && warehouses.length > 0) {
+      setWarehouseId(warehouses[0].id);
+    }
+  }, [warehouseIdProp, warehouses, warehouseId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,6 +88,21 @@ export function IntelligentEngineHubStrip({ warehouseId }: HubStripProps) {
         </div>
       )}
 
+      {warehouses.length > 1 && !warehouseIdProp && (
+        <div className="form-control max-w-xs">
+          <label className="label py-0"><span className="label-text text-xs">Warehouse</span></label>
+          <select
+            className="select select-bordered select-sm"
+            value={warehouseId}
+            onChange={(e) => setWarehouseId(e.target.value)}
+          >
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>{w.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-base-100 border border-base-300 rounded-2xl p-4">
           <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Master Data</p>
@@ -91,7 +122,13 @@ export function IntelligentEngineHubStrip({ warehouseId }: HubStripProps) {
             {loading ? "…" : activePlan?.status ?? "None active"}
           </p>
           <p className="text-xs text-base-content/60 mt-1">
-            {activePlan ? `${activePlan.planCode} · until ${activePlan.validTo}` : "No approved plan for warehouse"}
+            {activePlan
+              ? `${activePlan.planCode} · until ${activePlan.validTo}${
+                  activePlan.executionStatus && activePlan.executionStatus !== "NONE"
+                    ? ` · ${activePlan.executionStatus}`
+                    : ""
+                }`
+              : "No approved plan for warehouse"}
           </p>
         </div>
 
@@ -108,6 +145,16 @@ export function IntelligentEngineHubStrip({ warehouseId }: HubStripProps) {
             <Link href="/admin/ai-slotting" className="btn btn-sm btn-ghost">Storage Optimiser</Link>
           </div>
         </div>
+      </div>
+
+      <div className="bg-base-100 border border-base-300 rounded-2xl p-4">
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h2 className="font-semibold">Demand Shift Insights</h2>
+          <Link href="/admin/slotting-plans" className="link link-hover text-xs">
+            Full view →
+          </Link>
+        </div>
+        <DemandShiftInsights warehouseId={warehouseId || undefined} compact limit={6} />
       </div>
     </div>
   );

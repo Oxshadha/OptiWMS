@@ -23,6 +23,9 @@ class PlanMaterialInput(BaseModel):
     pallet_spaces: Optional[float] = None
     incumbent_primary_location_code: Optional[str] = None
     locked: bool = False
+    required_pallets: Optional[int] = None
+    demand_trend: Optional[str] = None
+    min_stock_units: Optional[float] = None
 
 
 class PlanLocationInput(BaseModel):
@@ -143,6 +146,8 @@ def _fits_physical(loc: PlanLocationInput, material: PlanMaterialInput, active_p
 
 
 def _max_stock_pp(material: PlanMaterialInput) -> int:
+    if material.required_pallets and material.required_pallets > 0:
+        return material.required_pallets
     monthly = max(1, material.issue_volume / 12)
     weeks = 2 if material.material_type == "packaging_material" else 4
     return max(1, int((monthly * weeks / 4) + 0.999))

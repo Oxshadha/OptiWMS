@@ -42,6 +42,7 @@ export interface RackUnit {
   notes?: string; // Additional notes
   velocity?: number; // Velocity percentage (0-100) for heat map visualization
   isBulk?: boolean; // True when rack belongs to bulk-storage location type
+  pendingMoveCount?: number; // Open stock-transfer lines targeting this rack
 }
 
 export interface WarehouseLayout {

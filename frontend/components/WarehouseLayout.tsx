@@ -529,6 +529,30 @@ export function WarehouseLayoutVisualization({
                           ({percentageText})
                         </text>
                       )}
+                      {(rack.pendingMoveCount ?? 0) > 0 && (
+                        <>
+                          <rect
+                            x={rack.x + rack.width - 8}
+                            y={rack.y - 32}
+                            width={52}
+                            height={14}
+                            fill="#F59E0B"
+                            rx="3"
+                          />
+                          <text
+                            x={rack.x + rack.width + 18}
+                            y={rack.y - 24}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fill="#1F2937"
+                            fontSize="8"
+                            fontWeight="600"
+                            className="pointer-events-none"
+                          >
+                            {rack.pendingMoveCount} moves
+                          </text>
+                        </>
+                      )}
                     </>
                   );
                 })()}
