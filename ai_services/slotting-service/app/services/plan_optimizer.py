@@ -124,6 +124,83 @@ def _gain_score(distance_saved: float, zone_upgrade: Optional[str], material: Pl
     return distance_saved * 0.5 + zone_bonus + freq_bonus - penalty
 
 
+def _milp_refine_a_class(
+    proposals: List[Dict[str, Any]],
+    pick_pool: List[PlanLocationInput],
+    anchor: tuple[float, float],
+) -> None:
+    """PuLP assignment for A-class SKUs to golden pick-face slots (small subproblem)."""
+    try:
+        import pulp
+    except ImportError:
+        return
+
+    a_props = [p for p in proposals if p["material"].abc_class == "A" and p["status"] != "OVERRIDDEN"]
+    if not a_props:
+        return
+
+    golden = [
+        loc for loc in pick_pool
+        if _pick_face_score(loc, True) <= 2
+    ][: max(40, len(a_props) * 2)]
+    if not golden:
+        return
+
+    prob = pulp.LpProblem("a_class_slotting", pulp.LpMinimize)
+    x = {}
+    for i, prop in enumerate(a_props):
+        mat = prop["material"]
+        for j, loc in enumerate(golden):
+            if not _compatible(loc.amalgamated_class, mat.amalgamated_class):
+                continue
+            if mat.weight_kg and loc.max_weight_kg and mat.weight_kg > loc.max_weight_kg:
+                continue
+            x[i, j] = pulp.LpVariable(f"x_{i}_{j}", cat=pulp.LpBinary)
+
+    if not x:
+        return
+
+    # Each SKU at most one location; each location at most one A-class SKU
+    for i in range(len(a_props)):
+        vars_i = [x[k] for k in x if k[0] == i]
+        if vars_i:
+            prob += pulp.lpSum(vars_i) <= 1
+    for j in range(len(golden)):
+        vars_j = [x[k] for k in x if k[1] == j]
+        if vars_j:
+            prob += pulp.lpSum(vars_j) <= 1
+
+    prob += pulp.lpSum(
+        x[i, j] * _distance(golden[j], anchor)
+        for (i, j) in x
+    )
+
+    prob.solve(pulp.PULP_CBC_CMD(msg=False))
+    if pulp.LpStatus[prob.status] != "Optimal":
+        return
+
+    used_locs: set[str] = set()
+    for (i, j), var in x.items():
+        if var.value() and var.value() > 0.5:
+            prop = a_props[i]
+            loc = golden[j]
+            if loc.location_code in used_locs:
+                continue
+            used_locs.add(loc.location_code)
+            incumbent = prop["incumbent"]
+            prop["recommended"] = loc.location_code
+            prop["location_id"] = loc.location_id
+            inc_dist = 0.0
+            if incumbent:
+                inc_loc = next((l for l in pick_pool if l.location_code == incumbent), None)
+                if inc_loc:
+                    inc_dist = _distance(inc_loc, anchor)
+            rec_dist = _distance(loc, anchor)
+            prop["distance_saved"] = max(0.0, inc_dist - rec_dist)
+            prop["move_reason"] = "A-class MILP golden-slot assignment"
+            prop["relocation_applied"] = incumbent != loc.location_code
+
+
 def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
     anchor = _dispatch_anchor(request.locations)
     locked = set(request.locked_material_ids)
@@ -240,6 +317,9 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
             "status": "PROPOSED",
             "relocation_applied": moving,
         })
+
+    if request.use_milp_a_class:
+        _milp_refine_a_class(proposals, pick_pool, anchor)
 
     movable = [p for p in proposals if p["incumbent"] and p["recommended"] and p["incumbent"] != p["recommended"]]
     budget = int(len(request.materials) * (request.relocation_budget_pct / 100.0))
