@@ -198,10 +198,11 @@ def evaluate_forecast_suite(
     y_pred = np.clip(np.asarray(y_pred, dtype=float), 0, None)
     out = {
         "RMSE": float(np.sqrt(mean_squared_error(y_true, y_pred))),
+        "NRMSE": float(np.sqrt(mean_squared_error(y_true, y_pred)) / max(np.mean(np.abs(y_true)), 1.0) * 100),
         "MAE": float(mean_absolute_error(y_true, y_pred)),
         "WAPE": wape(y_true, y_pred),
         "R2": float(r2_score(y_true, y_pred)),
-        "Bias": float(np.mean(y_pred - y_true)),
+        "Bias": float(np.mean((y_pred - y_true) / np.maximum(np.abs(y_true), 1.0)) * 100),
     }
     if sku_ids is not None:
         out["WAPE_median_per_sku"] = per_sku_wape_median(y_true, y_pred, sku_ids)
