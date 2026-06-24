@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 // ─── Design tokens (Light mode palette) ────────────────────────
 const T = {
@@ -214,6 +214,7 @@ export default function ForecastChatButton({
   const [loading, setLoading] = useState(false);
   const [quickActionsShown, setQuickActionsShown] = useState(true);
   const [activeSku, setActiveSku] = useState(sku || "");
+  const [activeMonth, setActiveMonth] = useState(selectedMonth || "");
 
   const bottomRef = useRef(null);
   const inputRef = useRef(null);
@@ -222,6 +223,11 @@ export default function ForecastChatButton({
   useEffect(() => {
     setActiveSku(sku || "");
   }, [sku]);
+
+  // Keep activeMonth in sync when parent changes selectedMonth
+  useEffect(() => {
+    setActiveMonth(selectedMonth || "");
+  }, [selectedMonth]);
 
   // Auto-scroll
   useEffect(() => {
@@ -235,15 +241,48 @@ export default function ForecastChatButton({
     }
   }, [open]);
 
+  // Deduplicate and filter months by active SKU for the dropdown options
+  const filteredPoints = useMemo(() => {
+    const pool = activeSku
+      ? forecastPoints.filter((p) => p.sku === activeSku)
+      : forecastPoints;
+    const seen = new Set();
+    return pool.filter((p) => {
+      if (!p.month || seen.has(p.month)) return false;
+      seen.add(p.month);
+      return true;
+    });
+  }, [forecastPoints, activeSku]);
+
+  // Automatically switch activeMonth if it is not valid for the current SKU options
+  useEffect(() => {
+    if (filteredPoints.length > 0) {
+      const exists = filteredPoints.some((p) => p.month === activeMonth);
+      if (!exists) {
+        setActiveMonth(filteredPoints[0].month);
+      }
+    }
+  }, [filteredPoints, activeMonth]);
+
+  // Match forecast point and aggregate demand value for the active SKU and selected month
+  const displayUnits = useMemo(() => {
+    const pool = activeSku
+      ? forecastPoints.filter((p) => p.sku === activeSku)
+      : forecastPoints;
+    const matched = pool.filter((p) => p.month === activeMonth);
+    if (matched.length === 0) return predictedUnits;
+    return matched.reduce((sum, p) => sum + p.p50, 0);
+  }, [forecastPoints, activeSku, activeMonth, predictedUnits]);
+
   // Inject greeting on first open
   useEffect(() => {
     if (open && messages.length === 0) {
       if (typeof onOpen === "function") onOpen();
       const skuLabel = activeSku || "all combined SKUs";
-      const monthLabel = selectedMonth || "the next forecast period";
+      const monthLabel = activeMonth || "the next forecast period";
       const unitsLabel =
-        predictedUnits != null
-          ? `${predictedUnits.toLocaleString()} units`
+        displayUnits != null
+          ? `${displayUnits.toLocaleString()} units`
           : "—";
       setMessages([
         {
@@ -260,10 +299,10 @@ export default function ForecastChatButton({
       setActiveSku(newSku);
       if (typeof onSkuChange === "function") onSkuChange(newSku);
       const unitsLabel =
-        predictedUnits != null
-          ? `${predictedUnits.toLocaleString()} units`
+        displayUnits != null
+          ? `${displayUnits.toLocaleString()} units`
           : "—";
-      const monthLabel = selectedMonth || "the next forecast period";
+      const monthLabel = activeMonth || "the next forecast period";
       setMessages([
         {
           role: "assistant",
@@ -272,7 +311,25 @@ export default function ForecastChatButton({
       ]);
       setQuickActionsShown(true);
     },
-    [onSkuChange, predictedUnits, selectedMonth],
+    [onSkuChange, displayUnits, activeMonth],
+  );
+
+  const handleMonthSwitch = useCallback(
+    (newMonth) => {
+      setActiveMonth(newMonth);
+      const matched = forecastPoints.find((p) => p.month === newMonth);
+      const unitsVal = matched ? matched.p50 : null;
+      const unitsLabel =
+        unitsVal !== null ? `${unitsVal.toLocaleString()} units` : "—";
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Month context switched to **${newMonth}**.\n\nForecast: **${unitsLabel}** for ${newMonth}.\n\nWhat would you like to know?`,
+        },
+      ]);
+    },
+    [forecastPoints],
   );
 
   const sendMessage = useCallback(
@@ -294,8 +351,8 @@ export default function ForecastChatButton({
           body: JSON.stringify({
             sku: activeSku || "all",
             forecastPoints,
-            selectedMonth,
-            predictedUnits: predictedUnits ?? null,
+            selectedMonth: activeMonth,
+            predictedUnits: displayUnits ?? null,
             confidence: confidence ?? null,
             mape: mape ?? null,
             userMessage,
@@ -315,9 +372,12 @@ export default function ForecastChatButton({
             const chunk = decoder.decode(value, { stream: true });
             setMessages((prev) => {
               const copy = [...prev];
-              const last = copy[copy.length - 1];
-              if (last?.role === "assistant") {
-                last.content = (last.content || "") + chunk;
+              const lastIndex = copy.length - 1;
+              if (lastIndex >= 0 && copy[lastIndex].role === "assistant") {
+                copy[lastIndex] = {
+                  ...copy[lastIndex],
+                  content: (copy[lastIndex].content || "") + chunk,
+                };
               }
               return copy;
             });
@@ -326,10 +386,12 @@ export default function ForecastChatButton({
       } catch (err) {
         setMessages((prev) => {
           const copy = [...prev];
-          const last = copy[copy.length - 1];
-          if (last?.role === "assistant" && last.content === "") {
-            last.content =
-              "Sorry, I couldn't reach the forecast explainer service. Please try again in a moment.";
+          const lastIndex = copy.length - 1;
+          if (lastIndex >= 0 && copy[lastIndex].role === "assistant" && copy[lastIndex].content === "") {
+            copy[lastIndex] = {
+              ...copy[lastIndex],
+              content: "Sorry, I couldn't reach the forecast explainer service. Please try again in a moment.",
+            };
           }
           return copy;
         });
@@ -342,8 +404,8 @@ export default function ForecastChatButton({
       loading,
       activeSku,
       forecastPoints,
-      selectedMonth,
-      predictedUnits,
+      activeMonth,
+      displayUnits,
       confidence,
       mape,
     ],
@@ -515,6 +577,35 @@ export default function ForecastChatButton({
                   ))}
                 </select>
               )}
+              {filteredPoints.length > 0 && (
+                <select
+                  value={activeMonth}
+                  onChange={(e) => handleMonthSwitch(e.target.value)}
+                  title="Switch analysis Month"
+                  style={{
+                    background: T.inputBg,
+                    border: `1px solid ${T.chipBorder}`,
+                    borderRadius: 7,
+                    color: T.text,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "4px 8px",
+                    cursor: "pointer",
+                    outline: "none",
+                    maxWidth: 100,
+                  }}
+                >
+                  {filteredPoints.map((p) => (
+                    <option
+                      key={p.month}
+                      value={p.month}
+                      style={{ background: T.panel, color: T.text }}
+                    >
+                      {p.month}
+                    </option>
+                  ))}
+                </select>
+              )}
               <button
                 onClick={togglePanel}
                 aria-label="Close"
@@ -556,17 +647,17 @@ export default function ForecastChatButton({
                 {activeSku || "All Combined"}
               </strong>
             </span>
-            {selectedMonth && (
+            {activeMonth && (
               <span>
                 <span style={{ color: T.textMuted }}>Month: </span>
-                <strong style={{ color: T.text }}>{selectedMonth}</strong>
+                <strong style={{ color: T.text }}>{activeMonth}</strong>
               </span>
             )}
-            {predictedUnits != null && (
+            {displayUnits != null && (
               <span>
                 <span style={{ color: T.textMuted }}>Forecast: </span>
                 <strong style={{ color: T.ok }}>
-                  {predictedUnits.toLocaleString()} units
+                  {displayUnits.toLocaleString()} units
                 </strong>
               </span>
             )}

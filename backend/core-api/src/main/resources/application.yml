@@ -63,8 +63,8 @@ ai:
     connect-timeout-seconds: 3
     read-timeout-seconds: 300
   services:
-    forecast-base-url: http://localhost:8091
-    orchestrator-base-url: http://localhost:8092
+    forecast-base-url: http://127.0.0.1:8091
+    orchestrator-base-url: http://127.0.0.1:8092
     auth-token: ${AI_SERVICES_AUTH_TOKEN:}
   monitoring:
     enabled: false

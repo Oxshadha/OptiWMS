@@ -55,19 +55,19 @@
   "training_source": "M5_Forecasting_Accuracy",
   "aggregation_level": "dept_store",
   "training_metrics": {
-    "WAPE": 0.0716,
-    "RMSE": 1883.9,
-    "MAE": 1107.5,
-    "MAPE": 9.65,
-    "Bias": 50.7,
-    "MASE": 0.2553
+    "WAPE": 0.0467,
+    "RMSE": 1120.8,
+    "MAE": 737.3,
+    "MAPE": 6.87,
+    "Bias": 142.5,
+    "MASE": 0.1714
   },
   "test_metrics": {
-    "WAPE": 0.0807,
-    "RMSE": 2718.1,
-    "MAE": 1373.8,
-    "MAPE": 9.91,
-    "Bias": -212.1,
-    "MASE": 0.2884
+    "WAPE": 0.0996,
+    "RMSE": 3205.9,
+    "MAE": 1700.5,
+    "MAPE": 12.75,
+    "Bias": -161.2,
+    "MASE": 0.3569
   }
 }

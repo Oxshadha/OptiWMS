@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()  # load .env file in the same directory or parent
+# Trigger uvicorn reload to pick up env changes
 
 router = APIRouter(prefix="/api/explain", tags=["explain"])
 
@@ -26,49 +27,32 @@ DB_PATH = next((p for p in _DB_CANDIDATES if os.path.exists(p)), None)
 
 
 def _query_db_context(sku: str) -> str:
-    """Pull relevant forecast rows from SQLite for the given SKU (or all if 'all')."""
-    if not DB_PATH:
-        return "No local forecast database found."
+    """Pull relevant forecast rows from the forecast-service REST API for the given SKU (or all if 'all')."""
+    if not FORECAST_SERVICE_BASE:
+        return "  (FORECAST_SERVICE_BASE not configured — forecast data unavailable)"
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-
-        # Check available columns dynamically
-        cur.execute("PRAGMA table_info(forecast_predictions)")
-        cols = {row[1] for row in cur.fetchall()}
-
-        select_cols = []
-        for c in ["sku", "category", "horizon", "period", "p10", "p50", "p90",
-                  "confidence_level", "run_id", "month"]:
-            if c in cols:
-                select_cols.append(c)
-
-        if not select_cols:
-            conn.close()
-            return "Forecast table has no usable columns."
-
+        url = f"{FORECAST_SERVICE_BASE}/forecasts"
+        params = {}
         if sku and sku.lower() not in ("all", ""):
-            cur.execute(
-                f"SELECT {', '.join(select_cols)} FROM forecast_predictions WHERE sku = ? ORDER BY horizon",
-                (sku,),
-            )
-        else:
-            cur.execute(
-                f"SELECT {', '.join(select_cols)} FROM forecast_predictions ORDER BY sku, horizon LIMIT 60"
-            )
-        rows = cur.fetchall()
-        conn.close()
-
-        if not rows:
-            return f"No forecast records found in database for SKU: {sku}."
+            params["sku"] = sku
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(url, params=params)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items") or []
+        if not items:
+            return f"No forecast records found for SKU: {sku}."
 
         lines = []
-        for r in rows:
-            lines.append("  " + ", ".join(f"{k}={r[k]}" for k in select_cols if k in r.keys()))
+        for r in items[:60]:
+            parts = []
+            for c in ["sku", "category", "horizon", "month", "p10", "p50", "p90", "run_id"]:
+                if c in r:
+                    parts.append(f"{c}={r[c]}")
+            lines.append("  " + ", ".join(parts))
         return "\n".join(lines)
     except Exception as exc:
-        return f"DB error: {exc}"
+        return f"Forecast service fetch error: {exc}"
 
 
 def _query_shap_context(sku: str, horizon: int = 3) -> str:
