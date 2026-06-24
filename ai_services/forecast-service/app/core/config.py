@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"
     inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
-    champion_models_json: str = '{"P": "LIGHTGBM"}'
+    champion_models_json: str = '{"P": {"default": "LIGHTGBM"}}'
     fallback_classical_model: str = "ARIMA"
     publish_queue_poll_interval_seconds: float = 1.0
     publish_min_prediction_rows: int = 1
