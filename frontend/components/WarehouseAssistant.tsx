@@ -412,6 +412,7 @@ export function WarehouseAssistant({
                   <span className="text-[11px] text-[#A0A0A0] font-semibold uppercase tracking-widest">AI Operations Hub</span>
                   <Link
                     href="/admin/assistant"
+                    onClick={() => setIsOpen(false)}
                     className="text-xs font-semibold text-[#CF0F47] hover:text-[#B00D3E] transition-colors hover:underline"
                   >
                     Full screen ↗
@@ -486,6 +487,7 @@ export function WarehouseAssistant({
                 <span className="text-xs font-semibold text-[#CF0F47] uppercase tracking-wider">Worker Support</span>
                 <Link
                   href="/admin/assistant"
+                  onClick={() => setIsOpen(false)}
                   className="text-sm font-semibold text-[#CF0F47] hover:underline"
                 >
                   Full screen ↗

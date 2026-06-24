@@ -281,7 +281,6 @@ export function CreateInboundOrderModal({
     }>,
   });
 
-<<<<<<< HEAD
   const buildRecommendationRequestItems = () => {
     const materialMap = new Map(materials.map((material) => [material.id, material]));
 
@@ -319,23 +318,6 @@ export function CreateInboundOrderModal({
     const plan = capacityPlansByItem.get(idx);
     return !!plan && !plan.feasible;
   });
-=======
-  const hasInfeasibleCapacity = formData.items.some((_, idx) => !!capacityPlansByItem.get(idx) && !capacityPlansByItem.get(idx)?.feasible);
-
-  const buildRecommendationRequestItems = () =>
-    formData.items.map((item) => ({
-      material_id: item.productId,
-      quantity: item.quantityOrdered,
-      weight_kg: item.weightKg > 0 ? item.weightKg : undefined,
-      volume_cm3:
-        item.lengthCm > 0 && item.widthCm > 0 && item.heightCm > 0
-          ? item.lengthCm * item.widthCm * item.heightCm
-          : undefined,
-      length_cm: item.lengthCm > 0 ? item.lengthCm : undefined,
-      width_cm: item.widthCm > 0 ? item.widthCm : undefined,
-      height_cm: item.heightCm > 0 ? item.heightCm : undefined,
-      current_location_code: item.locationCode || undefined,
-    }));
 
   const submitInboundOrder = async (
     itemsOverride: typeof formData.items = formData.items
@@ -474,7 +456,6 @@ export function CreateInboundOrderModal({
 
     await submitInboundOrder(confirmedItems);
   };
->>>>>>> dev
 
   useEffect(() => {
     const loadData = async () => {
@@ -617,8 +598,6 @@ export function CreateInboundOrderModal({
 
   useEffect(() => {
     const loadRecommendations = async () => {
-  useEffect(() => {
-    const loadRecommendations = async () => {
       if (step !== 5 || !formData.warehouseId || formData.items.length === 0) {
         setRecommendationLoading(false);
         setRecommendationError(null);
@@ -740,7 +719,6 @@ export function CreateInboundOrderModal({
                     <button className="btn btn-ghost btn-xs" onClick={() => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) })}><span className="material-symbols-outlined text-sm">close</span></button>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-<<<<<<< HEAD
                     <div className="form-control">
                       <label className="label">
                         <span className="label-text text-xs">Product *</span>
@@ -893,17 +871,6 @@ export function CreateInboundOrderModal({
               <button className="btn btn-primary" onClick={() => setStep(3)}>
                 Next
               </button>
-=======
-                    <div className="form-control"><label className="label"><span className="label-text text-xs">Product *</span></label><select className="select select-bordered select-sm" value={item.productId} onChange={(e) => { const next = [...formData.items]; next[idx].productId = e.target.value; setFormData({ ...formData, items: next }); }} required><option value="">Select material</option>{materials.map((m) => <option key={m.id} value={m.id}>{m.description}</option>)}</select></div>
-                    <div className="form-control"><label className="label"><span className="label-text text-xs">Quantity *</span></label><input type="number" className="input input-bordered input-sm" value={item.quantityOrdered} onChange={(e) => { const next = [...formData.items]; next[idx].quantityOrdered = parseInt(e.target.value) || 0; setFormData({ ...formData, items: next }); }} required min="1" /></div>
-                    <div className="form-control"><label className="label"><span className="label-text text-xs">Batch Number</span></label><input type="text" className="input input-bordered input-sm" value={item.batchNumber} onChange={(e) => { const next = [...formData.items]; next[idx].batchNumber = e.target.value; setFormData({ ...formData, items: next }); }} /></div>
-                    <div className="form-control"><label className="label"><span className="label-text text-xs">Manufacture Date</span></label><input type="date" className="input input-bordered input-sm" value={item.manufactureDate} onChange={(e) => { const next = [...formData.items]; next[idx].manufactureDate = e.target.value; setFormData({ ...formData, items: next }); }} max={formData.orderDate || item.expiryDate || undefined} /></div>
-                    <div className="form-control col-span-2"><label className="label"><span className="label-text text-xs">Expiry Date</span></label><input type="date" className="input input-bordered input-sm" value={item.expiryDate} onChange={(e) => { const next = [...formData.items]; next[idx].expiryDate = e.target.value; setFormData({ ...formData, items: next }); }} min={item.manufactureDate || undefined} /></div>
-                  </div>
-                </div>
-              ))}
-              <button className="btn btn-outline btn-sm w-full" disabled={!formData.supplierId || materials.length === 0} onClick={() => setFormData({ ...formData, items: [...formData.items, { productId: "", quantityOrdered: 0, locationCode: "", weightKg: 0, heightCm: 0, lengthCm: 0, widthCm: 0, batchNumber: "", manufactureDate: "", expiryDate: "" }] })}><span className="material-symbols-outlined">add</span>Add Another Item</button>
->>>>>>> dev
             </div>
             <div className="flex justify-end gap-3 pt-4"><button className="btn btn-ghost" onClick={() => setStep(1)}>Back</button><button className="btn btn-primary" onClick={() => setStep(3)}>Next</button></div>
           </div>

@@ -143,11 +143,7 @@ export class AISlottingService {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-<<<<<<< HEAD
-      throw new Error(errorData.detail || 'Failed to generate GA slotting recommendations');
-=======
       throw new Error(errorData.detail || 'Failed to recommend a location');
->>>>>>> dev
     }
 
     return response.json();
