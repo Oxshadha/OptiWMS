@@ -21,7 +21,6 @@ import { BulkRackCreateModal } from "./components/BulkRackCreateModal";
 import { SlottingPlannerModal } from "./components/SlottingPlannerModal";
 import { SimpleSlottingView } from "./components/SimpleSlottingView";
 import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
-import { LogisticAgentDashboard } from "./components/LogisticAgentDashboard";
 import { calculateWarehouseStats } from "./types";
 
 export default function WarehousesPage() {
@@ -319,9 +318,6 @@ export default function WarehousesPage() {
 
       <WarehouseStatsCards stats={stats} />
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
-
-      {/* Logistic Agent Dashboard - Central Data Hub */}
-      <LogisticAgentDashboard warehouseId={selectedWarehouseId || "default"} />
 
       {layoutHasRealData ? (
         <>
