@@ -494,8 +494,10 @@ public class AiProxyService {
 
     private ResponseEntity<Object> exchangeGet(String url) {
         HttpEntity<String> request = new HttpEntity<>(headers());
-        ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, request, Map.class);
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, request, byte[].class);
+        return ResponseEntity.status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .body(response.getBody());
     }
 
     private ResponseEntity<Object> exchangeGetSafe(String url, String upstream) {
