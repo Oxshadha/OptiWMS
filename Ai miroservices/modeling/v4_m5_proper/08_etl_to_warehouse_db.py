@@ -7,8 +7,8 @@ import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy import text
 
-DB_URL = "postgresql://optiwms:optiwms@localhost:5434/optiwms"
-WAREHOUSE_ID = "7262019d-9bf4-4824-997c-d7b5c9158ef3" # Colombo Main Warehouse
+DB_URL = os.environ.get("WMS_RUNTIME_DATABASE_URL") or "postgresql://optiwms:optiwms@localhost:5434/optiwms"
+WAREHOUSE_ID = os.environ.get("WAREHOUSE_ID") or "028128df-b0c1-42f2-9894-5d9c9488b3bd" # Colombo Main Warehouse
 DATASET_VERSION = "M5_V4_LGBM"
 SOURCE_TAG = "m5_pipeline_v4"
 

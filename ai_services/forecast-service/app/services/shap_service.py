@@ -132,7 +132,14 @@ def compute_and_persist_shap(
     try:
         explainer = shap.TreeExplainer(reg)
         shap_matrix = explainer.shap_values(feature_frame)  # shape: (n_skus, n_features)
-        base_value = float(explainer.expected_value)
+        
+        base_val_raw = explainer.expected_value
+        if hasattr(base_val_raw, "item"):
+            base_value = float(base_val_raw.item())
+        elif hasattr(base_val_raw, "__len__"):
+            base_value = float(base_val_raw[0])
+        else:
+            base_value = float(base_val_raw)
     except Exception as exc:  # noqa: BLE001
         logger.error("shap_service: TreeExplainer failed for %s h%d: %s",
                      model_name, horizon, exc)

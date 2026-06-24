@@ -223,6 +223,9 @@ Ai miroservices/modeling/v1_legacy/scripts/catboost_info/
 Ai miroservices/modeling/outputs/artifacts/**/*.pkl
 Ai miroservices/modeling/outputs/artifacts/**/*.cbm
 Ai miroservices/modeling/outputs/artifacts/**/*.json
+Ai miroservices/modeling/v4_m5_proper/champion_model
+Ai miroservices/modeling/v4_m5_proper/plots/
+Ai miroservices/outputs/artifacts/P/
 
 # Jupyter / notebook runtime junk
 **/.ipynb_checkpoints/

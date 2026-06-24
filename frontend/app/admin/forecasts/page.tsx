@@ -3416,8 +3416,9 @@ export default function ForecastsPage() {
         sku={selectedSku || filters.sku}
         skuOptions={skuOptions}
         forecastPoints={latestForecasts.map((f) => ({
-          month: String(f.month ?? f.label ?? ""),
+          month: formatMonthLabel(f.month ?? f.label ?? ""),
           p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+          sku: f.sku,
         }))}
         selectedMonth={transitionLabel}
         predictedUnits={predictedUnitsForChat}
@@ -3431,8 +3432,9 @@ export default function ForecastsPage() {
           captureOpenContext({
             sku: selectedSku || filters.sku,
             forecastPoints: latestForecasts.map((f) => ({
-              month: String(f.month ?? f.label ?? ""),
+              month: formatMonthLabel(f.month ?? f.label ?? ""),
               p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+              sku: f.sku,
             })),
             selectedMonth: transitionLabel,
             predictedUnits: predictedUnitsForChat,

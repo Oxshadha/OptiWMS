@@ -154,3 +154,8 @@ services:
 
 volumes:
   forecast-service-data:
+
+networks:
+  default:
+    name: infra_optiwms-network
+    external: true
