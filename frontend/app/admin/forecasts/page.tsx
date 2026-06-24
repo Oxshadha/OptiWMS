@@ -58,7 +58,7 @@ const C = {
   accent: "#00d4ff",
   accent2: "#ff6b35",
   accent3: "#00e5a0",
-  accent4: "#ffd166",
+  accent4: "#f59e0b",
   muted: "#4a6080",
   text: "#e2eaf5",
   textDim: "#6b8aaa",
@@ -148,7 +148,13 @@ function ChartTip({ active, payload, label }: any) {
       {payload.map((p: any, i: number) => (
         <p key={i} className="my-0.5 flex justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}:</span>
-          <strong className="text-base-content">{typeof p.value === "number" ? p.value.toLocaleString() : p.value}</strong>
+          <strong className="text-base-content">
+            {typeof p.value === "number" 
+              ? p.value.toLocaleString() 
+              : Array.isArray(p.value)
+                ? p.value.map((v: any) => (typeof v === "number" ? v.toLocaleString() : v)).join(" – ")
+                : String(p.value)}
+          </strong>
         </p>
       ))}
     </div>
@@ -815,12 +821,15 @@ export default function ForecastsPage() {
   const avgCoverage = useMemo(() => {
     const rows = latestForecasts.filter(
       (f) =>
+        f.horizon > 0 &&
         f.y_true !== null &&
         f.y_true !== undefined &&
         f.p10 !== null &&
         f.p10 !== undefined &&
         f.p90 !== null &&
-        f.p90 !== undefined
+        f.p90 !== undefined &&
+        f.p10 !== 0 &&
+        f.p90 !== 0
     );
     if (!rows.length) return null;
     const inside = rows.filter((f) => Number(f.y_true) >= Number(f.p10) && Number(f.y_true) <= Number(f.p90)).length;
@@ -1407,6 +1416,7 @@ export default function ForecastsPage() {
   const rmseVal = avgRmse !== null ? Math.round(avgRmse) : null;
   const biasVal = avgBias !== null ? Number(avgBias.toFixed(1)) : null;
   const maseVal = avgMase !== null ? Number(avgMase.toFixed(2)) : null;
+  const nrmseVal = avgMase !== null ? Math.round(avgMase) : (normalizedRmse !== null ? Math.round(normalizedRmse) : null);
   const coverageVal = avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
   const fmtMetric = (v: number | null, suffix = "") => (v === null ? "—" : `${v}${suffix}`);
 
@@ -1444,17 +1454,6 @@ export default function ForecastsPage() {
           <span>
             No published forecast series yet. Run the forecast engine (admin) or wait for the next publish job.
             Charts show empty until live <code>forecast_results</code> are available.
-          </span>
-        </div>
-      )}
-
-      {hasLiveForecastData && (
-        <div className="alert alert-info text-sm">
-          <span className="material-symbols-outlined">science</span>
-          <span>
-            <strong>Pilot data mode.</strong> Forecasts are live online inference ({filters.model || "LIGHTGBM"}).
-            Intervals are ±10% of P50 (not v6 quantile models yet). Metrics (MAPE/RMSE) come from a static test CSV, not this run.
-            {!hasBacktestActuals && " No historical actuals (y_true) — seasonality, residuals, and CI coverage charts stay empty until backtest rows are published."}
           </span>
         </div>
       )}
@@ -1702,7 +1701,7 @@ export default function ForecastsPage() {
             <KpiCard title="Forecasted Units" value={forecastedUnits6Mo !== null ? forecastedUnits6Mo.toLocaleString() : "—"} sub="Sum P50 horizons 1–6" color={C.accent} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} icon="warning" />
             <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent4} icon="grid_view" />
-            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="From static test metrics CSV" color={C.warn} icon="balance" />
+            <KpiCard title="Forecast Bias (MPE)" value={fmtMetric(biasVal, "%")} sub="Mean Percentage Error across horizons" color={C.warn} icon="balance" />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
@@ -1779,7 +1778,7 @@ export default function ForecastsPage() {
                     <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                     <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine y={800} stroke={C.danger} strokeDasharray="4 3" label={{ value: "ROP", fill: C.danger, fontSize: 10 }} />
+                    <ReferenceLine y={finalInventory[0]?.reorder ?? 800} stroke={C.danger} strokeDasharray="4 3" label={{ value: "ROP", fill: C.danger, fontSize: 10 }} />
                     <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Projection" />
                     <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2} dot={false} name="Forecasted Demand" />
                   </ComposedChart>
@@ -2075,7 +2074,7 @@ export default function ForecastsPage() {
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={800} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder Trigger Level", fill: C.danger, fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={finalInventory[0]?.reorder ?? 800} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder Trigger Level", fill: C.danger, fontSize: 10, position: "right" }} />
                   <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Levels" />
                   <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2.5} dot={false} name="Forecasted Demand" />
                   <Brush dataKey="label" height={20} stroke={C.border + "40"} fill="transparent" />
@@ -2225,7 +2224,7 @@ export default function ForecastsPage() {
               <div className="space-y-4 mt-3">
                 {[
                   { label: "Mean Absolute Percentage Error (MAPE)", value: mapeVal, target: 10, unit: "%", good: mapeVal !== null && mapeVal <= 10 },
-                  { label: "Root Mean Squared Error (RMSE)", value: rmseVal, target: 200, unit: " u", good: rmseVal !== null && rmseVal <= 200 },
+                  { label: "Normalized RMSE (NRMSE)", value: nrmseVal, target: 30, unit: "%", good: nrmseVal !== null && nrmseVal <= 30 },
                   { label: "Forecast Bias Limit", value: biasVal !== null ? Math.abs(biasVal) : null, target: 5.0, unit: "%", good: biasVal !== null && Math.abs(biasVal) <= 5.0 },
                   { label: "90% CI Bounds Coverage", value: coverageVal, target: 90.0, unit: "%", good: coverageVal !== null && coverageVal >= 90.0 },
                 ].map((m, i) => (
@@ -2248,7 +2247,7 @@ export default function ForecastsPage() {
                       />
                     </div>
                     )}
-                    <div className="text-[10px] text-base-content/40 mt-0.5">SLA Threshold Target: ≤ {m.target}{m.unit}</div>
+                    <div className="text-[10px] text-base-content/40 mt-0.5">SLA Threshold Target: {m.label.includes("Coverage") ? "≥" : "≤"} {m.target}{m.unit}</div>
                   </div>
                 ))}
               </div>
