@@ -1,28 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
 
-// ─── Design tokens (Light mode palette) ────────────────────────
-const T = {
-  bg: "rgba(255, 255, 255, 0.97)",
-  panel: "#ffffff",
-  border: "#eef0f2",
-  borderSub: "#f2f2f2",
-  accent: "#CF0F47", //"#0b74de",
-  accentGlow: "rgba(11, 116, 222, 0.25)",
-  accent2: "#ff6b35",
-  ok: "#00b27b",
-  warn: "#f59e0b",
-  text: "#222222",
-  textDim: "#555555",
-  textMuted: "#888888",
-  userBubble: "#CF0F47", //"#0b74de",
-  userText: "#ffffff",
-  aiBubble: "#f0f2f5",
-  inputBg: "#ffffff",
-  chipBg: "#f8f9fa",
-  chipBorder: "#dcdcdc",
-  bannerBg: "#fff1f5", //"#f1f7fd",
-};
 
 // ─── Quick action suggestions ────────────────────────────────────────────────
 const QUICK_ACTIONS = [
@@ -63,45 +42,6 @@ function renderMarkdownLite(text) {
   return html;
 }
 
-// ─── Typing indicator ────────────────────────────────────────────────────────
-function TypingDots() {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: T.accent,
-            display: "inline-block",
-            animation: `fcb-bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
-          }}
-        />
-      ))}
-      <style>{`
-        @keyframes fcb-bounce {
-          0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
-          30% { transform: translateY(-5px); opacity: 1; }
-        }
-        @keyframes fcb-fadein {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fcb-slide-up {
-          from { opacity: 0; transform: translateY(20px) scale(0.97); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        @keyframes fcb-pulse-ring {
-          0% { box-shadow: 0 0 0 0 rgba(11,116,222,0.5); }
-          70% { box-shadow: 0 0 0 10px rgba(11,116,222,0); }
-          100% { box-shadow: 0 0 0 0 rgba(11,116,222,0); }
-        }
-      `}</style>
-    </div>
-  );
-}
 
 // ─── Message bubble ──────────────────────────────────────────────────────────
 function Bubble({ msg, isLast }) {
@@ -145,6 +85,7 @@ function Bubble({ msg, isLast }) {
             ? `1px solid ${T.userBubble}`
             : `1px solid ${T.borderSub}`,
           borderLeft: isUser ? undefined : `2px solid ${T.accent}`,
+          boxShadow: isUser ? undefined : "inset 0 1px 0 rgba(255,255,255,0.06)",
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}
@@ -178,16 +119,18 @@ function QuickChip({ icon, label, onClick, disabled }) {
         gap: 5,
         padding: "5px 11px",
         borderRadius: 20,
-        border: `1px solid ${hovered ? T.accent : T.chipBorder}`,
-        background: hovered ? "rgba(11, 116, 222, 0.08)" : T.chipBg,
+        border: `1px solid ${hovered ? "#fecdd3" : "transparent"}`,
+        background: hovered ? "rgba(207, 15, 71, 0.08)" : "#f8f9fa",
         color: hovered ? T.accent : T.text,
         fontSize: 12,
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
-        transition: "all 0.15s ease",
+        transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease",
         whiteSpace: "nowrap",
         boxShadow: hovered ? `0 0 8px ${T.accentGlow}` : "none",
         fontFamily: "inherit",
+        fontWeight: 600,
+        outline: "none",
       }}
     >
       <span style={{ fontSize: 13 }}>{icon}</span>
@@ -422,6 +365,7 @@ export default function ForecastChatButton({
 
   return (
     <>
+      <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
       {/* ── Floating Action Button ─────────────────────────────────────── */}
       <button
         aria-label={
@@ -438,12 +382,12 @@ export default function ForecastChatButton({
           borderRadius: "50%",
           background: open
             ? "rgba(255,255,255,0.95)"
-            : `linear-gradient(135deg, #0b74de 0%, #00d4ff 100%)`,
+            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
           border: `1.5px solid ${open ? T.border : "transparent"}`,
           color: open ? "#666" : "white",
           boxShadow: open
             ? `0 4px 20px rgba(0,0,0,0.15)`
-            : `0 6px 24px rgba(11, 116, 222, 0.35)`,
+            : `0 6px 24px rgba(207, 15, 71, 0.35)`,
           cursor: "pointer",
           zIndex: 1100,
           display: "flex",
@@ -485,7 +429,7 @@ export default function ForecastChatButton({
             borderRadius: 16,
             border: `1px solid ${T.border}`,
             borderTop: `2px solid ${T.accent}`,
-            boxShadow: `0 24px 60px rgba(0,0,0,0.12), 0 0 40px rgba(11, 116, 222, 0.04)`,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
             zIndex: 1099,
             display: "flex",
             flexDirection: "column",
@@ -630,9 +574,9 @@ export default function ForecastChatButton({
             style={{
               margin: "10px 14px 0",
               padding: "9px 12px",
-              background: T.bannerBg,
-              border: `1px solid rgba(11, 116, 222, 0.14)`,
-              borderRadius: 9,
+              background: T.accentBg,
+              border: `1px solid rgba(207, 15, 71, 0.14)`,
+              borderRadius: 10,
               fontSize: 11.5,
               color: T.textDim,
               display: "flex",
@@ -781,7 +725,7 @@ export default function ForecastChatButton({
                 overflow: "hidden",
               }}
               onFocus={(e) =>
-                (e.target.style.borderColor = "rgba(11, 116, 222, 0.45)")
+                (e.target.style.borderColor = "rgba(207, 15, 71, 0.45)")
               }
               onBlur={(e) => (e.target.style.borderColor = T.borderSub)}
             />
@@ -795,8 +739,8 @@ export default function ForecastChatButton({
                 borderRadius: 9,
                 background:
                   loading || !input.trim()
-                    ? "rgba(11, 116, 222, 0.08)"
-                    : `linear-gradient(135deg, ${T.accent}, #0b74de)`,
+                    ? T.accentBg
+                    : `linear-gradient(135deg, ${T.accent}, #ff6b35)`,
                 border: `1px solid ${T.border}`,
                 color: loading || !input.trim() ? T.textMuted : "#fff",
                 cursor: loading || !input.trim() ? "not-allowed" : "pointer",

@@ -46,18 +46,8 @@ export default function SOPsPage() {
     const loadSops = async () => {
       try {
         setLoading(true);
-        const [dbSops, systemSops] = await Promise.all([
-          sopsApi.getAll(),
-          fetch("/api/system-sops")
-            .then((res) => (res.ok ? res.json() : []))
-            .catch(() => []),
-        ]);
-
-        const combined = [
-          ...dbSops.map((s: any) => ({ ...s, isSystem: false })),
-          ...systemSops.map((s: any) => ({ ...s, isSystem: true })),
-        ];
-        setSops(combined as SOP[]);
+        const dbSops = await sopsApi.getAll();
+        setSops(dbSops.map((s: any) => ({ ...s, isSystem: false })) as SOP[]);
       } catch {
         showToast.error("Failed to load SOPs");
         setSops([]);

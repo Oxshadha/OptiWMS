@@ -3,4 +3,9 @@ test db agent
 .venv
 .env
 
-reports
+reports/
+db/
+__pycache__/
+*.pyc
+
+*.txt

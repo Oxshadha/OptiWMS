@@ -31,6 +31,7 @@ import {
   WarehouseAIRole,
   WarehouseAISource,
 } from "@/services/aiService";
+import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
 
 type ChatMessage = {
   id: string;
@@ -132,7 +133,7 @@ export function WarehouseAssistant({
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Chat History states
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
@@ -292,15 +293,76 @@ export function WarehouseAssistant({
     await submitQuery(suggestion);
   };
 
+  // Shared context banner layout helper
+  const ContextBanner = () => {
+    const activeSession = historyList.find((s) => s.id === currentSessionId);
+    const sessionTitle = activeSession ? activeSession.title : "New Chat";
+    return (
+      <div
+        style={{
+          margin: "10px 14px 0",
+          padding: "9px 12px",
+          background: T.accentBg,
+          border: `1px solid rgba(207, 15, 71, 0.14)`,
+          borderRadius: 10,
+          fontSize: 11.5,
+          color: T.textDim,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "4px 16px",
+          flexShrink: 0,
+        }}
+      >
+        <span>
+          <span style={{ color: T.textMuted }}>Mode: </span>
+          <strong style={{ color: T.accent, textTransform: "capitalize" }}>
+            {userRole}
+          </strong>
+        </span>
+        <span>
+          <span style={{ color: T.textMuted }}>Session: </span>
+          <strong style={{ color: T.text }}>{sessionTitle}</strong>
+        </span>
+      </div>
+    );
+  };
+
   // ── Full page ─────────────────────────────────────────────────────────────
   if (fullPage) {
     return (
-      <div className="flex flex-col h-full overflow-hidden bg-[#F8F7F7] p-6 relative">
-        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-[#EBEBEB] bg-white text-[#1A1A1A] shadow-2xl overflow-hidden relative">
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+          background: T.bgSub,
+          padding: 24,
+          position: "relative",
+          fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+          fontSize: 13,
+        }}
+      >
+        <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 0%",
+            minHeight: 0,
+            borderRadius: 16,
+            border: `1px solid ${T.border}`,
+            borderTop: `2px solid ${T.accent}`,
+            background: T.bg,
+            color: T.text,
+            boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
           <AssistantHeader
             title="Warehouse Assistant"
-            subtitle="Unified SOP & Data Analytics"
-            icon={<Warehouse className="h-5 w-5 text-[#CF0F47]" />}
+            subtitle="Operations Copilot & Analytics"
             onClose={() => router.back()}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
@@ -308,7 +370,7 @@ export function WarehouseAssistant({
             isHistoryOpen={showHistory}
           />
 
-          <div className="flex flex-1 min-h-0 relative">
+          <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
             <HistorySidebar
               isOpen={showHistory}
               onClose={() => setShowHistory(false)}
@@ -321,8 +383,15 @@ export function WarehouseAssistant({
               isPopUp={false}
             />
 
-            <div className="flex flex-col flex-1 min-h-0 bg-white">
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-[#EBEBEB] scrollbar-track-transparent">
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+              <ContextBanner />
+              <div
+                style={{
+                  flex: "1 1 0%",
+                  minHeight: 0,
+                  overflowY: "auto",
+                }}
+              >
                 <AssistantBody
                   userRole={userRole}
                   chatHistory={chatHistory}
@@ -330,7 +399,7 @@ export function WarehouseAssistant({
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
-              <div className="shrink-0 bg-white">
+              <div style={{ flexShrink: 0, background: T.bg }}>
                 <AssistantComposer
                   inputRef={inputRef}
                   query={query}
@@ -354,17 +423,41 @@ export function WarehouseAssistant({
   // ── Manager drawer ────────────────────────────────────────────────────────
   const managerDrawer = (
     <>
+      <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
       <button
         type="button"
-        aria-label="Open warehouse assistant"
+        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
         onClick={() => setIsOpen((current) => !current)}
-        className="btn btn-ghost btn-circle border border-[#EBEBEB] bg-white text-[#1A1A1A] shadow-sm transition-all duration-200 hover:scale-105 active:scale-95 hover:bg-[#FFF0F4] hover:text-[#CF0F47] hover:border-[#FFCCD8]"
+        style={{
+          position: "fixed",
+          right: 22,
+          bottom: 22,
+          width: 54,
+          height: 54,
+          borderRadius: "50%",
+          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
+          color: isOpen ? T.textMuted : "white",
+          background: isOpen
+            ? "#ffffff"
+            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+          boxShadow: isOpen
+            ? `0 4px 20px rgba(0,0,0,0.15)`
+            : `0 6px 24px rgba(207,15,71,0.35)`,
+          cursor: "pointer",
+          zIndex: 1100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+          transform: isOpen ? "rotate(45deg)" : "scale(1)",
+          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
+        }}
         title="Warehouse assistant"
       >
         {isOpen ? (
-          <ChevronRight className="h-5 w-5" />
+          <X style={{ width: 18, height: 18 }} />
         ) : (
-          <Sparkles className="h-5 w-5" />
+          <Sparkles style={{ width: 22, height: 22 }} />
         )}
       </button>
 
@@ -373,20 +466,45 @@ export function WarehouseAssistant({
           <button
             type="button"
             aria-label="Close warehouse assistant overlay"
-            className="fixed inset-0 z-40 hidden bg-[#1A1A1A]/10 backdrop-blur-[1px] lg:block"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1090,
+              background: "rgba(17, 24, 39, 0.1)",
+              backdropFilter: "blur(1px)",
+              border: "none",
+              cursor: "default",
+            }}
             onClick={() => setIsOpen(false)}
           />
           <div
-            className={clsx(
-              "fixed bottom-6 right-6 z-50 hidden max-w-[calc(100vw-3rem)] overflow-hidden rounded-2xl border border-[#EBEBEB] bg-white text-[#1A1A1A] shadow-[0_24px_60px_rgba(0,0,0,0.12)] lg:flex lg:h-[44rem] lg:flex-col transition-all duration-300 ease-in-out",
-              showHistory ? "w-[42rem]" : "w-[28rem]",
-              managerOffsetClassName,
-            )}
+            className={managerOffsetClassName}
+            style={{
+              position: "fixed",
+              bottom: 90,
+              right: 22,
+              zIndex: 1099,
+              overflow: "hidden",
+              borderRadius: 16,
+              border: `1px solid ${T.border}`,
+              borderTop: `2px solid ${T.accent}`,
+              background: T.bg,
+              color: T.text,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
+              display: "flex",
+              height: "44rem",
+              maxHeight: "78vh",
+              flexDirection: "column",
+              transition: "width 0.3s ease-in-out",
+              width: showHistory ? "42rem" : "28rem",
+              maxWidth: "calc(100vw - 44px)",
+              fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+              animation: "fcb-slide-up 0.28s cubic-bezier(0.34,1.56,0.64,1)",
+            }}
           >
             <AssistantHeader
               title="Warehouse Assistant"
-              subtitle="Unified SOP & Data Analytics"
-              icon={<Warehouse className="h-5 w-5 text-[#CF0F47]" />}
+              subtitle="Operations Copilot & Analytics"
               onClose={() => setIsOpen(false)}
               userId={userId}
               onToggleHistory={() => setShowHistory(!showHistory)}
@@ -394,7 +512,7 @@ export function WarehouseAssistant({
               isHistoryOpen={showHistory}
             />
 
-            <div className="flex flex-1 min-h-0 relative">
+            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
               <HistorySidebar
                 isOpen={showHistory}
                 onClose={() => setShowHistory(false)}
@@ -407,18 +525,47 @@ export function WarehouseAssistant({
                 isPopUp={true}
               />
 
-              <div className="flex flex-col flex-1 min-h-0 bg-white">
-                <div className="shrink-0 px-5 pt-3 pb-1 bg-[#FAFAFA] flex justify-between items-center border-b border-[#EBEBEB]">
-                  <span className="text-[11px] text-[#A0A0A0] font-semibold uppercase tracking-widest">AI Operations Hub</span>
+              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+                <div
+                  style={{
+                    flexShrink: 0,
+                    padding: "10px 16px 6px",
+                    background: T.bgSub,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderBottom: `1px solid ${T.border}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: T.textFaint,
+                    }}
+                  >
+                    AI Operations Hub
+                  </span>
                   <Link
                     href="/admin/assistant"
                     onClick={() => setIsOpen(false)}
-                    className="text-xs font-semibold text-[#CF0F47] hover:text-[#B00D3E] transition-colors hover:underline"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: T.accent,
+                      textDecoration: "none",
+                    }}
+                    className="wa-link"
                   >
                     Full screen ↗
                   </Link>
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-[#EBEBEB] scrollbar-track-transparent">
+
+                <ContextBanner />
+
+                <div style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto", background: T.bg }}>
                   <AssistantBody
                     userRole={userRole}
                     chatHistory={chatHistory}
@@ -426,7 +573,7 @@ export function WarehouseAssistant({
                     onSuggestionClick={handleSuggestionClick}
                   />
                 </div>
-                <div className="shrink-0 bg-white">
+                <div style={{ flexShrink: 0, background: T.bg }}>
                   <AssistantComposer
                     inputRef={inputRef}
                     query={query}
@@ -447,21 +594,60 @@ export function WarehouseAssistant({
   // ── Worker overlay ────────────────────────────────────────────────────────
   const workerOverlay = (
     <>
+      <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
       <button
         type="button"
-        aria-label="Open warehouse assistant"
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-[#CF0F47] to-[#FF6B6B] text-white shadow-[0_18px_40px_rgba(207,15,71,0.32)] ring-4 ring-white/30 transition-transform hover:scale-105 active:scale-95"
+        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
+        onClick={() => setIsOpen((current) => !current)}
+        style={{
+          position: "fixed",
+          right: 22,
+          bottom: 22,
+          width: 54,
+          height: 54,
+          borderRadius: "50%",
+          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
+          color: isOpen ? T.textMuted : "white",
+          background: isOpen
+            ? "#ffffff"
+            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+          boxShadow: isOpen
+            ? `0 4px 20px rgba(0,0,0,0.15)`
+            : `0 6px 24px rgba(207,15,71,0.35)`,
+          cursor: "pointer",
+          zIndex: 1100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+          transform: isOpen ? "rotate(45deg)" : "scale(1)",
+          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
+        }}
       >
-        <MessageSquare className="h-7 w-7" />
+        {isOpen ? (
+          <X style={{ width: 18, height: 18 }} />
+        ) : (
+          <MessageSquare style={{ width: 22, height: 22 }} />
+        )}
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[#F8F7F7] text-[#1A1A1A] relative">
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1099,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            background: T.bgSub,
+            fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+            fontSize: 13,
+          }}
+        >
           <AssistantHeader
             title="Warehouse Assistant"
-            subtitle="Unified SOP & Data Analytics"
-            icon={<Bot className="h-5 w-5 text-[#CF0F47]" />}
+            subtitle="Operations Copilot & Analytics"
             onClose={() => setIsOpen(false)}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
@@ -469,7 +655,21 @@ export function WarehouseAssistant({
             isHistoryOpen={showHistory}
           />
 
-          <div className="flex flex-1 min-h-0 relative bg-white border border-[#EBEBEB] rounded-2xl shadow-2xl">
+          <div
+            style={{
+              display: "flex",
+              flex: "1 1 0%",
+              minHeight: 0,
+              position: "relative",
+              background: T.bg,
+              border: `1px solid ${T.border}`,
+              borderTop: `2px solid ${T.accent}`,
+              borderRadius: 16,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.10)",
+              margin: 10,
+              overflow: "hidden",
+            }}
+          >
             <HistorySidebar
               isOpen={showHistory}
               onClose={() => setShowHistory(false)}
@@ -482,18 +682,47 @@ export function WarehouseAssistant({
               isPopUp={true}
             />
 
-            <div className="flex flex-col flex-1 min-h-0">
-              <div className="shrink-0 flex items-center justify-between px-5 pt-3 pb-1 border-b border-[#EBEBEB] bg-[#FAFAFA] backdrop-blur">
-                <span className="text-xs font-semibold text-[#CF0F47] uppercase tracking-wider">Worker Support</span>
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0 }}>
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 16px 6px",
+                  borderBottom: `1px solid ${T.border}`,
+                  background: T.bgSub,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: T.accent,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Worker Support
+                </span>
                 <Link
                   href="/admin/assistant"
                   onClick={() => setIsOpen(false)}
-                  className="text-sm font-semibold text-[#CF0F47] hover:underline"
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 605,
+                    color: T.accent,
+                    textDecoration: "none",
+                  }}
+                  className="wa-link"
                 >
                   Full screen ↗
                 </Link>
               </div>
-              <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-[#EBEBEB] scrollbar-track-transparent">
+
+              <ContextBanner />
+
+              <div style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto", background: T.bg }}>
                 <AssistantBody
                   userRole={userRole}
                   chatHistory={chatHistory}
@@ -501,13 +730,29 @@ export function WarehouseAssistant({
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
-              <div className="shrink-0 bg-white pb-safe">
-                <div className="px-4 pt-2">
+              <div style={{ flexShrink: 0, background: T.bg, paddingBottom: "env(safe-area-inset-bottom)" }}>
+                <div style={{ padding: "8px 16px 0" }}>
                   <button
                     type="button"
-                    className="flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-[#FFCCD8] bg-[#FFF0F4] text-[#CF0F47] font-semibold shadow-sm hover:bg-[#FFCCD8]/30 transition duration-200 active:scale-95 transition-transform"
+                    style={{
+                      display: "flex",
+                      height: 40,
+                      width: "100%",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      borderRadius: 9,
+                      border: `1px solid ${T.accentBorder}`,
+                      background: T.accentBg,
+                      color: T.accent,
+                      fontWeight: 600,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    className="wa-voice-btn"
                   >
-                    <Mic className="h-5 w-5" />
+                    <Mic style={{ width: 18, height: 18 }} />
                     Voice input
                   </button>
                 </div>
@@ -536,7 +781,6 @@ export function WarehouseAssistant({
 function AssistantHeader({
   title,
   subtitle,
-  icon,
   onClose,
   userId,
   onToggleHistory,
@@ -545,7 +789,6 @@ function AssistantHeader({
 }: {
   title: string;
   subtitle: string;
-  icon: React.ReactNode;
   onClose: () => void;
   userId?: string;
   onToggleHistory?: () => void;
@@ -553,29 +796,65 @@ function AssistantHeader({
   isHistoryOpen?: boolean;
 }) {
   return (
-    <div className="shrink-0 border-b border-[#EBEBEB] bg-white px-5 py-4 shadow-sm flex items-center justify-between gap-3">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#FFF0F4] text-[#CF0F47] shrink-0 shadow-inner">
-          {icon}
-        </div>
+    <div
+      style={{
+        flexShrink: 0,
+        borderBottom: `1px solid ${T.border}`,
+        background: "#ffffff",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <div>
-          <h2 className="text-base font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#CF0F47] to-[#FF6B6B]">
+          <h2
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: T.text,
+              margin: 0,
+              lineHeight: 1.3,
+            }}
+          >
             {title}
           </h2>
-          <p className="text-xs text-[#6B6B6B] font-medium">{subtitle}</p>
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 400,
+              color: T.textMuted,
+              margin: "2px 0 0",
+              lineHeight: 1.3,
+            }}
+          >
+            {subtitle}
+          </p>
         </div>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {userId && onToggleHistory && (
           <button
             onClick={onToggleHistory}
-            className={clsx(
-              "flex h-9 w-9 items-center justify-center rounded-lg border border-[#EBEBEB] bg-white text-[#6B6B6B] shadow-sm transition hover:bg-[#FFF0F4] hover:border-[#FFCCD8] hover:text-[#CF0F47] hover:scale-105 active:scale-95 p-1.5",
-              isHistoryOpen && "bg-[#FFF0F4] border-[#FFCCD8] text-[#CF0F47]"
-            )}
+            style={{
+              display: "flex",
+              width: 34,
+              height: 34,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 6,
+              border: `1px solid ${isHistoryOpen ? T.accentBorder : T.border}`,
+              background: isHistoryOpen ? T.accentBg : "#ffffff",
+              color: isHistoryOpen ? T.accent : T.textMuted,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            className="wa-ghost-btn"
             title="Chat History"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg xmlns="http://www.w3.org/2000/svg" style={{ width: 18, height: 18 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
@@ -583,9 +862,22 @@ function AssistantHeader({
         <button
           type="button"
           onClick={onClose}
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#EBEBEB] bg-white text-[#6B6B6B] shadow-sm transition hover:bg-[#FFF0F4] hover:border-[#FFCCD8] hover:text-[#CF0F47] hover:scale-105 active:scale-95 p-1.5"
+          style={{
+            display: "flex",
+            width: 34,
+            height: 34,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 6,
+            border: `1px solid ${T.border}`,
+            background: "#ffffff",
+            color: T.textMuted,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          className="wa-ghost-btn"
         >
-          <X className="h-4.5 w-4.5" />
+          <X style={{ width: 16, height: 16 }} />
         </button>
       </div>
     </div>
@@ -616,28 +908,80 @@ function HistorySidebar({
   const grouped = getGroupedSessions(historyList);
 
   const sidebarContent = (
-    <div className="w-[260px] flex flex-col h-full shrink-0 bg-[#FAFAFA] border-r border-[#EBEBEB]">
-      {/* Sticky Sidebar Header */}
-      <div className="shrink-0 px-4 py-3 flex items-center justify-between border-b border-[#EBEBEB] bg-[#FAFAFA] sticky top-0 z-10">
-        <span className="text-[#A0A0A0] text-[10px] font-semibold uppercase tracking-widest">
-          Chat History
+    <div
+      style={{
+        width: 260,
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        flexShrink: 0,
+        background: T.bgSub,
+        borderRight: `1px solid ${T.border}`,
+      }}
+    >
+      {/* Sidebar Header */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: `1px solid ${T.border}`,
+          background: T.bgSub,
+        }}
+      >
+        <span
+          style={{
+            color: T.textFaint,
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
+          CHAT HISTORY
         </span>
         <button
           onClick={onClose}
-          className="text-[#A0A0A0] hover:text-[#CF0F47] hover:bg-[#FFF0F4] transition-all duration-200 p-1 rounded-lg"
+          style={{
+            background: "transparent",
+            border: "none",
+            color: T.textMuted,
+            cursor: "pointer",
+            display: "flex",
+            padding: 4,
+            borderRadius: 4,
+          }}
           title="Collapse Sidebar"
         >
-          <PanelLeftClose className="h-4 w-4" />
+          <PanelLeftClose style={{ width: 16, height: 16 }} />
         </button>
       </div>
 
       {/* New Chat Button */}
-      <div className="px-4 py-3 shrink-0">
+      <div style={{ padding: "12px 16px", flexShrink: 0 }}>
         <button
           onClick={onNewChat}
-          className="flex w-full items-center justify-center gap-2 border border-[#EBEBEB] text-[#1A1A1A] hover:bg-[#FFF0F4] hover:border-[#FFCCD8] hover:text-[#CF0F47] rounded-lg text-sm font-medium px-3 py-2 active:scale-95 transition-all duration-200"
+          style={{
+            display: "flex",
+            width: "100%",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            background: "#ffffff",
+            border: `1px solid ${T.border}`,
+            color: T.textMuted,
+            borderRadius: 9,
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "8px 12px",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          className="wa-ghost-btn"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg xmlns="http://www.w3.org/2000/svg" style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
           New Chat
@@ -645,41 +989,59 @@ function HistorySidebar({
       </div>
 
       {/* Session List */}
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 space-y-4 scrollbar-thin scrollbar-thumb-[#EBEBEB] scrollbar-track-transparent">
+      <div
+        style={{
+          flex: "1 1 0%",
+          minHeight: 0,
+          overflowY: "auto",
+          padding: "0 16px 16px",
+        }}
+      >
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-10 space-y-2">
-            <Loader2 className="h-6 w-6 animate-spin text-[#CF0F47]" />
-            <span className="text-xs text-[#A0A0A0] font-semibold">Loading history...</span>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 8 }}>
+            <Loader2 style={{ width: 24, height: 24, color: T.accent }} className="animate-spin" />
+            <span style={{ fontSize: 11, color: T.textFaint, fontWeight: 600 }}>Loading history...</span>
           </div>
         ) : historyList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 space-y-2">
-            <Clock className="w-8 h-8 text-[#D4D4D4]" />
-            <span className="text-sm text-[#A0A0A0] text-center font-medium">No conversations yet</span>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 8 }}>
+            <Clock style={{ width: 32, height: 32, color: T.textFaint }} />
+            <span style={{ fontSize: 12, color: T.textFaint, textAlign: "center", fontWeight: 500 }}>No conversations yet</span>
           </div>
         ) : (
           grouped.map(([groupName, sessions]) => (
-            <div key={groupName} className="space-y-1">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-[#A0A0A0] pb-1 border-b border-[#EBEBEB] mb-1">
+            <div key={groupName} style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: T.textFaint,
+                  paddingBottom: 4,
+                  borderBottom: `1px solid ${T.border}`,
+                  marginBottom: 8,
+                }}
+              >
                 {groupName}
               </div>
-              <div className="space-y-1">
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {sessions.map((session) => (
                   <div
                     key={session.id}
-                    className={clsx(
-                      "group relative flex items-center justify-between w-full rounded-xl p-2.5 transition-all duration-200 cursor-pointer select-none",
-                      currentSessionId === session.id
-                        ? "bg-[#CF0F47] text-white font-semibold"
-                        : "hover:bg-[#FFF0F4] text-[#1A1A1A]"
-                    )}
+                    className={clsx("wa-history-item", currentSessionId === session.id && "active")}
                     onClick={() => onSelectSession(session.id)}
                   >
-                    <div className="flex-1 min-w-0 pr-6">
-                      <p className="truncate text-sm font-medium">{session.title}</p>
-                      <p className={clsx(
-                        "text-[11px] mt-0.5",
-                        currentSessionId === session.id ? "text-white/80" : "text-[#A0A0A0]"
-                      )}>
+                    <div style={{ flex: "1 1 0%", minWidth: 0, paddingRight: 24 }}>
+                      <p style={{ margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>
+                        {session.title}
+                      </p>
+                      <p
+                        style={{
+                          margin: "2px 0 0",
+                          fontSize: 10,
+                          color: currentSessionId === session.id ? "rgba(255,255,255,0.8)" : T.textFaint,
+                        }}
+                      >
                         {formatRelativeTime(session.created_at)}
                       </p>
                     </div>
@@ -690,15 +1052,19 @@ function HistorySidebar({
                           void onDeleteSession(session.id);
                         }
                       }}
-                      className={clsx(
-                        "absolute right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1.5 rounded",
-                        currentSessionId === session.id
-                          ? "text-white/70 hover:text-white hover:bg-white/20"
-                          : "text-[#A0A0A0] hover:text-[#DC2626] hover:bg-red-50"
-                      )}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 6,
+                        borderRadius: 4,
+                      }}
+                      className="wa-delete-btn"
                       title="Delete Conversation"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 style={{ width: 14, height: 14 }} />
                     </button>
                   </div>
                 ))}
@@ -716,14 +1082,31 @@ function HistorySidebar({
         {isOpen && (
           <div
             onClick={onClose}
-            className="absolute inset-0 bg-[#1A1A1A]/10 backdrop-blur-[1px] z-30 transition-opacity duration-300"
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(17, 24, 39, 0.1)",
+              backdropFilter: "blur(1px)",
+              zIndex: 30,
+              transition: "opacity 0.3s",
+            }}
           />
         )}
         <div
-          className={clsx(
-            "absolute top-0 bottom-0 left-0 z-40 flex flex-col w-[260px] bg-[#FAFAFA] border-r border-[#EBEBEB] transition-transform duration-300 ease-in-out",
-            isOpen ? "translate-x-0" : "-translate-x-full"
-          )}
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            zIndex: 40,
+            display: "flex",
+            flexDirection: "column",
+            width: 260,
+            background: T.bgSub,
+            borderRight: `1px solid ${T.border}`,
+            transition: "transform 0.3s ease-in-out",
+            transform: isOpen ? "translateX(0)" : "translateX(-100%)",
+          }}
         >
           {sidebarContent}
         </div>
@@ -733,10 +1116,16 @@ function HistorySidebar({
 
   return (
     <div
-      className={clsx(
-        "flex flex-col bg-[#FAFAFA] border-[#EBEBEB] transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-        isOpen ? "w-[260px] opacity-100 border-r" : "w-0 opacity-0 border-r-0 pointer-events-none"
-      )}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        background: T.bgSub,
+        transition: "width 0.3s ease-in-out, opacity 0.3s ease-in-out",
+        overflow: "hidden",
+        width: isOpen ? 260 : 0,
+        opacity: isOpen ? 1 : 0,
+        borderRight: isOpen ? `1px solid ${T.border}` : "none",
+      }}
     >
       {sidebarContent}
     </div>
@@ -761,41 +1150,42 @@ function AssistantBody({
   }, [chatHistory, loading]);
 
   const managerSuggestions = [
-    "Show me current stock levels for SKU-001",
-    "List products with stock below reorder level",
-    "Generate report for top 10 products by movement",
-    "What is the safety SOP for chemical handling?",
+    { icon: "📦", text: "Show me current stock levels for SKU-300001" },
+    { icon: "⚠️", text: "List products with stock below reorder level" },
+    { icon: "📊", text: "Generate report for top 10 products by movement" },
+    { icon: "🛡️", text: "What are the safety SOPs for forklift operating?" },
   ];
 
   const workerSuggestions = [
-    "Where is SKU-001 stored?",
-    "What is the damaged product SOP?",
-    "What are the steps for shift handover?",
+    { icon: "📍", text: "Where is SKU-001 stored?" },
+    { icon: "📦", text: "What is the damaged product SOP?" },
+    { icon: "🔄", text: "What are the steps for shift handover?" },
   ];
 
   const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
 
   return (
-    <div className="px-5 py-5 space-y-6 bg-white">
+    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
       {chatHistory.length === 0 && !loading && (
-        <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-          <Bot className="w-12 h-12 text-[#D4D4D4] mb-4" />
-          <h3 className="text-base font-semibold text-[#1A1A1A] mb-1">
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
+          {/* <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} /> */}
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
             How can I help you today?
           </h3>
-          <p className="text-sm text-[#6B6B6B] mb-6 max-w-sm">
+          <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 24px 0", maxWidth: 320, lineHeight: 1.5 }}>
             {userRole === "manager"
               ? "Ask about SOPs, inventory counts, pending orders, or request reports."
               : "Ask about SKU locations, safety protocols, or task steps."}
           </p>
-          <div className="flex flex-col gap-2 w-full max-w-sm">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxWidth: 360 }}>
             {suggestions.map((suggestion, i) => (
               <button
                 key={i}
-                onClick={() => onSuggestionClick(suggestion)}
-                className="text-left text-xs text-[#1A1A1A] font-semibold hover:bg-[#FFF0F4] hover:border-[#FFCCD8] hover:text-[#CF0F47] bg-white border border-[#EBEBEB] px-3.5 py-2.5 rounded-xl transition-all duration-200 shadow-sm active:scale-[0.99]"
+                onClick={() => onSuggestionClick(suggestion.text)}
+                className="wa-quick-chip"
               >
-                {suggestion}
+                <span style={{ fontSize: 13 }}>{suggestion.icon}</span>
+                {suggestion.text}
               </button>
             ))}
           </div>
@@ -805,24 +1195,41 @@ function AssistantBody({
       {chatHistory.map((message) => (
         <div
           key={message.id}
-          className={clsx(
-            "flex gap-3 items-start",
-            message.role === "user" ? "justify-end" : "justify-start"
-          )}
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "flex-start",
+            justifyContent: message.role === "user" ? "flex-end" : "flex-start",
+            animation: "fcb-fadein 0.22s ease",
+          }}
         >
-          {message.role === "assistant" && (
-            <div className="w-7 h-7 rounded-full bg-[#FFF0F4] text-[#CF0F47] flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
-              <Bot className="h-4.5 w-4.5 text-[#CF0F47]" />
-            </div>
-          )}
-          <div className={clsx("flex flex-col max-w-[80%]", message.role === "user" ? "items-end" : "items-start")}>
+
+          <div style={{ display: "flex", flexDirection: "column", maxWidth: "80%", alignItems: message.role === "user" ? "flex-end" : "flex-start" }}>
             <div
-              className={clsx(
-                "rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm transition-all duration-200",
+              style={
                 message.role === "user"
-                  ? "bg-[#CF0F47] text-white rounded-br-sm font-medium"
-                  : "bg-[#F5F5F5] border border-[#EBEBEB] text-[#1A1A1A] rounded-bl-sm"
-              )}
+                  ? {
+                    background: T.userBubble,
+                    color: T.userText,
+                    borderRadius: "14px 14px 3px 14px",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    padding: "9px 13px",
+                    wordBreak: "break-word",
+                    whiteSpace: "pre-wrap",
+                  }
+                  : {
+                    background: T.aiBubble,
+                    color: T.text,
+                    borderRadius: "3px 14px 14px 14px",
+                    borderLeft: `2px solid ${T.accent}`,
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    padding: "10px 14px",
+                    wordBreak: "break-word",
+                  }
+              }
             >
               {/* Text content */}
               {message.content &&
@@ -831,28 +1238,28 @@ function AssistantBody({
                     remarkPlugins={[remarkGfm]}
                     components={{
                       p: ({ children }) => (
-                        <p className="mb-2.5 last:mb-0 whitespace-pre-wrap text-[#1A1A1A]/90 font-medium">
+                        <p style={{ margin: "0 0 10px 0", fontSize: 13, lineHeight: 1.6, color: T.text }} className="last:mb-0">
                           {children}
                         </p>
                       ),
                       ul: ({ children }) => (
-                        <ul className="mb-2.5 list-disc space-y-1 pl-5 last:mb-0 text-[#6B6B6B]">
+                        <ul style={{ margin: "0 0 10px 0", paddingLeft: 20, listStyleType: "disc", color: T.textDim }}>
                           {children}
                         </ul>
                       ),
                       ol: ({ children }) => (
-                        <ol className="mb-2.5 list-decimal space-y-1 pl-5 last:mb-0 text-[#6B6B6B]">
+                        <ol style={{ margin: "0 0 10px 0", paddingLeft: 20, listStyleType: "decimal", color: T.textDim }}>
                           {children}
                         </ol>
                       ),
-                      li: ({ children }) => <li className="pl-0.5">{children}</li>,
+                      li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
                       strong: ({ children }) => (
-                        <strong className="text-[#CF0F47] bg-[#FFF0F4] px-1 rounded font-semibold">
+                        <strong style={{ color: T.accent, background: T.accentBg, padding: "0 4px", borderRadius: 4, fontWeight: 650 }}>
                           {children}
                         </strong>
                       ),
                       code: ({ children }) => (
-                        <code className="bg-[#F5F5F5] text-[#1A1A1A] font-mono text-xs px-1 py-0.5 rounded border border-[#EBEBEB]">
+                        <code style={{ background: T.bgMuted, color: T.text, fontFamily: "monospace", fontSize: 12, padding: "2px 4px", borderRadius: 4, border: `1px solid ${T.border}` }}>
                           {children}
                         </code>
                       ),
@@ -861,29 +1268,50 @@ function AssistantBody({
                     {message.content}
                   </ReactMarkdown>
                 ) : (
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{message.content}</p>
                 ))}
 
               {/* Citations/Sources */}
               {message.sources && message.sources.length > 0 && (
-                <div className="mt-4 border-t border-[#EBEBEB] pt-3">
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#A0A0A0]">
+                <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                  <p style={{ margin: "0 0 8px 0", fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textFaint }}>
                     Verifiable SOP Documents
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {message.sources.map((source) =>
                       source.href ? (
                         <Link
                           key={`${message.id}-${source.label}`}
                           href={source.href}
-                          className="inline-flex items-center gap-1 rounded-full bg-[#FFF0F4] border border-[#FFCCD8] text-[#CF0F47] hover:bg-[#FFCCD8] px-2.5 py-1 text-xs font-semibold transition hover:opacity-90"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            borderRadius: 999,
+                            background: T.accentBg,
+                            border: `1px solid ${T.accentBorder}`,
+                            color: T.accent,
+                            padding: "4px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            textDecoration: "none",
+                            transition: "all 0.15s ease",
+                          }}
+                          className="wa-source-pill"
                         >
                           {source.label}
                         </Link>
                       ) : (
                         <span
                           key={`${message.id}-${source.label}`}
-                          className="rounded-full bg-[#F5F5F5] border border-[#EBEBEB] text-[#6B6B6B] px-2.5 py-1 text-xs font-semibold"
+                          style={{
+                            borderRadius: 999,
+                            background: T.bgSub,
+                            border: `1px solid ${T.borderSub}`,
+                            color: T.textMuted,
+                            padding: "4px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
                         >
                           {source.label}
                         </span>
@@ -895,15 +1323,53 @@ function AssistantBody({
 
               {/* Generated SQL Accordion */}
               {message.sql && (
-                <details className="group mt-4 border-t border-[#EBEBEB] pt-3">
-                  <summary className="flex cursor-pointer items-center justify-between text-[11px] font-semibold text-[#A0A0A0] hover:text-[#CF0F47] select-none">
+                <details
+                  className="group"
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
+                  }}
+                >
+                  <summary
+                    style={{
+                      display: "flex",
+                      cursor: "pointer",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: T.textFaint,
+                      userSelect: "none",
+                      background: T.bgSub,
+                      borderBottom: `1px solid ${T.border}`,
+                    }}
+                  >
                     <span>WMS DATABASE QUERY LOG</span>
-                    <span className="transition-transform duration-200 group-open:rotate-180">
-                      <ChevronRight className="h-3.5 w-3.5" />
-                    </span>
+                    <ChevronRight
+                      style={{
+                        width: 14,
+                        height: 14,
+                        transition: "transform 0.2s",
+                      }}
+                      className="group-open:rotate-90"
+                    />
                   </summary>
-                  <div className="mt-2 overflow-x-auto rounded-xl border border-[#EBEBEB] bg-[#FAFAFA] text-[#1A1A1A] p-3.5">
-                    <pre className="font-mono text-xs whitespace-pre">
+                  <div style={{ padding: 12, overflowX: "auto" }}>
+                    <pre
+                      style={{
+                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                        fontSize: 12,
+                        color: T.text,
+                        margin: 0,
+                        whiteSpace: "pre",
+                      }}
+                    >
                       <code>{message.sql}</code>
                     </pre>
                   </div>
@@ -912,97 +1378,193 @@ function AssistantBody({
 
               {/* Database Output Records Table */}
               {message.data && message.data.length > 0 && (
-                <div className="mt-4 border-t border-[#EBEBEB] pt-3">
-                  <div className="mb-2 flex items-center gap-1.5">
-                    <FileSpreadsheet className="h-4.5 w-4.5 text-[#A0A0A0]" />
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-[#A0A0A0]">
+                <div
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "8px 12px",
+                      background: T.bgSub,
+                      borderBottom: `1px solid ${T.border}`,
+                    }}
+                  >
+                    <FileSpreadsheet style={{ width: 14, height: 14, color: T.textFaint }} />
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: T.textFaint,
+                      }}
+                    >
                       WMS Database Records ({message.data.length} rows)
-                    </p>
+                    </span>
                   </div>
-                  <div className="overflow-hidden rounded-xl border border-[#EBEBEB] bg-white">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-[#EBEBEB] text-xs">
-                        <thead className="bg-[#FAFAFA]">
-                          <tr>
-                            {Object.keys(message.data[0]).map((key) => (
-                              <th
-                                key={key}
-                                className="px-3 py-2 text-left font-semibold text-[#A0A0A0] uppercase tracking-wider"
-                              >
-                                {key}
-                              </th>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ minWidth: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead style={{ background: T.bgSub }}>
+                        <tr>
+                          {Object.keys(message.data?.[0] || {}).map((key) => (
+                            <th
+                              key={key}
+                              style={{
+                                padding: "6px 12px",
+                                textAlign: "left",
+                                fontWeight: 650,
+                                textTransform: "uppercase",
+                                fontSize: 10,
+                                color: T.textFaint,
+                                borderBottom: `1px solid ${T.border}`,
+                              }}
+                            >
+                              {key}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(message.data || []).slice(0, 8).map((row, index) => (
+                          <tr
+                            key={index}
+                            className="wa-table-row"
+                            style={{
+                              borderBottom: index === Math.min(message.data?.length || 0, 8) - 1 ? "none" : `1px solid ${T.border}`,
+                              transition: "background-color 0.15s",
+                            }}
+                          >
+                            {Object.values(row).map((value, i) => (
+                              <td key={i} style={{ padding: "6px 12px", color: T.textDim }}>
+                                {value === null ? (
+                                  <span style={{ color: T.textFaint }}>null</span>
+                                ) : (
+                                  String(value)
+                                )}
+                              </td>
                             ))}
                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#EBEBEB] bg-white">
-                          {message.data.slice(0, 8).map((row, index) => (
-                            <tr key={index} className="hover:bg-[#FFF8F9] transition-colors">
-                              {Object.values(row).map((value, i) => (
-                                <td key={i} className="px-3 py-2 text-[#1A1A1A]/85 font-medium">
-                                  {value === null ? (
-                                    <span className="text-[#D4D4D4]">null</span>
-                                  ) : (
-                                    String(value)
-                                  )}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {message.data.length > 8 && (
-                      <div className="border-t border-[#EBEBEB] bg-[#FAFAFA] px-3 py-1.5 text-center">
-                        <p className="text-[10px] font-semibold text-[#A0A0A0]">
-                          Showing top 8 of {message.data.length} records.
-                        </p>
-                      </div>
-                    )}
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                  {(message.data?.length || 0) > 8 && (
+                    <div
+                      style={{
+                        borderTop: `1px solid ${T.border}`,
+                        background: T.bgSub,
+                        padding: "6px 12px",
+                        textAlign: "center",
+                        fontSize: 10,
+                        color: T.textFaint,
+                      }}
+                    >
+                      Showing top 8 of {message.data.length} records.
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Auto Generated Charts */}
               {message.chart && (
-                <div className="mt-4 border-t border-[#EBEBEB] pt-3">
-                  <div className="overflow-hidden rounded-xl border border-[#EBEBEB] bg-white p-1">
-                    <img
-                      src={message.chart}
-                      alt="Auto-generated WMS Analytics Chart"
-                      className="w-full rounded-lg shadow-inner"
-                    />
-                  </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
+                    padding: 8,
+                  }}
+                >
+                  <img
+                    src={message.chart}
+                    alt="Auto-generated WMS Analytics Chart"
+                    style={{
+                      width: "100%",
+                      borderRadius: 8,
+                      display: "block",
+                    }}
+                  />
                 </div>
               )}
 
               {/* Report Build error block */}
               {message.error && (
-                <div className="mt-4 border-t border-red-200 pt-3 flex gap-2 items-start bg-red-50 p-2.5 rounded-xl border">
-                  <AlertCircle className="h-4.5 w-4.5 text-red-650 shrink-0 mt-0.5" />
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    background: T.errorBg,
+                    border: "1px solid #fecaca",
+                    borderLeft: `3px solid ${T.error}`,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <AlertCircle style={{ width: 16, height: 16, color: T.error, flexShrink: 0, marginTop: 2 }} />
                   <div>
-                    <p className="text-[10px] font-semibold text-red-600 uppercase tracking-widest">Operational Error</p>
-                    <p className="text-xs text-red-700 font-semibold">{message.error}</p>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: T.error,
+                      }}
+                    >
+                      Operational Error
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: T.error, fontWeight: 500 }}>
+                      {message.error}
+                    </p>
                   </div>
                 </div>
               )}
 
               {/* Report PDF download widget */}
               {message.download_url && (
-                <div className="mt-4 border-t border-[#EBEBEB] pt-3">
+                <div style={{ marginTop: 12 }}>
                   <a
                     href={`${getBaseUrl()}${message.download_url}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     download
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#16A34A] text-white hover:bg-[#15803D] px-4 py-2.5 text-xs font-bold shadow-md transition-all duration-200 active:scale-95"                    >
-                    <Download className="h-4 w-4" />
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      borderRadius: 9,
+                      background: `linear-gradient(135deg, #16a34a, #22c55e)`,
+                      color: "#ffffff",
+                      padding: "8px 16px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textDecoration: "none",
+                      boxShadow: "0 4px 14px rgba(22, 163, 74, 0.18)",
+                      transition: "all 0.15s",
+                    }}
+                    className="wa-download-btn"
+                  >
+                    <Download style={{ width: 14, height: 14 }} />
                     Download
                   </a>
                 </div>
               )}
             </div>
             {message.timestamp && (
-              <span className="text-[10px] text-[#A0A0A0] mt-1 px-1">
+              <span style={{ fontSize: 10, color: T.textFaint, marginTop: 4, padding: "0 4px" }}>
                 {formatMessageTime(message.timestamp)}
               </span>
             )}
@@ -1011,14 +1573,22 @@ function AssistantBody({
       ))}
 
       {loading && (
-        <div className="flex justify-start items-end gap-2">
-          <div className="w-7 h-7 rounded-full bg-[#FFF0F4] text-[#CF0F47] flex items-center justify-center shrink-0 mb-1 shadow-sm">
-            <Bot className="h-4.5 w-4.5 text-[#CF0F47]" />
-          </div>
-          <div className="bg-[#F5F5F5] border border-[#EBEBEB] rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex items-center gap-1 h-8">
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#CF0F47]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#CF0F47] [animation-delay:150ms]" />
-            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[#CF0F47] [animation-delay:300ms]" />
+        <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-end", gap: 12 }}>
+
+          <div
+            style={{
+              background: T.aiBubble,
+              border: `1px solid ${T.borderSub}`,
+              borderLeft: `2px solid ${T.accent}`,
+              borderRadius: "3px 14px 14px 14px",
+              padding: "10px 14px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+              display: "flex",
+              alignItems: "center",
+              height: 38,
+            }}
+          >
+            <TypingDots />
           </div>
         </div>
       )}
@@ -1037,7 +1607,7 @@ function AssistantComposer({
   onQueryChange,
   onSubmit,
 }: {
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
   query: string;
   loading: boolean;
   placeholder: string;
@@ -1048,29 +1618,129 @@ function AssistantComposer({
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      className="border-t border-[#EBEBEB] bg-white px-4 py-3 flex flex-col gap-1.5"
+      style={{
+        borderTop: `1px solid ${T.border}`,
+        background: "#ffffff",
+        padding: "10px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
     >
-      <div className="flex items-center gap-3 rounded-xl border border-[#EBEBEB] bg-[#FAFAFA] p-2 shadow-sm focus-within:ring-2 focus-within:ring-[#CF0F47]/25 focus-within:border-[#FFCCD8] transition-all duration-200">
-        <input
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 8,
+          background: "#ffffff",
+        }}
+      >
+        <textarea
           ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          disabled={loading}
+          rows={1}
           placeholder={placeholder}
-          className="w-full bg-transparent px-3.5 py-2 text-sm text-[#1A1A1A] outline-none placeholder:text-[#C4C4C4] font-medium"
+          value={query}
+          onChange={(e) => {
+            onQueryChange(e.target.value);
+            // Auto-grow
+            e.target.style.height = "auto";
+            e.target.style.height =
+              Math.min(e.target.scrollHeight, 96) + "px";
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              const form = e.currentTarget.form;
+              if (form) {
+                const event = new Event("submit", { cancelable: true, bubbles: true });
+                form.dispatchEvent(event);
+              }
+            }
+          }}
+          disabled={loading}
+          style={{
+            flex: 1,
+            resize: "none",
+            background: T.inputBg,
+            border: `1px solid ${T.inputBorder}`,
+            borderRadius: 9,
+            color: T.text,
+            fontSize: 13,
+            padding: "8px 12px",
+            outline: "none",
+            fontFamily: "inherit",
+            lineHeight: 1.5,
+            transition: "border-color 0.15s",
+            height: 38,
+            overflow: "hidden",
+          }}
+          className="wa-textarea"
+          onFocus={(e) =>
+            (e.target.style.borderColor = "rgba(207, 15, 71, 0.45)")
+          }
+          onBlur={(e) => (e.target.style.borderColor = T.inputBorder)}
         />
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#CF0F47] text-white hover:bg-[#B00D3E] shadow transition-all duration-200 disabled:opacity-40 disabled:scale-100 disabled:cursor-not-allowed active:scale-95"
+          title="Send (Enter)"
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 9,
+            background:
+              loading || !query.trim()
+                ? T.accentBg
+                : `linear-gradient(135deg, ${T.accent}, #ff6b35)`,
+            border: "none",
+            color: loading || !query.trim() ? T.textMuted : "#ffffff",
+            cursor: loading || !query.trim() ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            transition: "all 0.15s",
+          }}
+          className="wa-send-btn"
         >
-          <SendHorizonal className="h-4.5 w-4.5 text-white" />
+          <SendHorizonal style={{ width: 16, height: 16 }} />
         </button>
       </div>
-      <div className="flex justify-between items-center text-[10px] text-[#C4C4C4] px-1 select-none">
-        <span>Press Enter to send</span>
-        <span>{query.length} chars</span>
+
+      <div
+        style={{
+          padding: "5px 14px 2px",
+          textAlign: "center",
+          fontSize: 10,
+          color: T.textMuted,
+          flexShrink: 0,
+        }}
+      >
+        Press{" "}
+        <kbd
+          style={{
+            background: T.inputBg,
+            border: `1px solid ${T.borderSub}`,
+            borderRadius: 3,
+            padding: "0 3px",
+            fontSize: 9,
+          }}
+        >
+          Enter
+        </kbd>{" "}
+        to send ·{" "}
+        <kbd
+          style={{
+            background: T.inputBg,
+            border: `1px solid ${T.borderSub}`,
+            borderRadius: 3,
+            padding: "0 3px",
+            fontSize: 9,
+          }}
+        >
+          Shift+Enter
+        </kbd>{" "}
+        for new line
       </div>
     </form>
   );
