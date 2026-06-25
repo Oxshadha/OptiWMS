@@ -6,13 +6,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from sqlalchemy import create_engine, text
 
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 
 load_dotenv()
 
 DB_PATH = "db"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 def ingest():
     print("Loading documents from PostgreSQL database...")
@@ -61,26 +60,19 @@ def ingest():
     chunks = splitter.split_documents(documents)
     print(f"Created {len(chunks)} chunks")
 
-    print("Loading embedding model (first run downloads ~90MB)...")
-    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+    print("Loading embedding model (Google GenAI)...")
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=os.getenv("GOOGLE_API_KEY")
+    )
 
     print("Cleaning up old database files if possible...")
-    try:
-        vectorstore = Chroma(
-            persist_directory=DB_PATH,
-            embedding_function=embeddings
-        )
-        vectorstore.delete_collection()
-        print("Chroma collection deleted.")
-    except Exception as e:
-        print(f"Chroma delete collection warning: {e}")
-
     try:
         if os.path.exists(DB_PATH):
             shutil.rmtree(DB_PATH)
             print("DB path directory deleted from disk.")
     except Exception as e:
-        print(f"Warning: could not delete DB path directory directly: {e}")
+        print(f"Warning: could not delete DB path directory: {e}")
 
     print("Saving to ChromaDB...")
     vectorstore = Chroma.from_documents(

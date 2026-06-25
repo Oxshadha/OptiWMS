@@ -155,7 +155,13 @@ function getRoleRelevantNavItems(
   return filterRoutesByRole(items, role);
 }
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   const pathname = usePathname();
   const { role } = useAdmin();
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
@@ -185,23 +191,37 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="hidden lg:flex flex-col w-64 bg-neutral text-neutral-content fixed h-screen">
+    <aside className={clsx(
+      "hidden lg:flex flex-col bg-neutral text-neutral-content fixed h-screen transition-all duration-300 z-50 overflow-hidden",
+      collapsed ? "w-0 -translate-x-full" : "w-64 translate-x-0"
+    )}>
       <div className="p-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
-            style={{ backgroundColor: "#EEEEEE" }}
-          >
-            <Image
-              src="/assets/logos/OptiWMS Logo.JPG"
-              alt="OptiWMS Logo"
-              width={56}
-              height={56}
-              className="object-contain w-full h-full"
-              style={{ objectFit: "contain" }}
-            />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
+              style={{ backgroundColor: "#EEEEEE" }}
+            >
+              <Image
+                src="/assets/logos/OptiWMS Logo.JPG"
+                alt="OptiWMS Logo"
+                width={56}
+                height={56}
+                className="object-contain w-full h-full"
+                style={{ objectFit: "contain" }}
+              />
+            </div>
+            <span className="text-xl font-bold truncate">OptiWMS</span>
           </div>
-          <span className="text-xl font-bold">OptiWMS</span>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="btn btn-ghost btn-xs btn-circle text-neutral-content/70 hover:text-neutral-content flex-shrink-0"
+              title="Collapse Sidebar"
+            >
+              <span className="material-symbols-outlined text-lg">menu_open</span>
+            </button>
+          )}
         </div>
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">

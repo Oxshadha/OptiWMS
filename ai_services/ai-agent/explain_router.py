@@ -177,11 +177,11 @@ async def explain_forecast(req: ForecastExplainRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY / GOOGLE_API_KEY not configured on server")
 
     system_prompt = _build_prompt(req)
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content([
-        {"role": "user", "parts": [system_prompt + f"\n\nUser question: {req.userMessage}"]}
-    ])
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=system_prompt + f"\n\nUser question: {req.userMessage}"
+    )
 
     return {"reply": response.text}
 
@@ -192,11 +192,11 @@ async def explain_forecast_stream(req: ForecastExplainRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY / GOOGLE_API_KEY not configured on server")
 
     system_prompt = _build_prompt(req)
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    response = model.generate_content([
-        {"role": "user", "parts": [system_prompt + f"\n\nUser question: {req.userMessage}"]}
-    ])
+    client = genai.Client(api_key=GEMINI_API_KEY)
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=system_prompt + f"\n\nUser question: {req.userMessage}"
+    )
 
     text = response.text or ""
 
