@@ -2,11 +2,14 @@ import os
 import asyncio
 import sqlite3
 import httpx
-import google.generativeai as genai
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# Modern Google GenAI SDK import
+from google import genai
+from google.genai import types
 
 load_dotenv()  # load .env file in the same directory or parent
 # Trigger uvicorn reload to pick up env changes
@@ -203,4 +206,4 @@ async def explain_forecast_stream(req: ForecastExplainRequest):
             yield token + " "
             await asyncio.sleep(0)
 
-    return StreamingResponse(streamer(), media_type="text/plain; charset=utf-8")
+    return StreamingResponse(streamer(), media_type="text/plain; charset=utf-8")
