@@ -9,6 +9,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from agent import load_agent, ask, init_chat_db, get_db_session, ChatSession, ChatMessage
 from explain_router import router as explain_router
+from ingest import ingest
+
+# Run database SOP ingestion to ensure Chroma DB is fully up to date on start
+try:
+    ingest()
+except Exception as e:
+    print(f"Failed to run database SOP ingestion at import: {e}")
 
 app = FastAPI(title="OptiWMS Agent API")
 chain = load_agent()
@@ -106,6 +113,18 @@ def ask_question(request: QuestionRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/reindex")
+def reindex_sops():
+    global chain
+    try:
+        print("Manually triggering database SOP ingestion...")
+        ingest()
+        chain = load_agent()
+        return {"status": "success", "message": "SOPs reindexed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(e)}")
 
 
 # ── History routes ────────────────────────────────────────────────────────────

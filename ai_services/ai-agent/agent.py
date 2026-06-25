@@ -60,11 +60,11 @@ Answer:
 """
 
 # ── Database connection ───────────────────────────────────────────────────────
-DB_HOST     = os.getenv("DB_HOST", "localhost")
-DB_PORT     = os.getenv("DB_PORT", "5434")
-DB_NAME     = os.getenv("DB_NAME", "optiwms")
-DB_USER     = os.getenv("DB_USER", "optiwms")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "optiwms")
+DB_HOST     = os.getenv("DB_HOST")
+DB_PORT     = os.getenv("DB_PORT")
+DB_NAME     = os.getenv("DB_NAME")
+DB_USER     = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 DATABASE_URL = (
     f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
@@ -890,7 +890,7 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None) -> di
         result = chain.invoke({"query": question})
         answer = result["result"]
         sources = list(set([
-            os.path.basename(doc.metadata["source"])
+            doc.metadata.get("title") or doc.metadata.get("source") or os.path.basename(doc.metadata.get("source", "Unknown"))
             for doc in result["source_documents"]
         ]))
         res = {
