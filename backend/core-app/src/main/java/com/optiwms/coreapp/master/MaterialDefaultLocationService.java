@@ -50,6 +50,17 @@ public class MaterialDefaultLocationService {
             String locationCode,
             Integer priority,
             String materialType) {
+        return assignDefaultLocation(materialId, warehouseId, locationCode, priority, materialType, true);
+    }
+
+    @Transactional
+    public MaterialDefaultLocation assignDefaultLocation(
+            UUID materialId,
+            UUID warehouseId,
+            String locationCode,
+            Integer priority,
+            String materialType,
+            boolean updateInventoryLocation) {
 
         // Verify material exists
         Material material = materialService.findById(materialId);
@@ -109,15 +120,14 @@ public class MaterialDefaultLocationService {
 
         MaterialDefaultLocationEntity saved = repository.save(entity);
 
-        // CRITICAL: Also update inventory location_code if inventory exists
-        // This ensures bulk assignment updates actual inventory, not just default
-        // locations
-        List<InventoryItem> existingInventory = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
-        for (InventoryItem inv : existingInventory) {
-            // Only update if inventory has quantity > 0 (in-stock items)
-            if (inv.getQuantity() != null && inv.getQuantity() > 0) {
-                inv.setLocationCode(locationCode);
-                inventoryService.createOrUpdate(inv);
+        if (updateInventoryLocation) {
+            // Bulk catalog assignment updates actual inventory; slotting approve defers moves to transfers.
+            List<InventoryItem> existingInventory = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
+            for (InventoryItem inv : existingInventory) {
+                if (inv.getQuantity() != null && inv.getQuantity() > 0) {
+                    inv.setLocationCode(locationCode);
+                    inventoryService.createOrUpdate(inv);
+                }
             }
         }
 

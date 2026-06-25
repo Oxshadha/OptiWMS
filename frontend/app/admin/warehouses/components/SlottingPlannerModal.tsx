@@ -6,6 +6,12 @@ import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi } from "@/lib/api/materials";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import { showToast } from "@/lib/utils/toast";
+import {
+  deriveRackIdFromLocation,
+  locationMatchesRack,
+  normalizeArea,
+  parseRackId,
+} from "@/lib/utils/location-identity";
 
 const CLASS_OPTIONS = ["AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"];
 
@@ -74,10 +80,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
       maxPalletCapacity?: number;
     }>();
     for (const loc of locations) {
-      const zone = (loc.area || "C").toUpperCase();
-      const row = (loc.rowNumber || "01").padStart(2, "0");
-      const bay = (loc.bayNumber || "001").padStart(3, "0");
-      const rackId = `${zone}-${row}-${bay}`;
+      const rackId = deriveRackIdFromLocation(loc);
+      const zone = normalizeArea(loc.area);
       if (!map.has(rackId)) {
         map.set(rackId, {
           rackId,
@@ -258,18 +262,14 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
 
   const deleteRack = async (rackId: string) => {
     if (!warehouseId) return;
-    const [area, rowNumber, bayNumber] = rackId.split("-");
-    if (!area || !rowNumber || !bayNumber) return;
+    const parsed = parseRackId(rackId);
+    if (!parsed) return;
+    const { area, row: rowNumber, bay: bayNumber } = parsed;
     try {
       setDeletingRackId(rackId);
       const result = await locationsApi.deleteRack(warehouseId, area, rowNumber, bayNumber);
       setLocations((prev) =>
-        prev.filter((loc) => {
-          const zone = (loc.area || "C").toUpperCase();
-          const row = (loc.rowNumber || "01").padStart(2, "0");
-          const bay = (loc.bayNumber || "001").padStart(3, "0");
-          return `${zone}-${row}-${bay}` !== rackId;
-        })
+        prev.filter((loc) => !locationMatchesRack(loc, rackId))
       );
       showToast.success(result.message);
       onUpdated?.();
@@ -354,9 +354,9 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   <thead>
                     <tr>
                       <th>Level</th>
-                      <th>Units</th>
-                      <th>Weight kg</th>
-                      <th>Volume cm3</th>
+                      <th>Max units</th>
+                      <th>Max weight (kg)</th>
+                      <th>Max volume (cm³)</th>
                       <th>LPN</th>
                     </tr>
                   </thead>

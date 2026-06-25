@@ -28,13 +28,25 @@ class MaterialDB(Base):
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     material_code = Column(String, unique=True, index=True)
     description = Column(String)
+    material_type = Column(String)  # FG or RM
+    category = Column(String)
+    storage_type = Column(String)   # PALLET, DRUM, CARTON, BAG, IBC, ROLL, REEL
+    length_cm = Column(Float)
+    width_cm = Column(Float)
+    height_cm = Column(Float)
     weight_kg = Column(Float)
     volume_cm3 = Column(Float)
+    units_per_pallet = Column(Integer)
     hazardous = Column(Boolean)
+    hazard_class = Column(String)
     temperature_controlled = Column(Boolean)
-    # Using future_average as a proxy for 'velocity' or pick frequency
     future_average = Column(Float)
-    storage_condition = Column(String) # Assumed based on naming convention
+    abc_class = Column(String)      # A, B, C
+    fms_class = Column(String)      # Fast, Medium, Slow
+    forecast_p50 = Column(Float)
+    forecast_p10 = Column(Float)
+    forecast_p90 = Column(Float)
+    storage_condition = Column(String)
     preferred_zone = Column(String)
 
 

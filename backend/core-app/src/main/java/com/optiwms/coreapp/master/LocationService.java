@@ -471,6 +471,7 @@ public class LocationService {
         return String.format("%s-%s-%s-%d-%s", area, rowNumber, bayNumber, levelNumber, binPosition);
     }
 
+    /** Rack grouping key — matches frontend deriveRackId (area-row-bay, not location_code prefix). */
     private String rackKey(String area, String rowNumber, String bayNumber) {
         return (area == null ? "" : area.trim().toUpperCase(Locale.ROOT))
                 + "-"

@@ -50,8 +50,13 @@ forecast_service.db
 *.sqlite
 *.sqlite3
 
-# Model artifacts (large files - consider separate storage)
-# Ai miroservices/modeling/outputs/artifacts/**/*.pkl  # Uncomment if too large
+# Model artifacts (large files - stored in MLflow / local artifact dir, not git)
+Ai miroservices/modeling/outputs/artifacts/**/model.pkl
+Ai miroservices/modeling/outputs/artifacts/**/model.txt
+Ai miroservices/modeling/outputs/artifacts/**/model_q*.pkl
+Ai miroservices/modeling/v6_academic_final/mlruns/
+Ai miroservices/modeling/v6_academic_final/pipeline/runs/
+Ai miroservices/modeling/v6_academic_final/data/bootstrap_fg_monthly.csv
 
 # Logs and temporary files
 logs/
@@ -228,3 +233,6 @@ Ai miroservices/modeling/v2_m5_clean/__pycache__/
 ai-services/forecast-service/artifacts/
 
 Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
+
+# Legacy root docs and scripts
+archive_scripts_and_docs/
