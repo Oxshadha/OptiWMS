@@ -370,7 +370,7 @@ def evaluate_acceptance_gate(
         return configured if configured.exists() else None
 
     metric_path = _resolve_gate_metrics_path(dataset, model_name)
-    if metric_path.exists():
+    if metric_path and metric_path.exists():
         metric_df = pd.read_csv(metric_path)
         if "dataset" in metric_df.columns and dataset:
             metric_df = metric_df[metric_df["dataset"].astype(str).str.upper() == dataset.upper()]

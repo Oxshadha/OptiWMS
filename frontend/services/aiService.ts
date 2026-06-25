@@ -20,7 +20,7 @@ export interface WarehouseAIResponse {
 
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_AI_ENDPOINT =
-  process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://localhost:8000/ask";
+  process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://localhost:8094/ask";
 
 function normalizeSources(rawSources: unknown, role: WarehouseAIRole): WarehouseAISource[] {
   if (!Array.isArray(rawSources)) {

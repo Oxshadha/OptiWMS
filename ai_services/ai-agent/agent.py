@@ -21,8 +21,7 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 
 # Langchain / SOP Q&A
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_classic.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
@@ -42,7 +41,6 @@ load_dotenv()
 
 # ── SOP Vector DB Constants ───────────────────────────────────────────────────
 DB_PATH = "db"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 PROMPT_TEMPLATE = """
 You are a warehouse operations assistant for OptiWMS.
@@ -814,7 +812,10 @@ def ask_database(question: str):
 
 # ── RAG / SOP agent load ──────────────────────────────────────────────────────
 def load_agent():
-    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001",
+        google_api_key=os.getenv("GOOGLE_API_KEY")
+    )
 
     vectorstore = Chroma(
         persist_directory=DB_PATH,

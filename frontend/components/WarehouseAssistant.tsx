@@ -57,7 +57,7 @@ const getBaseUrl = () => {
       // fallback
     }
   }
-  return "http://localhost:8000";
+  return "http://localhost:8094";
 };
 
 type WarehouseAssistantProps = {
@@ -194,7 +194,6 @@ export function WarehouseAssistant({
 
       setChatHistory(formattedHistory);
       setCurrentSessionId(sessionId);
-      setShowHistory(false);
     } catch (err) {
       console.error("Failed to load session messages", err);
     } finally {
@@ -334,10 +333,11 @@ export function WarehouseAssistant({
         style={{
           display: "flex",
           flexDirection: "column",
-          height: "100%",
+          height: "calc(100vh - 73px)",
           overflow: "hidden",
-          background: T.bgSub,
-          padding: 24,
+          background: T.bg,
+          padding: 0,
+          margin: "-24px",
           position: "relative",
           fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
           fontSize: 13,
@@ -350,12 +350,8 @@ export function WarehouseAssistant({
             flexDirection: "column",
             flex: "1 1 0%",
             minHeight: 0,
-            borderRadius: 16,
-            border: `1px solid ${T.border}`,
-            borderTop: `2px solid ${T.accent}`,
             background: T.bg,
             color: T.text,
-            boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
             overflow: "hidden",
             position: "relative",
           }}
@@ -905,6 +901,7 @@ function HistorySidebar({
   onDeleteSession: (id: string) => Promise<void>;
   isPopUp: boolean;
 }) {
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const grouped = getGroupedSessions(historyList);
 
   const sidebarContent = (
@@ -917,6 +914,7 @@ function HistorySidebar({
         flexShrink: 0,
         background: T.bgSub,
         borderRight: `1px solid ${T.border}`,
+        position: "relative",
       }}
     >
       {/* Sidebar Header */}
@@ -1048,9 +1046,7 @@ function HistorySidebar({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm("Are you sure you want to delete this conversation?")) {
-                          void onDeleteSession(session.id);
-                        }
+                        setDeletingSessionId(session.id);
                       }}
                       style={{
                         position: "absolute",
@@ -1073,6 +1069,90 @@ function HistorySidebar({
           ))
         )}
       </div>
+
+      {deletingSessionId && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+            animation: "fcb-fadein 0.2s ease-out",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDeletingSessionId(null);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: T.bg,
+              border: `1px solid ${T.borderSub}`,
+              borderRadius: 12,
+              padding: 20,
+              width: "85%",
+              maxWidth: 280,
+              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+              animation: "fcb-slide-up 0.2s ease-out",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <AlertCircle style={{ width: 22, height: 22, color: T.error }} />
+              <span style={{ fontWeight: 600, fontSize: 15, color: T.text, fontFamily: "'Inter', sans-serif" }}>Delete Chat?</span>
+            </div>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textMuted, lineHeight: "1.4", fontFamily: "'Inter', sans-serif" }}>
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeletingSessionId(null)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${T.borderSub}`,
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: T.textDim,
+                  cursor: "pointer",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (deletingSessionId) {
+                    await onDeleteSession(deletingSessionId);
+                    setDeletingSessionId(null);
+                  }
+                }}
+                style={{
+                  background: T.error,
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

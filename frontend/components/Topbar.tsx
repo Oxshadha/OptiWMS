@@ -29,7 +29,13 @@ const MOCK_RESULTS: SearchItem[] = [
   { type: "Customer", label: "Acme Corp", extra: "42 orders", id: "cust-1" },
 ];
 
-export function Topbar() {
+export function Topbar({
+  onToggleSidebar,
+  showToggle = false,
+}: {
+  onToggleSidebar?: () => void;
+  showToggle?: boolean;
+}) {
   const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
   const { isDark, toggleTheme, mounted } = useTheme();
@@ -231,61 +237,72 @@ export function Topbar() {
   return (
     <header className="relative flex items-center justify-between gap-4 px-6 py-4 bg-base-100 border-b border-base-200">
       {/* Search Bar - Left Aligned */}
-      <div className="relative max-w-xl search-dropdown">
-        <label className="input input-bordered flex items-center gap-2 w-full">
-          <span className="material-symbols-outlined text-base-content/60">
-            search
-          </span>
-          <input
-            type="text"
-            className="grow"
-            placeholder="Find inventory, orders or reports"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setOpenSearch(true);
-            }}
-            onFocus={() => {
-              if (query) setOpenSearch(true);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setOpenSearch(false);
-                setQuery("");
-              }
-            }}
-          />
-        </label>
-        {openSearch && query && (
-          <div className="absolute mt-2 w-full rounded-xl bg-base-100 shadow-lg border border-base-200 z-20">
-            {filtered.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-base-content/70">
-                No results found
-              </div>
-            ) : (
-              <ul className="divide-y divide-base-200">
-                {filtered.map((r) => (
-                  <li
-                    key={r.type + r.label}
-                    className="px-4 py-3 text-sm flex justify-between hover:bg-base-200 cursor-pointer transition-colors"
-                    onClick={() => handleSearchResultClick(r)}
-                  >
-                    <span>
-                      <span className="font-semibold">{r.label}</span>
-                      {r.extra && (
-                        <span className="text-base-content/60">
-                          {" "}
-                          — {r.extra}
-                        </span>
-                      )}
-                    </span>
-                    <span className="badge badge-outline">{r.type}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+      <div className="flex items-center gap-4 flex-1 max-w-xl">
+        {showToggle && onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="btn btn-ghost btn-circle text-base-content/70 hover:text-base-content flex-shrink-0"
+            title="Expand Sidebar"
+          >
+            <span className="material-symbols-outlined">menu</span>
+          </button>
         )}
+        <div className="relative flex-1 search-dropdown">
+          <label className="input input-bordered flex items-center gap-2 w-full">
+            <span className="material-symbols-outlined text-base-content/60">
+              search
+            </span>
+            <input
+              type="text"
+              className="grow"
+              placeholder="Find inventory, orders or reports"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setOpenSearch(true);
+              }}
+              onFocus={() => {
+                if (query) setOpenSearch(true);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setOpenSearch(false);
+                  setQuery("");
+                }
+              }}
+            />
+          </label>
+          {openSearch && query && (
+            <div className="absolute mt-2 w-full rounded-xl bg-base-100 shadow-lg border border-base-200 z-20">
+              {filtered.length === 0 ? (
+                <div className="px-4 py-3 text-sm text-base-content/70">
+                  No results found
+                </div>
+              ) : (
+                <ul className="divide-y divide-base-200">
+                  {filtered.map((r) => (
+                    <li
+                      key={r.type + r.label}
+                      className="px-4 py-3 text-sm flex justify-between hover:bg-base-200 cursor-pointer transition-colors"
+                      onClick={() => handleSearchResultClick(r)}
+                    >
+                      <span>
+                        <span className="font-semibold">{r.label}</span>
+                        {r.extra && (
+                          <span className="text-base-content/60">
+                            {" "}
+                            — {r.extra}
+                          </span>
+                        )}
+                      </span>
+                      <span className="badge badge-outline">{r.type}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Icons - Right Aligned */}

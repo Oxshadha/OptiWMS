@@ -1,5 +1,11 @@
 FROM python:3.11-slim
 
+# Install system compilation dependencies for ChromaDB/hnswlib
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt ./

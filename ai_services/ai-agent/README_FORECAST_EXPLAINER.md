@@ -51,7 +51,7 @@ This system spans both the **forecast-service** and the **ai-agent** microservic
   - Exposes the public endpoints `/api/explain/forecast` (unary) and `/api/explain/forecast/stream` (streaming response).
   - Fetches forecast data and SHAP values from the `forecast-service` APIs.
   - Assembles a structured system prompt that matches the dashboard inputs and model internals.
-  - Invokes `gemini-2.5-flash` to write a 3-6 sentence supply chain explanation explaining the predictions.
+  - Invokes `gemini-2.5-flash` using the modern `google-genai` client SDK (`genai.Client`) to write a 3-6 sentence supply chain explanation.
 
 ---
 

@@ -8,8 +8,8 @@ This service acts as the operations copilot and analytics engine for the OptiWMS
 
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/)
 - **RAG & Vector Store**: [LangChain](https://www.langchain.com/) & [ChromaDB](https://www.trychroma.com/)
-- **Embeddings**: Sentence Transformers (`all-MiniLM-L6-v2`)
-- **LLM Engine**: Gemini Flash (`gemini-3.1-flash-lite`) via Google Generative AI
+- **Embeddings**: Google GenAI Embeddings (`models/gemini-embedding-001`)
+- **LLM Engine**: Gemini Flash (`gemini-3.1-flash-lite` & `gemini-2.5-flash`) via Google Generative AI SDK
 - **Database Engine**: SQLAlchemy & Psycopg2 connecting to PostgreSQL
 
 ---
@@ -43,7 +43,7 @@ Instead of reading from local text files, the ingestion script queries the activ
    - Maps each database entry to a LangChain `Document` containing the SOP content and database-specific metadata (ID, title, category).
    - Splitting: Uses `RecursiveCharacterTextSplitter` to divide contents into 500-character chunks with 50-character overlap.
    - Cleans up and deletes any existing collection or directory in `db/` to prevent stale duplicates.
-   - Generates embeddings via `HuggingFaceEmbeddings` and saves the collection to `db/`.
+   - Generates embeddings via `GoogleGenerativeAIEmbeddings` (`models/gemini-embedding-001`) and saves the collection to `db/`.
 
 2. **How to Run Ingestion**:
    Execute the ingestion script using your Conda environment:

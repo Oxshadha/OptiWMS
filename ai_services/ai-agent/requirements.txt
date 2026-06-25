@@ -14,9 +14,8 @@ langchain-community
 
 # AI Models & Ecosystem Integrations
 google-genai
+google-api-core
 langchain-google-genai
-langchain-huggingface
-sentence-transformers
 
 # Vector Storage
 chromadb
@@ -26,7 +25,4 @@ langchain-chroma
 plotly
 matplotlib
 seaborn
-reportlab
-
-# UI Components
-streamlit
+reportlab
