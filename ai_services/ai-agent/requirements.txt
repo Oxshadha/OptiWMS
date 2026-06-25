@@ -8,19 +8,25 @@ psycopg2-binary
 sqlalchemy
 pandas
 
-# AI & Vector Embeddings
+# Core LangChain Framework
 langchain-core
 langchain-community
-langchain-classic
+
+# AI Models & Ecosystem Integrations
+google-genai
 langchain-google-genai
-chromadb
+langchain-huggingface
 sentence-transformers
 
-# Visualization
+# Vector Storage
+chromadb
+langchain-chroma
+
+# Visualization & Reporting
 plotly
 matplotlib
 seaborn
-
-streamlit
-google-genai
 reportlab
+
+# UI Components
+streamlit
