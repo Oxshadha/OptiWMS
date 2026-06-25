@@ -5,16 +5,30 @@ from functools import partial
 
 from config import (
     SLOT_MAX_WIDTH,
+    SLOT_MAX_WEIGHT,
     ZONE_LEVEL_HEIGHT,
     ZONE_VOLUME_CLASS,
+    STORAGE_TYPE_COMPATIBILITY,
     slot_speed_band,
     ideal_level_for_weight,
 )
 from warehouse_state import WarehouseState
 from ga_components import toolbox
 
-PENALTY = 1_000   
+PENALTY = 1_000
 FORKLIFT_RELOCATION_COST = 120.0  # SL Baseline
+
+AMALGAMATED_ZONE_MAP = {
+    ("A", "Fast"): 0,  # FA -> Zone A
+    ("A", "Medium"): 0,
+    ("A", "Slow"): 1,
+    ("B", "Fast"): 0,  # BF -> Zone A (high-value fast movers near dispatch)
+    ("B", "Medium"): 1,
+    ("B", "Slow"): 2,
+    ("C", "Fast"): 1,  # CF -> Zone B
+    ("C", "Medium"): 2,
+    ("C", "Slow"): 3,
+}
 
 # ===========================================================================
 # HARD CONSTRAINTS
@@ -93,24 +107,77 @@ def score_bin_balance(individual, state: WarehouseState) -> float:
     return 0.0
 
 def score_forecast_velocity(individual, forecast_p50_h1: float) -> float:
-    """
-    Reward placing high-forecast items closer to the front (row 0).
-    Cost = forecast_velocity * distance_to_dispatch (proxied by row index)
-    """
     if not forecast_p50_h1:
         return 0.0
     row_index = individual[1]
-    # Small multiplier so it scales reasonably with other soft constraints
     return forecast_p50_h1 * row_index * 0.5
 
+
 def score_relocation_penalty(is_relocation: bool) -> float:
-    """
-    If this is a re-slotting move, penalize by forklift cost.
-    Ensures we only re-slot if the space savings / velocity improvement > 120 LKR equivalent.
-    """
     if is_relocation:
         return FORKLIFT_RELOCATION_COST
     return 0.0
+
+
+def score_storage_type_compatibility(individual, storage_type: str | None) -> float:
+    if storage_type is None:
+        return 0.0
+    rules = STORAGE_TYPE_COMPATIBILITY.get(storage_type)
+    if rules is None:
+        return 0.0
+
+    zone = individual[0]
+    level = individual[3]
+    cost = 0.0
+
+    if zone not in rules["zones"]:
+        cost += PENALTY
+
+    level_height = ZONE_LEVEL_HEIGHT.get(zone, 40)
+    if level_height < rules["min_level_height"]:
+        cost += 200.0
+
+    level_weight_cap = SLOT_MAX_WEIGHT.get(level, 500)
+    if level_weight_cap < rules["min_weight_cap"]:
+        cost += 150.0
+
+    return cost
+
+
+def score_amalgamated_zone(individual, abc_class: str | None, fms_class: str | None) -> float:
+    if abc_class is None or fms_class is None:
+        return 0.0
+    ideal_zone = AMALGAMATED_ZONE_MAP.get((abc_class, fms_class))
+    if ideal_zone is None:
+        return 25.0
+    actual_zone = individual[0]
+    distance = abs(actual_zone - ideal_zone)
+    return distance * 80.0
+
+
+def score_level_unit_capacity(individual, storage_type: str | None, quantity: int) -> float:
+    """Penalize if the assigned level can't hold the requested quantity for this storage type."""
+    if storage_type is None or quantity <= 0:
+        return 0.0
+    from config import STORAGE_TYPE_COMPATIBILITY  # noqa: already imported at top
+    rules = STORAGE_TYPE_COMPATIBILITY.get(storage_type)
+    if rules is None:
+        return 0.0
+    level = individual[3] + 1  # 0-indexed -> 1-indexed
+    level_weight = SLOT_MAX_WEIGHT.get(individual[3], 500)
+    if level_weight < rules.get("min_weight_cap", 0):
+        return PENALTY * 0.5
+    return 0.0
+
+
+def score_demand_volatility(individual, volatility: float | None) -> float:
+    """High-volatility SKUs should be in accessible locations (lower rows, lower levels)."""
+    if volatility is None or volatility <= 0:
+        return 0.0
+    row = individual[1]
+    level = individual[3]
+    accessibility_cost = (row * 0.3 + level * 0.7) * volatility * 0.1
+    return min(accessibility_cost, 100.0)
 
 # ===========================================================================
 # MAIN FITNESS FUNCTION
@@ -127,9 +194,13 @@ def evaluate(individual, parcel: dict, state: WarehouseState) -> tuple:
     cost += score_row_proximity(individual)
     cost += score_bin_balance(individual, state)
 
-    # NEW: Forecast-driven velocity and relocation
     cost += score_forecast_velocity(individual, parcel.get("forecast_p50", 0.0))
     cost += score_relocation_penalty(parcel.get("is_relocation", False))
+
+    cost += score_storage_type_compatibility(individual, parcel.get("storage_type"))
+    cost += score_amalgamated_zone(individual, parcel.get("abc_class"), parcel.get("fms_class"))
+    cost += score_level_unit_capacity(individual, parcel.get("storage_type"), parcel.get("quantity", 1))
+    cost += score_demand_volatility(individual, parcel.get("forecast_volatility"))
 
     if not violations:
         cost += score_depth_waste(individual, parcel.get("length", 0), state)

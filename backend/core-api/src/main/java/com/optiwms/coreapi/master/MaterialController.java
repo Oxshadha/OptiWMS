@@ -1,6 +1,7 @@
 package com.optiwms.coreapi.master;
 
 import com.optiwms.coreapp.imports.CsvImportService;
+import com.optiwms.coreapp.master.MaterialDimensionImportService;
 import com.optiwms.coreapi.config.ReferenceDataCacheSupport;
 import com.optiwms.coreapp.master.MaterialService;
 import com.optiwms.coreapp.master.SupplierMaterialService;
@@ -25,14 +26,17 @@ public class MaterialController {
     private final MaterialService materialService;
     private final SupplierMaterialService supplierMaterialService;
     private final CsvImportService csvImportService;
+    private final MaterialDimensionImportService dimensionImportService;
 
     public MaterialController(
             MaterialService materialService,
             SupplierMaterialService supplierMaterialService,
-            CsvImportService csvImportService) {
+            CsvImportService csvImportService,
+            MaterialDimensionImportService dimensionImportService) {
         this.materialService = materialService;
         this.supplierMaterialService = supplierMaterialService;
         this.csvImportService = csvImportService;
+        this.dimensionImportService = dimensionImportService;
     }
 
     @GetMapping
@@ -335,6 +339,33 @@ public class MaterialController {
             return ResponseEntity.badRequest()
                     .body(new ImportResponse(0, 1, List.of("Error reading file: " + e.getMessage())));
         }
+    }
+
+    @PostMapping("/import-dimensions")
+    public ResponseEntity<DimensionImportResponse> importDimensionsCsv(@RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(new DimensionImportResponse(0, 0, 1, "File is empty"));
+        }
+        try {
+            MaterialDimensionImportService.ImportResult result =
+                    dimensionImportService.importCsv(file.getInputStream());
+            return ResponseEntity.ok(new DimensionImportResponse(
+                    result.updated(),
+                    result.skipped(),
+                    result.errors(),
+                    result.message()));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(new DimensionImportResponse(0, 0, 1, "Error reading file: " + e.getMessage()));
+        }
+    }
+
+    public record DimensionImportResponse(
+            int updated,
+            int skipped,
+            int errors,
+            String message) {
     }
 
     public record MaterialDto(

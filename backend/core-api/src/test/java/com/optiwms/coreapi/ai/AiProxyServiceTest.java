@@ -185,12 +185,12 @@ class AiProxyServiceTest {
                 eq("http://localhost:8091/artifacts/inference-audit?limit=50&dataset=A&model_name=XGBOOST"),
                 eq(HttpMethod.GET),
                 any(HttpEntity.class),
-                eq(Map.class)
-        )).thenReturn(new ResponseEntity<>(Map.of("summary", Map.of("count", 1)), HttpStatus.OK));
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>("{\"summary\":{\"count\":1}}".getBytes(), HttpStatus.OK));
 
         ResponseEntity<Object> result = service.getInferenceAudit(50, "A", "XGBOOST");
         assertEquals(HttpStatus.OK, result.getStatusCode());
-        assertTrue(result.getBody() instanceof Map);
+        assertTrue(result.getBody() instanceof byte[]);
     }
 
     @Test
@@ -222,12 +222,12 @@ class AiProxyServiceTest {
                 eq("http://localhost:8091/artifacts/acceptance-gate?dataset=A&model_name=XGBOOST&split=test&inference_window=500"),
                 eq(HttpMethod.GET),
                 any(HttpEntity.class),
-                eq(Map.class)
-        )).thenReturn(new ResponseEntity<>(Map.of("ready", true), HttpStatus.OK));
+                eq(byte[].class)
+        )).thenReturn(new ResponseEntity<>("{\"ready\":true}".getBytes(), HttpStatus.OK));
 
         ResponseEntity<Object> result = service.getAcceptanceGate("A", "XGBOOST", "test", 500);
         assertEquals(HttpStatus.OK, result.getStatusCode());
-        assertTrue(result.getBody() instanceof Map);
+        assertTrue(result.getBody() instanceof byte[]);
     }
 
     @Test
