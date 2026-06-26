@@ -139,6 +139,18 @@ function QuickChip({ icon, label, onClick, disabled }) {
   );
 }
 
+const formatMonthLabel = (dateStr) => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleString("default", { month: "short", year: "2-digit" });
+  }
+  if (dateStr.startsWith("H+")) {
+    return `Month +${dateStr.substring(2)}`;
+  }
+  return dateStr;
+};
+
 // ─── Main component ──────────────────────────────────────────────────────────
 export default function ForecastChatButton({
   sku,
@@ -222,7 +234,7 @@ export default function ForecastChatButton({
     if (open && messages.length === 0) {
       if (typeof onOpen === "function") onOpen();
       const skuLabel = activeSku || "all combined SKUs";
-      const monthLabel = activeMonth || "the next forecast period";
+      const monthLabel = activeMonth ? formatMonthLabel(activeMonth) : "the next forecast period";
       const unitsLabel =
         displayUnits != null
           ? `${displayUnits.toLocaleString()} units`
@@ -245,7 +257,7 @@ export default function ForecastChatButton({
         displayUnits != null
           ? `${displayUnits.toLocaleString()} units`
           : "—";
-      const monthLabel = activeMonth || "the next forecast period";
+      const monthLabel = activeMonth ? formatMonthLabel(activeMonth) : "the next forecast period";
       setMessages([
         {
           role: "assistant",
@@ -268,7 +280,7 @@ export default function ForecastChatButton({
         ...prev,
         {
           role: "assistant",
-          content: `Month context switched to **${newMonth}**.\n\nForecast: **${unitsLabel}** for ${newMonth}.\n\nWhat would you like to know?`,
+          content: `Month context switched to **${formatMonthLabel(newMonth)}**.\n\nForecast: **${unitsLabel}** for ${formatMonthLabel(newMonth)}.\n\nWhat would you like to know?`,
         },
       ]);
     },
@@ -545,7 +557,7 @@ export default function ForecastChatButton({
                       value={p.month}
                       style={{ background: T.panel, color: T.text }}
                     >
-                      {p.month}
+                      {formatMonthLabel(p.month)}
                     </option>
                   ))}
                 </select>
@@ -594,7 +606,7 @@ export default function ForecastChatButton({
             {activeMonth && (
               <span>
                 <span style={{ color: T.textMuted }}>Month: </span>
-                <strong style={{ color: T.text }}>{activeMonth}</strong>
+                <strong style={{ color: T.text }}>{formatMonthLabel(activeMonth)}</strong>
               </span>
             )}
             {displayUnits != null && (
