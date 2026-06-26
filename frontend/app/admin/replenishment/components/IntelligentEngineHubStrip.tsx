@@ -136,6 +136,7 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
           <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Workspaces</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <Link href="/admin/forecasts" className="btn btn-sm btn-outline">Forecasts</Link>
+            <Link href="/admin/replenishment/forecast-space" className="btn btn-sm btn-outline">Forecast-to-Space</Link>
             <Link
               href="/admin/slotting-plans"
               className={clsx("btn btn-sm", readiness?.ready ? "btn-primary" : "btn-disabled")}
