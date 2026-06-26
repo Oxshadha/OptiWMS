@@ -166,6 +166,11 @@ public class StockTransferService {
     }
 
     @Transactional
+    public StockTransfer releaseForSlotting(UUID transferId) {
+        return release(transferId, null);
+    }
+
+    @Transactional
     public StockTransfer release(UUID transferId, UUID managerId) {
         StockTransferEntity transfer = repository.findById(transferId)
                 .orElseThrow(() -> new RuntimeException("Stock transfer not found: " + transferId));

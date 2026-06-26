@@ -36,10 +36,20 @@ const allNavItems = [
   {
     href: "/admin/delivery-partners",
     label: "Delivery Partners",
-    icon: "local_shipping",
+    icon: "handshake",
   },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
+  {
+    href: "/admin/replenishment",
+    label: "Intelligent Engine",
+    icon: "psychology",
+    subItems: [
+      { href: "/admin/replenishment", label: "Engine Hub" },
+      { href: "/admin/slotting-plans", label: "Quarterly Slotting" },
+      { href: "/admin/ai-slotting", label: "Storage Optimiser" },
+    ],
+  },
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
   { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
   { href: "/admin/bom-master", label: "BOM Master", icon: "account_tree" },

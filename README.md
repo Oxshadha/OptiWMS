@@ -52,7 +52,7 @@ OptiWMS includes optional AI-powered forecasting capabilities:
 - `ai-services/orchestrator-service/`: Job orchestration
 - `ai-services/slotting-service/`: Inventory optimization (planned)
 
-See [TEAM_COLLABORATION_GUIDE.md](TEAM_COLLABORATION_GUIDE.md) for team setup and [DEPLOYMENT_CHANGELOG.md](DEPLOYMENT_CHANGELOG.md) for implementation details.
+See [TEAM_COLLABORATION_GUIDE.md](TEAM_COLLABORATION_GUIDE.md) for team setup, [DEPLOYMENT_CHANGELOG.md](DEPLOYMENT_CHANGELOG.md) for implementation details, and [FORECAST_GATEWAY_API_GUIDE.md](ai_services/FORECAST_GATEWAY_API_GUIDE.md) for the forecast API endpoints, parameters, and output format.
 
 ## Tech Stack
 

@@ -1,0 +1,21 @@
+experiment_name: OptiWMS_v6_FG
+registered_model_name: optiwms-forecast-lightgbm
+dataset: P
+model_name: LIGHTGBM
+horizons: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+quantile_alphas: [0.1, 0.5, 0.9]
+seed: 42
+optuna_trials: 5
+use_log_target: true
+min_train_months: 18
+val_horizon_months: 6
+wms_min_months: 12
+wms_min_skus: 20
+artifact_stage: production
+
+paths:
+  scenario_c_csv: "../Forecast model train data optiwms/hemas_scenario_c_dataset_cleaned.csv"
+  bootstrap_csv: "data/bootstrap_fg_monthly.csv"
+  engineered_csv: "data/engineered/fg_features_engineered.csv"
+  artifacts_root: "../outputs/artifacts"
+  wms_export_csv: "data/wms_outbound_monthly.csv"

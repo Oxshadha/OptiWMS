@@ -53,6 +53,30 @@ const cleanDisplayName = (description?: string) => {
   return first || description;
 };
 
+function hasCompleteDimensions(material: Material): boolean {
+  return (
+    material.lengthCm != null &&
+    material.widthCm != null &&
+    material.heightCm != null &&
+    material.weightKg != null &&
+    material.weightKg > 0 &&
+    material.volumeCm3 != null &&
+    material.volumeCm3 > 0 &&
+    material.palletSpaces != null &&
+    material.palletSpaces > 0
+  );
+}
+
+function dimCell(value: number | null | undefined, material: Material) {
+  const incomplete = !hasCompleteDimensions(material);
+  const missing = value == null || (incomplete && value <= 0);
+  return (
+    <span className={missing ? "text-warning font-semibold" : "text-base-content/60"}>
+      {value != null ? value : "—"}
+    </span>
+  );
+}
+
 export default function MaterialsPage() {
   const searchParams = useSearchParams();
   const supplierFilterId = searchParams.get("supplier")?.trim() || "";
@@ -206,10 +230,22 @@ export default function MaterialsPage() {
 
   const summaryStats = {
     total: totalItems,
+    dimensioned: materials.filter(hasCompleteDimensions).length,
     rawMaterials: materials.filter((m) => (m.materialType || "raw_material") === "raw_material")
       .length,
     products: materials.filter((m) => m.materialType === "product").length,
     packaging: materials.filter((m) => m.materialType === "packaging_material").length,
+  };
+
+  const handleImportDimensions = async (file: File) => {
+    try {
+      const result = await materialsApi.importDimensionsCsv(file);
+      alert(result.message);
+      await reload();
+    } catch (err) {
+      logger.error("[Materials] Dimension import failed:", err);
+      alert(err instanceof Error ? err.message : "Dimension import failed");
+    }
   };
 
   const handleCreate = async (materialData: Omit<Material, "id">) => {
@@ -287,6 +323,23 @@ export default function MaterialsPage() {
                 <span className="material-symbols-outlined">location_on</span>
                 Assign Bin Locations (Bulk)
               </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = ".csv";
+                  input.onchange = () => {
+                    const file = input.files?.[0];
+                    if (file) void handleImportDimensions(file);
+                  };
+                  input.click();
+                }}
+                title="CSV: material_code,length_cm,width_cm,height_cm,weight_kg,pallet_spaces"
+              >
+                <span className="material-symbols-outlined">straighten</span>
+                Import Dimensions
+              </button>
               <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
                 <span className="material-symbols-outlined">add</span>
                 Add Product
@@ -302,6 +355,11 @@ export default function MaterialsPage() {
             label: "Total Products",
             value: summaryStats.total.toString(),
             icon: "inventory_2",
+          },
+          {
+            label: "Dimensioned SKUs",
+            value: `${summaryStats.dimensioned}/${materials.length}`,
+            icon: "straighten",
           },
           {
             label: "Raw Materials",
@@ -460,38 +518,36 @@ export default function MaterialsPage() {
               {
                 key: "weightKg",
                 label: "Carton Weight (kg)",
+                render: (material: Material) => dimCell(material.weightKg, material),
+              },
+              {
+                key: "volumeCm3",
+                label: "Volume (cm³)",
+                render: (material: Material) => dimCell(material.volumeCm3, material),
+              },
+              {
+                key: "maxPalletWeightKg",
+                label: "Max Carton Wt (kg)",
                 render: (material: Material) => (
                   <span className="text-base-content/60">
-                    {material.weightKg != null ? material.weightKg : "—"}
+                    {material.maxPalletWeightKg != null ? material.maxPalletWeightKg : "—"}
                   </span>
                 ),
               },
               {
                 key: "lengthCm",
                 label: "Length (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.lengthCm != null ? material.lengthCm : "—"}
-                  </span>
-                ),
+                render: (material: Material) => dimCell(material.lengthCm, material),
               },
               {
                 key: "widthCm",
                 label: "Width (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.widthCm != null ? material.widthCm : "—"}
-                  </span>
-                ),
+                render: (material: Material) => dimCell(material.widthCm, material),
               },
               {
                 key: "heightCm",
                 label: "Height (cm)",
-                render: (material: Material) => (
-                  <span className="text-base-content/60">
-                    {material.heightCm != null ? material.heightCm : "—"}
-                  </span>
-                ),
+                render: (material: Material) => dimCell(material.heightCm, material),
               },
               {
                 key: "storageType",

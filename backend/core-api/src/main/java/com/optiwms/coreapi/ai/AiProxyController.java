@@ -129,14 +129,19 @@ public class AiProxyController {
     @PostMapping("/jobs/forecast-run")
     public ResponseEntity<Object> trigger(
             Authentication authentication,
-            @RequestParam(defaultValue = "B") String dataset,
-            @RequestParam(defaultValue = "AUTO") String modelName,
-            @RequestParam(defaultValue = "snapshot") String mode,
+            @RequestParam(defaultValue = "P") String dataset,
+            @RequestParam(defaultValue = "LIGHTGBM") String modelName,
+            @RequestParam(defaultValue = "online") String mode,
             @RequestParam(required = false) String warehouseId,
             @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
         return service.triggerForecastRunWithGuard(authentication, dataset, modelName, mode, scopedWarehouse, criticalOverride);
+    }
+
+    @GetMapping("/gateway/models")
+    public ResponseEntity<Object> gatewayModels() {
+        return service.getGatewayModels();
     }
 
     @GetMapping("/artifacts")

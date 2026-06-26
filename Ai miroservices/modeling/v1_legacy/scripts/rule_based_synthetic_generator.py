@@ -18,15 +18,90 @@ DEFAULT_PERIODS = 36
 DEFAULT_SEED = 42
 
 FAMILY_KEYWORDS = {
-    "SOLVENT": ["ALCOHOL", "GLYCERINE", "GLYCOL", "ETHYL", "PROPYLENE"],
-    "SURFACTANT": ["EMULSION", "CREMOPHOR", "EMAL", "EMPILAN", "POLYSORBATE", "BETAINE", "SULFATE"],
-    "COLORANT": ["BLUE", "RED", "YELLOW", "GREEN", "CHLOROPHYLL", "LAKE", "COLOR"],
-    "ACID_BASE": ["ACID", "SODA", "HYDROXIDE", "CITRATE", "CAUSTIC"],
-    "STARCH_GUM": ["STARCH", "GUM", "CELLULOSE", "DEXTRIN"],
-    "OIL_WAX": ["CETYL", "STEARYL", "WAX", "OIL", "BUTTER"],
-    "ACTIVE": ["ALLANTOIN", "CLIMBAZOLE", "NIACINAMIDE", "VITAMIN", "ZINC", "BHT"],
-    "FRAGRANCE_COOLANT": ["FRESCOLAT", "FRAGRANCE", "PERFUME", "MENTHOL", "AROMA"],
+    "PACKAGING": [
+        "PE BACK", "PE POUCH", "PRINTED PE", "NON-WOVEN", "NON WOVEN", "N/WOVEN",
+        "RELEASE PAPER", "RL. PAPER", "RL.PAPER", "NEW RL", "POUCH TAPE", "TAPE 30",
+        "ADHESIVE", "HOT MELT", "FLUFF", "TOP SHEET", "BACK SHEET", "PERFORATED",
+        "WINDING PATH", "VISCOFIL",
+    ],
+    "FRAGRANCE_COOLANT": [
+        "FRESCOLAT", "FRAGRANCE", "PERFUME", "MENTHOL", "AROMA",
+        "COLOGNE", "COL BULK", "COL -", "OPTAMINT", "SRILEX", "CIEN",
+        "LUZI", "GIVEX", "LABRADOR", "KINGSTON", "SOMERSET", "PARIS 009",
+        "FLOWER POWER", "FLORAL HEAVEN", "GREEN BLOSSOM", "GREEN PASTURES",
+        "FIELD OF DAISIES", "FRENCH APPLE", "LEMON RUSH", "CITRUS SKY",
+        "CITRUS TIDES", "CLASSIC FRESH", "CORAL GABLES", "GLAMOUR CURLS",
+        "INNOVATION AR", "FABRICA", "JF G", "CREME SILK", "MALE INSTINCT",
+        "RAINBOW D", "PINK PETAL", "PINK PLUM", "SUNFLOWER SMILE",
+        "TENDER SPLASH", "TRUE XTREM", "WATER LILLY", "WATERLILY",
+        "SPRING ORCHID", "BLACK IMPACT", "BLACK NIGHT", "CAN CAN",
+        "MYSTIC PURPLE", "SILVER LUSTRE", "GOLDEN GLOW", "ELEGANT WHITE",
+        "GREEN BEAUTY", "GREEN VIBRAT", "GILOU FREEZE", "PS GOLD GEL",
+        "LUXURY CREME", "ROSE & CARE", "ROSE WATER",
+        "HAIR FALL PROTECTION", "HYDRA NOURISHING", "ELO HAIR", "ELO ORCHID",
+        "BABY HERBAL COLOGNE", "BC COLOGNE", "BC LUCKY", "IMPORTED BULK",
+        "GY COL BULK", "BULK BC", "BULK GOLD",
+        "HIMALAYAN ESSENCE", "ETERNAL ESS", "LITTLE JOHN",
+        "SANDALWOOD", "SANDLE WOOD", "ESS.OIL",
+    ],
+    "OIL_WAX": [
+        "CETYL", "STEARYL", "CETO-STEARYL", "GINOL", "CUTINA",
+        "WAX", "OIL", "BUTTER",
+        "COCONUT", "OLIVE", "ARGAN", "JOJOBA", "AVOCADO", "AVACADO",
+        "POMEGRANATE", "GRAPE SEED", "POMACE", "ALMOND",
+        "LANELGINE", "LUBRAJEL", "SILICON", "SILICONE",
+        "DOW CORNING", "BELSIL", "XIAMETER", "SERA SENSE SF",
+        "UCON", "RITA IPM", "ECOSMOOTH", "UNIPEARL",
+        "PETROLAN",
+    ],
+    "SURFACTANT": [
+        "EMULSION", "CREMOPHOR", "EMAL", "EMPILAN", "POLYSORBATE", "BETAINE",
+        "SULFATE", "SULPHONATE",
+        "GLUCOPON", "TWEEN", "EMANON", "SCHERCODINE", "LUTENSOL",
+        "GALAXY", "AMPHISOL", "COCOMIDOPROPYL",
+        "MULSIFAN", "PROTACHEM", "GENAMIN", "SALCARE",
+        "SENSIDIN", "KERASOL", "MICONOL",
+    ],
+    "SOLVENT": [
+        "ALCOHOL", "GLYCERINE", "GLYCOL", "ETHYL", "PROPYLENE",
+        "PHENOXY ETHANOL", "BENZYL ALCOHOL", "POLYETHELYENE GLYCOL",
+        "PEG 1500", "SORBITOL", "MONO PROPOLYNE",
+    ],
+    "ACID_BASE": [
+        "ACID", "SODA", "HYDROXIDE", "CITRATE", "CAUSTIC",
+        "CARBONATE", "SILICATE", "SULPHATE", "PHOSPHATE",
+        "TRI ETHANOL AMINE", "SODIUM CHLORIDE", "SODIUM FLUORIDE",
+        "SODIUM BENZOATE", "SODIUM SACHCHARIN", "KOH",
+        "MAGNESIUM SULPHATE", "TRIPOTASSIUM",
+    ],
+    "STARCH_GUM": [
+        "STARCH", "GUM", "CELLULOSE", "DEXTRIN",
+        "CARBOMER", "CARBOPOL", "JAGUAR", "METHOCEL", "POLYOX",
+        "RHEOVIS", "ULTREZ", "ACUSOL", "CMC", "DHARIYAL",
+        "SHANDONG", "FIXATE", "NOVETHIX", "NOVEMER",
+    ],
+    "COLORANT": [
+        "BLUE", "RED", "YELLOW", "GREEN",
+        "CHLOROPHYLL", "LAKE", "COLOR", "COLOUR",
+        "COSMENYL", "INDUCOS", "FLEXONYL", "TITANIUM DIOXIDE",
+        "OXIDE YELLOW", "PURI COLOR", "D & C", "F.D.& C", "F D & C",
+        "TINOPAL", "UVTEX", "LAVANYA",
+    ],
+    "ACTIVE": [
+        "ALLANTOIN", "CLIMBAZOLE", "NIACINAMIDE", "VITAMIN", "ZINC", "BHT",
+        "PARABEN", "GERMALL", "TINOSAN", "POTASSIUM SORBATE",
+        "TRILON", "REDENSYL", "L-ARGININE", "THIMOL", "GLYCINE",
+        "HYDROLYZED", "PROTEIN", "EXTRACT", "HONEY", "SAFFRON",
+        "SAVENDRA", "SEEDS", "WHOLE EGG", "DILL", "ROSEMARY",
+        "JASMINE", "LAVENDER", "ORANGE OIL", "CAMOMILE", "VETIVER",
+        "COVABSORB", "NEO HELIOPAN", "UVINUL", "CHEM 1789",
+        "S.M.F.P.", "S / WOOD", "TALCUM", "SILICA",
+        "SHEBU", "OLIVAM", "AJIDEW", "BELCILEG",
+        "ABBRASIVE", "AMP No",
+    ],
 }
+
+ANCHOR_TOLERANCE = 0.30
 
 
 @dataclass
@@ -80,11 +155,43 @@ def demand_speed_bucket(row: pd.Series) -> str:
 
 
 def infer_material_family(description: str) -> str:
-    text = description.upper()
+    text = description.upper().strip()
+    best_family = "GENERAL"
+    best_len = 0
     for family, keywords in FAMILY_KEYWORDS.items():
-        if any(keyword in text for keyword in keywords):
-            return family
-    return "GENERAL"
+        for kw in keywords:
+            if kw in text and len(kw) > best_len:
+                best_family = family
+                best_len = len(kw)
+    return best_family
+
+
+def validate_anchors(canonical: pd.DataFrame) -> pd.DataFrame:
+    """Flag rows with missing/invalid planning parameters so they get fallback defaults."""
+    df = canonical.copy()
+    df["_valid_avg"] = df["future_average"].notna() & (df["future_average"] > 0)
+    df["_valid_moq"] = df["moq"].notna() & (df["moq"] > 0)
+    df["_valid_rop"] = df["rop_units"].notna() & (df["rop_units"] > 0)
+    df["_valid_buffer"] = df["buffer_days"].notna() & (df["buffer_days"] > 0)
+    df["_anchor_valid"] = df["_valid_avg"] & df["_valid_moq"]
+
+    n_total = len(df)
+    n_invalid_avg = int((~df["_valid_avg"]).sum())
+    n_invalid_moq = int((~df["_valid_moq"]).sum())
+    print(f"Anchor validation: {n_total} SKUs, "
+          f"{n_invalid_avg} missing/zero avg, {n_invalid_moq} missing/zero MOQ")
+
+    median_avg = df.loc[df["_valid_avg"], "future_average"].median()
+    median_moq = df.loc[df["_valid_moq"], "moq"].median()
+    median_rop = df.loc[df["_valid_rop"], "rop_units"].median()
+    median_buffer = df.loc[df["_valid_buffer"], "buffer_days"].median()
+
+    df.loc[~df["_valid_avg"], "future_average"] = median_avg
+    df.loc[~df["_valid_moq"], "moq"] = median_moq
+    df.loc[df["rop_units"].isna() | (df["rop_units"] <= 0), "rop_units"] = median_rop
+    df.loc[df["buffer_days"].isna() | (df["buffer_days"] <= 0), "buffer_days"] = median_buffer
+
+    return df.drop(columns=[c for c in df.columns if c.startswith("_")])
 
 
 def categorize_material(row: pd.Series) -> str:
@@ -257,6 +364,8 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
         elif speed in {"SLOW", "INTERMITTENT"} and rng.random() < 0.10:
             raw_demand *= rng.uniform(0.35, 0.75)
 
+        max_allowed = avg * (1.0 + ANCHOR_TOLERANCE) * 2.5
+        raw_demand = min(raw_demand, max_allowed)
         demand_units = max(int(round(raw_demand)), 0)
         recent_demands.append(float(demand_units))
         recent_window = recent_demands[-3:] if recent_demands else [avg]
@@ -347,7 +456,18 @@ def simulate_demand_history(row: pd.Series, months: pd.DatetimeIndex, seed: int)
 
 def build_generated_frames(config: GenerationConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     canonical = load_canonical()
+    canonical = validate_anchors(canonical)
     months = month_stamps(config.start, config.periods)
+
+    families = canonical["description"].apply(lambda d: infer_material_family(str(d)))
+    family_counts = families.value_counts()
+    general_pct = family_counts.get("GENERAL", 0) / len(canonical) * 100
+    print(f"Family coverage: {len(canonical)} SKUs across {len(family_counts)} families")
+    for fam, cnt in family_counts.items():
+        print(f"  {fam}: {cnt} ({cnt / len(canonical) * 100:.1f}%)")
+    if general_pct > 25:
+        print(f"WARNING: {general_pct:.1f}% of SKUs fell to GENERAL — review FAMILY_KEYWORDS")
+
     all_rows = [
         simulate_demand_history(row, months, config.seed)
         for _, row in canonical.iterrows()

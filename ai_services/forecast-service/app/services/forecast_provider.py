@@ -176,8 +176,10 @@ class BoostingForecastProvider:
 
             for item in items:
                 p50 = float(item.get("prediction", 0.0))
-                p10 = max(0.0, p50 * 0.9)
-                p90 = max(p50, p50 * 1.1)
+                p10_val = item.get("p10")
+                p90_val = item.get("p90")
+                p10 = max(0.0, float(p10_val) if p10_val is not None else p50 * 0.85)
+                p90 = max(p50, float(p90_val) if p90_val is not None else p50 * 1.15)
 
                 all_points.append(
                     ForecastPoint(

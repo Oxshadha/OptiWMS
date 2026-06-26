@@ -174,6 +174,19 @@ export interface ProductionReadinessResponse {
   latest_operational_health?: OperationalHealthSnapshot;
 }
 
+export interface GatewayModelsResponse {
+  champion?: {
+    name: string;
+    version?: string;
+    is_champion?: boolean;
+  };
+  available_models?: Array<{
+    name: string;
+    artifact_count?: number;
+    is_champion?: boolean;
+  }>;
+}
+
 export interface GovernanceStatus {
   enabled: boolean;
   interval_seconds: number;
@@ -319,8 +332,8 @@ export const aiForecastApi = {
     criticalOverride?: boolean;
   } = {}) {
     const query = buildQuery({
-      dataset: params.dataset ?? 'B',
-      modelName: params.modelName ?? 'AUTO',
+      dataset: params.dataset ?? 'P',
+      modelName: params.modelName ?? 'LIGHTGBM',
       mode: params.mode ?? 'snapshot',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
@@ -440,6 +453,10 @@ export const aiForecastApi = {
       soak_hours: params.soakHours ?? 24,
     });
     return apiClient.get<ProductionReadinessResponse>(`/ai/artifacts/production-readiness${query}`);
+  },
+
+  getGatewayModels() {
+    return apiClient.get<GatewayModelsResponse>('/ai/gateway/models');
   },
 
   getGovernanceStatus() {

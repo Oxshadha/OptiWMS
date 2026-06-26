@@ -1,13 +1,5 @@
-'use client';
-
-import LogisticAgentDashboard from '@/components/LogisticAgentDashboard';
+import { redirect } from 'next/navigation';
 
 export default function HomePage() {
-  return (
-    <main>
-      <LogisticAgentDashboard />
-    </main>
-  );
+  redirect('/admin/login');
 }
-
-

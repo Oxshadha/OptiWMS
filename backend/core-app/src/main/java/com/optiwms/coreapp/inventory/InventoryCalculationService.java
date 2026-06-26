@@ -1,5 +1,6 @@
 package com.optiwms.coreapp.inventory;
 
+import com.optiwms.coreapp.master.BinOccupancyService;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.MaterialEntity;
@@ -21,12 +22,15 @@ public class InventoryCalculationService {
 
     private final InventoryItemRepository inventoryRepository;
     private final MaterialRepository materialRepository;
+    private final BinOccupancyService binOccupancyService;
 
     public InventoryCalculationService(
             InventoryItemRepository inventoryRepository,
-            MaterialRepository materialRepository) {
+            MaterialRepository materialRepository,
+            BinOccupancyService binOccupancyService) {
         this.inventoryRepository = inventoryRepository;
         this.materialRepository = materialRepository;
+        this.binOccupancyService = binOccupancyService;
     }
 
     /**
@@ -137,5 +141,9 @@ public class InventoryCalculationService {
         }
 
         inventoryRepository.save(inventory);
+
+        if (inventory.getWarehouseId() != null) {
+            binOccupancyService.reconcileWarehouseLevelUsage(inventory.getWarehouseId());
+        }
     }
 }
