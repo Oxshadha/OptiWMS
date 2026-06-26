@@ -42,6 +42,8 @@ ai:
   services:
     forecast-base-url: ${AI_FORECAST_BASE_URL:http://forecast-service:8091}
     orchestrator-base-url: ${AI_ORCHESTRATOR_BASE_URL:http://orchestrator-service:8092}
+    slotting-base-url: ${AI_SLOTTING_BASE_URL:http://slotting-service:8093}
+    slotting-enabled: ${AI_SLOTTING_ENABLED:true}
     auth-token: ${AI_SERVICES_AUTH_TOKEN:}
   monitoring:
     enabled: false

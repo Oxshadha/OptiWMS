@@ -1,3 +1,4 @@
+import json
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
@@ -155,11 +156,42 @@ def ingest_snapshot_test_metrics_only(db: Session, run: ForecastRun) -> int:
     if existing > 0:
         return 0
 
+    inserted = 0
+    
+    # Check for v6 horizon_metrics.json
+    v6_runs_dir = Path("/v6_academic_final/pipeline/runs")
+    if v6_runs_dir.exists():
+        candidates = list(v6_runs_dir.glob("*/horizon_metrics.json"))
+        if candidates:
+            latest_json = sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+            try:
+                metrics_data = json.loads(latest_json.read_text())
+                for item in metrics_data:
+                    db.add(
+                        ForecastMetric(
+                            run_id=run.id,
+                            dataset=run.dataset,
+                            model_name=run.model_name,
+                            warehouse_id=run.warehouse_id,
+                            split="test",
+                            horizon=int(item.get("horizon", 0)),
+                            wape=float(item.get("WAPE")) if item.get("WAPE") is not None else None,
+                            mase_mean=float(item.get("NRMSE")) if item.get("NRMSE") is not None else None,
+                            rmse=float(item.get("RMSE")) if item.get("RMSE") is not None else None,
+                            bias=float(item.get("Bias")) if item.get("Bias") is not None else None,
+                        )
+                    )
+                    inserted += 1
+                db.flush()
+                return inserted
+            except Exception:
+                pass
+
+    # Fallback to legacy CSV
     metric_path = _resolve_report_path("metrics", METRIC_PATH, run.dataset, run.model_name)
     if not metric_path or not pd.io.common.file_exists(str(metric_path)):
         return 0
 
-    inserted = 0
     m = pd.read_csv(metric_path)
     if "dataset" in m.columns and "model" in m.columns:
         m = m[(m["dataset"] == run.dataset) & (m["model"] == run.model_name)]
@@ -271,8 +303,13 @@ def _persist_online_predictions(
     inserted = 0
     for row in online_rows:
         p50 = float(row.get("prediction", 0.0))
-        p10 = max(0.0, p50 * 0.9)
-        p90 = max(p50, p50 * 1.1)
+        
+        # Use true quantile models if available, otherwise fallback to ±10%
+        p10_val = row.get("p10")
+        p90_val = row.get("p90")
+        
+        p10 = float(p10_val) if p10_val is not None else max(0.0, p50 * 0.9)
+        p90 = float(p90_val) if p90_val is not None else max(p50, p50 * 1.1)
         db.add(
             ForecastPrediction(
                 run_id=run.id,
@@ -385,6 +422,30 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
     series, history_source = _build_online_history_series(run.dataset, run.model_name, run.warehouse_id)
 
     total_pred = 0
+    
+    # Publish backtest actuals (y_true) for charts and metrics
+    for s in series:
+        sku = s.get("fg_code") or s.get("series_id")
+        category = s.get("fg_category")
+        for hist in s.get("history", []):
+            db.add(
+                ForecastPrediction(
+                    run_id=run.id,
+                    dataset=run.dataset,
+                    model_name=run.model_name,
+                    warehouse_id=run.warehouse_id,
+                    sku=str(sku),
+                    category=str(category) if category else None,
+                    month=str(hist["month"]),
+                    horizon=0,
+                    p10=0.0,
+                    p50=0.0,
+                    p90=0.0,
+                    y_true=float(hist["demand_units"])
+                )
+            )
+            total_pred += 1
+
     total_fallback = 0
     total_errors = 0
     h1_predictions: dict[str, float] = {}

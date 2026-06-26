@@ -1,19 +1,20 @@
 "use client";
 
 import type { WarehouseLayout } from "@/lib/types/warehouse-layout";
+import { parseRackId } from "@/lib/utils/location-identity";
 
 export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
   const parseRack = (rack: { id: string; zone?: string; aisle?: number; bay?: number }) => {
-    const m = rack.id.match(/^([A-Z]+)-(\d+)-(\d+)$/);
-    const zone = (m?.[1] || rack.zone || "C").toUpperCase();
-    const row = Number(m?.[2] ?? rack.aisle ?? 0);
-    const bay = Number(m?.[3] ?? rack.bay ?? 0);
+    const parsed = parseRackId(rack.id);
+    const zone = (parsed?.area || rack.zone || "C").toUpperCase();
+    const row = Number(parsed?.row ?? rack.aisle ?? 0);
+    const bay = Number(parsed?.bay ?? rack.bay ?? 0);
     return {
       zone,
       row,
       bay,
-      rowCode: String(row).padStart(2, "0"),
-      bayCode: String(bay).padStart(3, "0"),
+      rowCode: parsed?.row ?? String(row).padStart(2, "0"),
+      bayCode: parsed?.bay ?? String(bay).padStart(3, "0"),
     };
   };
 

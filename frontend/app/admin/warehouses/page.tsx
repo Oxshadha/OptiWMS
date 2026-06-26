@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { RackElevationView } from "@/components/RackElevationView";
 import { RackEditModal } from "@/components/RackEditModal";
 import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/lib/utils/location-to-layout";
@@ -20,10 +21,12 @@ import { BulkRackCreateModal } from "./components/BulkRackCreateModal";
 import { SlottingPlannerModal } from "./components/SlottingPlannerModal";
 import { SimpleSlottingView } from "./components/SimpleSlottingView";
 import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
-import { LogisticAgentDashboard } from "./components/LogisticAgentDashboard";
 import { calculateWarehouseStats } from "./types";
 
 export default function WarehousesPage() {
+  const searchParams = useSearchParams();
+  const rackFromUrl = searchParams.get("rack");
+  const warehouseFromUrl = searchParams.get("warehouseId");
   const { admin, role } = useAdmin();
   const isSystemAdmin = role === "admin";
   const isWarehouseManager = role === "warehouse_manager";
@@ -214,9 +217,27 @@ export default function WarehousesPage() {
 
   const handleWarehouseChange = async (warehouseId: string) => {
     setSelectedWarehouseId(warehouseId);
-    setSelectedRack(null); // Clear selection when switching warehouses
+    setSelectedRack(null);
     await loadWarehouseLayout(warehouseId);
   };
+
+  useEffect(() => {
+    if (!warehouseFromUrl || warehouses.length === 0) return;
+    if (warehouses.some((w) => w.id === warehouseFromUrl) && selectedWarehouseId !== warehouseFromUrl) {
+      void handleWarehouseChange(warehouseFromUrl);
+    }
+  }, [warehouseFromUrl, warehouses]);
+
+  useEffect(() => {
+    if (!layout || !rackFromUrl) return;
+    const match = layout.racks.find(
+      (rack) => rack.id === rackFromUrl || rack.id.toUpperCase() === rackFromUrl.toUpperCase()
+    );
+    if (match) {
+      setLayoutViewMode("detailed");
+      setSelectedRack(match);
+    }
+  }, [layout, rackFromUrl]);
 
   if (isLoading || isLoadingLayout || !layout) {
     return (
@@ -297,9 +318,6 @@ export default function WarehousesPage() {
 
       <WarehouseStatsCards stats={stats} />
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
-
-      {/* Logistic Agent Dashboard - Central Data Hub */}
-      <LogisticAgentDashboard warehouseId={selectedWarehouseId || "default"} />
 
       {layoutHasRealData ? (
         <>

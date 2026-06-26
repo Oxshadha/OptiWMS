@@ -8,13 +8,27 @@ import { Location, LocationHierarchy } from '@/lib/api/locations';
 import { WarehouseLayout, RackUnit, LocationBin, BinStatus } from '@/lib/types/warehouse-layout';
 import { inventoryApi } from '@/lib/api/inventory';
 import { materialsApi } from '@/lib/api/materials';
+import {
+  deriveRackIdFromLocation,
+  normalizeArea,
+  normalizeBay,
+  normalizeRow,
+} from '@/lib/utils/location-identity';
+import { applyOccupancyToBin } from '@/lib/utils/bin-occupancy';
+import { locationsApi, type BinOccupancy } from '@/lib/api/locations';
+import { slottingIntelligenceApi } from '@/lib/api/slotting-intelligence';
 
 /**
  * Convert a single location to a LocationBin
  */
-function locationToBin(location: Location, inventoryMap: Map<string, { quantity: number; sku: string }>): LocationBin {
+function locationToBin(
+  location: Location,
+  inventoryMap: Map<string, { quantity: number; sku: string }>,
+  occupancyMap: Map<string, BinOccupancy>
+): LocationBin {
   const inventory = inventoryMap.get(location.id);
   const level = location.levelNumber || 1;
+  const occupancy = occupancyMap.get(location.locationCode);
   
   // Determine bin status based on rack status + inventory.
   // Reserved rack slots remain reserved even when empty.
@@ -25,16 +39,21 @@ function locationToBin(location: Location, inventoryMap: Map<string, { quantity:
     status = 'occupied';
   }
 
-  return {
+  const baseBin: LocationBin = {
     id: location.locationCode,
     level,
     status,
+    maxPalletCapacity: location.maxPalletCapacity ?? 1,
     inventory: inventory ? {
       sku: inventory.sku,
       quantity: inventory.quantity,
-      weight: 0, // TODO: Get from material data
+      weight: occupancy?.binWeightKg ?? 0,
+      unitsPerPallet: occupancy?.unitsPerPallet ?? undefined,
+      palletWeightKg: occupancy?.palletWeightKg ?? undefined,
     } : undefined,
   };
+
+  return applyOccupancyToBin(baseBin, occupancy);
 }
 
 /**
@@ -44,18 +63,7 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
   const rackMap = new Map<string, Location[]>();
   
   locations.forEach((location) => {
-    // Normalize area code: Convert "ST" to "C" for consistency (storage areas use single letter)
-    // This ensures all storage racks use consistent naming (C-01-001, A-01-001, etc.)
-    let area = location.area || 'C';
-    if (area === 'ST') {
-      area = 'C'; // Standardize ST (Storage) to C for consistency
-    }
-
-    const rowNum = parseInt(location.rowNumber || "1", 10);
-    const bayNum = parseInt(location.bayNumber || "1", 10);
-    const row = String(Number.isFinite(rowNum) ? rowNum : 1).padStart(2, "0");
-    const bay = String(Number.isFinite(bayNum) ? bayNum : 1).padStart(3, "0");
-    const rackKey = `${area}-${row}-${bay}`;
+    const rackKey = deriveRackIdFromLocation(location);
     
     if (!rackMap.has(rackKey)) {
       rackMap.set(rackKey, []);
@@ -72,7 +80,9 @@ function groupLocationsByRack(locations: Location[]): Map<string, Location[]> {
  */
 function locationsToRacks(
   locations: Location[],
-  inventoryMap: Map<string, { quantity: number; sku: string }>
+  inventoryMap: Map<string, { quantity: number; sku: string }>,
+  occupancyMap: Map<string, BinOccupancy>,
+  pendingMovesByRack: Map<string, number> = new Map()
 ): RackUnit[] {
   // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
   const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
@@ -99,18 +109,14 @@ function locationsToRacks(
     
     // Get first location to extract rack info
     const firstLocation = rackLocations[0];
-    // Normalize area: Convert "ST" to "C" for consistency
-    let area = firstLocation.area || 'C';
-    if (area === 'ST') {
-      area = 'C'; // Standardize ST (Storage) to C for consistency
-    }
-    const row = parseInt(firstLocation.rowNumber || '01');
-    const bay = parseInt(firstLocation.bayNumber || '01');
+    const area = normalizeArea(firstLocation.area);
+    const row = parseInt(normalizeRow(firstLocation.rowNumber), 10);
+    const bay = parseInt(normalizeBay(firstLocation.bayNumber), 10);
     
     // Convert locations to bins
     const bins: LocationBin[] = rackLocations
       .sort((a, b) => (a.levelNumber || 1) - (b.levelNumber || 1))
-      .map((loc) => locationToBin(loc, inventoryMap));
+      .map((loc) => locationToBin(loc, inventoryMap, occupancyMap));
     
     // Determine rack status from persisted rackStatus values.
     // Priority: out_of_service > maintenance > reserved > active.
@@ -141,6 +147,7 @@ function locationsToRacks(
       status,
       amalgamatedClass: rackLocations.map((loc) => loc.amalgamatedClass).find((value) => !!value),
       isBulk: rackLocations.some((loc) => (loc.locationType || "").toLowerCase() === "bulk"),
+      pendingMoveCount: pendingMovesByRack.get(rackKey) ?? 0,
     };
     
     racks.push(rack);
@@ -151,6 +158,28 @@ function locationsToRacks(
   });
   
   return racks;
+}
+
+async function loadPendingMovesMap(warehouseId: string): Promise<Map<string, number>> {
+  try {
+    const snapshot = await slottingIntelligenceApi.getSnapshot(warehouseId);
+    return new Map(
+      snapshot.pendingMovesByRack.map((row) => [row.rackId, row.pendingMoveCount])
+    );
+  } catch (error) {
+    logger.error('Failed to load intelligence snapshot:', error);
+    return new Map();
+  }
+}
+
+async function loadOccupancyMap(warehouseId: string): Promise<Map<string, BinOccupancy>> {
+  try {
+    const rows = await locationsApi.getRackOccupancy(warehouseId);
+    return new Map(rows.map((row) => [row.locationCode, row]));
+  } catch (error) {
+    logger.error('Failed to load rack occupancy:', error);
+    return new Map();
+  }
 }
 
 /**
@@ -216,7 +245,9 @@ export async function convertLocationHierarchyToLayout(
   });
   
   // Convert to racks (only storage locations)
-  const racks = locationsToRacks(storageLocations, inventoryMap);
+  const occupancyMap = await loadOccupancyMap(warehouseId);
+  const pendingMovesMap = await loadPendingMovesMap(warehouseId);
+  const racks = locationsToRacks(storageLocations, inventoryMap, occupancyMap, pendingMovesMap);
   
   // Calculate warehouse dimensions (simplified - only storage racks)
   const sectionPadding = 50;
@@ -311,7 +342,9 @@ export async function convertLocationsToLayout(
     }
   });
   
-  const racks = locationsToRacks(storageLocations, inventoryMap);
+  const occupancyMap = await loadOccupancyMap(warehouseId);
+  const pendingMovesMap = await loadPendingMovesMap(warehouseId);
+  const racks = locationsToRacks(storageLocations, inventoryMap, occupancyMap, pendingMovesMap);
   
   // Calculate warehouse dimensions (simplified - only storage racks)
   const sectionPadding = 50;

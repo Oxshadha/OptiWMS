@@ -9,10 +9,16 @@ export interface LocationBin {
   id: string; // "ST-01-004-03-A"
   level: number; // 1 to 5 (1 = Floor, 5 = Top)
   status: BinStatus;
+  maxPalletCapacity?: number;
+  palletCount?: number;
+  levelWeightCapacityKg?: number;
+  levelWeightUsedKg?: number;
   inventory?: {
     sku: string;
     quantity: number;
     weight: number;
+    unitsPerPallet?: number;
+    palletWeightKg?: number;
     receivedAt?: string; // For "recently received" pulsing animation
   };
 }
@@ -36,6 +42,7 @@ export interface RackUnit {
   notes?: string; // Additional notes
   velocity?: number; // Velocity percentage (0-100) for heat map visualization
   isBulk?: boolean; // True when rack belongs to bulk-storage location type
+  pendingMoveCount?: number; // Open stock-transfer lines targeting this rack
 }
 
 export interface WarehouseLayout {

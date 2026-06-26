@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """
 fitness.py — Hard and soft constraint scoring for the DEAP GA.
 """
@@ -6,16 +5,30 @@ from functools import partial
 
 from config import (
     SLOT_MAX_WIDTH,
+    SLOT_MAX_WEIGHT,
     ZONE_LEVEL_HEIGHT,
     ZONE_VOLUME_CLASS,
+    STORAGE_TYPE_COMPATIBILITY,
     slot_speed_band,
     ideal_level_for_weight,
 )
 from warehouse_state import WarehouseState
 from ga_components import toolbox
 
-PENALTY = 1_000   
+PENALTY = 1_000
+FORKLIFT_RELOCATION_COST = 120.0  # SL Baseline
 
+AMALGAMATED_ZONE_MAP = {
+    ("A", "Fast"): 0,  # FA -> Zone A
+    ("A", "Medium"): 0,
+    ("A", "Slow"): 1,
+    ("B", "Fast"): 0,  # BF -> Zone A (high-value fast movers near dispatch)
+    ("B", "Medium"): 1,
+    ("B", "Slow"): 2,
+    ("C", "Fast"): 1,  # CF -> Zone B
+    ("C", "Medium"): 2,
+    ("C", "Slow"): 3,
+}
 
 # ===========================================================================
 # HARD CONSTRAINTS
@@ -39,8 +52,8 @@ def violates_width(parcel_width: float) -> bool:
 
 def hard_violations(individual, parcel: dict, state: WarehouseState) -> list[str]:
     v = []
-    if violates_height(individual, parcel["height"]):             v.append("height")
-    if violates_width(parcel["width"]):                           v.append("width")
+    if violates_height(individual, parcel.get("height", 0)):             v.append("height")
+    if violates_width(parcel.get("width", 0)):                           v.append("width")
     if violates_availability(individual, parcel, state):          v.append("availability (capacity/locked)")
     return v
 
@@ -51,11 +64,11 @@ def hard_violations(individual, parcel: dict, state: WarehouseState) -> list[str
 
 def score_zone_volume(individual, product_volume: str) -> float:
     zone = individual[0]
-    assigned_class = ZONE_VOLUME_CLASS[zone]
+    assigned_class = ZONE_VOLUME_CLASS.get(zone)
     if assigned_class is None: 
         return 50.0
     order = {"high": 0, "medium": 1, "low": 2}
-    distance = abs(order[product_volume] - order[assigned_class])
+    distance = abs(order.get(product_volume, 2) - order.get(assigned_class, 2))
     return distance * 100.0
 
 
@@ -63,7 +76,7 @@ def score_slot_speed(individual, movement_speed: str) -> float:
     slot_index = individual[2]
     band = slot_speed_band(slot_index)
     order = {"fast": 0, "medium": 1, "slow": 2}
-    distance = abs(order[movement_speed] - order[band])
+    distance = abs(order.get(movement_speed, 2) - order.get(band, 2))
     return distance * 60.0
 
 
@@ -93,6 +106,78 @@ def score_bin_balance(individual, state: WarehouseState) -> float:
             return 15.0      
     return 0.0
 
+def score_forecast_velocity(individual, forecast_p50_h1: float) -> float:
+    if not forecast_p50_h1:
+        return 0.0
+    row_index = individual[1]
+    return forecast_p50_h1 * row_index * 0.5
+
+
+def score_relocation_penalty(is_relocation: bool) -> float:
+    if is_relocation:
+        return FORKLIFT_RELOCATION_COST
+    return 0.0
+
+
+def score_storage_type_compatibility(individual, storage_type: str | None) -> float:
+    if storage_type is None:
+        return 0.0
+    rules = STORAGE_TYPE_COMPATIBILITY.get(storage_type)
+    if rules is None:
+        return 0.0
+
+    zone = individual[0]
+    level = individual[3]
+    cost = 0.0
+
+    if zone not in rules["zones"]:
+        cost += PENALTY
+
+    level_height = ZONE_LEVEL_HEIGHT.get(zone, 40)
+    if level_height < rules["min_level_height"]:
+        cost += 200.0
+
+    level_weight_cap = SLOT_MAX_WEIGHT.get(level, 500)
+    if level_weight_cap < rules["min_weight_cap"]:
+        cost += 150.0
+
+    return cost
+
+
+def score_amalgamated_zone(individual, abc_class: str | None, fms_class: str | None) -> float:
+    if abc_class is None or fms_class is None:
+        return 0.0
+    ideal_zone = AMALGAMATED_ZONE_MAP.get((abc_class, fms_class))
+    if ideal_zone is None:
+        return 25.0
+    actual_zone = individual[0]
+    distance = abs(actual_zone - ideal_zone)
+    return distance * 80.0
+
+
+def score_level_unit_capacity(individual, storage_type: str | None, quantity: int) -> float:
+    """Penalize if the assigned level can't hold the requested quantity for this storage type."""
+    if storage_type is None or quantity <= 0:
+        return 0.0
+    from config import STORAGE_TYPE_COMPATIBILITY  # noqa: already imported at top
+    rules = STORAGE_TYPE_COMPATIBILITY.get(storage_type)
+    if rules is None:
+        return 0.0
+    level = individual[3] + 1  # 0-indexed -> 1-indexed
+    level_weight = SLOT_MAX_WEIGHT.get(individual[3], 500)
+    if level_weight < rules.get("min_weight_cap", 0):
+        return PENALTY * 0.5
+    return 0.0
+
+
+def score_demand_volatility(individual, volatility: float | None) -> float:
+    """High-volatility SKUs should be in accessible locations (lower rows, lower levels)."""
+    if volatility is None or volatility <= 0:
+        return 0.0
+    row = individual[1]
+    level = individual[3]
+    accessibility_cost = (row * 0.3 + level * 0.7) * volatility * 0.1
+    return min(accessibility_cost, 100.0)
 
 # ===========================================================================
 # MAIN FITNESS FUNCTION
@@ -103,14 +188,22 @@ def evaluate(individual, parcel: dict, state: WarehouseState) -> tuple:
     violations = hard_violations(individual, parcel, state)
     cost += len(violations) * PENALTY
 
-    cost += score_zone_volume(individual, parcel["product_volume"])
-    cost += score_slot_speed(individual,  parcel["movement_speed"])
-    cost += score_level_weight(individual, parcel["weight"])
+    cost += score_zone_volume(individual, parcel.get("product_volume", "low"))
+    cost += score_slot_speed(individual,  parcel.get("movement_speed", "slow"))
+    cost += score_level_weight(individual, parcel.get("weight", 0))
     cost += score_row_proximity(individual)
     cost += score_bin_balance(individual, state)
 
+    cost += score_forecast_velocity(individual, parcel.get("forecast_p50", 0.0))
+    cost += score_relocation_penalty(parcel.get("is_relocation", False))
+
+    cost += score_storage_type_compatibility(individual, parcel.get("storage_type"))
+    cost += score_amalgamated_zone(individual, parcel.get("abc_class"), parcel.get("fms_class"))
+    cost += score_level_unit_capacity(individual, parcel.get("storage_type"), parcel.get("quantity", 1))
+    cost += score_demand_volatility(individual, parcel.get("forecast_volatility"))
+
     if not violations:
-        cost += score_depth_waste(individual, parcel["length"], state)
+        cost += score_depth_waste(individual, parcel.get("length", 0), state)
 
     return (cost,)
 
@@ -122,178 +215,3 @@ def register_evaluate(parcel: dict, state: WarehouseState) -> None:
         "evaluate",
         partial(evaluate, parcel=parcel, state=state),
     )
-=======
-from functools import partial
-from config import (
-    SLOT_MAX_WEIGHT, SLOT_MAX_WIDTH,
-    ZONE_LEVEL_HEIGHT, ZONE_VOLUME_CLASS,
-    slot_speed_band
-)
-from warehouse_state import get_available_depth
-from ga_components import toolbox
-
-PENALTY = 1000   # per hard-constraint violation
-
-#  HARD CONSTRAINTS
-#  Each returns True when the individual violates the rule.
-
-def violates_weight(individual, parcel_weight):
-    """Level weight capacity must not be exceeded."""
-    level = individual[3]
-    return parcel_weight > SLOT_MAX_WEIGHT[level]
-
-def violates_height(individual, parcel_height):
-    """
-    Parcel height must fit within the zone's level height.
-    Zone A allows 100 cm, Zone B 70 cm, Zone C/D 40 cm.
-    """
-    zone = individual[0]
-    return parcel_height > ZONE_LEVEL_HEIGHT[zone]   # zone-aware now
-
-def violates_width(parcel_width):
-    """Parcel width is the same limit across all zones."""
-    return parcel_width > SLOT_MAX_WIDTH
-
-def violates_depth(individual, parcel_length):
-    """Remaining bin depth must fit the parcel length."""
-    return get_available_depth(individual) < parcel_length
-
-def hard_violations(individual, parcel):
-    """
-    Returns list of violated constraint names.
-    Empty list = fully feasible individual.
-    """
-    v = []
-    if violates_weight(individual, parcel["weight"]):           v.append("weight")
-    if violates_height(individual, parcel["height"]):           v.append("height")
-    if violates_width(parcel["width"]):                         v.append("width")
-    if violates_depth(individual, parcel["length"]):            v.append("depth")
-    return v
-
-#  SOFT CONSTRAINTS
-#  Each returns a cost ≥ 0.  Lower = better placement.
-
-def score_zone_volume(individual, product_volume):
-    """
-    Penalise placing a parcel in a zone reserved for a different
-    volume class.
-
-    product_volume must be "high", "medium", or "low".
-
-    Penalty map:
-      correct zone          →   0
-      one class away        → 100  (e.g. high item in medium zone)
-      two classes away      → 200  (e.g. high item in low zone)
-      unassigned zone (D)   →  50  (acceptable but not ideal)
-    """
-    zone = individual[0]
-    assigned_class = ZONE_VOLUME_CLASS[zone]
-
-    if assigned_class is None:
-        return 50   # Zone D: allowed but not preferred
-
-    order = {"high": 0, "medium": 1, "low": 2}
-    distance = abs(order[product_volume] - order[assigned_class])
-    return distance * 100
-
-def score_slot_speed(individual, movement_speed):
-    """
-    Penalise placing an item in a rack band that does not match
-    its movement speed.
-
-    movement_speed must be "fast", "medium", or "slow".
-
-    Penalty:
-      correct band     →   0
-      one band off     →  60  (e.g. fast item in medium band)
-      two bands off    → 120  (e.g. fast item in slow band)
-    """
-    slot_index = individual[2]
-    band = slot_speed_band(slot_index)
-
-    order = {"fast": 0, "medium": 1, "slow": 2}
-    distance = abs(order[movement_speed] - order[band])
-    return distance * 60
-
-def score_level_weight(individual, parcel_weight):
-    """
-    Heavier parcels should sit on lower levels (L1=index 0).
-    Penalty grows the higher a heavy item is placed.
-    """
-    level = individual[3]
-    ideal = 4 - min(int(parcel_weight / 25), 4)   # heavy→L1(0), light→L5(4)
-    return abs(level - ideal) * 30
-
-def score_depth_waste(individual, parcel_length):
-    """
-    Prefer bins where the parcel uses a larger fraction of available depth.
-    Avoids fragmenting racks with tiny parcels leaving awkward gaps.
-    """
-    available = get_available_depth(individual)
-    if available <= 0:
-        return PENALTY
-    waste_ratio = (available - parcel_length) / available   # 0=perfect, 1=wasteful
-    return waste_ratio * 40
-
-def score_row_proximity(individual):
-    """
-    Lower row index = closer to the dispatch/entry point.
-    Small constant penalty per row away from row 0.
-    """
-    return individual[1] * 5
-
-def score_bin_balance(individual):
-    """
-    Mild preference to fill Bin A before Bin B on the same level,
-    so bin usage is predictable and auditable.
-    """
-    if individual[4] == 1:   # Bin B chosen
-        ind_a = list(individual)
-        ind_a[4] = 0
-        if get_available_depth(ind_a) > 0:
-            return 15   # Bin A still has space — nudge toward it
-    return 0
-
-
-#  MAIN FITNESS FUNCTION
-
-def evaluate(individual, parcel):
-    """
-    Compute the placement cost for a 5-gene chromosome
-    [zone, row, slot, level, bin].
-
-    Parcel dict keys:
-        weight          (kg)
-        length          (cm)   — depth into rack
-        height          (cm)
-        width           (cm)
-        product_volume  (str)  — "high" | "medium" | "low"
-        movement_speed  (str)  — "fast" | "medium" | "slow"
-
-    Returns (cost,) — DEAP requires a tuple. Lower = better.
-    """
-    cost = 0.0
-
-    # Hard constraints
-    violations = hard_violations(individual, parcel)
-    cost += len(violations) * PENALTY
-
-    # Soft constraints 
-    # Always scored so the GA can rank even infeasible individuals
-    # by how close they are to feasibility.
-    cost += score_zone_volume(individual, parcel["product_volume"])
-    cost += score_slot_speed(individual, parcel["movement_speed"])
-    cost += score_level_weight(individual, parcel["weight"])
-    cost += score_row_proximity(individual)
-    cost += score_bin_balance(individual)
-
-    # Depth waste only makes sense for feasible solutions
-    if not violations:
-        cost += score_depth_waste(individual, parcel["length"])
-
-    return (cost,)
-
-def register_evaluate(parcel):
-    """Call once per inbound order before running the GA."""
-    toolbox.register("evaluate", partial(evaluate, parcel=parcel))
->>>>>>> dev
