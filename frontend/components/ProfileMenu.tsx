@@ -9,6 +9,13 @@ export function ProfileMenu() {
   const router = useRouter();
   const { admin, role, clearAdmin } = useAdmin();
   const [isLoading, setIsLoading] = useState(false);
+  const displayName = admin?.name?.trim() || admin?.email || "Admin";
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 
   const handleLogout = async () => {
     try {
@@ -31,11 +38,10 @@ export function ProfileMenu() {
     <div className="profile-menu">
       <div className="profile-header">
         <div className="profile-avatar">
-          {admin?.firstName?.[0]}
-          {admin?.lastName?.[0]}
+          {initials || "A"}
         </div>
         <div className="profile-info">
-          <div className="profile-name">{admin?.firstName} {admin?.lastName}</div>
+          <div className="profile-name">{displayName}</div>
           <div className="profile-role">{role?.replace('_', ' ').toUpperCase()}</div>
         </div>
       </div>
