@@ -44,6 +44,8 @@ import {
   Brush,
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
+import ForecastChatButton from "@/components/ForecastChatButton";
+import { useForecastChat } from "@/hooks/useForecastChat";
 
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
@@ -309,6 +311,7 @@ export default function ForecastsPage() {
   const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [showCI, setShowCI] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const { captureOpenContext } = useForecastChat();
   const [runStatus, setRunStatus] = useState<{
     phase: string;
     runId?: number;
@@ -1420,6 +1423,33 @@ export default function ForecastsPage() {
   const coverageVal = avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
   const fmtMetric = (v: number | null, suffix = "") => (v === null ? "—" : `${v}${suffix}`);
 
+  // ── Chat context derivations ─────────────────────────────────────────────
+  // Nearest future p50 for the selected SKU (first point with no y_true)
+  const predictedUnitsForChat = useMemo(() => {
+    const pool = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
+      : latestForecasts;
+    const firstFuture = pool
+      .filter((f) => (f.y_true === null || f.y_true === undefined) && f.p50 != null)
+      .sort((a, b) => compareMonthLabels(a.month, b.month))[0];
+    if (!firstFuture) return null;
+    // Aggregate across SKUs for multi-SKU view
+    if (!selectedSku) {
+      const monthStr = firstFuture.month;
+      const total = pool
+        .filter((f) => f.month === monthStr && (f.y_true === null || f.y_true === undefined))
+        .reduce((s, f) => s + Number(f.p50 ?? 0), 0);
+      return Math.round(total);
+    }
+    return Math.round(Number(firstFuture.p50));
+  }, [latestForecasts, selectedSku]);
+
+  // Confidence derived from MAPE: confidence = 1 - (MAPE / 100), clamped 0-1
+  const confidenceForChat = useMemo(() => {
+    if (mapeVal == null) return null;
+    return Math.max(0, Math.min(1, 1 - mapeVal / 100));
+  }, [mapeVal]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -2282,6 +2312,39 @@ export default function ForecastsPage() {
           </div>
         </div>
       )}
+
+      {/* Forecast Chat Assistant — context-aware floating panel */}
+      <ForecastChatButton
+        sku={selectedSku || filters.sku}
+        skuOptions={skuOptions}
+        forecastPoints={latestForecasts.map((f) => ({
+          sku: f.sku,
+          month: String(f.month ?? f.label ?? ""),
+          p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+        }))}
+        selectedMonth={transitionLabel}
+        predictedUnits={predictedUnitsForChat}
+        confidence={confidenceForChat}
+        mape={mapeVal}
+        onSkuChange={(newSku: string) => {
+          setSelectedSku(newSku);
+          setSkuSearchInput(newSku);
+        }}
+        onOpen={() => {
+          captureOpenContext({
+            sku: selectedSku || filters.sku,
+            forecastPoints: latestForecasts.map((f) => ({
+              sku: f.sku,
+              month: String(f.month ?? f.label ?? ""),
+              p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+            })),
+            selectedMonth: transitionLabel,
+            predictedUnits: predictedUnitsForChat,
+            confidence: confidenceForChat,
+            mape: mapeVal,
+          });
+        }}
+      />
 
       {/* Footer */}
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">

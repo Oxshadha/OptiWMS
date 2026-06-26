@@ -21,8 +21,64 @@ export interface WarehouseAIResponse {
 const DEFAULT_TIMEOUT_MS = 45000;
 const DEFAULT_AI_ENDPOINT =
   process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://localhost:8094/ask";
+const DB_SOP_TITLES = [
+  "SOP - Forklift Operation and Safety",
+  "SOP - Powered Pallet Truck (PPT) Operations",
+  "SOP - Empty Pallet Purchasing Instructions",
+  "SOP - Stacker Operation Instructions",
+  "SOP - Material Unloading Procedures",
+  "SOP - Warehouse Safekeeping Procedure",
+  "SOP - Vehicle Inspection Record",
+  "SOP - Conducting Cycle Counts"
+];
 
-function normalizeSources(rawSources: unknown, role: WarehouseAIRole): WarehouseAISource[] {
+const SOP_NAME_MAPPINGS: Record<string, string> = {
+  "vehicle inspection": "SOP - Vehicle Inspection Record",
+  "operating stacker": "SOP - Stacker Operation Instructions",
+  "operating forklift": "SOP - Forklift Operation and Safety",
+  "operating powered pallet truck": "SOP - Powered Pallet Truck (PPT) Operations",
+  "pallet truck": "SOP - Powered Pallet Truck (PPT) Operations",
+  "ppt": "SOP - Powered Pallet Truck (PPT) Operations",
+  "unloading": "SOP - Material Unloading Procedures",
+  "safekeeping": "SOP - Warehouse Safekeeping Procedure",
+  "purchasing": "SOP - Empty Pallet Purchasing Instructions",
+  "cycle counts": "SOP - Conducting Cycle Counts",
+};
+
+function matchDbSopTitle(source: string): string {
+  const normalized = source.toLowerCase();
+  
+  for (const [key, value] of Object.entries(SOP_NAME_MAPPINGS)) {
+    if (normalized.includes(key)) {
+      return value;
+    }
+  }
+
+  const clean = (str: string) =>
+    str
+      .toLowerCase()
+      .replace(/\.(pdf|txt|md)$/i, "")
+      .replace(/[^a-z0-9]/g, "");
+
+  const sourceKey = clean(source);
+  for (const dbTitle of DB_SOP_TITLES) {
+    if (clean(dbTitle) === sourceKey) {
+      return dbTitle;
+    }
+  }
+
+  let formatted = source.replace(/\.(pdf|txt|md)$/i, "");
+  if (formatted.includes("-") && !formatted.includes(" - ")) {
+    formatted = formatted
+      .replace(/^sop-/i, "SOP - ")
+      .replace(/-/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return formatted;
+}
+
+export function normalizeSources(rawSources: unknown, role: WarehouseAIRole): WarehouseAISource[] {
   if (!Array.isArray(rawSources)) {
     return [];
   }
@@ -31,12 +87,13 @@ function normalizeSources(rawSources: unknown, role: WarehouseAIRole): Warehouse
     .map((source) => {
       if (typeof source === "string") {
         const isUrl = /^https?:\/\//i.test(source);
+        const resolvedLabel = isUrl ? source : matchDbSopTitle(source);
         return {
-          label: source,
+          label: resolvedLabel,
           href: isUrl
             ? source
             : role === "manager"
-              ? `/admin/sops?search=${encodeURIComponent(source)}`
+              ? `/admin/sops?search=${encodeURIComponent(resolvedLabel)}`
               : undefined,
         };
       }

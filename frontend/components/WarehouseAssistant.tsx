@@ -30,6 +30,7 @@ import {
   deleteChatSession,
   WarehouseAIRole,
   WarehouseAISource,
+  normalizeSources,
 } from "@/services/aiService";
 import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
 
@@ -182,7 +183,7 @@ export function WarehouseAssistant({
           id: m.id,
           role: m.sender === "user" ? ("user" as const) : ("assistant" as const),
           content: m.text_content || "",
-          sources: metadata.sources,
+          sources: normalizeSources(metadata.sources, userRole),
           sql: metadata.sql,
           data: metadata.data,
           chart: metadata.chart,

@@ -62,6 +62,8 @@ services:
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
       - ../Ai miroservices/modeling/v6_academic_final:/v6_academic_final:ro
       - forecast-service-data:/data
+    networks:
+      - optiwms-network
 
   orchestrator-service:
     build:
@@ -86,6 +88,8 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - optiwms-network
 
   slotting-service:
     build:
@@ -109,6 +113,44 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - optiwms-network
+
+ai-agent:
+    build:
+      context: ./ai-agent
+    env_file:
+      - ./ai-agent/.env
+    environment:
+      - SERVICE_NAME=ai-agent
+      - SERVICE_PORT=${AI_AGENT_SERVICE_PORT:-8094}
+      - AI_ENV=${AI_ENV}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - AI_AGENT_ALLOWED_ORIGINS=${AI_AGENT_ALLOWED_ORIGINS}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-optiwms}
+      - DB_USER=${DB_USER:-optiwms}
+      - DB_PASSWORD=${DB_PASSWORD:-optiwms}
+      - FORECAST_SERVICE_BASE=http://forecast-service:${FORECAST_SERVICE_PORT}
+    depends_on:
+      forecast-service:
+        condition: service_healthy
+    ports:
+      - "${AI_AGENT_SERVICE_PORT:-8094}:${AI_AGENT_SERVICE_PORT:-8094}"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8094/health', timeout=3)"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - optiwms-network
 
 volumes:
   forecast-service-data:
+
+networks:
+  optiwms-network:
+    external: true
+    name: infra_optiwms-network
