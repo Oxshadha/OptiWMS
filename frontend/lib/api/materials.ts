@@ -44,6 +44,7 @@ export interface MaterialOrderingProfile {
   supplierOrderMultiple?: number | null;
   supplierUnitsPerHandlingUnit?: number | null;
   supplierLeadTimeDays?: number | null;
+  preferred?: boolean | null;
   effectiveMinimumOrderQuantity: number;
   effectiveOrderMultiple: number;
   effectiveUnitsPerHandlingUnit: number;
