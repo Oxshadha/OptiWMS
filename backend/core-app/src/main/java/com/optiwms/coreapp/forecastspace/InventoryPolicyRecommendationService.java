@@ -78,10 +78,7 @@ public class InventoryPolicyRecommendationService {
                 .stream()
                 .collect(Collectors.groupingBy(ForecastResultEntity::getMaterialId));
 
-        Map<UUID, List<InventoryItemEntity>> inventory = inventoryRepository.findByWarehouseId(warehouseId)
-                .stream()
-                .filter(i -> i.getMaterialId() != null)
-                .collect(Collectors.groupingBy(InventoryItemEntity::getMaterialId));
+        Map<UUID, List<InventoryItemEntity>> inventory = summarizedInventoryByMaterial(warehouseId);
 
         List<MaterialEntity> materials = materialRepository.findAll().stream()
                 .filter(m -> request.materialType() == null
@@ -147,10 +144,11 @@ public class InventoryPolicyRecommendationService {
                 .filter(materialIds::contains)
                 .collect(Collectors.toSet());
 
-        Map<UUID, List<InventoryItemEntity>> inventory = inventoryRepository.findByWarehouseId(warehouseId)
+        Map<UUID, List<InventoryItemEntity>> inventory = summarizedInventoryByMaterial(warehouseId)
+                .entrySet()
                 .stream()
-                .filter(i -> i.getMaterialId() != null && materialIds.contains(i.getMaterialId()))
-                .collect(Collectors.groupingBy(InventoryItemEntity::getMaterialId));
+                .filter(entry -> materialIds.contains(entry.getKey()))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
         int missingPalletSpecs = 0;
         int missingMoq = 0;
@@ -545,6 +543,39 @@ public class InventoryPolicyRecommendationService {
         if (t.equals("packing_material") || t.equals("packaging")) return "packaging_material";
         if (t.equals("fg") || t.equals("finished_good")) return "product";
         return t;
+    }
+
+    private Map<UUID, List<InventoryItemEntity>> summarizedInventoryByMaterial(UUID warehouseId) {
+        return inventoryRepository.summarizeByWarehouseId(warehouseId)
+                .stream()
+                .collect(Collectors.toMap(
+                        InventoryItemRepository.InventoryMaterialSummary::getMaterialId,
+                        summary -> List.of(toSummaryInventoryRow(warehouseId, summary)),
+                        (left, right) -> left));
+    }
+
+    private InventoryItemEntity toSummaryInventoryRow(
+            UUID warehouseId,
+            InventoryItemRepository.InventoryMaterialSummary summary) {
+        InventoryItemEntity row = new InventoryItemEntity();
+        row.setWarehouseId(warehouseId);
+        row.setMaterialId(summary.getMaterialId());
+        row.setQuantity(toInt(summary.getQuantity()));
+        row.setAvailableQuantity(toInt(summary.getAvailableQuantity()));
+        row.setMinStock(summary.getMinStock());
+        row.setMaxStock(summary.getMaxStock());
+        row.setReorderPoint(summary.getReorderPoint());
+        row.setMoq(summary.getMoq());
+        row.setLeadTimeDays(summary.getLeadTimeDays());
+        row.setExpiryDate(summary.getExpiryDate());
+        return row;
+    }
+
+    private int toInt(BigDecimal value) {
+        if (value == null) {
+            return 0;
+        }
+        return value.setScale(0, RoundingMode.HALF_UP).intValue();
     }
 
     private BigDecimal sqrt(BigDecimal value) {
