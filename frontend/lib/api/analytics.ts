@@ -1,5 +1,7 @@
 import { apiClient } from './client';
 
+export type AnalyticsPeriod = 'daily' | 'weekly' | 'monthly' | 'current_month' | 'last_90_days' | 'all';
+
 // Worker Productivity Metrics
 export interface WorkerProductivityMetrics {
   workerId: string;
@@ -118,7 +120,7 @@ export const analyticsApi = {
 
   // Orders Chart
   getOrdersChart: async (
-    period: 'daily' | 'weekly' | 'monthly' = 'daily',
+    period: AnalyticsPeriod = 'daily',
     warehouseId?: string
   ): Promise<OrderChartData[]> => {
     const params = new URLSearchParams();
@@ -130,11 +132,13 @@ export const analyticsApi = {
   // Top Products
   getTopProducts: async (
     limit?: number,
-    warehouseId?: string
+    warehouseId?: string,
+    period?: AnalyticsPeriod
   ): Promise<TopProduct[]> => {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (warehouseId) params.append('warehouseId', warehouseId);
+    if (period) params.append('period', period);
     const query = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get<TopProduct[]>(`/analytics/dashboard/top-products${query}`);
   },
@@ -152,10 +156,10 @@ export const analyticsApi = {
     workerId?: string,
     startDate?: string,
     endDate?: string,
-    period?: 'weekly' | 'monthly'
+    period?: AnalyticsPeriod
   ): Promise<WorkerProductivityMetrics[]> => {
-    const selectedPeriod: 'weekly' | 'monthly' =
-      period ?? (startDate || endDate ? 'weekly' : 'monthly');
+    const selectedPeriod: AnalyticsPeriod =
+      period ?? (startDate || endDate ? 'weekly' : 'current_month');
     const raw = await apiClient.get<WorkerProductivityMetricsRaw[]>(
       `/analytics/worker-productivity?period=${selectedPeriod}`
     );
@@ -180,7 +184,7 @@ export const analyticsApi = {
   },
 
   getWorkerLeaderboard: async (
-    period: 'weekly' | 'monthly' = 'weekly'
+    period: AnalyticsPeriod = 'weekly'
   ): Promise<LeaderboardEntry[]> => {
     const raw = await apiClient.get<LeaderboardEntryRaw[]>(`/analytics/leaderboard?period=${period}`);
     return raw.map((entry) => {
