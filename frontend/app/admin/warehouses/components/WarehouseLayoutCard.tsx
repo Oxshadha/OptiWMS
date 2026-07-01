@@ -72,13 +72,13 @@ export function WarehouseLayoutCard({
 
       <div className="mt-4 rounded-lg border border-base-300 p-3 bg-base-100">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-semibold text-base-content">ZONE-BULK</h4>
+            <h4 className="text-sm font-semibold text-base-content">Bulk-Capable Racks</h4>
             <span className="text-xs text-base-content/60">
               {bulkRacks.length} rack{bulkRacks.length > 1 ? "s" : ""}
             </span>
           </div>
           <p className="text-xs text-base-content/70 mb-3">
-            Bulk-storage racks (drums/tanks/non-pallet). Click any row to open detailed rack/bin data.
+            Dedicated capacity for drums, tanks, reels, and other non-standard handling units within the physical warehouse layout.
           </p>
           {bulkRacks.length > 0 ? (
             <div className="overflow-x-auto">
@@ -86,6 +86,7 @@ export function WarehouseLayoutCard({
                 <thead>
                   <tr>
                     <th>Rack</th>
+                    <th>Physical zone</th>
                     <th>Class</th>
                     <th>Status</th>
                     <th>Fill</th>
@@ -100,6 +101,7 @@ export function WarehouseLayoutCard({
                       onClick={() => onRackClick(rack)}
                     >
                       <td className="font-mono">{rack.id}</td>
+                      <td>{(rack.zone || "-").toUpperCase()}</td>
                       <td>{(rack.amalgamatedClass || "CM").toUpperCase()}</td>
                       <td className="capitalize">{rack.status.replaceAll("_", " ")}</td>
                       <td>{getRackFill(rack)}%</td>

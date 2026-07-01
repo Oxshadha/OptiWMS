@@ -178,23 +178,25 @@ export function WarehouseLayoutVisualization({
     const segmentHeight = rack.height / rack.maxLevels;
 
     for (let level = 1; level <= rack.maxLevels; level++) {
-      const bin = rack.bins.find((b) => b.level === level);
-      // Check actual bin status - if no inventory, it's empty regardless of status field
-      const hasInventory = bin?.inventory !== undefined;
-      const isReserved = bin?.status === "reserved";
-      const isEmpty = !hasInventory || bin?.status === "empty";
-
-      // Calculate occupancy percentage for occupied bins
-      const occupancy = getBinOccupancy(bin);
+      const levelBins = rack.bins.filter((b) => b.level === level);
+      const occupiedBins = levelBins.filter((b) => b.status === "occupied" || !!b.inventory);
+      const reservedBins = levelBins.filter((b) => b.status === "reserved");
+      const quarantinedBins = levelBins.filter((b) => b.status === "quarantined");
+      const displayBin = occupiedBins[0] ?? reservedBins[0] ?? quarantinedBins[0] ?? levelBins[0];
+      const occupancy = levelBins.length > 0
+        ? Math.max(...levelBins.map((b) => getBinOccupancy(b)))
+        : 0;
 
       segments.push({
         level,
-        y: rack.y + (level - 1) * segmentHeight,
+        y: rack.y + (rack.maxLevels - level) * segmentHeight,
         height: segmentHeight,
-        isOccupied: hasInventory && bin?.status === "occupied",
-        isReserved,
-        isEmpty,
-        bin,
+        isOccupied: occupiedBins.length > 0,
+        isReserved: reservedBins.length > 0,
+        isQuarantined: quarantinedBins.length > 0,
+        isEmpty: occupiedBins.length === 0 && reservedBins.length === 0 && quarantinedBins.length === 0,
+        bin: displayBin,
+        bins: levelBins,
         occupancy,
       });
     }
@@ -388,7 +390,7 @@ export function WarehouseLayoutVisualization({
                   }
                 }
                 // Priority 2: Quarantined bins (safety critical)
-                else if (segment.bin?.status === "quarantined") {
+                else if (segment.isQuarantined) {
                   // Quarantined bins use Purple (highest priority for safety)
                   segmentColor = "#9333EA"; // Purple - Quarantined
                   segmentStroke = "#7C3AED"; // Dark purple border
@@ -425,7 +427,7 @@ export function WarehouseLayoutVisualization({
                 // Determine text color based on background - use theme-aware colors
                 const isDarkBackground =
                   segment.occupancy >= 85 ||
-                  segment.bin?.status === "quarantined" ||
+                  segment.isQuarantined ||
                   (showVelocity &&
                     rack.velocity !== undefined &&
                     rack.velocity >= 50);
