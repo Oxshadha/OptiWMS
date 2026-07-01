@@ -56,6 +56,26 @@ export interface SlottingRecommendationResponse {
   recommendations: SlottingRecommendationItemResponse[];
 }
 
+export interface SlottingOptimizationRequest {
+  warehouse_id: string;
+  population_size?: number;
+  generations?: number;
+  mutation_rate?: number;
+}
+
+export interface SlottingAssignmentResponse {
+  material_id: string;
+  material_code: string;
+  location_id: string;
+  location_code: string;
+}
+
+export interface SlottingOptimizationResponse {
+  warehouse_id: string;
+  best_fitness: number;
+  assignments: SlottingAssignmentResponse[];
+}
+
 // ── Service ───────────────────────────────────────────────────────────────────
 
 export const AISlottingService = {
@@ -80,6 +100,28 @@ export const AISlottingService = {
     }
 
     return res.json() as Promise<SlottingRecommendationResponse>;
+  },
+
+  /**
+   * Ask the GA engine to optimize slotting assignments for a whole warehouse.
+   */
+  async optimizeSlotting(
+    request: SlottingOptimizationRequest
+  ): Promise<SlottingOptimizationResponse> {
+    const url = `${SLOTTING_BASE_URL}/slotting/optimize`;
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => res.statusText);
+      throw new Error(`Slotting API error ${res.status}: ${detail}`);
+    }
+
+    return res.json() as Promise<SlottingOptimizationResponse>;
   },
 
   /** Health-check — useful for an admin ping or startup check. */

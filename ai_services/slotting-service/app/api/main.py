@@ -3,12 +3,17 @@ import uuid
 
 from deap import tools
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
 from ga_components import toolbox, decode
+
 from fitness import register_evaluate, hard_violations
 from bin_registry import BinRegistry
 from warehouse_state import WarehouseState
-from input_handler import get_user_inputs
 from config import SLOT_MAX_DEPTH, LEVEL_MAX_WEIGHT
+from endpoints import router as api_router
 
 DEFAULT_POP_SIZE        = 50
 DEFAULT_GENERATIONS     = 100
@@ -95,58 +100,4 @@ def build_cli_reason(parcel: dict, location_code: str) -> str:
     return "; ".join(parts) + "."
  
 
-if __name__ == "__main__":
-    registry = BinRegistry()
-    registry.load("bin_states.json") 
-    shared_state = WarehouseState(registry)
-    
-    print("═" * 34)
-    print("  Welcome to OptiWMS Slotting GA")
-    print("═" * 34)
-
-    while True:
-        parcel = get_user_inputs()
-        parcel_id = f"CLI_{str(uuid.uuid4())[:6]}"
-        
-        best = run_ga(parcel, state=shared_state, pop_size=50, generations=100)
-        violations = hard_violations(best, parcel, shared_state)
-        
-        loc_code = decode(best)
-        fitness_score = best.fitness.values[0]
-        
-        feasibility_status = "✓ Feasible" if not violations else f"⚠ INFEASIBLE — {', '.join(violations)}"
-        reason = build_cli_reason(parcel, loc_code)
-        
-        print("\n" + "═" * 34)
-        print("  OptiWMS Slotting Recommendation")
-        print("═" * 34)
-        print("  Input Summary")
-        print("  ─────────────")
-        print(f"  Weight         :  {parcel['weight']} kg")
-        print(f"  Dimensions     :  {parcel['length']} × {parcel['width']} × {parcel['height']} cm  (L × W × H)")
-        print(f"  Volume         :  {parcel['volume_cm3']:,.0f} cm³  →  {parcel['product_volume']}-volume class")
-        print(f"  Movement Speed :  {parcel['movement_speed']}")
-        print("\n  Recommendation")
-        print("  ──────────────")
-        print(f"  Location       :  {loc_code}")
-        print(f"  Fitness Cost   :  {fitness_score:.1f}   (lower = better)")
-        print(f"  Feasibility    :  {feasibility_status}")
-        print(f"  Reason         :  {reason}")
-
-        if not violations:
-            shared_state.reserve_space(best, parcel_id, parcel["length"], parcel["weight"])
-            registry.save("bin_states.json")
-            
-            bin_state = registry.get_bin(best)
-            max_weight = LEVEL_MAX_WEIGHT[best[3]]
-            print("\n  Bin State")
-            print("  ─────────")
-            print(f"  Usage          :  {bin_state.used_depth_cm}/{SLOT_MAX_DEPTH} cm | {bin_state.used_weight_kg}/{max_weight} kg")
-            print(f"  Items in bin   :  {bin_state.item_count}")
-
-        print("═" * 34 + "\n")
-
-        run_again = input("Run another item? (y/n): ").strip().lower()
-        if run_again != 'y':
-            print("Exiting OptiWMS Slotting...")
-            break
+# CLI runner removed - use the FastAPI endpoints instead.

@@ -12,4 +12,6 @@ but all application setup (CORS, routing, healthcheck) lives in app/main.py.
 # doing `from app.api.app import app` still gets the real application.
 from app.main import app  # noqa: F401
 
-__all__ = ["app"]
+__all__ = ["app"]
+
+
