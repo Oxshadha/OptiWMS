@@ -9,7 +9,7 @@ import { orderItemsApi } from "@/lib/api/orderItems";
 import { suppliersApi, type Supplier } from "@/lib/api/suppliers";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, type Location } from "@/lib/api/locations";
-import { materialsApi, type Material } from "@/lib/api/materials";
+import { materialsApi, type Material, type MaterialOrderingProfile } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
 import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import {
@@ -31,9 +31,18 @@ type CapacityPlan = {
   notes: string[];
 };
 
+type CapacityProgress = {
+  total: number;
+  completed: number;
+  currentLabel: string;
+};
+
 type InboundItemForm = {
   productId: string;
   quantityOrdered: number;
+  requestedQuantity: number;
+  quantityMode: "units" | "handling";
+  handlingUnitCount: number;
   locationCode: string;
   weightKg: number;
   lengthCm: number;
@@ -55,6 +64,9 @@ function emptyInboundItem(): InboundItemForm {
   return {
     productId: "",
     quantityOrdered: 0,
+    requestedQuantity: 0,
+    quantityMode: "units",
+    handlingUnitCount: 0,
     locationCode: "",
     weightKg: 0,
     lengthCm: 0,
@@ -203,10 +215,12 @@ export function CreateInboundOrderModal({
   const [materials, setMaterials] = useState<Material[]>([]);
   const [supplierHasMaterialLinks, setSupplierHasMaterialLinks] = useState(true);
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
+  const [capacityProgress, setCapacityProgress] = useState<CapacityProgress | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<Map<number, CapacityPlan>>(new Map());
   const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, SlottingRecommendationItemResponse>>(new Map());
+  const [profilesByMaterialId, setProfilesByMaterialId] = useState<Map<string, MaterialOrderingProfile>>(new Map());
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -215,16 +229,40 @@ export function CreateInboundOrderModal({
     notes: "",
     items: [] as InboundItemForm[],
   });
+  const [materialSearch, setMaterialSearch] = useState("");
 
   const hasInfeasibleCapacity = formData.items.some((_, idx) => {
     const plan = capacityPlansByItem.get(idx);
     return Boolean(plan && !plan.feasible);
   });
-  const hasIncompleteMeasurements = formData.items.some(
-    (item) => item.weightKg <= 0 || item.lengthCm <= 0 || item.widthCm <= 0 || item.heightCm <= 0
-  );
+  const hasIncompleteMeasurements = false;
 
   const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
+  const materialProfileKey = useMemo(
+    () => Array.from(new Set(formData.items.map((item) => item.productId).filter(Boolean))).sort().join("|"),
+    [formData.items]
+  );
+  const capacityCheckKey = useMemo(
+    () => formData.items
+      .map((item, index) => [
+        index,
+        item.productId,
+        item.quantityOrdered,
+        item.locationCode,
+      ].join(":"))
+      .join("|"),
+    [formData.items]
+  );
+  const filteredMaterials = useMemo(() => {
+    const query = materialSearch.trim().toLowerCase();
+    if (!query) return materials.slice(0, 80);
+    return materials
+      .filter((material) =>
+        (material.materialCode || "").toLowerCase().includes(query) ||
+        (material.description || "").toLowerCase().includes(query)
+      )
+      .slice(0, 80);
+  }, [materials, materialSearch]);
 
   useEffect(() => {
     async function loadData() {
@@ -285,19 +323,45 @@ export function CreateInboundOrderModal({
   }, [formData.supplierId]);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function runCapacityCheck() {
-      if (step !== 4 || !formData.warehouseId || formData.items.length === 0) {
+      if (step !== 3 || !formData.warehouseId || formData.items.length === 0) {
         setCapacityPlansByItem(new Map());
         setCapacityCheckLoading(false);
+        setCapacityProgress(null);
+        return;
+      }
+
+      const eligibleItems = formData.items
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => item.productId && item.quantityOrdered > 0);
+
+      if (eligibleItems.length === 0) {
+        setCapacityPlansByItem(new Map());
+        setCapacityCheckLoading(false);
+        setCapacityProgress(null);
         return;
       }
 
       setCapacityCheckLoading(true);
+      setCapacityPlansByItem(new Map());
+      setCapacityProgress({
+        total: eligibleItems.length,
+        completed: 0,
+        currentLabel: "Preparing storage capacity check...",
+      });
       const resultMap = new Map<number, CapacityPlan>();
 
-      for (let idx = 0; idx < formData.items.length; idx += 1) {
-        const item = formData.items[idx];
-        if (!item.productId || item.quantityOrdered <= 0) continue;
+      for (let position = 0; position < eligibleItems.length; position += 1) {
+        const { item, idx } = eligibleItems[position];
+        const materialLabel = materialById.get(item.productId)?.description || `item ${idx + 1}`;
+        if (cancelled) return;
+        setCapacityProgress({
+          total: eligibleItems.length,
+          completed: position,
+          currentLabel: `Checking storage for ${materialLabel}...`,
+        });
 
         try {
           let preferredLocationCode = item.locationCode || undefined;
@@ -336,17 +400,69 @@ export function CreateInboundOrderModal({
             notes: [err instanceof Error ? err.message : "Capacity check failed"],
           });
         }
+
+        if (cancelled) return;
+        setCapacityPlansByItem(new Map(resultMap));
+        setCapacityProgress({
+          total: eligibleItems.length,
+          completed: position + 1,
+          currentLabel: position + 1 === eligibleItems.length
+            ? "Finalizing capacity result..."
+            : "Continuing capacity checks...",
+        });
       }
 
-      setCapacityPlansByItem(resultMap);
+      if (cancelled) return;
+      setCapacityPlansByItem(new Map(resultMap));
       setCapacityCheckLoading(false);
+      setCapacityProgress(null);
     }
     void runCapacityCheck();
-  }, [step, formData.warehouseId, formData.items]);
+    return () => {
+      cancelled = true;
+    };
+  }, [step, formData.warehouseId, formData.items, capacityCheckKey, materialById]);
+
+  useEffect(() => {
+    async function loadProfiles() {
+      const materialIds = materialProfileKey ? materialProfileKey.split("|").filter(Boolean) : [];
+      if (materialIds.length === 0) {
+        setProfilesByMaterialId(new Map());
+        return;
+      }
+      const entries = await Promise.all(
+        materialIds.map(async (materialId) => {
+          try {
+            const profile = await materialsApi.getOrderingProfile(materialId, {
+              supplierId: formData.supplierId || undefined,
+              warehouseId: formData.warehouseId || undefined,
+            });
+            return [materialId, profile] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      setProfilesByMaterialId(new Map(entries.filter((entry): entry is readonly [string, MaterialOrderingProfile] => !!entry)));
+    }
+    void loadProfiles();
+  }, [materialProfileKey, formData.supplierId, formData.warehouseId]);
+
+  useEffect(() => {
+    if (profilesByMaterialId.size === 0 || formData.items.length === 0) return;
+    const nextItems = formData.items.map((item) => ({
+      ...item,
+      quantityOrdered: roundInboundQuantity(item, profilesByMaterialId.get(item.productId)),
+    }));
+    const changed = nextItems.some((item, idx) => item.quantityOrdered !== formData.items[idx].quantityOrdered);
+    if (changed) {
+      setFormData((prev) => ({ ...prev, items: nextItems }));
+    }
+  }, [profilesByMaterialId, formData.items]);
 
   useEffect(() => {
     async function loadRecommendations() {
-      if (step !== 5 || !formData.warehouseId || formData.items.length === 0 || hasIncompleteMeasurements) {
+      if (step !== 4 || !formData.warehouseId || formData.items.length === 0 || hasIncompleteMeasurements) {
         setRecommendationLoading(false);
         setRecommendationError(null);
         setRecommendationsByItem(new Map());
@@ -393,7 +509,19 @@ export function CreateInboundOrderModal({
 
   function updateItem(index: number, patch: Partial<InboundItemForm>) {
     const next = [...formData.items];
-    next[index] = { ...next[index], ...patch };
+    const merged = { ...next[index], ...patch };
+    const profile = profilesByMaterialId.get(merged.productId);
+    if (patch.productId) {
+      const material = materialById.get(patch.productId);
+      merged.weightKg = material?.weightKg || 0;
+      merged.lengthCm = material?.lengthCm || 0;
+      merged.widthCm = material?.widthCm || 0;
+      merged.heightCm = material?.heightCm || 0;
+    }
+    if (patch.requestedQuantity !== undefined || patch.handlingUnitCount !== undefined || patch.quantityMode !== undefined || patch.productId) {
+      merged.quantityOrdered = roundInboundQuantity(merged, profile);
+    }
+    next[index] = merged;
     setFormData({ ...formData, items: next });
   }
 
@@ -402,9 +530,6 @@ export function CreateInboundOrderModal({
     if (new Date(formData.expectedDeliveryDate) < new Date(formData.orderDate)) return "Expected delivery date cannot be before order date.";
     if (items.length === 0) return "Please add at least one item.";
     if (items.some((item) => !item.productId || item.quantityOrdered <= 0)) return "Please select a material and positive quantity for every item.";
-    if (items.some((item) => item.weightKg <= 0 || item.heightCm <= 0 || item.lengthCm <= 0 || item.widthCm <= 0)) {
-      return "Please enter positive weight, height, length, and width for every item.";
-    }
     if (items.some((item) => item.manufactureDate && item.expiryDate && new Date(item.expiryDate) <= new Date(item.manufactureDate))) {
       return "Expiry date must be after manufacture date for all items.";
     }
@@ -428,7 +553,6 @@ export function CreateInboundOrderModal({
       setIsSubmitting(true);
       setError(null);
       const createdOrder = await ordersApi.create({
-        orderNumber: `PO-${Date.now()}`,
         orderType: "inbound",
         supplierId: formData.supplierId,
         warehouseId: formData.warehouseId,
@@ -450,10 +574,6 @@ export function CreateInboundOrderModal({
             materialId: item.productId,
             quantity: item.quantityOrdered,
             locationCode: item.locationCode || undefined,
-            weightKg: item.weightKg || undefined,
-            heightCm: item.heightCm || undefined,
-            lengthCm: item.lengthCm || undefined,
-            widthCm: item.widthCm || undefined,
             batchNumber: item.batchNumber || undefined,
             manufactureDate: item.manufactureDate || undefined,
             expiryDate: item.expiryDate || undefined,
@@ -490,7 +610,7 @@ export function CreateInboundOrderModal({
           </button>
         </div>
 
-        <StepIndicator step={step} count={5} />
+        <StepIndicator step={step} count={4} />
 
         {step === 1 && (
           <div className="p-6 space-y-4">
@@ -503,7 +623,7 @@ export function CreateInboundOrderModal({
               <option value="">Select warehouse</option>
               {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
             </SelectControl>
-            <DateControl label="Order Date *" value={formData.orderDate} onChange={(value) => setFormData({ ...formData, orderDate: value })} />
+            <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData({ ...formData, orderDate: value })} />
             <DateControl label="Expected Delivery Date *" value={formData.expectedDeliveryDate} min={formData.orderDate || undefined} onChange={(value) => setFormData({ ...formData, expectedDeliveryDate: value })} />
             <label className="form-control">
               <span className="label-text font-medium mb-1">Notes</span>
@@ -519,30 +639,54 @@ export function CreateInboundOrderModal({
             {!formData.supplierId && <div className="alert alert-warning"><span>Select a supplier first.</span></div>}
             {formData.supplierId && materials.length === 0 && <div className="alert alert-info"><span>No materials are linked to this supplier.</span></div>}
             {formData.supplierId && materials.length > 0 && !supplierHasMaterialLinks && <div className="alert alert-info"><span>Selected items will initialize the supplier-material mapping.</span></div>}
+            <TextControl label="Filter by SKU or name" value={materialSearch} onChange={setMaterialSearch} />
 
             <div className="space-y-4">
-              {formData.items.map((item, idx) => (
-                <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg">
-                  <div className="flex justify-between items-start mb-3">
-                    <span className="font-semibold">Item {idx + 1}</span>
-                    <button className="btn btn-ghost btn-xs" onClick={() => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) })}>
-                      <span className="material-symbols-outlined text-sm">close</span>
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <SelectControl label="Material *" value={item.productId} onChange={(value) => updateItem(idx, { productId: value })}>
-                      <option value="">Select material</option>
-                      {materials.map((material) => <option key={material.id} value={material.id}>{material.description}</option>)}
-                    </SelectControl>
-                    <NumberControl label="Quantity *" value={item.quantityOrdered} min={1} onChange={(value) => updateItem(idx, { quantityOrdered: value })} />
-                    <TextControl label="Batch Number" value={item.batchNumber} onChange={(value) => updateItem(idx, { batchNumber: value })} />
-                    <DateControl label="Manufacture Date" value={item.manufactureDate} max={formData.orderDate || item.expiryDate || undefined} onChange={(value) => updateItem(idx, { manufactureDate: value })} />
-                    <div className="md:col-span-2">
-                      <DateControl label="Expiry Date" value={item.expiryDate} min={item.manufactureDate || undefined} onChange={(value) => updateItem(idx, { expiryDate: value })} />
+              {formData.items.map((item, idx) => {
+                const profile = profilesByMaterialId.get(item.productId);
+                const material = materialById.get(item.productId);
+                const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || material?.unitsPerHandlingUnit || material?.palletSpaces || 1;
+                const handlingLabel = material?.handlingUnitType || material?.unitType || "unit";
+                return (
+                  <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg">
+                    <div className="flex justify-between items-start mb-3">
+                      <span className="font-semibold">Item {idx + 1}</span>
+                      <button className="btn btn-ghost btn-xs" onClick={() => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) })}>
+                        <span className="material-symbols-outlined text-sm">close</span>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <SelectControl label="Material *" value={item.productId} onChange={(value) => updateItem(idx, { productId: value })}>
+                        <option value="">Select material</option>
+                        {filteredMaterials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
+                      </SelectControl>
+                      <SelectControl label="Quantity Mode" value={item.quantityMode} onChange={(value) => updateItem(idx, { quantityMode: value as "units" | "handling" })}>
+                        <option value="units">Required units</option>
+                        <option value="handling">{handlingLabel} count</option>
+                      </SelectControl>
+                      {item.quantityMode === "handling" ? (
+                        <NumberControl label={`${handlingLabel} count`} value={item.handlingUnitCount} min={1} onChange={(value) => updateItem(idx, { handlingUnitCount: value })} />
+                      ) : (
+                        <NumberControl label="Required units" value={item.requestedQuantity} min={1} onChange={(value) => updateItem(idx, { requestedQuantity: value })} />
+                      )}
+                      <ReadOnlyInput label="Rounded order quantity" value={item.quantityOrdered > 0 ? `${item.quantityOrdered} units` : "Select quantity"} />
+                      {material && (
+                        <div className="md:col-span-2 rounded-lg border border-base-300 bg-base-100 p-3 text-xs text-base-content/70">
+                          <div className="font-semibold text-base-content mb-1">{material.materialCode} packaging</div>
+                          <div>Handling unit: {handlingLabel} | Units/{handlingLabel}: {unitsPerHandlingUnit}</div>
+                          <div>MOQ: {profile?.effectiveMinimumOrderQuantity ?? material.minOrderQuantity ?? 1} | Order multiple: {profile?.effectiveOrderMultiple ?? material.orderMultiple ?? unitsPerHandlingUnit}</div>
+                          <div>Weight: {material.weightKg ?? "-"} kg | Size: {material.lengthCm ?? "-"} x {material.widthCm ?? "-"} x {material.heightCm ?? "-"} cm</div>
+                        </div>
+                      )}
+                      <TextControl label="Batch Number" value={item.batchNumber} onChange={(value) => updateItem(idx, { batchNumber: value })} />
+                      <DateControl label="Manufacture Date" value={item.manufactureDate} max={formData.orderDate || item.expiryDate || undefined} onChange={(value) => updateItem(idx, { manufactureDate: value })} />
+                      <div className="md:col-span-2">
+                        <DateControl label="Expiry Date" value={item.expiryDate} min={item.manufactureDate || undefined} onChange={(value) => updateItem(idx, { expiryDate: value })} />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <button className="btn btn-outline btn-sm w-full" disabled={!formData.supplierId || materials.length === 0} onClick={() => setFormData({ ...formData, items: [...formData.items, emptyInboundItem()] })}>
                 <span className="material-symbols-outlined">add</span>
                 Add Item
@@ -554,45 +698,41 @@ export function CreateInboundOrderModal({
 
         {step === 3 && (
           <div className="p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-base-content">Package Details</h3>
-            <div className="space-y-4">
-              {formData.items.map((item, idx) => (
-                <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg space-y-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">Item {idx + 1}</span>
-                    <span className="text-xs text-base-content/60">{materialById.get(item.productId)?.description || "Select material"}</span>
+            <h3 className="text-lg font-semibold text-base-content">Capacity Review</h3>
+            {capacityCheckLoading && capacityProgress && (
+              <div className="rounded-lg border border-info/30 bg-info/10 p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <div className="flex items-center gap-2 text-info">
+                    <span className="loading loading-spinner loading-sm"></span>
+                    <span>{capacityProgress.currentLabel}</span>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <NumberControl label="Weight (kg) *" value={item.weightKg} min={0.01} step={0.01} onChange={(value) => updateItem(idx, { weightKg: value })} />
-                    <NumberControl label="Length (cm) *" value={item.lengthCm} min={0.01} step={0.01} onChange={(value) => updateItem(idx, { lengthCm: value })} />
-                    <NumberControl label="Width (cm) *" value={item.widthCm} min={0.01} step={0.01} onChange={(value) => updateItem(idx, { widthCm: value })} />
-                    <NumberControl label="Height (cm) *" value={item.heightCm} min={0.01} step={0.01} onChange={(value) => updateItem(idx, { heightCm: value })} />
-                  </div>
+                  <span className="font-semibold">{capacityProgress.completed}/{capacityProgress.total}</span>
                 </div>
-              ))}
+                <progress
+                  className="progress progress-info w-full mt-2"
+                  value={capacityProgress.completed}
+                  max={capacityProgress.total}
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              {formData.items.map((item, idx) => {
+                const plan = capacityPlansByItem.get(idx);
+                const isPending = capacityCheckLoading && item.productId && item.quantityOrdered > 0 && !plan;
+                return (
+                  <div key={idx} className="rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-sm space-y-1">
+                    <div className="flex justify-between"><span>{materialById.get(item.productId)?.description || `Item ${idx + 1}`}</span><span>Qty: {item.quantityOrdered}</span></div>
+                    <div className="text-base-content/70">Requested: {item.quantityMode === "handling" ? `${item.handlingUnitCount} handling units` : `${item.requestedQuantity} units`} | Rounded: {item.quantityOrdered} units</div>
+                    <CapacityPlanText plan={plan} pending={Boolean(isPending)} />
+                  </div>
+                );
+              })}
             </div>
-            <ModalActions onBack={() => setStep(2)} onNext={() => setStep(4)} nextDisabled={hasIncompleteMeasurements || formData.items.length === 0} />
+            <ModalActions onBack={() => setStep(2)} onNext={() => setStep(4)} nextDisabled={capacityCheckLoading || hasInfeasibleCapacity} />
           </div>
         )}
 
         {step === 4 && (
-          <div className="p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-base-content">Capacity Review</h3>
-            <div className="space-y-2">
-              {formData.items.map((item, idx) => (
-                <div key={idx} className="rounded-lg border border-base-300 bg-base-200 px-3 py-2 text-sm space-y-1">
-                  <div className="flex justify-between"><span>{materialById.get(item.productId)?.description || `Item ${idx + 1}`}</span><span>Qty: {item.quantityOrdered}</span></div>
-                  <div className="text-base-content/70">Weight: {item.weightKg} kg | Size: {item.lengthCm} x {item.widthCm} x {item.heightCm} cm</div>
-                  <CapacityPlanText plan={capacityPlansByItem.get(idx)} />
-                </div>
-              ))}
-              {capacityCheckLoading && <div className="text-xs text-base-content/60 flex items-center gap-2"><span className="loading loading-spinner loading-xs"></span>Checking storage capacity...</div>}
-            </div>
-            <ModalActions onBack={() => setStep(3)} onNext={() => setStep(5)} nextDisabled={capacityCheckLoading || hasInfeasibleCapacity} />
-          </div>
-        )}
-
-        {step === 5 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content">Location Selection</h3>
             {recommendationError && <div className="alert alert-warning"><span>{recommendationError}</span></div>}
@@ -632,7 +772,7 @@ export function CreateInboundOrderModal({
             </div>
             {error && <div className="alert alert-error"><span>{error}</span></div>}
             <div className="flex justify-end gap-3 pt-4">
-              <button className="btn btn-ghost" onClick={() => setStep(4)} disabled={isSubmitting || recommendationLoading}>Back</button>
+              <button className="btn btn-ghost" onClick={() => setStep(3)} disabled={isSubmitting || recommendationLoading}>Back</button>
               <button className="btn btn-primary" onClick={() => void handleConfirmRecommendedLocations()} disabled={isSubmitting || recommendationLoading}>
                 {isSubmitting ? <><span className="loading loading-spinner loading-sm"></span>Creating...</> : "Create Order"}
               </button>
@@ -724,8 +864,32 @@ function NumberControl({ label, value, onChange, min = 0, step = 1 }: { label: s
   );
 }
 
-function CapacityPlanText({ plan }: { plan?: CapacityPlan }) {
-  if (!plan) return <div className="text-xs text-base-content/60">Capacity check pending.</div>;
+function roundInboundQuantity(item: InboundItemForm, profile?: MaterialOrderingProfile): number {
+  const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || 1;
+  const orderMultiple = positive(profile?.effectiveOrderMultiple) || unitsPerHandlingUnit || 1;
+  const moq = positive(profile?.effectiveMinimumOrderQuantity) || 1;
+  const rawRequested = item.quantityMode === "handling"
+    ? item.handlingUnitCount * unitsPerHandlingUnit
+    : item.requestedQuantity;
+  const requested = Math.max(0, Math.ceil(rawRequested || 0));
+  if (requested <= 0) return 0;
+  const base = Math.max(requested, moq);
+  return Math.ceil(base / orderMultiple) * orderMultiple;
+}
+
+function positive(value?: number | null): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function CapacityPlanText({ plan, pending = false }: { plan?: CapacityPlan; pending?: boolean }) {
+  if (!plan) {
+    return (
+      <div className="text-xs text-base-content/60 flex items-center gap-2">
+        {pending && <span className="loading loading-spinner loading-xs"></span>}
+        <span>{pending ? "Queued for storage capacity check..." : "Capacity check pending."}</span>
+      </div>
+    );
+  }
   return (
     <div className="text-xs">
       {plan.feasible ? (

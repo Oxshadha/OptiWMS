@@ -5,7 +5,7 @@ import { Modal } from "@/components/Modal";
 import { DetailModal } from "@/components/DetailModal";
 import { StatusChip } from "@/components/StatusChip";
 import { materialsApi, type Material } from "@/lib/api/materials";
-import { suppliersApi, Supplier } from "@/lib/api/suppliers";
+import { suppliersApi, Supplier, type SupplierMaterialRulePayload } from "@/lib/api/suppliers";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { getMaterialTypeChip } from "@/lib/ui/material-type-chip";
@@ -591,6 +591,7 @@ export function ManageSupplierMaterialsModal({
 }) {
   const [allMaterials, setAllMaterials] = useState<Material[]>([]);
   const [selectedMaterialIds, setSelectedMaterialIds] = useState<Set<string>>(new Set());
+  const [rulesByMaterialId, setRulesByMaterialId] = useState<Record<string, SupplierMaterialRulePayload>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "raw_material" | "packaging_material" | "product">("all");
   const [isLoading, setIsLoading] = useState(false);
@@ -607,6 +608,17 @@ export function ManageSupplierMaterialsModal({
         ]);
         setAllMaterials(materialsData);
         setSelectedMaterialIds(new Set(linkedMaterials.map((m) => m.id)));
+        setRulesByMaterialId(Object.fromEntries(linkedMaterials.map((m) => [
+          m.id,
+          {
+            materialId: m.id,
+            minimumOrderQuantity: m.minimumOrderQuantity ?? undefined,
+            orderMultiple: m.orderMultiple ?? undefined,
+            unitsPerHandlingUnit: m.unitsPerHandlingUnit ?? undefined,
+            leadTimeDays: m.leadTimeDays ?? undefined,
+            preferred: Boolean(m.preferred),
+          },
+        ])));
       } catch (err) {
         logger.error("Failed to load supplier materials:", err);
         showToast.error("Failed to load supplier products");
@@ -637,15 +649,51 @@ export function ManageSupplierMaterialsModal({
         next.delete(materialId);
       } else {
         next.add(materialId);
+        const material = allMaterials.find((m) => m.id === materialId);
+        setRulesByMaterialId((current) => ({
+          ...current,
+          [materialId]: current[materialId] ?? defaultSupplierRule(material),
+        }));
       }
       return next;
     });
   };
 
+  const updateRule = (
+    material: Material,
+    field: keyof Omit<SupplierMaterialRulePayload, "materialId">,
+    value: number | boolean | null,
+  ) => {
+    setRulesByMaterialId((current) => ({
+      ...current,
+      [material.id]: {
+        ...defaultSupplierRule(material),
+        ...current[material.id],
+        [field]: value,
+      },
+    }));
+  };
+
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      await suppliersApi.replaceMaterials(supplier.id, Array.from(selectedMaterialIds));
+      const materialRules = Array.from(selectedMaterialIds)
+        .map((materialId) => {
+          const material = allMaterials.find((m) => m.id === materialId);
+          return {
+            ...defaultSupplierRule(material),
+            ...rulesByMaterialId[materialId],
+            materialId,
+          };
+        })
+        .map((rule) => ({
+          ...rule,
+          minimumOrderQuantity: cleanPositiveNumber(rule.minimumOrderQuantity),
+          orderMultiple: cleanPositiveNumber(rule.orderMultiple),
+          unitsPerHandlingUnit: cleanPositiveNumber(rule.unitsPerHandlingUnit),
+          leadTimeDays: cleanPositiveNumber(rule.leadTimeDays),
+        }));
+      await suppliersApi.replaceMaterialRules(supplier.id, materialRules);
       showToast.success("Supplier products updated successfully");
       await onSaved();
       onClose();
@@ -708,29 +756,68 @@ export function ManageSupplierMaterialsModal({
               {filteredMaterials.map((material) => {
                 const typeChip = getMaterialTypeChip(material.materialType);
                 const checked = selectedMaterialIds.has(material.id);
+                const rule = {
+                  ...defaultSupplierRule(material),
+                  ...rulesByMaterialId[material.id],
+                };
                 return (
-                  <label
+                  <div
                     key={material.id}
-                    className="flex items-start gap-3 p-3 cursor-pointer hover:bg-base-200/50"
+                    className="p-3 hover:bg-base-200/50"
                   >
-                    <input
-                      type="checkbox"
-                      className="checkbox checkbox-sm mt-1"
-                      checked={checked}
-                      onChange={() => toggleMaterial(material.id)}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-semibold text-sm">{material.description}</div>
-                      <div className="text-xs text-base-content/60 font-mono">{material.materialCode}</div>
-                    </div>
-                    <div className="ml-auto">
-                      <StatusChip
-                        label={typeChip.label}
-                        tone={typeChip.tone}
-                        className={typeChip.className}
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm mt-1"
+                        checked={checked}
+                        onChange={() => toggleMaterial(material.id)}
                       />
-                    </div>
-                  </label>
+                      <div className="min-w-0">
+                        <div className="font-semibold text-sm">{material.description}</div>
+                        <div className="text-xs text-base-content/60 font-mono">{material.materialCode}</div>
+                      </div>
+                      <div className="ml-auto">
+                        <StatusChip
+                          label={typeChip.label}
+                          tone={typeChip.tone}
+                          className={typeChip.className}
+                        />
+                      </div>
+                    </label>
+                    {checked && (
+                      <div className="mt-3 grid grid-cols-2 lg:grid-cols-5 gap-2 pl-8">
+                        <RuleNumberInput
+                          label="MOQ"
+                          value={rule.minimumOrderQuantity}
+                          onChange={(value) => updateRule(material, "minimumOrderQuantity", value)}
+                        />
+                        <RuleNumberInput
+                          label="Order Multiple"
+                          value={rule.orderMultiple}
+                          onChange={(value) => updateRule(material, "orderMultiple", value)}
+                        />
+                        <RuleNumberInput
+                          label="Units / HU"
+                          value={rule.unitsPerHandlingUnit}
+                          onChange={(value) => updateRule(material, "unitsPerHandlingUnit", value)}
+                        />
+                        <RuleNumberInput
+                          label="Lead Days"
+                          value={rule.leadTimeDays}
+                          onChange={(value) => updateRule(material, "leadTimeDays", value)}
+                        />
+                        <label className="label cursor-pointer justify-start gap-2 rounded border border-base-300 px-3">
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-xs"
+                            checked={Boolean(rule.preferred)}
+                            onChange={(e) => updateRule(material, "preferred", e.target.checked)}
+                          />
+                          <span className="label-text text-xs">Preferred</span>
+                        </label>
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -754,5 +841,47 @@ export function ManageSupplierMaterialsModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function defaultSupplierRule(material?: Material): SupplierMaterialRulePayload {
+  return {
+    materialId: material?.id ?? "",
+    minimumOrderQuantity: material?.minOrderQuantity ?? undefined,
+    orderMultiple: material?.orderMultiple ?? material?.unitsPerHandlingUnit ?? material?.palletSpaces ?? undefined,
+    unitsPerHandlingUnit: material?.unitsPerHandlingUnit ?? material?.palletSpaces ?? undefined,
+    leadTimeDays: undefined,
+    preferred: false,
+  };
+}
+
+function cleanPositiveNumber(value: number | null | undefined): number | null {
+  if (value == null || Number.isNaN(Number(value)) || Number(value) <= 0) {
+    return null;
+  }
+  return Number(value);
+}
+
+function RuleNumberInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value?: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  return (
+    <label className="form-control">
+      <span className="label-text text-xs">{label}</span>
+      <input
+        type="number"
+        min="0"
+        step="1"
+        className="input input-bordered input-sm"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
+      />
+    </label>
   );
 }

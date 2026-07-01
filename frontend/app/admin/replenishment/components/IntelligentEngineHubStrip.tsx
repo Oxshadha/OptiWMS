@@ -9,9 +9,10 @@ import { DemandShiftInsights } from "./DemandShiftInsights";
 
 type HubStripProps = {
   warehouseId?: string;
+  compact?: boolean;
 };
 
-export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubStripProps) {
+export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp, compact = false }: HubStripProps) {
   const [loading, setLoading] = useState(true);
   const [activePlan, setActivePlan] = useState<SlottingPlanSummary | null>(null);
   const [readiness, setReadiness] = useState<SlottingReadiness | null>(null);
@@ -68,7 +69,7 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
   }, [warehouseId]);
 
   return (
-    <div className="space-y-4 mb-8">
+    <div className={clsx("space-y-4", compact ? "" : "mb-8")}>
       {error && <div className="alert alert-warning text-sm">{error}</div>}
 
       {!loading && readiness && !readiness.ready && (
@@ -103,7 +104,7 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {!compact && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-base-100 border border-base-300 rounded-2xl p-4">
           <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Master Data</p>
           <p className="text-2xl font-bold mt-1">
@@ -117,7 +118,7 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
         </div>
 
         <div className="bg-base-100 border border-base-300 rounded-2xl p-4">
-          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Quarterly Slotting</p>
+          <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Slotting Planner</p>
           <p className="text-2xl font-bold mt-1">
             {loading ? "…" : activePlan?.status ?? "None active"}
           </p>
@@ -128,7 +129,7 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
                     ? ` · ${activePlan.executionStatus}`
                     : ""
                 }`
-              : "No approved plan for warehouse"}
+              : "No approved location plan for warehouse"}
           </p>
         </div>
 
@@ -136,17 +137,17 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp }: HubS
           <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Workspaces</p>
           <div className="flex flex-wrap gap-2 mt-3">
             <Link href="/admin/forecasts" className="btn btn-sm btn-outline">Forecasts</Link>
-            <Link href="/admin/replenishment/forecast-space" className="btn btn-sm btn-outline">Forecast-to-Space</Link>
+            <Link href="/admin/replenishment/forecast-space" className="btn btn-sm btn-outline">Inventory & Space Planner</Link>
             <Link
               href="/admin/slotting-plans"
               className={clsx("btn btn-sm", readiness?.ready ? "btn-primary" : "btn-disabled")}
             >
-              Quarterly Slotting
+              Slotting Planner
             </Link>
-            <Link href="/admin/ai-slotting" className="btn btn-sm btn-ghost">Storage Optimiser</Link>
+            <Link href="/admin/ai-slotting" className="btn btn-sm btn-ghost">Advanced Solver Lab</Link>
           </div>
         </div>
-      </div>
+      </div>}
 
       <div className="bg-base-100 border border-base-300 rounded-2xl p-4">
         <div className="flex items-center justify-between gap-2 mb-3">
