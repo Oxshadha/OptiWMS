@@ -39,7 +39,33 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "service": "slotting-service"}
+    return {
+        "status": "ok",
+        "service": "slotting-service",
+        "role": "advanced slotting solver",
+        "manager_surface": "Slotting Planner",
+        "capabilities": [
+            "ga_bulk_reassignment",
+            "heuristic_location_scoring",
+            "restructure_solver_support",
+        ],
+    }
+
+@app.get("/api/v1/slotting/capabilities")
+def solver_capabilities():
+    return {
+        "service": "slotting-service",
+        "default_manager_flow": "Java WMS Slotting Planner creates auditable draft location plans.",
+        "inbound_orders": "Use fast deterministic capacity feasibility checks; do not run GA/MILP per inbound order.",
+        "periodic_restructure": "Use heuristic planning with optional MILP/knapsack pressure for A-class or large space reallocations.",
+        "advanced_solver_lab": "GA is available for admin experimentation and comparison, not routine approval workflow.",
+        "algorithms": [
+            {"name": "deterministic_capacity_check", "use": "inbound order feasibility"},
+            {"name": "forecast_space_heuristic", "use": "forecast to min/max and pallet impact"},
+            {"name": "heuristic_milp_v1", "use": "manager-triggered slotting plan"},
+            {"name": "deap_ga", "use": "advanced solver lab and research comparison"},
+        ],
+    }
 
 @app.post("/recommendations/slotting")
 def recommend_slotting(payload: dict | None = None) -> dict:
