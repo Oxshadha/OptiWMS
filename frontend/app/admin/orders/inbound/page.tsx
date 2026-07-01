@@ -141,7 +141,7 @@ export default function InboundOrdersPage() {
       ({ order, totalItems: totalItemsForOrder, receivedItems }) => {
         const supplierName = order.supplierId
           ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
-          : "N/A";
+          : "Missing supplier - repair required";
         const warehouseName = getLookupValue(
           warehousesMap,
           order.warehouseId,
@@ -200,12 +200,14 @@ export default function InboundOrdersPage() {
     }
   };
 
-  // Calculate summary from orders
+  const operationalOrders = orders.filter((order) => order.totalItems > 0);
+
+  // Calculate summary from operational orders only. Incomplete shells belong in Data Quality.
   const summary = {
-    totalOrders: orders.length,
-    inTransit: orders.filter((o) => o.status === "in_transit").length,
-    receiving: orders.filter((o) => o.status === "receiving").length,
-    completedThisMonth: orders.filter((o) => o.status === "completed").length,
+    totalOrders: operationalOrders.length,
+    inTransit: operationalOrders.filter((o) => o.status === "in_transit").length,
+    receiving: operationalOrders.filter((o) => o.status === "receiving").length,
+    completedThisMonth: operationalOrders.filter((o) => o.status === "completed").length,
   };
 
   if (isLoading) {
@@ -391,7 +393,7 @@ export default function InboundOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => {
+              {operationalOrders.map((order) => {
                 const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.ordered;
                 return (
                   <tr key={order.id} className="hover:bg-base-200/50">
@@ -422,7 +424,7 @@ export default function InboundOrdersPage() {
                           <div
                             className="bg-primary h-2 rounded-full"
                             style={{
-                              width: `${(order.receivedItems / order.totalItems) * 100}%`,
+                              width: `${order.totalItems > 0 ? (order.receivedItems / order.totalItems) * 100 : 0}%`,
                             }}
                           ></div>
                         </div>

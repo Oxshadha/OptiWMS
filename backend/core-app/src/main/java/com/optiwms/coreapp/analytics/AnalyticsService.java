@@ -227,8 +227,8 @@ public class AnalyticsService {
     }
 
     // Top Products
-    public List<TopProduct> getTopProducts(Integer limit, UUID warehouseId) {
-        LocalDateTime startDate = getStartDateForPeriod("monthly");
+    public List<TopProduct> getTopProducts(Integer limit, UUID warehouseId, String period) {
+        LocalDateTime startDate = getStartDateForPeriod(period);
         List<OrderEntity> outboundOrders = (warehouseId != null
                 ? orderRepository.findByWarehouseId(warehouseId).stream()
                 .filter(o -> "outbound".equalsIgnoreCase(o.getOrderType()))
@@ -423,13 +423,16 @@ public class AnalyticsService {
 
     // Helper methods
     private LocalDateTime getStartDateForPeriod(String period) {
-        if (period == null) period = "monthly";
+        if (period == null) period = "current_month";
         LocalDate today = LocalDate.now();
         return switch (period.toLowerCase()) {
             case "daily" -> today.atStartOfDay();
             case "weekly" -> today.minusWeeks(1).atStartOfDay();
             case "monthly" -> today.minusMonths(1).atStartOfDay();
-            default -> today.minusMonths(1).atStartOfDay();
+            case "current_month" -> today.withDayOfMonth(1).atStartOfDay();
+            case "last_90_days" -> today.minusDays(90).atStartOfDay();
+            case "all", "all_available" -> LocalDate.of(1970, 1, 1).atStartOfDay();
+            default -> today.withDayOfMonth(1).atStartOfDay();
         };
     }
 

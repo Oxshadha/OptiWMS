@@ -80,7 +80,7 @@ export const ordersApi = {
     return apiClient.get<Order>(`/orders/number/${orderNumber}`);
   },
 
-  create: async (order: Omit<Order, 'id'>): Promise<Order> => {
+  create: async (order: Omit<Order, 'id' | 'orderNumber'> & { orderNumber?: string }): Promise<Order> => {
     return apiClient.post<Order>('/orders', order);
   },
 

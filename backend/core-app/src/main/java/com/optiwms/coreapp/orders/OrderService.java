@@ -2,6 +2,8 @@ package com.optiwms.coreapp.orders;
 
 import com.optiwms.domain.orders.Order;
 import com.optiwms.infra.orders.OrderEntity;
+import com.optiwms.infra.orders.OrderNumberAliasEntity;
+import com.optiwms.infra.orders.OrderNumberAliasRepository;
 import com.optiwms.infra.orders.OrderRepository;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.domain.Page;
@@ -17,15 +19,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 @Service
 public class OrderService {
 
     private final OrderRepository repository;
+    private final OrderNumberAliasRepository aliasRepository;
     private static final Map<String, Set<String>> OUTBOUND_TRANSITIONS = buildOutboundTransitions();
 
-    public OrderService(OrderRepository repository) {
+    public OrderService(OrderRepository repository, OrderNumberAliasRepository aliasRepository) {
         this.repository = repository;
+        this.aliasRepository = aliasRepository;
     }
 
     public List<Order> listAll() {
@@ -98,15 +104,17 @@ public class OrderService {
 
     public Order findByOrderNumber(String orderNumber) {
         return repository.findByOrderNumber(orderNumber)
+                .or(() -> aliasRepository.findByAliasOrderNumber(orderNumber)
+                        .flatMap(alias -> repository.findById(alias.getOrderId())))
                 .map(this::toDomain)
                 .orElseThrow(() -> new RuntimeException("Order not found: " + orderNumber));
     }
 
     @Transactional
     public Order create(Order order) {
-        if (repository.findByOrderNumber(order.getOrderNumber()).isPresent()) {
-            throw new RuntimeException("Order number already exists: " + order.getOrderNumber());
-        }
+        String requestedNumber = normalizeBlank(order.getOrderNumber());
+        String canonicalNumber = generateOrderNumber(order.getOrderType(), order.getOrderDate());
+        order.setOrderNumber(canonicalNumber);
 
         OrderEntity entity = new OrderEntity();
         entity.setOrderNumber(order.getOrderNumber());
@@ -122,7 +130,45 @@ public class OrderService {
         entity.setNotes(order.getNotes());
 
         OrderEntity saved = repository.save(entity);
+        if (requestedNumber != null && !requestedNumber.equals(canonicalNumber)) {
+            saveAlias(saved.getId(), requestedNumber);
+        }
         return toDomain(saved);
+    }
+
+    private String generateOrderNumber(String orderType, LocalDate orderDate) {
+        String normalizedType = orderType == null ? "" : orderType.toLowerCase().trim();
+        String prefix = switch (normalizedType) {
+            case "inbound" -> "PO";
+            case "outbound" -> "SO";
+            default -> throw new RuntimeException("Unsupported order type: " + orderType);
+        };
+        LocalDate date = orderDate != null ? orderDate : LocalDate.now();
+        String stem = prefix + "-" + date.format(DateTimeFormatter.BASIC_ISO_DATE) + "-";
+        long next = repository.countByOrderNumberStartingWith(stem) + 1;
+        String candidate;
+        do {
+            candidate = stem + String.format("%06d", next);
+            next += 1;
+        } while (repository.findByOrderNumber(candidate).isPresent());
+        return candidate;
+    }
+
+    private void saveAlias(java.util.UUID orderId, String alias) {
+        if (aliasRepository.existsByAliasOrderNumber(alias)) {
+            return;
+        }
+        OrderNumberAliasEntity entity = new OrderNumberAliasEntity();
+        entity.setOrderId(orderId);
+        entity.setAliasOrderNumber(alias);
+        aliasRepository.save(entity);
+    }
+
+    private String normalizeBlank(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return null;
+        }
+        return value.trim();
     }
 
     @Transactional
