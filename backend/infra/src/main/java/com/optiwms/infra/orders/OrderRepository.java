@@ -11,6 +11,7 @@ import java.util.UUID;
 @Repository
 public interface OrderRepository extends JpaRepository<OrderEntity, UUID>, JpaSpecificationExecutor<OrderEntity> {
     Optional<OrderEntity> findByOrderNumber(String orderNumber);
+    long countByOrderNumberStartingWith(String prefix);
     List<OrderEntity> findByOrderType(String orderType);
     List<OrderEntity> findByWarehouseId(UUID warehouseId);
     List<OrderEntity> findByStatus(String status);
