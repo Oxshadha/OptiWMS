@@ -200,17 +200,14 @@ export default function InboundOrdersPage() {
     }
   };
 
-  // Calculate summary from orders
+  const operationalOrders = orders.filter((order) => order.totalItems > 0);
+
+  // Calculate summary from operational orders only. Incomplete shells belong in Data Quality.
   const summary = {
-    totalOrders: orders.length,
-    inTransit: orders.filter((o) => o.status === "in_transit").length,
-    receiving: orders.filter((o) => o.status === "receiving").length,
-    completedThisMonth: orders.filter((o) => o.status === "completed").length,
-  };
-  const dataQuality = {
-    missingSupplier: orders.filter((o) => !o.supplierId).length,
-    zeroItemOrders: orders.filter((o) => o.totalItems === 0).length,
-    nonCanonicalOrderNumbers: orders.filter((o) => !/^PO-\d{8}-\d{6}$/.test(o.orderNumber)).length,
+    totalOrders: operationalOrders.length,
+    inTransit: operationalOrders.filter((o) => o.status === "in_transit").length,
+    receiving: operationalOrders.filter((o) => o.status === "receiving").length,
+    completedThisMonth: operationalOrders.filter((o) => o.status === "completed").length,
   };
 
   if (isLoading) {
@@ -378,19 +375,6 @@ export default function InboundOrdersPage() {
         </div>
       </div>
 
-      {(dataQuality.missingSupplier > 0 || dataQuality.zeroItemOrders > 0 || dataQuality.nonCanonicalOrderNumbers > 0) && (
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">data_alert</span>
-          <div>
-            <div className="font-semibold">Admin repair summary</div>
-            <div className="text-sm">
-              {dataQuality.missingSupplier} missing supplier, {dataQuality.zeroItemOrders} incomplete zero-item order(s), {dataQuality.nonCanonicalOrderNumbers} legacy order number(s) on this page.
-              Zero-item orders are kept for audit/scan history; cancel them or add items instead of deleting them silently.
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Orders Table */}
       <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]">
@@ -409,7 +393,7 @@ export default function InboundOrdersPage() {
               </tr>
             </thead>
             <tbody>
-              {orders.map((order) => {
+              {operationalOrders.map((order) => {
                 const status = statusConfig[order.status as keyof typeof statusConfig] || statusConfig.ordered;
                 return (
                   <tr key={order.id} className="hover:bg-base-200/50">
@@ -432,13 +416,7 @@ export default function InboundOrdersPage() {
                     <td>
                       <StatusChip label={status.label} tone={getInboundStatusTone(order.status)} showDot />
                     </td>
-                    <td>
-                      {order.totalItems > 0 ? (
-                        order.totalItems
-                      ) : (
-                        <span className="badge badge-warning badge-outline">Incomplete - no items</span>
-                      )}
-                    </td>
+                    <td>{order.totalItems}</td>
                     <td>
                       <div className="flex items-center gap-2">
                         <span>{order.receivedItems}</span>

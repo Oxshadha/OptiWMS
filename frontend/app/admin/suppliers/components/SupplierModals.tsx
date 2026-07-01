@@ -30,32 +30,32 @@ export function SupplierDetailModal({
       size="lg"
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Supplier Code</label>
-            <p className="font-semibold">{supplier.supplierCode}</p>
+            <p className="font-semibold break-all">{supplier.supplierCode}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Country</label>
-            <p className="font-semibold">{supplier.country}</p>
+            <p className="font-semibold break-words">{supplier.country}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Type</label>
             <p>
               <StatusChip label={supplier.type === "local" ? "Local" : "Foreign"} tone="neutral" />
             </p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Contact Person</label>
-            <p className="font-semibold">{supplier.contactPerson}</p>
+            <p className="font-semibold break-words">{supplier.contactPerson}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Email</label>
-            <p className="font-semibold">{supplier.email}</p>
+            <p className="font-semibold break-all">{supplier.email}</p>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-sm text-base-content/60">Phone</label>
-            <p className="font-semibold">{supplier.phone}</p>
+            <p className="font-semibold break-all">{supplier.phone}</p>
           </div>
           <div>
             <label className="text-sm text-base-content/60">Lead Time</label>
@@ -621,7 +621,7 @@ export function ManageSupplierMaterialsModal({
         ])));
       } catch (err) {
         logger.error("Failed to load supplier materials:", err);
-        showToast.error("Failed to load supplier products");
+        showToast.error("Failed to load supplier purchasing rules");
       } finally {
         setIsLoading(false);
       }
@@ -694,19 +694,19 @@ export function ManageSupplierMaterialsModal({
           leadTimeDays: cleanPositiveNumber(rule.leadTimeDays),
         }));
       await suppliersApi.replaceMaterialRules(supplier.id, materialRules);
-      showToast.success("Supplier products updated successfully");
+      showToast.success("Supplier purchasing rules updated successfully");
       await onSaved();
       onClose();
     } catch (err) {
-      logger.error("Failed to update supplier products:", err);
-      showToast.error(err instanceof Error ? err.message : "Failed to update supplier products");
+      logger.error("Failed to update supplier purchasing rules:", err);
+      showToast.error(err instanceof Error ? err.message : "Failed to update supplier purchasing rules");
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Manage Products: ${supplier.name}`} size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={`Supplier Purchasing Rules: ${supplier.name}`} size="xl">
       <div className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="form-control md:col-span-2">
@@ -789,21 +789,25 @@ export function ManageSupplierMaterialsModal({
                         <RuleNumberInput
                           label="MOQ"
                           value={rule.minimumOrderQuantity}
+                          defaultValue={material.minOrderQuantity}
                           onChange={(value) => updateRule(material, "minimumOrderQuantity", value)}
                         />
                         <RuleNumberInput
                           label="Order Multiple"
                           value={rule.orderMultiple}
+                          defaultValue={material.orderMultiple ?? material.unitsPerHandlingUnit ?? material.palletSpaces}
                           onChange={(value) => updateRule(material, "orderMultiple", value)}
                         />
                         <RuleNumberInput
                           label="Units / HU"
                           value={rule.unitsPerHandlingUnit}
+                          defaultValue={material.unitsPerHandlingUnit ?? material.palletSpaces}
                           onChange={(value) => updateRule(material, "unitsPerHandlingUnit", value)}
                         />
                         <RuleNumberInput
                           label="Lead Days"
                           value={rule.leadTimeDays}
+                          defaultValue={supplier.leadTimeDays ?? undefined}
                           onChange={(value) => updateRule(material, "leadTimeDays", value)}
                         />
                         <label className="label cursor-pointer justify-start gap-2 rounded border border-base-300 px-3">
@@ -813,7 +817,7 @@ export function ManageSupplierMaterialsModal({
                             checked={Boolean(rule.preferred)}
                             onChange={(e) => updateRule(material, "preferred", e.target.checked)}
                           />
-                          <span className="label-text text-xs">Preferred</span>
+                          <span className="label-text text-xs">Preferred supplier for this material</span>
                         </label>
                       </div>
                     )}
@@ -835,7 +839,7 @@ export function ManageSupplierMaterialsModal({
                 Saving...
               </>
             ) : (
-              "Save Products"
+              "Save Rules"
             )}
           </button>
         </div>
@@ -847,9 +851,9 @@ export function ManageSupplierMaterialsModal({
 function defaultSupplierRule(material?: Material): SupplierMaterialRulePayload {
   return {
     materialId: material?.id ?? "",
-    minimumOrderQuantity: material?.minOrderQuantity ?? undefined,
-    orderMultiple: material?.orderMultiple ?? material?.unitsPerHandlingUnit ?? material?.palletSpaces ?? undefined,
-    unitsPerHandlingUnit: material?.unitsPerHandlingUnit ?? material?.palletSpaces ?? undefined,
+    minimumOrderQuantity: undefined,
+    orderMultiple: undefined,
+    unitsPerHandlingUnit: undefined,
     leadTimeDays: undefined,
     preferred: false,
   };
@@ -865,10 +869,12 @@ function cleanPositiveNumber(value: number | null | undefined): number | null {
 function RuleNumberInput({
   label,
   value,
+  defaultValue,
   onChange,
 }: {
   label: string;
   value?: number | null;
+  defaultValue?: number | null;
   onChange: (value: number | null) => void;
 }) {
   return (
@@ -879,9 +885,13 @@ function RuleNumberInput({
         min="0"
         step="1"
         className="input input-bordered input-sm"
+        placeholder="Use product default"
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
       />
+      <span className="label-text-alt text-base-content/50">
+        Default: {defaultValue != null ? defaultValue : "not set"}
+      </span>
     </label>
   );
 }
