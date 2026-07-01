@@ -44,6 +44,8 @@ export interface RouteSegment {
   distance: number;
 }
 
+export type PathfindingAlgorithm = "astar" | "dijkstra";
+
 export interface OptimizedRoute {
   operation: RouteOperation;
   start: RouteStation;
@@ -54,7 +56,49 @@ export interface OptimizedRoute {
   path: GridCoord[];
   distance: number;
   blockedCellsUsed: GridCoord[];
+  totalVisitedNodes: number;
+  totalRuntimeMs: number;
+  overlapCells: GridCoord[];
 }
+
+export interface RoutePreset {
+  id: string;
+  name: string;
+  description: string;
+  operation: RouteOperation;
+  locationCodes: string[];
+}
+
+export const ROUTE_PRESETS: RoutePreset[] = [
+  {
+    id: "putaway-2-items-near",
+    name: "Putaway: 2 items (nearby)",
+    description: "Place 2 items in Zone A, close bays",
+    operation: "putaway",
+    locationCodes: ["A-01-02-1-A", "A-01-04-2-B"],
+  },
+  {
+    id: "putaway-3-items-spread",
+    name: "Putaway: 3 items (spread)",
+    description: "Place 3 items across all zones",
+    operation: "putaway",
+    locationCodes: ["A-02-01-1-A", "B-01-03-2-A", "C-02-05-1-B"],
+  },
+  {
+    id: "picking-2-items-same-zone",
+    name: "Picking: 2 items → Packing",
+    description: "Pick from Zone B, then go to Packing",
+    operation: "picking",
+    locationCodes: ["B-01-02-1-A", "B-02-04-1-B"],
+  },
+  {
+    id: "picking-3-items-cross-zone",
+    name: "Picking: 3 items → Packing",
+    description: "Pick across zones A & C, then Packing",
+    operation: "picking",
+    locationCodes: ["A-01-05-1-A", "C-01-02-2-A", "C-02-04-1-B"],
+  },
+];
 
 const GRID_WIDTH = 28;
 const GRID_HEIGHT = 18;
@@ -98,8 +142,8 @@ export const ROUTE_STATIONS: RouteStation[] = [
   },
   {
     id: "INBOUND_PARK",
-    label: "Inbound Park",
-    shortLabel: "IP",
+    label: "Parking",
+    shortLabel: "P",
     type: "inbound-park",
     coord: { x: 3, y: 2 },
     width: 4,
@@ -107,8 +151,8 @@ export const ROUTE_STATIONS: RouteStation[] = [
   },
   {
     id: "OUTBOUND_PARK",
-    label: "Outbound Forklift Park",
-    shortLabel: "OP",
+    label: "Parking",
+    shortLabel: "P",
     type: "outbound-park",
     coord: { x: 21, y: 2 },
     width: 4,
@@ -132,7 +176,7 @@ export const ROUTE_RACKS: RouteRack[] = (["A", "B", "C"] as const).flatMap((zone
       zone,
       row: rowIndex + 1,
       bay: bayIndex + 1,
-      coord: { x: RACK_X_START + bayIndex * 2, y: ZONE_START_Y[zone] + rowIndex },
+      coord: { x: RACK_X_START + bayIndex * 2, y: ZONE_START_Y[zone] + rowIndex * 2 },
       width: 2,
       height: 1,
     }))
@@ -160,6 +204,9 @@ export const parseRouteLocation = (code?: string | null): ParsedRouteLocation | 
   const rack = rackByKey.get(`${zone}:${row}:${bay}`) ?? rackByKey.get(`${zone}:1:${bay}`);
   if (!rack) return null;
 
+  // Access is on the aisle row between the two rack rows
+  const accessY = rack.coord.y + (row === 1 ? 1 : -1);
+
   return {
     raw,
     zone,
@@ -168,7 +215,7 @@ export const parseRouteLocation = (code?: string | null): ParsedRouteLocation | 
     level: match[4] ? Number(match[4]) : undefined,
     position: match[5],
     rackId: rack.id,
-    access: { x: rack.coord.x - 1, y: rack.coord.y },
+    access: { x: rack.coord.x, y: accessY },
     rackCenter: { x: rack.coord.x + rack.width / 2, y: rack.coord.y + rack.height / 2 },
   };
 };
@@ -205,14 +252,22 @@ const neighbors = (coord: GridCoord, blocked: Set<string>): GridCoord[] => {
   );
 };
 
-export const findGridPath = (
+export interface PathfindingResult {
+  path: GridCoord[];
+  visitedNodes: number;
+  runtimeMs: number;
+  algorithm: PathfindingAlgorithm;
+}
+
+export const findGridPathAStar = (
   start: GridCoord,
   end: GridCoord,
   dynamicBlocked: GridCoord[] = []
-): GridCoord[] => {
+): PathfindingResult => {
+  const startTime = performance.now();
   const blocked = blockedCells();
   dynamicBlocked.forEach((coord) => {
-    if (coord.x !== start.x || coord.y !== start.y) {
+    if ((coord.x !== start.x || coord.y !== start.y) && (coord.x !== end.x || coord.y !== end.y)) {
       blocked.add(key(coord));
     }
   });
@@ -221,6 +276,7 @@ export const findGridPath = (
   const cameFrom = new Map<string, GridCoord>();
   const gScore = new Map<string, number>([[key(start), 0]]);
   const fScore = new Map<string, number>([[key(start), manhattan(start, end)]]);
+  let visitedNodes = 0;
 
   while (open.size > 0) {
     const current = Array.from(open.values()).reduce((best, point) =>
@@ -228,6 +284,8 @@ export const findGridPath = (
         ? point
         : best
     );
+
+    visitedNodes++;
 
     if (current.x === end.x && current.y === end.y) {
       const path = [current];
@@ -237,7 +295,7 @@ export const findGridPath = (
         path.unshift(previous);
         currentKey = key(previous);
       }
-      return path;
+      return { path, visitedNodes, runtimeMs: performance.now() - startTime, algorithm: "astar" };
     }
 
     open.delete(key(current));
@@ -252,7 +310,59 @@ export const findGridPath = (
     });
   }
 
-  return [start, end];
+  return { path: [start, end], visitedNodes, runtimeMs: performance.now() - startTime, algorithm: "astar" };
+};
+
+export const findGridPathDijkstra = (
+  start: GridCoord,
+  end: GridCoord,
+  dynamicBlocked: GridCoord[] = []
+): PathfindingResult => {
+  const startTime = performance.now();
+  const blocked = blockedCells();
+  dynamicBlocked.forEach((coord) => {
+    if ((coord.x !== start.x || coord.y !== start.y) && (coord.x !== end.x || coord.y !== end.y)) {
+      blocked.add(key(coord));
+    }
+  });
+
+  const open = new Map<string, GridCoord>([[key(start), start]]);
+  const cameFrom = new Map<string, GridCoord>();
+  const gScore = new Map<string, number>([[key(start), 0]]);
+  let visitedNodes = 0;
+
+  while (open.size > 0) {
+    const current = Array.from(open.values()).reduce((best, point) =>
+      (gScore.get(key(point)) ?? Number.MAX_SAFE_INTEGER) < (gScore.get(key(best)) ?? Number.MAX_SAFE_INTEGER)
+        ? point
+        : best
+    );
+
+    visitedNodes++;
+
+    if (current.x === end.x && current.y === end.y) {
+      const path = [current];
+      let currentKey = key(current);
+      while (cameFrom.has(currentKey)) {
+        const previous = cameFrom.get(currentKey)!;
+        path.unshift(previous);
+        currentKey = key(previous);
+      }
+      return { path, visitedNodes, runtimeMs: performance.now() - startTime, algorithm: "dijkstra" };
+    }
+
+    open.delete(key(current));
+    neighbors(current, blocked).forEach((next) => {
+      const tentative = (gScore.get(key(current)) ?? Number.MAX_SAFE_INTEGER) + 1;
+      if (tentative < (gScore.get(key(next)) ?? Number.MAX_SAFE_INTEGER)) {
+        cameFrom.set(key(next), current);
+        gScore.set(key(next), tentative);
+        if (!open.has(key(next))) open.set(key(next), next);
+      }
+    });
+  }
+
+  return { path: [start, end], visitedNodes, runtimeMs: performance.now() - startTime, algorithm: "dijkstra" };
 };
 
 export const optimizeWarehouseRoute = ({
@@ -260,11 +370,13 @@ export const optimizeWarehouseRoute = ({
   locationCodes,
   completedLocationCodes = [],
   avoidPath = [],
+  algorithm = "astar",
 }: {
   operation: RouteOperation;
   locationCodes: Array<string | null | undefined>;
   completedLocationCodes?: Array<string | null | undefined>;
   avoidPath?: GridCoord[];
+  algorithm?: PathfindingAlgorithm;
 }): OptimizedRoute | null => {
   const start = operation === "putaway" ? getRouteStation("INBOUND_WAIT") : getRouteStation("OUTBOUND_PARK");
   const end = operation === "picking" ? getRouteStation("PACKING") : undefined;
@@ -304,18 +416,30 @@ export const optimizeWarehouseRoute = ({
 
   const segments: RouteSegment[] = [];
   const path: GridCoord[] = [];
+  let totalVisitedNodes = 0;
+  let totalRuntimeMs = 0;
+
+  const pathfindingFn = algorithm === "dijkstra" ? findGridPathDijkstra : findGridPathAStar;
+
   for (let index = 0; index < points.length - 1; index += 1) {
     const fromPoint = points[index];
     const toPoint = points[index + 1];
-    const segmentPath = findGridPath(fromPoint, toPoint, avoidPath);
+    
+    const result = pathfindingFn(fromPoint, toPoint, avoidPath);
+    totalVisitedNodes += result.visitedNodes;
+    totalRuntimeMs += result.runtimeMs;
+    
+    const segmentPath = result.path;
     const from = index === 0 ? start.label : orderedStops[index - 1]?.rackId ?? "Start";
     const to =
       index < orderedStops.length
-        ? `${orderedStops[index].raw} (${orderedStops[index].rackId})`
+        ? `${orderedStops[index].rackId}`
         : end?.label ?? "End";
     segments.push({ from, to, path: segmentPath, distance: Math.max(segmentPath.length - 1, 0) });
     path.push(...(path.length > 0 ? segmentPath.slice(1) : segmentPath));
   }
+
+  const overlapCells = path.filter(p => avoidPath.some(ap => ap.x === p.x && ap.y === p.y));
 
   return {
     operation,
@@ -327,6 +451,9 @@ export const optimizeWarehouseRoute = ({
     path,
     distance: segments.reduce((sum, segment) => sum + segment.distance, 0),
     blockedCellsUsed: avoidPath,
+    totalVisitedNodes,
+    totalRuntimeMs,
+    overlapCells,
   };
 };
 
@@ -339,7 +466,7 @@ export const buildRouteInstruction = (route: OptimizedRoute): string[] => {
   const firstStop = route.orderedStops[0];
   const lines = [`Start at ${route.start.label}.`];
   if (firstStop) {
-    lines.push(`Go to Zone ${firstStop.zone}, Row ${String(firstStop.row).padStart(2, "0")}, Bay ${String(firstStop.bay).padStart(2, "0")}.`);
+    lines.push(`Go to ${firstStop.rackId} via aisle.`);
   }
   if (route.orderedStops.length > 1) {
     lines.push(`Then follow the marked route through ${route.orderedStops.length - 1} more location(s).`);
