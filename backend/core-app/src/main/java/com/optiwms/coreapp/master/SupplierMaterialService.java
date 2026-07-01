@@ -144,6 +144,21 @@ public class SupplierMaterialService {
             if (existingCount != materialIds.size()) {
                 throw new IllegalArgumentException("One or more materials do not exist");
             }
+
+            List<UUID> preferredMaterialIds = sanitized.stream()
+                    .filter(rule -> Boolean.TRUE.equals(rule.preferred()))
+                    .map(SupplierMaterialRuleUpdate::materialId)
+                    .distinct()
+                    .toList();
+            for (UUID materialId : preferredMaterialIds) {
+                List<SupplierMaterialEntity> existingPreferredLinks = supplierMaterialRepository.findByMaterialId(materialId);
+                for (SupplierMaterialEntity link : existingPreferredLinks) {
+                    if (!supplierId.equals(link.getSupplierId()) && Boolean.TRUE.equals(link.getPreferred())) {
+                        link.setPreferred(false);
+                    }
+                }
+                supplierMaterialRepository.saveAll(existingPreferredLinks);
+            }
         }
 
         supplierMaterialRepository.deleteBySupplierId(supplierId);
