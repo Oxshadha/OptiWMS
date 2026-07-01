@@ -141,7 +141,7 @@ export default function InboundOrdersPage() {
       ({ order, totalItems: totalItemsForOrder, receivedItems }) => {
         const supplierName = order.supplierId
           ? getLookupValue(suppliersMap, order.supplierId, "Unknown Supplier")
-          : "N/A";
+          : "Missing supplier - repair required";
         const warehouseName = getLookupValue(
           warehousesMap,
           order.warehouseId,
@@ -206,6 +206,11 @@ export default function InboundOrdersPage() {
     inTransit: orders.filter((o) => o.status === "in_transit").length,
     receiving: orders.filter((o) => o.status === "receiving").length,
     completedThisMonth: orders.filter((o) => o.status === "completed").length,
+  };
+  const dataQuality = {
+    missingSupplier: orders.filter((o) => !o.supplierId).length,
+    zeroItemOrders: orders.filter((o) => o.totalItems === 0).length,
+    nonCanonicalOrderNumbers: orders.filter((o) => !/^PO-\d{8}-\d{6}$/.test(o.orderNumber)).length,
   };
 
   if (isLoading) {
@@ -373,6 +378,19 @@ export default function InboundOrdersPage() {
         </div>
       </div>
 
+      {(dataQuality.missingSupplier > 0 || dataQuality.zeroItemOrders > 0 || dataQuality.nonCanonicalOrderNumbers > 0) && (
+        <div className="alert alert-warning">
+          <span className="material-symbols-outlined">data_alert</span>
+          <div>
+            <div className="font-semibold">Admin repair summary</div>
+            <div className="text-sm">
+              {dataQuality.missingSupplier} missing supplier, {dataQuality.zeroItemOrders} incomplete zero-item order(s), {dataQuality.nonCanonicalOrderNumbers} legacy order number(s) on this page.
+              Zero-item orders are kept for audit/scan history; cancel them or add items instead of deleting them silently.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Orders Table */}
       <div className="card bg-base-100 border border-base-300 rounded-xl overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-320px)]">
@@ -414,7 +432,13 @@ export default function InboundOrdersPage() {
                     <td>
                       <StatusChip label={status.label} tone={getInboundStatusTone(order.status)} showDot />
                     </td>
-                    <td>{order.totalItems}</td>
+                    <td>
+                      {order.totalItems > 0 ? (
+                        order.totalItems
+                      ) : (
+                        <span className="badge badge-warning badge-outline">Incomplete - no items</span>
+                      )}
+                    </td>
                     <td>
                       <div className="flex items-center gap-2">
                         <span>{order.receivedItems}</span>
@@ -422,7 +446,7 @@ export default function InboundOrdersPage() {
                           <div
                             className="bg-primary h-2 rounded-full"
                             style={{
-                              width: `${(order.receivedItems / order.totalItems) * 100}%`,
+                              width: `${order.totalItems > 0 ? (order.receivedItems / order.totalItems) * 100 : 0}%`,
                             }}
                           ></div>
                         </div>

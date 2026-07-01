@@ -22,7 +22,7 @@ export default function ForecastSpacePage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
   const [horizonMonths, setHorizonMonths] = useState(3);
-  const [materialType, setMaterialType] = useState<MaterialScope>("raw_material");
+  const [materialType, setMaterialType] = useState<MaterialScope>("");
   const [readiness, setReadiness] = useState<ForecastSpaceReadiness | null>(null);
   const [policyRuns, setPolicyRuns] = useState<PolicyRecommendationRun[]>([]);
   const [policyLines, setPolicyLines] = useState<PolicyRecommendationLine[]>([]);
@@ -219,7 +219,7 @@ export default function ForecastSpacePage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Forecast-to-Space Optimizer</h1>
+          <h1 className="text-3xl font-bold text-base-content">Inventory Policy & Space Planner</h1>
           <p className="text-sm text-base-content/60 mt-2 max-w-4xl">
             Inventory policy recommendations and storage impact review under forecast, MOQ, lead-time, expiry, capacity, and compatibility constraints.
           </p>
@@ -245,10 +245,10 @@ export default function ForecastSpacePage() {
           <label className="form-control w-52">
             <span className="label-text text-xs mb-1">Material scope</span>
             <select className="select select-bordered select-sm" value={materialType} onChange={(e) => setMaterialType(e.target.value as MaterialScope)}>
+              <option value="">All materials</option>
               <option value="raw_material">Raw materials</option>
               <option value="packaging_material">Packaging materials</option>
               <option value="product">Finished goods</option>
-              <option value="">All materials</option>
             </select>
           </label>
           <button className="btn btn-sm btn-outline" onClick={refresh} disabled={loading || !warehouseId}>
@@ -259,6 +259,12 @@ export default function ForecastSpacePage() {
       </div>
 
       {error && <div className="alert alert-error text-sm">{error}</div>}
+      {busyAction === "policy" && (
+        <div className="alert alert-info text-sm">
+          <span className="loading loading-spinner loading-sm" />
+          <span>Generating inventory policy run. Calculating forecast demand, MOQ, reorder point, and pallet-position impact.</span>
+        </div>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard label="Readiness" value={loading ? "..." : readiness?.ready ? "Ready" : "Review"} detail={readiness ? `${readiness.forecastCoveragePct}% forecast · ${readiness.inventoryCoveragePct}% inventory` : "No warehouse selected"} tone={readiness?.ready ? "success" : "warning"} />
@@ -271,10 +277,15 @@ export default function ForecastSpacePage() {
         <div className="alert alert-warning">
           <span className="material-symbols-outlined">priority_high</span>
           <div>
-            <p className="font-semibold">Decision data needs review before approval.</p>
+            <p className="font-semibold">Data gate: policy recommendations are blocked until required planning inputs are available.</p>
             <p className="text-sm">
-              Pallet specs {readiness.palletSpecCoveragePct}% · missing MOQ {readiness.missingMoqCount} · missing lead time {readiness.missingLeadTimeCount}
+              Forecast coverage {readiness.forecastCoveragePct}% · pallet specs {readiness.palletSpecCoveragePct}% · missing MOQ {readiness.missingMoqCount} · missing lead time {readiness.missingLeadTimeCount}
             </p>
+            {readiness.forecastCoveragePct === 0 && (
+              <p className="text-xs mt-1">
+                No forecast rows were found for the selected scope. Switch material scope or publish the latest forecast run before creating policy recommendations.
+              </p>
+            )}
             {readiness.blockers[0] && <p className="text-xs mt-1">{readiness.blockers[0]}</p>}
           </div>
         </div>
@@ -294,11 +305,11 @@ export default function ForecastSpacePage() {
                   <option key={run.id} value={run.id}>{dateText(run.createdAt)} · {run.status} · {run.horizonMonths}m</option>
                 ))}
               </select>
-              <button className="btn btn-sm btn-primary" onClick={createPolicyRun} disabled={!warehouseId || busyAction === "policy"}>
+              <button className="btn btn-sm btn-primary" onClick={createPolicyRun} disabled={!warehouseId || busyAction !== null}>
                 {busyAction === "policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">calculate</span>}
-                Generate Policy
+                {busyAction === "policy" ? "Generating..." : "Generate Policy"}
               </button>
-              <button className="btn btn-sm btn-success" onClick={approvePolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction === "approve-policy"}>
+              <button className="btn btn-sm btn-success" onClick={approvePolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction !== null}>
                 {busyAction === "approve-policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">done_all</span>}
                 Apply Min/Max
               </button>
@@ -335,11 +346,11 @@ export default function ForecastSpacePage() {
                 <option key={run.id} value={run.id}>{dateText(run.createdAt)} · {run.status} · saved {fmt(run.totalSpaceSavedPalletPositions)}</option>
               ))}
             </select>
-            <button className="btn btn-sm btn-secondary" onClick={createSpaceRun} disabled={!selectedPolicyRun || busyAction === "space"}>
+            <button className="btn btn-sm btn-secondary" onClick={createSpaceRun} disabled={!selectedPolicyRun || busyAction !== null}>
               {busyAction === "space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">warehouse</span>}
-              Optimize Space
+              {busyAction === "space" ? "Optimizing..." : "Optimize Space"}
             </button>
-            <button className="btn btn-sm btn-success" onClick={approveSpaceRun} disabled={!selectedSpaceRun || selectedSpaceRun.status === "APPROVED" || busyAction === "approve-space"}>
+            <button className="btn btn-sm btn-success" onClick={approveSpaceRun} disabled={!selectedSpaceRun || selectedSpaceRun.status === "APPROVED" || busyAction !== null}>
               {busyAction === "approve-space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">playlist_add_check</span>}
               Create Slotting Draft
             </button>
