@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -41,10 +41,24 @@ function reasonBadge(reason?: string) {
         ? "badge-secondary"
         : "badge-ghost";
   return (
-    <span className={clsx("badge badge-sm max-w-[220px] truncate", tone)} title={reason}>
+    <span className={clsx("badge badge-sm whitespace-normal h-auto max-w-[360px] justify-start py-1 text-left leading-snug", tone)} title={reason}>
       {reason}
     </span>
   );
+}
+
+function positionSummary(line: SlottingPlanLine) {
+  const assignedReserve = (line.placementLines?.length
+    ? line.placementLines.reduce((sum, placement) => sum + placement.palletCount, 0)
+    : line.reserveLocations.reduce((sum, reserve) => sum + reserve.palletPositions, 0));
+  const requiredReserve = Math.max(0, line.requiredReservePalletPositions ?? 0);
+  const totalRequired = Math.max(line.maxStockPalletPositions ?? 1, (line.activePickPalletPositions ?? 1) + requiredReserve);
+  return {
+    assignedReserve,
+    requiredReserve,
+    totalRequired,
+    fullyAllocated: assignedReserve >= requiredReserve,
+  };
 }
 
 function LocationCell({
@@ -76,6 +90,20 @@ function LocationCell({
   );
 }
 
+function cadenceMonths(cadence: "ad_hoc" | "monthly" | "quarterly" | "six_month") {
+  if (cadence === "monthly") return 1;
+  if (cadence === "quarterly") return 3;
+  if (cadence === "six_month") return 6;
+  return 1;
+}
+
+function cadenceLabel(cadence: "ad_hoc" | "monthly" | "quarterly" | "six_month") {
+  if (cadence === "monthly") return "Monthly review";
+  if (cadence === "quarterly") return "3-month restructure";
+  if (cadence === "six_month") return "6-month restructure";
+  return "Ad hoc";
+}
+
 export default function SlottingPlansPage() {
   const { admin } = useAdmin();
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -86,6 +114,7 @@ export default function SlottingPlansPage() {
   const [lines, setLines] = useState<SlottingPlanLine[]>([]);
   const [useMilp, setUseMilp] = useState(true);
   const [relocationBudgetPct, setRelocationBudgetPct] = useState(30);
+  const [planningCadence, setPlanningCadence] = useState<"ad_hoc" | "monthly" | "quarterly" | "six_month">("six_month");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -193,10 +222,11 @@ export default function SlottingPlansPage() {
       setError(null);
       const plan = await slottingPlansApi.createPlan({
         warehouseId,
-        validMonths: 6,
+        validMonths: cadenceMonths(planningCadence),
         relocationBudgetPct,
         useMilpAClass: useMilp,
         createdBy: admin?.email ?? "manager",
+        notes: `Planning cadence: ${cadenceLabel(planningCadence)}`,
       });
       setInfo(`Created plan ${plan.planCode}`);
       await loadPlans(warehouseId);
@@ -218,7 +248,7 @@ export default function SlottingPlansPage() {
       });
       if (plan.executionStatus === "DIRECT_APPLIED") {
         setInfo(
-          "Plan approved with direct location apply (admin demo). Inventory and default locations updated immediately — refresh warehouse layout to see changes."
+          "Plan approved with direct location apply. Inventory and default locations updated immediately — refresh warehouse layout to see changes."
         );
       } else if (plan.transfersCreated && plan.transfersCreated > 0) {
         setInfo(
@@ -239,13 +269,13 @@ export default function SlottingPlansPage() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Quarterly Slotting Plans</h1>
+          <h1 className="text-3xl font-bold">Slotting Planner</h1>
           <p className="text-sm text-base-content/60 mt-2">
-            Within-aisle heuristic + optional A-class MILP. Requires catalog dimensions and rack capacity caps.
+            On-demand WMS location planning with move limits, ABC/FMS demand signals, and optional MILP for major restructures.
           </p>
         </div>
         <Link href="/admin/replenishment" className="btn btn-ghost btn-sm">
-          ← Engine Hub
+          ← Action Center
         </Link>
       </div>
 
@@ -303,8 +333,8 @@ export default function SlottingPlansPage() {
       </div>
 
       <div className="card bg-base-100 border border-base-300 p-4">
-        <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(220px,260px)_minmax(140px,180px)_minmax(220px,320px)_1fr] gap-4 items-end">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-[minmax(220px,260px)_minmax(120px,140px)_minmax(210px,240px)_minmax(260px,1fr)] gap-4 items-end">
             <div className="form-control">
               <label className="label"><span className="label-text">Warehouse</span></label>
               <select
@@ -334,16 +364,47 @@ export default function SlottingPlansPage() {
               />
             </div>
             <div className="form-control">
+              <label className="label"><span className="label-text">Planning cadence</span></label>
+              <select
+                className="select select-bordered min-w-52"
+                value={planningCadence}
+                onChange={(e) => setPlanningCadence(e.target.value as typeof planningCadence)}
+              >
+                <option value="ad_hoc">Ad hoc</option>
+                <option value="monthly">Monthly review</option>
+                <option value="quarterly">3-month restructure</option>
+                <option value="six_month">6-month restructure</option>
+              </select>
+            </div>
+            <div className="form-control">
               <label className="label"><span className="label-text">Manager impact</span></label>
               <div className="rounded-lg border border-base-300 bg-base-200 px-3 py-[0.7rem] text-sm">
                 Up to <strong>{lineSummary.moveLimit}</strong> of <strong>{lineSummary.total || 0}</strong> SKUs may move
               </div>
             </div>
-            <div className="flex flex-wrap justify-start xl:justify-end items-end gap-3">
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-4">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="label cursor-pointer gap-2 justify-start mb-0">
                 <input type="checkbox" className="checkbox" checked={useMilp} onChange={(e) => setUseMilp(e.target.checked)} />
-                <span className="label-text whitespace-nowrap">Use MILP for A-class SKUs</span>
+                <span className="label-text">Use MILP/knapsack pressure for A-class restructuring</span>
               </label>
+              {isAdmin && selectedPlan && selectedPlan.status === "DRAFT" && (
+                <label
+                  className="label cursor-pointer gap-2 justify-start mb-0 border border-warning/40 rounded-lg px-3 py-2 bg-warning/5"
+                  title="Skips stock transfer jobs and updates inventory location_code immediately"
+                >
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-warning checkbox-sm"
+                    checked={directApply}
+                    onChange={(e) => setDirectApply(e.target.checked)}
+                  />
+                  <span className="label-text text-xs">Direct apply <span className="opacity-60">(admin only)</span></span>
+                </label>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 className="btn btn-primary"
                 disabled={loading || !readiness?.ready}
@@ -353,22 +414,6 @@ export default function SlottingPlansPage() {
               </button>
               {selectedPlan && selectedPlan.status === "DRAFT" && (
                 <>
-                  {isAdmin && (
-                    <label
-                      className="label cursor-pointer gap-2 justify-start mb-0 border border-warning/40 rounded-lg px-3 py-2 bg-warning/5"
-                      title="Skips stock transfer jobs and updates inventory location_code immediately"
-                    >
-                      <input
-                        type="checkbox"
-                        className="checkbox checkbox-warning checkbox-sm"
-                        checked={directApply}
-                        onChange={(e) => setDirectApply(e.target.checked)}
-                      />
-                      <span className="label-text text-xs">
-                        Direct apply <span className="opacity-60">(admin demo)</span>
-                      </span>
-                    </label>
-                  )}
                   <button
                     className={directApply && isAdmin ? "btn btn-warning" : "btn btn-success"}
                     disabled={loading}
@@ -478,10 +523,16 @@ export default function SlottingPlansPage() {
                           .filter(Boolean)
                       ),
                     ];
+                    const positions = positionSummary(line);
                     return (
-                      <>
+                      <Fragment key={line.id}>
                         <tr key={line.id} className={line.relocationFlag ? "bg-warning/5" : undefined}>
-                          <td className="font-mono text-xs">{line.materialCode}</td>
+                          <td>
+                            <div className="font-mono text-xs font-semibold">{line.materialCode}</div>
+                            <div className="text-[11px] text-base-content/60 mt-1">
+                              Need {positions.totalRequired} pallet position{positions.totalRequired === 1 ? "" : "s"}
+                            </div>
+                          </td>
                           <td>
                             <LocationCell
                               code={line.currentPrimaryLocation}
@@ -497,13 +548,27 @@ export default function SlottingPlansPage() {
                             />
                           </td>
                           <td>{moveBadge(line)}</td>
-                          <td>{reasonBadge(line.moveReason)}</td>
+                          <td className="min-w-[280px]">
+                            {reasonBadge(line.moveReason)}
+                            {positions.requiredReserve > 0 && (
+                              <div
+                                className={clsx(
+                                  "text-[11px] mt-2",
+                                  positions.fullyAllocated ? "text-success" : "text-warning"
+                                )}
+                              >
+                                Reserve {positions.assignedReserve}/{positions.requiredReserve} pallet position
+                                {positions.requiredReserve === 1 ? "" : "s"} allocated
+                              </div>
+                            )}
+                          </td>
                         </tr>
                         {placements.length > 0 && (
                           <tr key={`${line.id}-placements`} className="bg-base-200/40">
                             <td colSpan={5} className="py-2">
                               <div className="text-xs text-base-content/70 mb-1">
-                                <strong>{placements.length}</strong> reserve bin
+                                <strong>{positions.assignedReserve}</strong> reserve pallet position
+                                {positions.assignedReserve === 1 ? "" : "s"} across <strong>{placements.length}</strong> bin
                                 {placements.length === 1 ? "" : "s"}
                                 {clusterRacks.length > 0 && (
                                   <span>
@@ -534,7 +599,7 @@ export default function SlottingPlansPage() {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                   {visibleLines.length === 0 && (

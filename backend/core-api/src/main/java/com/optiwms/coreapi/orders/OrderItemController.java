@@ -10,9 +10,11 @@ import com.optiwms.coreapp.master.MaterialDefaultLocationService;
 import com.optiwms.domain.orders.OrderItem;
 import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.master.Material;
+import com.optiwms.infra.inventory.InventoryItemRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -28,6 +30,7 @@ public class OrderItemController {
     private final MaterialService materialService;
     private final SupplierMaterialService supplierMaterialService;
     private final MaterialDefaultLocationService materialDefaultLocationService;
+    private final InventoryItemRepository inventoryItemRepository;
 
     public OrderItemController(
             OrderItemService orderItemService,
@@ -36,7 +39,8 @@ public class OrderItemController {
             PutawayCapacityPlanningService putawayCapacityPlanningService,
             MaterialService materialService,
             SupplierMaterialService supplierMaterialService,
-            MaterialDefaultLocationService materialDefaultLocationService) {
+            MaterialDefaultLocationService materialDefaultLocationService,
+            InventoryItemRepository inventoryItemRepository) {
         this.orderItemService = orderItemService;
         this.orderService = orderService;
         this.materialLocationService = materialLocationService;
@@ -44,6 +48,7 @@ public class OrderItemController {
         this.materialService = materialService;
         this.supplierMaterialService = supplierMaterialService;
         this.materialDefaultLocationService = materialDefaultLocationService;
+        this.inventoryItemRepository = inventoryItemRepository;
     }
 
     @GetMapping("/{orderId}/items")
@@ -124,16 +129,15 @@ public class OrderItemController {
             @RequestBody CreateOrderItemRequest request) {
         UUID materialId = UUID.fromString(request.materialId());
         Order order = orderService.findById(orderId);
+        Material material = materialService.findById(materialId);
+        validatePackagingRules(order, material, request.quantity());
         if ("inbound".equalsIgnoreCase(order.getOrderType())) {
             UUID supplierId = order.getSupplierId();
             if (supplierId == null) {
                 throw new IllegalArgumentException("Inbound order is missing supplier");
             }
-            if (!supplierMaterialService.hasAnyMaterialLink(supplierId)) {
-                throw new IllegalArgumentException(
-                        "No materials are linked to the selected supplier. Link supplier materials first.");
-            }
-            if (!supplierMaterialService.isMaterialLinked(supplierId, materialId)) {
+            if (supplierMaterialService.hasAnyMaterialLink(supplierId)
+                    && !supplierMaterialService.isMaterialLinked(supplierId, materialId)) {
                 throw new IllegalArgumentException(
                         "Selected material is not linked to the supplier for this inbound order.");
             }
@@ -159,10 +163,10 @@ public class OrderItemController {
         item.setQuantity(request.quantity());
         item.setUnitPrice(request.unitPrice() != null ? new java.math.BigDecimal(request.unitPrice()) : null);
         item.setLocationCode(request.locationCode());
-        item.setWeightKg(request.weightKg());
-        item.setHeightCm(request.heightCm());
-        item.setLengthCm(request.lengthCm());
-        item.setWidthCm(request.widthCm());
+        item.setWeightKg(material.getWeightKg());
+        item.setHeightCm(material.getHeightCm());
+        item.setLengthCm(material.getLengthCm());
+        item.setWidthCm(material.getWidthCm());
         item.setBatchNumber(request.batchNumber());
         item.setManufactureDate(request.manufactureDate());
         item.setExpiryDate(request.expiryDate());
@@ -228,6 +232,94 @@ public class OrderItemController {
                 materialCode,
                 materialName,
                 item.getStatus());
+    }
+
+    private void validatePackagingRules(Order order, Material material, Integer quantity) {
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("Order item quantity must be greater than 0.");
+        }
+
+        BigDecimal requested = BigDecimal.valueOf(quantity.longValue());
+        BigDecimal minimum = firstPositive(material.getMinOrderQuantity(), BigDecimal.ONE);
+        BigDecimal multiple = firstPositive(material.getOrderMultiple(), material.getUnitsPerHandlingUnit(),
+                material.getPalletSpaces(), BigDecimal.ONE);
+
+        if ("inbound".equalsIgnoreCase(order.getOrderType())) {
+            var supplierRule = supplierMaterialService.findRule(order.getSupplierId(), material.getId()).orElse(null);
+            if (supplierRule != null) {
+                minimum = firstPositive(supplierRule.minimumOrderQuantity(), minimum);
+                multiple = firstPositive(supplierRule.orderMultiple(), supplierRule.unitsPerHandlingUnit(), multiple);
+            }
+            if (requested.compareTo(minimum) < 0) {
+                throw new IllegalArgumentException("Inbound quantity " + quantity
+                        + " is below minimum order quantity " + minimum.stripTrailingZeros().toPlainString() + ".");
+            }
+            if (!isWholeMultiple(requested, multiple)) {
+                BigDecimal rounded = roundUpToMultiple(requested, multiple);
+                throw new IllegalArgumentException("Inbound quantity must be ordered in multiples of "
+                        + multiple.stripTrailingZeros().toPlainString() + ". Suggested quantity: "
+                        + rounded.stripTrailingZeros().toPlainString() + ".");
+            }
+            return;
+        }
+
+        if ("outbound".equalsIgnoreCase(order.getOrderType())) {
+            BigDecimal available = inventoryItemRepository
+                    .summarizeByWarehouseId(order.getWarehouseId())
+                    .stream()
+                    .filter(summary -> material.getId().equals(summary.getMaterialId()))
+                    .map(InventoryItemRepository.InventoryMaterialSummary::getAvailableQuantity)
+                    .findFirst()
+                    .orElse(BigDecimal.ZERO);
+            if (requested.compareTo(available) > 0) {
+                throw new IllegalArgumentException("Outbound quantity " + quantity
+                        + " exceeds available warehouse stock "
+                        + available.stripTrailingZeros().toPlainString() + ".");
+            }
+            if (isControlledHandlingUnit(material) && !isWholeMultiple(requested, multiple)) {
+                BigDecimal rounded = roundUpToMultiple(requested, multiple);
+                throw new IllegalArgumentException("Outbound quantity for " + material.getHandlingUnitType()
+                        + "-controlled material must be in multiples of "
+                        + multiple.stripTrailingZeros().toPlainString() + ". Suggested quantity: "
+                        + rounded.stripTrailingZeros().toPlainString() + ".");
+            }
+        }
+    }
+
+    private boolean isControlledHandlingUnit(Material material) {
+        String unit = material.getHandlingUnitType() != null
+                ? material.getHandlingUnitType()
+                : material.getUnitType();
+        if (unit == null) return false;
+        String normalized = unit.trim().toLowerCase();
+        return normalized.equals("pallet") || normalized.equals("drum")
+                || normalized.equals("reel") || normalized.equals("bucket");
+    }
+
+    private BigDecimal firstPositive(BigDecimal... values) {
+        for (BigDecimal value : values) {
+            if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                return value;
+            }
+        }
+        return BigDecimal.ONE;
+    }
+
+    private boolean isWholeMultiple(BigDecimal requested, BigDecimal multiple) {
+        if (multiple == null || multiple.compareTo(BigDecimal.ONE) <= 0) {
+            return true;
+        }
+        return requested.remainder(multiple).compareTo(BigDecimal.ZERO) == 0;
+    }
+
+    private BigDecimal roundUpToMultiple(BigDecimal requested, BigDecimal multiple) {
+        if (multiple == null || multiple.compareTo(BigDecimal.ONE) <= 0) {
+            return requested;
+        }
+        BigDecimal[] divRem = requested.divideAndRemainder(multiple);
+        return divRem[1].compareTo(BigDecimal.ZERO) == 0
+                ? requested
+                : divRem[0].add(BigDecimal.ONE).multiply(multiple);
     }
 
     public record OrderItemDto(

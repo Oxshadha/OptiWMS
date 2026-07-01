@@ -19,6 +19,20 @@ export interface SupplierMaterial {
   materialCode: string;
   description: string;
   materialType?: string | null;
+  minimumOrderQuantity?: number | null;
+  orderMultiple?: number | null;
+  unitsPerHandlingUnit?: number | null;
+  leadTimeDays?: number | null;
+  preferred?: boolean | null;
+}
+
+export interface SupplierMaterialRulePayload {
+  materialId: string;
+  minimumOrderQuantity?: number | null;
+  orderMultiple?: number | null;
+  unitsPerHandlingUnit?: number | null;
+  leadTimeDays?: number | null;
+  preferred?: boolean | null;
 }
 
 export interface PagedSuppliersResponse {
@@ -81,5 +95,9 @@ export const suppliersApi = {
 
   replaceMaterials: async (id: string, materialIds: string[]): Promise<void> => {
     return apiClient.put<void>(`/master/suppliers/${id}/materials`, { materialIds });
+  },
+
+  replaceMaterialRules: async (id: string, materialRules: SupplierMaterialRulePayload[]): Promise<void> => {
+    return apiClient.put<void>(`/master/suppliers/${id}/materials`, { materialRules });
   },
 };

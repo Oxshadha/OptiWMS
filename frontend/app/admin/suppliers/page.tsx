@@ -269,7 +269,7 @@ export default function SuppliersPage() {
             }}
           >
             <span className="material-symbols-outlined text-sm">inventory_2</span>
-            Manage Products
+            Supplier Purchasing Rules
           </button>
         </li>
         <li>

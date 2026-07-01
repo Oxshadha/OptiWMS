@@ -156,9 +156,9 @@ export default function LogisticAgentDashboard() {
 
   const handleStartPicking = (order: PickingOrder) => {
     setSelectedOrder(order);
-    // Navigate to pathfinding with order context
+    // Navigate to admin pathfinding with order context
     router.push(
-      `/pathfinding?orderId=${order.id}&customerId=${order.customer}`
+      `/admin/pathfinding?orderId=${order.id}&customerId=${order.customer}`
     );
   };
 
