@@ -14,6 +14,10 @@ export interface Material {
   volumeCm3?: number;
   palletSpaces?: number;
   maxPalletWeightKg?: number;
+  minOrderQuantity?: number;
+  handlingUnitType?: string;
+  unitsPerHandlingUnit?: number;
+  orderMultiple?: number;
   // ABC/FMS Classification for storage zone assignment
   abcClass?: string;      // A, B, C (volume-based)
   fmsClass?: string;      // F, M, S (frequency-based)
@@ -32,6 +36,18 @@ export interface PagedMaterialsResponse {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+export interface MaterialOrderingProfile {
+  material: Material;
+  supplierMinimumOrderQuantity?: number | null;
+  supplierOrderMultiple?: number | null;
+  supplierUnitsPerHandlingUnit?: number | null;
+  supplierLeadTimeDays?: number | null;
+  effectiveMinimumOrderQuantity: number;
+  effectiveOrderMultiple: number;
+  effectiveUnitsPerHandlingUnit: number;
+  warehouseAvailableQuantity?: number | null;
 }
 
 export const materialsApi = {
@@ -79,6 +95,14 @@ export const materialsApi = {
     // URL encode the material code to handle special characters
     const encodedCode = encodeURIComponent(materialCode.trim());
     return apiClient.get<Material>(`/master/materials/code/${encodedCode}`);
+  },
+
+  getOrderingProfile: async (id: string, options?: { supplierId?: string; warehouseId?: string }): Promise<MaterialOrderingProfile> => {
+    const params = new URLSearchParams();
+    if (options?.supplierId) params.append("supplierId", options.supplierId);
+    if (options?.warehouseId) params.append("warehouseId", options.warehouseId);
+    const query = params.toString();
+    return apiClient.get<MaterialOrderingProfile>(`/master/materials/${id}/ordering-profile${query ? `?${query}` : ""}`);
   },
 
   create: async (material: Omit<Material, 'id'>): Promise<Material> => {
