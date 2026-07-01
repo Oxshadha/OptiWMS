@@ -20,7 +20,7 @@ const allNavItems = [
     icon: "warehouse",
     subItems: [
       { href: "/admin/warehouses", label: "Warehouse Layout" },
-      { href: "/pathfinding", label: "Route Optimizer" },
+      { href: "/admin/pathfinding", label: "Pathfinding Lab" },
     ],
   },
   {
@@ -83,6 +83,7 @@ const allNavItems = [
   { href: "/admin/customers", label: "Customers", icon: "people" },
   { href: "/admin/sops", label: "SOPs", icon: "description" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
+  { href: "/admin/data-quality", label: "Data Quality", icon: "rule_settings" },
 ];
 
 /**
@@ -173,6 +174,12 @@ export function Sidebar() {
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
       return ["/admin/orders"];
+    }
+    if (
+      pathname.startsWith("/admin/warehouses") ||
+      pathname.startsWith("/admin/pathfinding")
+    ) {
+      return ["/admin/warehouses"];
     }
     // Auto-expand Team if on workers or admins page
     if (
