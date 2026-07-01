@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { RackElevationView } from "@/components/RackElevationView";
 import { RackEditModal } from "@/components/RackEditModal";
-import { convertLocationHierarchyToLayout, convertLocationsToLayout } from "@/lib/utils/location-to-layout";
+import { convertRackSummariesToLayout, occupancyRowsToBins } from "@/lib/utils/location-to-layout";
 import { RackUnit, LocationBin, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { warehousesApi, Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, Location } from "@/lib/api/locations";
@@ -21,7 +21,10 @@ import { BulkRackCreateModal } from "./components/BulkRackCreateModal";
 import { SlottingPlannerModal } from "./components/SlottingPlannerModal";
 import { SimpleSlottingView } from "./components/SimpleSlottingView";
 import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
+import { WarehouseRouteControlPanel } from "./components/WarehouseRouteControlPanel";
 import { calculateWarehouseStats } from "./types";
+
+const WAREHOUSE_LAYOUT_RACK_LIMIT = 1200;
 
 export default function WarehousesPage() {
   const searchParams = useSearchParams();
@@ -51,8 +54,9 @@ export default function WarehousesPage() {
   const [showVelocity, setShowVelocity] = useState(false);
   const [showBulkRackModal, setShowBulkRackModal] = useState(false);
   const [showSlottingPlannerModal, setShowSlottingPlannerModal] = useState(false);
-  const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple">("detailed");
+  const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple" | "routes">("detailed");
   const [layoutHasRealData, setLayoutHasRealData] = useState(false);
+  const [layoutLimitNotice, setLayoutLimitNotice] = useState<string | null>(null);
 
   // Load warehouses on mount
   useEffect(() => {
@@ -106,42 +110,34 @@ export default function WarehousesPage() {
     try {
       setIsLoadingLayout(true);
       setError(null);
+      setLayoutLimitNotice(null);
 
-      // Try to get hierarchy first
-      try {
-        const hierarchy = await locationsApi.getHierarchy(warehouseId);
-        const warehouse = warehouses.find((w) => w.id === warehouseId);
-        const layout = await convertLocationHierarchyToLayout(
-          hierarchy,
+      const warehouse = warehouses.find((w) => w.id === warehouseId);
+      const summaries = await locationsApi.getRackSummaries(warehouseId, {
+        limit: WAREHOUSE_LAYOUT_RACK_LIMIT,
+        offset: 0,
+      });
+      if (summaries.length > 0) {
+        const nextLayout = await convertRackSummariesToLayout(
+          summaries,
           warehouseId,
           warehouse?.name || `Warehouse ${warehouseId}`
         );
-        setLayout(layout);
+        setLayout(nextLayout);
         setLayoutHasRealData(true);
-      } catch (hierarchyError) {
-        // Fallback: get storage-only locations and convert
-        // Only show STORAGE locations in 2D map (hide receiving, packing, shipping areas)
-        logger.debug("Hierarchy not available, using storage-only locations list");
-        const locations = await locationsApi.getStorageLocationsByWarehouse(warehouseId);
-        if (locations.length > 0) {
-          const warehouse = warehouses.find((w) => w.id === warehouseId);
-          const layout = await convertLocationsToLayout(
-            locations,
-            warehouseId,
-            warehouse?.name || `Warehouse ${warehouseId}`
+        if (summaries.length >= WAREHOUSE_LAYOUT_RACK_LIMIT) {
+          setLayoutLimitNotice(
+            `Showing first ${WAREHOUSE_LAYOUT_RACK_LIMIT.toLocaleString()} racks for browser safety. Use search/slotting views for full warehouse-scale analysis.`
           );
-          setLayout(layout);
-          setLayoutHasRealData(true);
-        } else {
-          const warehouse = warehouses.find((w) => w.id === warehouseId);
-          logger.debug("No storage locations found, showing empty layout state");
-          setLayout(createEmptyLayout(
-            warehouseId,
-            warehouse?.name || `Warehouse ${warehouseId}`
-          ));
-          setLayoutHasRealData(false);
-          setError("No storage locations are configured for this warehouse yet.");
         }
+      } else {
+        logger.debug("No storage rack summaries found, showing empty layout state");
+        setLayout(createEmptyLayout(
+          warehouseId,
+          warehouse?.name || `Warehouse ${warehouseId}`
+        ));
+        setLayoutHasRealData(false);
+        setError("No storage locations are configured for this warehouse yet.");
       }
     } catch (error) {
       logger.error("Failed to load warehouse layout:", error);
@@ -157,6 +153,34 @@ export default function WarehousesPage() {
     }
   };
 
+  const openRackDetail = async (rack: RackUnit) => {
+    if (!selectedWarehouseId) {
+      setSelectedRack(rack);
+      return;
+    }
+
+    setSelectedRack(rack);
+    try {
+      const rows = await locationsApi.getRackDetail(selectedWarehouseId, rack.id);
+      const detailedRack = {
+        ...rack,
+        bins: occupancyRowsToBins(rows),
+        maxLevels: Math.max(...rows.map((row) => row.levelNumber || 1), rack.maxLevels, 5),
+      };
+      setSelectedRack(detailedRack);
+      setLayout((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          racks: current.racks.map((item) => item.id === rack.id ? detailedRack : item),
+        };
+      });
+    } catch (error) {
+      logger.error(`Failed to load rack detail for ${rack.id}:`, error);
+      showToast.error("Rack summary loaded, but bin details could not be loaded.");
+    }
+  };
+
   // Filter warehouses based on role
   const availableWarehouses =
     isWarehouseManager && assignedWarehouseId
@@ -167,7 +191,7 @@ export default function WarehousesPage() {
     // Active racks open side elevation for occupancy details.
     // Non-active racks open the edit modal directly so operators can re-activate quickly.
     if (rack.status === "active") {
-      setSelectedRack(rack);
+      void openRackDetail(rack);
       return;
     }
 
@@ -235,7 +259,7 @@ export default function WarehousesPage() {
     );
     if (match) {
       setLayoutViewMode("detailed");
-      setSelectedRack(match);
+      void openRackDetail(match);
     }
   }, [layout, rackFromUrl]);
 
@@ -317,6 +341,12 @@ export default function WarehousesPage() {
       />
 
       <WarehouseStatsCards stats={stats} />
+      {layoutLimitNotice && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <span>{layoutLimitNotice}</span>
+        </div>
+      )}
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
       {layoutHasRealData ? (
@@ -336,6 +366,12 @@ export default function WarehousesPage() {
             >
               Simple Slotting
             </button>
+            <button
+              className={`tab ${layoutViewMode === "routes" ? "tab-active" : ""}`}
+              onClick={() => setLayoutViewMode("routes")}
+            >
+              Forklift Routes
+            </button>
           </div>
 
           {layoutViewMode === "detailed" ? (
@@ -347,8 +383,10 @@ export default function WarehousesPage() {
               onToggleVelocity={setShowVelocity}
               onRackClick={handleRackClick}
             />
-          ) : (
+          ) : layoutViewMode === "simple" ? (
             <SimpleSlottingView layout={layout} />
+          ) : (
+            <WarehouseRouteControlPanel />
           )}
         </>
       ) : (

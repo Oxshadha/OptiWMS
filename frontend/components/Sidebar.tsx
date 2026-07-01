@@ -45,9 +45,10 @@ const allNavItems = [
     label: "Intelligent Engine",
     icon: "psychology",
     subItems: [
-      { href: "/admin/replenishment", label: "Engine Hub" },
-      { href: "/admin/slotting-plans", label: "Quarterly Slotting" },
-      { href: "/admin/ai-slotting", label: "Storage Optimiser" },
+      { href: "/admin/replenishment", label: "Action Center" },
+      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner" },
+      { href: "/admin/slotting-plans", label: "Slotting Planner" },
+      { href: "/admin/ai-slotting", label: "Advanced Solver Lab" },
     ],
   },
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
