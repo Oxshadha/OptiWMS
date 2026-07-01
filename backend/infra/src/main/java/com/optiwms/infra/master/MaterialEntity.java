@@ -80,6 +80,15 @@ public class MaterialEntity {
     @Column(name = "min_order_quantity", precision = 15, scale = 2)
     private java.math.BigDecimal minOrderQuantity;
 
+    @Column(name = "handling_unit_type", length = 20)
+    private String handlingUnitType;
+
+    @Column(name = "units_per_handling_unit", precision = 15, scale = 2)
+    private java.math.BigDecimal unitsPerHandlingUnit;
+
+    @Column(name = "order_multiple", precision = 15, scale = 2)
+    private java.math.BigDecimal orderMultiple;
+
     @Column(name = "safety_stock_level", precision = 15, scale = 2)
     private java.math.BigDecimal safetyStockLevel;
 
@@ -283,6 +292,30 @@ public class MaterialEntity {
 
     public void setMinOrderQuantity(java.math.BigDecimal minOrderQuantity) {
         this.minOrderQuantity = minOrderQuantity;
+    }
+
+    public String getHandlingUnitType() {
+        return handlingUnitType;
+    }
+
+    public void setHandlingUnitType(String handlingUnitType) {
+        this.handlingUnitType = handlingUnitType;
+    }
+
+    public java.math.BigDecimal getUnitsPerHandlingUnit() {
+        return unitsPerHandlingUnit;
+    }
+
+    public void setUnitsPerHandlingUnit(java.math.BigDecimal unitsPerHandlingUnit) {
+        this.unitsPerHandlingUnit = unitsPerHandlingUnit;
+    }
+
+    public java.math.BigDecimal getOrderMultiple() {
+        return orderMultiple;
+    }
+
+    public void setOrderMultiple(java.math.BigDecimal orderMultiple) {
+        this.orderMultiple = orderMultiple;
     }
 
     public java.math.BigDecimal getSafetyStockLevel() {

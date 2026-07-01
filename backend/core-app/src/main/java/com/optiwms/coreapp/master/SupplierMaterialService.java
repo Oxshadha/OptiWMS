@@ -9,6 +9,7 @@ import com.optiwms.infra.master.SupplierRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -70,6 +71,19 @@ public class SupplierMaterialService {
         return supplierMaterialRepository.countBySupplierId(supplierId) > 0;
     }
 
+    public Optional<SupplierMaterialRule> findRule(UUID supplierId, UUID materialId) {
+        if (supplierId == null || materialId == null) {
+            return Optional.empty();
+        }
+        return supplierMaterialRepository.findBySupplierIdAndMaterialId(supplierId, materialId)
+                .map(entity -> new SupplierMaterialRule(
+                        entity.getMinimumOrderQuantity(),
+                        entity.getOrderMultiple(),
+                        entity.getUnitsPerHandlingUnit(),
+                        entity.getLeadTimeDays(),
+                        Boolean.TRUE.equals(entity.getPreferred())));
+    }
+
     @Transactional
     public void linkMaterial(UUID supplierId, UUID materialId) {
         assertSupplierExists(supplierId);
@@ -116,6 +130,37 @@ public class SupplierMaterialService {
         }
     }
 
+    @Transactional
+    public void replaceMaterialRules(UUID supplierId, List<SupplierMaterialRuleUpdate> rules) {
+        assertSupplierExists(supplierId);
+
+        List<SupplierMaterialRuleUpdate> sanitized = rules == null
+                ? List.of()
+                : rules.stream().filter(rule -> rule != null && rule.materialId() != null).toList();
+
+        if (!sanitized.isEmpty()) {
+            List<UUID> materialIds = sanitized.stream().map(SupplierMaterialRuleUpdate::materialId).distinct().toList();
+            long existingCount = materialRepository.findAllById(materialIds).stream().count();
+            if (existingCount != materialIds.size()) {
+                throw new IllegalArgumentException("One or more materials do not exist");
+            }
+        }
+
+        supplierMaterialRepository.deleteBySupplierId(supplierId);
+        List<SupplierMaterialEntity> entities = sanitized.stream().map(rule -> {
+            SupplierMaterialEntity entity = new SupplierMaterialEntity();
+            entity.setSupplierId(supplierId);
+            entity.setMaterialId(rule.materialId());
+            entity.setMinimumOrderQuantity(rule.minimumOrderQuantity());
+            entity.setOrderMultiple(rule.orderMultiple());
+            entity.setUnitsPerHandlingUnit(rule.unitsPerHandlingUnit());
+            entity.setLeadTimeDays(rule.leadTimeDays());
+            entity.setPreferred(Boolean.TRUE.equals(rule.preferred()));
+            return entity;
+        }).toList();
+        supplierMaterialRepository.saveAll(entities);
+    }
+
     private boolean matchesMaterialType(String actualType, String filterType) {
         if (filterType == null || filterType.isBlank()) {
             return true;
@@ -158,7 +203,27 @@ public class SupplierMaterialService {
         m.setFragile(entity.getFragile());
         m.setMaxPalletWeightKg(entity.getMaxPalletWeightKg());
         m.setMinOrderQuantity(entity.getMinOrderQuantity());
+        m.setHandlingUnitType(entity.getHandlingUnitType());
+        m.setUnitsPerHandlingUnit(entity.getUnitsPerHandlingUnit());
+        m.setOrderMultiple(entity.getOrderMultiple());
         m.setSafetyStockLevel(entity.getSafetyStockLevel());
         return m;
+    }
+
+    public record SupplierMaterialRule(
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            boolean preferred) {
+    }
+
+    public record SupplierMaterialRuleUpdate(
+            UUID materialId,
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            Boolean preferred) {
     }
 }
