@@ -74,9 +74,10 @@ public class AnalyticsController {
     @GetMapping("/dashboard/top-products")
     public ResponseEntity<List<TopProductDto>> getTopProducts(
             @RequestParam(required = false) Integer limit,
-            @RequestParam(required = false) UUID warehouseId
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String period
     ) {
-        List<AnalyticsService.TopProduct> topProducts = service.getTopProducts(limit, warehouseId);
+        List<AnalyticsService.TopProduct> topProducts = service.getTopProducts(limit, warehouseId, period);
         List<TopProductDto> dtos = topProducts.stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());

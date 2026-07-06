@@ -15,7 +15,7 @@ import {
   normalizeRow,
 } from '@/lib/utils/location-identity';
 import { applyOccupancyToBin } from '@/lib/utils/bin-occupancy';
-import { locationsApi, type BinOccupancy } from '@/lib/api/locations';
+import { locationsApi, type BinOccupancy, type RackSummary } from '@/lib/api/locations';
 import { slottingIntelligenceApi } from '@/lib/api/slotting-intelligence';
 
 /**
@@ -158,6 +158,134 @@ function locationsToRacks(
   });
   
   return racks;
+}
+
+function rackStatusFromSummary(value?: string | null): RackUnit["status"] {
+  const status = (value || "active").toLowerCase();
+  if (status === "maintenance" || status === "reserved" || status === "out_of_service") {
+    return status;
+  }
+  return "active";
+}
+
+function buildWarehouseLayout(
+  warehouseId: string,
+  warehouseName: string,
+  racks: RackUnit[]
+): WarehouseLayout {
+  const sectionPadding = 50;
+  const rackHeight = 160;
+  const rackSpacing = 30;
+  const totalRows = Math.ceil(racks.length / 12);
+  const totalHeight = sectionPadding + totalRows * (rackHeight + rackSpacing) - rackSpacing + sectionPadding;
+  const maxX = Math.max(2500, ...racks.map((r) => r.x + r.width));
+  const maxY = Math.max(600, totalHeight, ...racks.map((r) => r.y + r.height));
+
+  return {
+    id: warehouseId,
+    name: warehouseName,
+    warehouseId,
+    width: maxX + 100,
+    height: maxY + 100,
+    racks,
+    aisles: [],
+  };
+}
+
+function summaryToBins(summary: RackSummary): LocationBin[] {
+  const binCount = Math.min(Math.max(summary.binCount || 0, 10), 10);
+  const maxLevels = Math.max(Math.ceil(binCount / 2), 5);
+  const occupiedBins = Math.min(summary.occupiedBins || 0, binCount);
+  const palletCapacityPerBin = Math.max(Math.ceil((summary.palletCapacity || binCount) / binCount), 1);
+  const avgPalletsPerOccupiedBin = occupiedBins > 0 ? Math.max(Math.ceil((summary.palletCount || occupiedBins) / occupiedBins), 1) : 0;
+  const avgWeightPerOccupiedBin = occupiedBins > 0 ? (summary.totalWeightKg || 0) / occupiedBins : 0;
+  const avgQtyPerOccupiedBin = occupiedBins > 0 ? Math.ceil((summary.totalQuantity || 0) / occupiedBins) : 0;
+
+  return Array.from({ length: binCount }, (_, idx) => {
+    const level = Math.floor(idx / 2) + 1;
+    const position = idx % 2 === 0 ? "A" : "B";
+    const occupied = idx < occupiedBins;
+    return {
+      id: `${summary.rackId}-${level}-${position}`,
+      level,
+      status: occupied ? "occupied" : "empty",
+      maxPalletCapacity: palletCapacityPerBin,
+      palletCount: occupied ? Math.min(avgPalletsPerOccupiedBin, palletCapacityPerBin) : 0,
+      levelWeightCapacityKg: summary.weightCapacityKg ? summary.weightCapacityKg / maxLevels : undefined,
+      levelWeightUsedKg: occupied ? avgWeightPerOccupiedBin * 2 : 0,
+      inventory: occupied
+        ? {
+            sku: "Mixed SKU",
+            quantity: avgQtyPerOccupiedBin,
+            weight: avgWeightPerOccupiedBin,
+          }
+        : undefined,
+    } satisfies LocationBin;
+  });
+}
+
+export function occupancyRowsToBins(rows: BinOccupancy[]): LocationBin[] {
+  return rows.map((row) => {
+    const baseBin: LocationBin = {
+      id: row.locationCode,
+      level: row.levelNumber || 1,
+      status: row.quantity > 0 ? "occupied" : "empty",
+      maxPalletCapacity: row.maxPalletCapacity ?? 1,
+      inventory:
+        row.quantity > 0
+          ? {
+              sku: row.materialCode || "Unknown SKU",
+              quantity: row.quantity,
+              weight: row.binWeightKg ?? 0,
+              unitsPerPallet: row.unitsPerPallet ?? undefined,
+              palletWeightKg: row.palletWeightKg ?? undefined,
+            }
+          : undefined,
+    };
+    return applyOccupancyToBin(baseBin, row);
+  });
+}
+
+export async function convertRackSummariesToLayout(
+  summaries: RackSummary[],
+  warehouseId: string,
+  warehouseName: string
+): Promise<WarehouseLayout> {
+  const pendingMovesMap = await loadPendingMovesMap(warehouseId);
+  const rackWidth = 90;
+  const rackHeight = 160;
+  const rackSpacing = 30;
+  const sectionPadding = 50;
+  const racksPerRow = 12;
+
+  const racks = summaries.map((summary, rackIndex) => {
+    const rowInGrid = Math.floor(rackIndex / racksPerRow);
+    const colInGrid = rackIndex % racksPerRow;
+    const bins = summaryToBins(summary);
+    const rowNumber = parseInt(normalizeRow(summary.rowNumber), 10);
+    const bay = parseInt(normalizeBay(summary.bayNumber), 10);
+
+    return {
+      id: summary.rackId,
+      zone: normalizeArea(summary.area),
+      aisle: Number.isFinite(rowNumber) ? rowNumber : Math.floor(rackIndex / racksPerRow) + 1,
+      bay: Number.isFinite(bay) ? bay : 1,
+      x: sectionPadding + colInGrid * (rackWidth + rackSpacing),
+      y: sectionPadding + rowInGrid * (rackHeight + rackSpacing),
+      width: rackWidth,
+      height: rackHeight,
+      bins,
+      maxLevels: Math.max(...bins.map((bin) => bin.level), 5),
+      status: rackStatusFromSummary(summary.rackStatus),
+      amalgamatedClass: summary.amalgamatedClass || undefined,
+      description: summary.description || undefined,
+      isBulk: (summary.locationType || "").toLowerCase() === "bulk",
+      isGeneratedOverflow: summary.autoGenerated,
+      pendingMoveCount: pendingMovesMap.get(summary.rackId) ?? 0,
+    } satisfies RackUnit;
+  });
+
+  return buildWarehouseLayout(warehouseId, warehouseName, racks);
 }
 
 async function loadPendingMovesMap(warehouseId: string): Promise<Map<string, number>> {

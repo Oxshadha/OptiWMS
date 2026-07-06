@@ -100,6 +100,9 @@ public class DemandSpacePlanningService {
                         .divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
                 forecastP90 = forecastP50.multiply(BigDecimal.valueOf(1.25));
             }
+            if (forecastP50.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
 
             BigDecimal safety = material.getSafetyStockLevel() != null
                     ? material.getSafetyStockLevel() : BigDecimal.ZERO;

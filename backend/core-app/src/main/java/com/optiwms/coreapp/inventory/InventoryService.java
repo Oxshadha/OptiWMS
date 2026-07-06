@@ -1,6 +1,10 @@
 package com.optiwms.coreapp.inventory;
 
 import com.optiwms.domain.inventory.InventoryItem;
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
+import com.optiwms.infra.master.LocationEntity;
+import com.optiwms.infra.master.LocationRepository;
+import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
@@ -24,10 +28,18 @@ public class InventoryService {
 
     private final InventoryItemRepository repository;
     private final MaterialRepository materialRepository;
+    private final LocationRepository locationRepository;
+    private final HandlingUnitCapacityService capacityService;
 
-    public InventoryService(InventoryItemRepository repository, MaterialRepository materialRepository) {
+    public InventoryService(
+            InventoryItemRepository repository,
+            MaterialRepository materialRepository,
+            LocationRepository locationRepository,
+            HandlingUnitCapacityService capacityService) {
         this.repository = repository;
         this.materialRepository = materialRepository;
+        this.locationRepository = locationRepository;
+        this.capacityService = capacityService;
     }
 
     public List<InventoryItem> listAll() {
@@ -220,6 +232,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -263,6 +276,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -300,6 +314,7 @@ public class InventoryService {
         entity.setExpiryDate(item.getExpiryDate());
         entity.setLastMovementDate(item.getLastMovementDate());
         entity.setDaysSinceLastMovement(item.getDaysSinceLastMovement());
+        validateSingleBinAssignment(entity);
 
         InventoryItemEntity saved = repository.save(entity);
         return toDomain(saved);
@@ -373,5 +388,34 @@ public class InventoryService {
         if (value == null) return null;
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void validateSingleBinAssignment(InventoryItemEntity entity) {
+        String locationCode = normalize(entity.getLocationCode());
+        if (locationCode == null || entity.getQuantity() == null || entity.getQuantity() <= 0) {
+            return;
+        }
+        MaterialEntity material = materialRepository.findById(entity.getMaterialId())
+                .orElseThrow(() -> new IllegalArgumentException("Material not found: " + entity.getMaterialId()));
+        LocationEntity location = locationRepository.findByLocationCode(locationCode)
+                .orElseThrow(() -> new IllegalArgumentException("Location not found: " + locationCode));
+        if (!entity.getWarehouseId().equals(location.getWarehouseId())) {
+            throw new IllegalArgumentException("Location " + locationCode + " does not belong to inventory warehouse");
+        }
+
+        int maxPallets = capacityService.resolveMaxPalletCapacity(location);
+        int requiredPallets = capacityService.computePalletCount(entity.getQuantity(), material);
+        if (maxPallets > 0 && requiredPallets > maxPallets) {
+            throw new IllegalArgumentException(
+                    "Quantity " + entity.getQuantity() + " requires " + requiredPallets
+                            + " pallet/bin positions, but " + locationCode + " supports only " + maxPallets
+                            + ". Use putaway split planning or inventory bin reconciliation.");
+        }
+
+        if (!capacityService.palletFitsBin(material, location)) {
+            throw new IllegalArgumentException(
+                    "Material " + material.getMaterialCode() + " does not fit bin " + locationCode
+                            + " by pallet weight or volume constraints.");
+        }
     }
 }

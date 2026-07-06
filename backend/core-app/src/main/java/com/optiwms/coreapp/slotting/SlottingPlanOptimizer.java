@@ -19,7 +19,7 @@ public class SlottingPlanOptimizer {
     private static final double RELOCATION_COST = 15.0;
     private static final Set<String> RM_AREAS = Set.of("RM", "RAW", "RAW_MATERIAL");
     private static final Set<String> PM_AREAS = Set.of("PM", "PACK", "PACKING", "PACKAGING");
-    private static final Set<String> FG_AREAS = Set.of("FG", "FINISHED", "PRODUCT", "A", "B", "C", "D");
+    private static final Set<String> FG_AREAS = Set.of("FG", "FINISHED", "FINISHED_GOODS", "PRODUCT");
 
     private final com.optiwms.coreapp.master.HandlingUnitCapacityService capacityService;
     private final com.optiwms.coreapp.master.StockPlacementPlanner placementPlanner;
@@ -258,11 +258,11 @@ public class SlottingPlanOptimizer {
                         a.activePickPp(),
                         a.requiredReservePp(),
                         a.maxStockPp(),
-                        a.reserveSlots(),
+                        List.of(),
                         0.0,
                         a.zoneUpgrade(),
                         a.gainScore(),
-                        "Marginal gain — relocation budget exhausted",
+                        "Marginal gain - relocation budget exhausted; reserve slots must be recalculated from incumbent",
                         false,
                         "KEPT_INCUMBENT"
                 ));
@@ -422,14 +422,18 @@ public class SlottingPlanOptimizer {
         if (material.volumeCm3() == null || loc.getMaxVolumeCm3() == null) {
             return true;
         }
-        return material.volumeCm3().doubleValue() <= loc.getMaxVolumeCm3().doubleValue();
+        BigDecimal unitsPerPallet = material.palletSpaces() != null
+                && material.palletSpaces().compareTo(BigDecimal.ZERO) > 0
+                ? material.palletSpaces()
+                : BigDecimal.ONE;
+        BigDecimal palletVolume = material.volumeCm3().multiply(unitsPerPallet);
+        return palletVolume.doubleValue() <= loc.getMaxVolumeCm3().doubleValue();
     }
 
     private boolean supportsPalletCapacity(LocationEntity loc, MaterialCandidate material,
                                            Map<UUID, DemandSpacePlanningService.DemandProfile> profiles) {
-        int activePp = computeActivePickPp(material, computeMaxStockPp(material, profiles), profiles);
         Integer maxPallet = loc.getMaxPalletCapacity();
-        if (maxPallet != null && maxPallet > 0 && activePp > maxPallet) {
+        if (maxPallet != null && maxPallet <= 0) {
             return false;
         }
         if (loc.getCapacity() != null && loc.getCapacity().doubleValue() > 0
@@ -474,7 +478,8 @@ public class SlottingPlanOptimizer {
         }
         long monthly = Math.max(1, m.issueVolume() / 12);
         int weeks = "packaging_material".equals(m.materialType()) ? 2 : 4;
-        return (int) Math.max(1, Math.ceil(monthly * weeks / 4.0));
+        double targetUnits = monthly * weeks / 4.0;
+        return computePalletPositions(targetUnits, m);
     }
 
     private int computeActivePickPp(MaterialCandidate m, int maxPp,
@@ -482,13 +487,17 @@ public class SlottingPlanOptimizer {
         if (profiles != null) {
             DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
             if (profile != null && profile.activePickPalletPositions() > 0) {
-                return Math.min(profile.activePickPalletPositions(), maxPp);
+                return Math.min(1, maxPp);
             }
         }
-        int weeks = "packaging_material".equals(m.materialType()) ? 2 : 2;
-        long monthly = Math.max(1, m.issueVolume() / 12);
-        int active = (int) Math.max(1, Math.ceil(monthly * weeks / 4.0));
-        return Math.min(active, maxPp);
+        return Math.min(1, Math.max(1, maxPp));
+    }
+
+    private int computePalletPositions(double units, MaterialCandidate m) {
+        double unitsPerPallet = m.palletSpaces() != null && m.palletSpaces().compareTo(BigDecimal.ZERO) > 0
+                ? m.palletSpaces().doubleValue()
+                : 1.0;
+        return (int) Math.max(1, Math.ceil(units / Math.max(1.0, unitsPerPallet)));
     }
 
     private LocationEntity tryReclaimForRisingSku(

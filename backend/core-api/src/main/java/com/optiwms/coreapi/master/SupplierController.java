@@ -101,7 +101,7 @@ public class SupplierController {
             @RequestParam(required = false) String materialType) {
         List<Material> materials = supplierMaterialService.getMaterialsForSupplier(id, materialType);
         List<SupplierMaterialDto> data = materials.stream()
-                .map(this::toSupplierMaterialDto)
+                .map(material -> toSupplierMaterialDto(id, material))
                 .collect(Collectors.toList());
         return ResponseEntity.ok(data);
     }
@@ -110,7 +110,21 @@ public class SupplierController {
     public ResponseEntity<Void> replaceSupplierMaterials(
             @PathVariable UUID id,
             @RequestBody ReplaceSupplierMaterialsRequest request) {
-        supplierMaterialService.replaceMaterials(id, request.materialIds());
+        if (request.materialRules() != null) {
+            supplierMaterialService.replaceMaterialRules(
+                    id,
+                    request.materialRules().stream()
+                            .map(rule -> new SupplierMaterialService.SupplierMaterialRuleUpdate(
+                                    rule.materialId(),
+                                    rule.minimumOrderQuantity(),
+                                    rule.orderMultiple(),
+                                    rule.unitsPerHandlingUnit(),
+                                    rule.leadTimeDays(),
+                                    rule.preferred()))
+                            .toList());
+        } else {
+            supplierMaterialService.replaceMaterials(id, request.materialIds());
+        }
         return ResponseEntity.noContent().build();
     }
 
@@ -161,12 +175,18 @@ public class SupplierController {
                 domain.getStatus());
     }
 
-    private SupplierMaterialDto toSupplierMaterialDto(Material material) {
+    private SupplierMaterialDto toSupplierMaterialDto(UUID supplierId, Material material) {
+        var rule = supplierMaterialService.findRule(supplierId, material.getId()).orElse(null);
         return new SupplierMaterialDto(
                 material.getId(),
                 material.getMaterialCode(),
                 material.getDescription(),
-                material.getMaterialType());
+                material.getMaterialType(),
+                rule != null ? rule.minimumOrderQuantity() : null,
+                rule != null ? rule.orderMultiple() : null,
+                rule != null ? rule.unitsPerHandlingUnit() : null,
+                rule != null ? rule.leadTimeDays() : null,
+                rule != null && rule.preferred());
     }
 
     public record SupplierDto(
@@ -187,7 +207,12 @@ public class SupplierController {
             UUID id,
             String materialCode,
             String description,
-            String materialType) {
+            String materialType,
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            Boolean preferred) {
     }
 
     public record PagedSupplierResponse(
@@ -199,7 +224,17 @@ public class SupplierController {
     }
 
     public record ReplaceSupplierMaterialsRequest(
-            List<UUID> materialIds) {
+            List<UUID> materialIds,
+            List<SupplierMaterialRuleRequest> materialRules) {
+    }
+
+    public record SupplierMaterialRuleRequest(
+            UUID materialId,
+            BigDecimal minimumOrderQuantity,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            Boolean preferred) {
     }
 
     private String sanitizeSortBy(String sortBy) {

@@ -296,7 +296,13 @@ export default function OutboundOrderDetailPage() {
                             </div>
                           </td>
                           <td>
-                            <div className="text-sm">{item.locationCode || "N/A"}</div>
+                            {item.locationCode ? (
+                              <div className="text-sm">{item.locationCode}</div>
+                            ) : (
+                              <div className="text-xs text-base-content/60">
+                                Assigned during picking
+                              </div>
+                            )}
                           </td>
                           <td>
                             <div className="font-semibold">{item.quantity}</div>

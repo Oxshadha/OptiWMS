@@ -20,7 +20,7 @@ const allNavItems = [
     icon: "warehouse",
     subItems: [
       { href: "/admin/warehouses", label: "Warehouse Layout" },
-      { href: "/pathfinding", label: "Route Optimizer" },
+      { href: "/admin/pathfinding", label: "Pathfinding Lab" },
     ],
   },
   {
@@ -45,9 +45,10 @@ const allNavItems = [
     label: "Intelligent Engine",
     icon: "psychology",
     subItems: [
-      { href: "/admin/replenishment", label: "Engine Hub" },
-      { href: "/admin/slotting-plans", label: "Quarterly Slotting" },
-      { href: "/admin/ai-slotting", label: "Storage Optimiser" },
+      { href: "/admin/replenishment", label: "Action Center" },
+      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner" },
+      { href: "/admin/slotting-plans", label: "Slotting Planner" },
+      { href: "/admin/ai-slotting", label: "Advanced Solver Lab" },
     ],
   },
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
@@ -82,6 +83,7 @@ const allNavItems = [
   { href: "/admin/customers", label: "Customers", icon: "people" },
   { href: "/admin/sops", label: "SOPs", icon: "description" },
   { href: "/admin/reports", label: "Export Reports", icon: "description" },
+  { href: "/admin/data-quality", label: "Data Quality", icon: "rule_settings" },
 ];
 
 /**
@@ -178,6 +180,12 @@ export function Sidebar({
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
       return ["/admin/orders"];
+    }
+    if (
+      pathname.startsWith("/admin/warehouses") ||
+      pathname.startsWith("/admin/pathfinding")
+    ) {
+      return ["/admin/warehouses"];
     }
     // Auto-expand Team if on workers or admins page
     if (
