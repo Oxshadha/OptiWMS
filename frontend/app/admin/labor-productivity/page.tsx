@@ -6,6 +6,7 @@ import { useAdmin } from "@/contexts/AdminContext";
 import { ADMIN_ROUTES } from "@/lib/admin-roles";
 import {
   analyticsApi,
+  type AnalyticsPeriod,
   WorkerProductivityMetrics,
   LeaderboardEntry,
 } from "@/lib/api/analytics";
@@ -19,9 +20,7 @@ export default function LaborProductivityPage() {
   const { hasPermission } = useAdmin();
   const canView = hasPermission(ADMIN_ROUTES.LABOR_PRODUCTIVITY, "view");
 
-  const [selectedPeriod, setSelectedPeriod] = useState<"weekly" | "monthly">(
-    "monthly",
-  );
+  const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsPeriod>("current_month");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -54,10 +53,14 @@ export default function LaborProductivityPage() {
   }, [selectedPeriod]);
 
   // Extract data with defaults
-  const productivityMetrics: WorkerProductivityMetrics[] =
-    productivityQuery.data?.productivityMetrics || [];
-  const leaderboard: LeaderboardEntry[] =
-    productivityQuery.data?.leaderboard || [];
+  const productivityMetrics: WorkerProductivityMetrics[] = useMemo(
+    () => productivityQuery.data?.productivityMetrics || [],
+    [productivityQuery.data?.productivityMetrics],
+  );
+  const leaderboard: LeaderboardEntry[] = useMemo(
+    () => productivityQuery.data?.leaderboard || [],
+    [productivityQuery.data?.leaderboard],
+  );
   const error =
     productivityQuery.error instanceof Error
       ? productivityQuery.error.message
@@ -113,7 +116,7 @@ export default function LaborProductivityPage() {
       <div className="flex items-center justify-center h-64">
         <div className="text-center">
           <p className="text-lg text-base-content/60">
-            You don't have permission to view this page.
+            You do not have permission to view this page.
           </p>
         </div>
       </div>
@@ -160,16 +163,32 @@ export default function LaborProductivityPage() {
             className="select select-bordered select-sm"
             value={selectedPeriod}
             onChange={(e) =>
-              setSelectedPeriod(e.target.value as "weekly" | "monthly")
+              setSelectedPeriod(e.target.value as AnalyticsPeriod)
             }
             disabled={productivityQuery.isFetching && !productivityQuery.data}
           >
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
+            <option value="current_month">Current month</option>
+            <option value="last_90_days">Last 90 days</option>
+            <option value="all">All available data</option>
           </select>
         </div>
       </div>
-        {/* Summary Cards */}
+      {productivityMetrics.length === 0 && (
+        <div className="alert alert-info">
+          <span className="material-symbols-outlined">info</span>
+          <div className="flex-1">
+            <div className="font-semibold">No worker events in selected period.</div>
+            <div className="text-sm">Use all available data to inspect older completed worker activity.</div>
+          </div>
+          {selectedPeriod !== "all" && (
+            <button className="btn btn-sm btn-outline" onClick={() => setSelectedPeriod("all")}>
+              Show latest available worker activity
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Summary Cards */}
         <SummaryCards
           cards={[
             {
@@ -278,7 +297,7 @@ export default function LaborProductivityPage() {
                       colSpan={7}
                       className="text-center py-8 text-base-content/60"
                     >
-                      No productivity data found for the selected period.
+                      No worker events in selected period.
                     </td>
                   </tr>
                 )}

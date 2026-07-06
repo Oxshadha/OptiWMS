@@ -81,12 +81,25 @@ public class LocationSuggestionService {
                         && Boolean.TRUE.equals(location.getIsActive())
                         && isRackStatusPutawayAllowed(location.getRackStatus())
                         && ("storage".equals(location.getLocationType()) || "STORAGE".equals(location.getZoneType()))) {
-                        logger.info("Using default location from catalog: {}", defaultLoc.getLocationCode());
-                        return new LocationSuggestion(
-                            defaultLoc.getLocationCode(),
-                            "Default location from material catalog",
-                            false
-                        );
+                        PutawayCapacityPlanningService.SplitPlanResult splitPlan =
+                                putawayCapacityPlanningService.suggestSplitPlan(
+                                        warehouseId,
+                                        materialId,
+                                        quantity != null ? quantity : 1,
+                                        defaultLoc.getLocationCode());
+                        if (!splitPlan.allocations().isEmpty()) {
+                            PutawayCapacityPlanningService.SplitPlanLine firstLine = splitPlan.allocations().get(0);
+                            logger.info("Using capacity-checked default location from catalog: {}", firstLine.locationCode());
+                            return new LocationSuggestion(
+                                    firstLine.locationCode(),
+                                    splitPlan.feasible()
+                                            ? "Default location from material catalog with capacity check"
+                                            : "Partial default-location split plan; review remaining quantity",
+                                    false
+                            );
+                        }
+                        logger.warn("Default location {} has no capacity for material {}; falling back",
+                                defaultLoc.getLocationCode(), materialId);
                     }
                 } catch (Exception e) {
                     logger.warn("Default location {} is invalid, falling back: {}", defaultLoc.getLocationCode(), e.getMessage());

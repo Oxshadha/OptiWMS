@@ -202,6 +202,12 @@ export function PutawayOrderWorkflow({
             <WorkerRouteGuide
               warehouseId={warehouseId}
               targetLocationCode={scannedLocation || currentItem.suggestedLocation}
+              targetLocationCodes={putawayItems
+                .filter((item) => !putawayProgress.get(item.itemId))
+                .map((item) => item.itemId === currentItem.itemId ? scannedLocation || item.suggestedLocation : item.suggestedLocation)}
+              completedLocationCodes={putawayItems
+                .filter((item) => putawayProgress.get(item.itemId))
+                .map((item) => item.suggestedLocation)}
               operationType="putaway"
             />
           </div>

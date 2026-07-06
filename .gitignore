@@ -116,6 +116,7 @@ docs/SRS_OptiWMS_Industry_v2.md
 *.tmp
 *.temp
 .cache/
+tmp/
 
 # OS files
 Thumbs.db

@@ -47,6 +47,9 @@ const validateMaterialForm = (formData: {
   volumeCm3: string;
   palletSpaces: string;
   maxPalletWeightKg: string;
+  minOrderQuantity: string;
+  unitsPerHandlingUnit: string;
+  orderMultiple: string;
 }) => {
   if (!formData.materialCode.trim() || !formData.description.trim()) {
     return "Product code and description are required";
@@ -65,6 +68,9 @@ const validateMaterialForm = (formData: {
 
   const volumeCm3 = parsePositive(formData.volumeCm3);
   if (isInvalidPositiveInput(formData.volumeCm3)) return "Carton volume (cm3) must be greater than 0";
+  if (isInvalidPositiveInput(formData.minOrderQuantity)) return "Minimum order quantity must be greater than 0";
+  if (isInvalidPositiveInput(formData.unitsPerHandlingUnit)) return "Units per handling unit must be greater than 0";
+  if (isInvalidPositiveInput(formData.orderMultiple)) return "Order multiple must be greater than 0";
   const hasCompleteDims = lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined;
   if (volumeCm3 === undefined && !hasCompleteDims) {
     return "Provide carton volume (cm3) or complete dimensions (L/W/H)";
@@ -109,6 +115,9 @@ export function CreateMaterialModal({
     volumeCm3: "",
     palletSpaces: "",
     maxPalletWeightKg: "",
+    minOrderQuantity: "",
+    unitsPerHandlingUnit: "",
+    orderMultiple: "",
   });
 
   const handleSubmit = async (e: FormEvent) => {
@@ -141,6 +150,10 @@ export function CreateMaterialModal({
       volumeCm3,
       palletSpaces: parsePositive(formData.palletSpaces),
       maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
+      minOrderQuantity: parsePositive(formData.minOrderQuantity),
+      handlingUnitType: formData.unitType || undefined,
+      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit) ?? parsePositive(formData.palletSpaces),
+      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.palletSpaces),
     });
   };
 
@@ -238,7 +251,7 @@ export function CreateMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Units Per Carton</span>
+              <span className="label-text font-medium">Units Per Handling Unit</span>
               {formData.storageType === "pallet" && <span className="label-text-alt text-error">Required</span>}
             </label>
             <input
@@ -249,6 +262,36 @@ export function CreateMaterialModal({
               placeholder="e.g., 50"
               value={formData.palletSpaces}
               onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Minimum Order Quantity</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 150"
+              value={formData.minOrderQuantity}
+              onChange={(e) => setFormData({ ...formData, minOrderQuantity: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Order Multiple</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              className="input input-bordered"
+              placeholder="e.g., 150"
+              value={formData.orderMultiple}
+              onChange={(e) => setFormData({ ...formData, orderMultiple: e.target.value })}
               disabled={isLoading}
             />
           </div>
@@ -394,6 +437,9 @@ export function EditMaterialModal({
     palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
     maxPalletWeightKg:
       material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
+    minOrderQuantity: material.minOrderQuantity != null ? String(material.minOrderQuantity) : "",
+    unitsPerHandlingUnit: material.unitsPerHandlingUnit != null ? String(material.unitsPerHandlingUnit) : "",
+    orderMultiple: material.orderMultiple != null ? String(material.orderMultiple) : "",
   });
 
   useEffect(() => {
@@ -411,6 +457,9 @@ export function EditMaterialModal({
       palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
       maxPalletWeightKg:
         material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
+      minOrderQuantity: material.minOrderQuantity != null ? String(material.minOrderQuantity) : "",
+      unitsPerHandlingUnit: material.unitsPerHandlingUnit != null ? String(material.unitsPerHandlingUnit) : "",
+      orderMultiple: material.orderMultiple != null ? String(material.orderMultiple) : "",
     });
   }, [material]);
 
@@ -444,6 +493,10 @@ export function EditMaterialModal({
       volumeCm3,
       palletSpaces: parsePositive(formData.palletSpaces),
       maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
+      minOrderQuantity: parsePositive(formData.minOrderQuantity),
+      handlingUnitType: formData.unitType || undefined,
+      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit) ?? parsePositive(formData.palletSpaces),
+      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.palletSpaces),
     });
   };
 
@@ -541,7 +594,7 @@ export function EditMaterialModal({
         <div className="grid grid-cols-2 gap-4">
           <div className="form-control">
             <label className="label">
-              <span className="label-text font-medium">Units Per Carton</span>
+              <span className="label-text font-medium">Units Per Handling Unit</span>
             </label>
             <input
               type="number"
@@ -550,6 +603,34 @@ export function EditMaterialModal({
               className="input input-bordered"
               value={formData.palletSpaces}
               onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Minimum Order Quantity</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              className="input input-bordered"
+              value={formData.minOrderQuantity}
+              onChange={(e) => setFormData({ ...formData, minOrderQuantity: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Order Multiple</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              className="input input-bordered"
+              value={formData.orderMultiple}
+              onChange={(e) => setFormData({ ...formData, orderMultiple: e.target.value })}
               disabled={isLoading}
             />
           </div>

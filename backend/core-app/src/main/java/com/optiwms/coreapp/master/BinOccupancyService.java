@@ -44,13 +44,10 @@ public class BinOccupancyService {
                 .toList();
 
         List<InventoryItemEntity> inventory = inventoryRepository.findByWarehouseId(warehouseId);
-        Map<String, InventoryItemEntity> inventoryByCode = inventory.stream()
+        Map<String, List<InventoryItemEntity>> inventoryByCode = inventory.stream()
                 .filter(item -> item.getLocationCode() != null && !item.getLocationCode().isBlank())
                 .filter(item -> item.getQuantity() != null && item.getQuantity() > 0)
-                .collect(Collectors.toMap(
-                        InventoryItemEntity::getLocationCode,
-                        item -> item,
-                        (a, b) -> a));
+                .collect(Collectors.groupingBy(InventoryItemEntity::getLocationCode));
 
         Set<UUID> materialIds = inventory.stream()
                 .map(InventoryItemEntity::getMaterialId)
@@ -66,13 +63,30 @@ public class BinOccupancyService {
         List<BinOccupancyDto> bins = new ArrayList<>();
 
         for (LocationEntity location : storageLocations) {
-            InventoryItemEntity item = inventoryByCode.get(location.getLocationCode());
-            MaterialEntity material = item != null ? materials.get(item.getMaterialId()) : null;
-            int quantity = item != null && item.getQuantity() != null ? item.getQuantity() : 0;
-            int palletCount = capacityService.computePalletCount(quantity, material);
-            BigDecimal binWeightKg = capacityService.computeBinWeightKg(quantity, material);
-            BigDecimal palletWeightKg = material != null ? capacityService.resolvePalletWeightKg(material) : BigDecimal.ZERO;
-            BigDecimal unitsPerPallet = material != null ? capacityService.resolveUnitsPerPallet(material) : BigDecimal.ONE;
+            List<InventoryItemEntity> locationInventory = inventoryByCode.getOrDefault(location.getLocationCode(), List.of());
+            int quantity = 0;
+            int palletCount = 0;
+            BigDecimal binWeightKg = BigDecimal.ZERO;
+            BigDecimal palletWeightKg = BigDecimal.ZERO;
+            BigDecimal unitsPerPallet = BigDecimal.ONE;
+            String materialCode = null;
+
+            for (InventoryItemEntity item : locationInventory) {
+                MaterialEntity material = item != null ? materials.get(item.getMaterialId()) : null;
+                int itemQty = item != null && item.getQuantity() != null ? item.getQuantity() : 0;
+                quantity += itemQty;
+                palletCount += capacityService.computePalletCount(itemQty, material);
+                binWeightKg = binWeightKg.add(capacityService.computeBinWeightKg(itemQty, material));
+                if (material != null) {
+                    if (materialCode == null) {
+                        materialCode = material.getMaterialCode();
+                        palletWeightKg = capacityService.resolvePalletWeightKg(material);
+                        unitsPerPallet = capacityService.resolveUnitsPerPallet(material);
+                    } else if (!materialCode.equals(material.getMaterialCode())) {
+                        materialCode = "MIXED";
+                    }
+                }
+            }
 
             String rackLevelKey = capacityService.rackLevelKey(location);
             if (palletCount > 0) {
@@ -90,7 +104,7 @@ public class BinOccupancyService {
                     location.getLevelNumber(),
                     location.getBinPosition(),
                     quantity,
-                    material != null ? material.getMaterialCode() : null,
+                    materialCode,
                     unitsPerPallet,
                     palletCount,
                     binWeightKg.setScale(2, RoundingMode.HALF_UP),

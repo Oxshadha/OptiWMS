@@ -21,7 +21,14 @@ export function RackElevationView({
   onBinClick,
   onEdit,
 }: RackElevationViewProps) {
-  const POSITIONS: Array<"A" | "B"> = ["A", "B"];
+  const positions = Array.from(
+    new Set(
+      rack.bins
+        .map((bin) => (bin.id.split("-").pop() || "").toUpperCase())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
+  const visiblePositions = positions.length > 0 ? positions : ["A", "B"];
 
   const getBinOccupancy = (bin: LocationBin): number => binPalletFillPercent(bin);
 
@@ -98,7 +105,7 @@ export function RackElevationView({
   };
 
   const allLevels = Array.from({ length: rack.maxLevels }, (_, idx) => rack.maxLevels - idx);
-  const binForLevelPosition = (level: number, position: "A" | "B"): LocationBin => {
+  const binForLevelPosition = (level: number, position: string): LocationBin => {
     const found = rack.bins.find(
       (b) =>
         b.level === level &&
@@ -210,8 +217,11 @@ export function RackElevationView({
                       />
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2">
-                    {POSITIONS.map((position) => {
+                  <div
+                    className="grid gap-2"
+                    style={{ gridTemplateColumns: `repeat(${visiblePositions.length}, minmax(0, 1fr))` }}
+                  >
+                    {visiblePositions.map((position) => {
                       const displayBin = binForLevelPosition(level, position);
                       const isSpecial =
                         !displayBin.inventory &&
@@ -301,7 +311,7 @@ export function RackElevationView({
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-base-content">
-              {Math.max(rack.maxLevels * 2 - rack.bins.filter((b) => b.status === "occupied" || b.inventory).length, 0)}
+              {Math.max(rack.maxLevels * visiblePositions.length - rack.bins.filter((b) => b.status === "occupied" || b.inventory).length, 0)}
             </div>
             <div className="text-xs text-base-content/70">Empty</div>
           </div>

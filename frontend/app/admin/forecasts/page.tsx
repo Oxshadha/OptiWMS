@@ -787,7 +787,7 @@ export default function ForecastsPage() {
 
   const avgMape = useMemo(() => {
     const values = filteredMetrics
-      .map((m) => m.MAPE ?? (m.WAPE !== undefined ? m.WAPE * 100 : null))
+      .map((m) => (m.WAPE !== undefined ? m.WAPE * 100 : null))
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) {
       return null;
@@ -1911,11 +1911,11 @@ export default function ForecastsPage() {
                   {finalForecastData.slice(-6).map((row, i) => (
                     <tr key={i} className="hover">
                       <td className="font-semibold font-mono text-primary text-xs">{row.label}</td>
-                      <td className="text-right font-bold">{row.forecast.toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{row.lower.toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{row.upper.toLocaleString()}</td>
-                      <td className="text-right text-accent font-semibold">{row.trend.toLocaleString()}</td>
-                      <td className="text-right text-warning font-semibold">±{Math.round((row.upper - row.lower) / 2).toLocaleString()}</td>
+                      <td className="text-right font-bold">{(row.forecast ?? 0).toLocaleString()}</td>
+                      <td className="text-right text-base-content/75">{(row.lower ?? 0).toLocaleString()}</td>
+                      <td className="text-right text-base-content/75">{(row.upper ?? 0).toLocaleString()}</td>
+                      <td className="text-right text-accent font-semibold">{(row.trend ?? 0).toLocaleString()}</td>
+                      <td className="text-right text-warning font-semibold">±{Math.round(((row.upper ?? 0) - (row.lower ?? 0)) / 2).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>
