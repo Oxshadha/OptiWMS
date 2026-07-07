@@ -7,6 +7,79 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
 import { logger } from "@/lib/utils/logger";
 
+function TypewriterText({ 
+  text, 
+  speed = 50, 
+  delay = 0, 
+  hideCursorWhenDone = false 
+}: { 
+  text: string, 
+  speed?: number, 
+  delay?: number, 
+  hideCursorWhenDone?: boolean 
+}) {
+  const [displayedText, setDisplayedText] = useState("");
+  const [phase, setPhase] = useState<"waiting" | "typing" | "done">("waiting");
+  
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    const timeout = setTimeout(() => {
+      setPhase("typing");
+      let i = 0;
+      interval = setInterval(() => {
+        if (i <= text.length) {
+          setDisplayedText(text.substring(0, i));
+          i++;
+        } else {
+          clearInterval(interval);
+          setPhase("done");
+        }
+      }, speed);
+    }, delay);
+    
+    return () => {
+      clearTimeout(timeout);
+      clearInterval(interval);
+    };
+  }, [text, speed, delay]);
+
+  return (
+    <span>
+      {displayedText}
+      {(!hideCursorWhenDone || phase !== "done") && (
+        <span className={`text-primary font-light ml-1 ${phase === "done" ? "animate-pulse" : ""}`}>|</span>
+      )}
+    </span>
+  );
+}
+
+function AnimatedHeroText() {
+  const [key, setKey] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setKey(prev => prev + 1);
+    }, 10000); // Loop every 10 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div key={key} className="flex flex-col items-center">
+      <h1 className="text-4xl font-bold mb-4 tracking-tight min-h-[40px]">
+        <TypewriterText text="Intelligent Warehouse Management" speed={50} delay={0} hideCursorWhenDone={true} />
+      </h1>
+      <p className="text-xl text-neutral-content/80 max-w-lg mx-auto min-h-[84px]">
+        <TypewriterText 
+          text="Optimize your supply chain, empower your workforce, and deliver with unparalleled precision." 
+          speed={30} 
+          delay={2000} 
+        />
+      </p>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { login, user, isAdmin, refreshAuth } = useAuth();
@@ -159,50 +232,91 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-base-200 flex items-center justify-center p-4">
-      <div className="card bg-base-100 shadow-xl w-full max-w-md">
-        <div className="card-body">
-          <div className="flex justify-center mb-6">
-            <Image
-              src="/assets/logos/OptiWMS Logo.png?v=5"
-              alt="OptiWMS Logo"
-              width={240}
-              height={80}
-              className="object-contain h-16 w-auto"
-              priority
-            />
+    <div className="min-h-screen flex bg-base-100">
+      {/* Left side - Branding (Dark Theme) */}
+      <div className="hidden lg:flex lg:w-1/2 bg-neutral text-neutral-content flex-col justify-center items-center p-12 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-20 pointer-events-none">
+          {/* Subtle background glow effects */}
+          <div className="absolute top-[-10%] right-[-10%] w-[40rem] h-[40rem] bg-primary rounded-full blur-[100px]"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[40rem] h-[40rem] bg-secondary rounded-full blur-[100px]"></div>
+        </div>
+        
+        <div className="relative z-10 flex flex-col items-center text-center w-full px-8">
+          <Image
+            src="/assets/logos/OptiWMS Logo.png?v=5"
+            alt="OptiWMS Logo"
+            width={600}
+            height={240}
+            className="object-contain h-48 w-auto mb-12 drop-shadow-2xl scale-125 hover:scale-[1.3] transition-transform duration-500"
+            priority
+          />
+          <AnimatedHeroText />
+        </div>
+      </div>
+
+      {/* Right side - Login Form (Light Theme) */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 lg:p-16">
+        <div className="w-full max-w-md">
+          {/* Mobile Logo with dark background for visibility */}
+          <div className="lg:hidden flex justify-center mb-10">
+            <div className="bg-neutral w-36 h-36 rounded-[2rem] shadow-2xl hover:scale-105 transition-transform duration-300 flex items-center justify-center">
+              <Image
+                src="/assets/logos/OptiWMS Logo.png?v=5"
+                alt="OptiWMS Logo"
+                width={200}
+                height={100}
+                className="object-contain w-[85%] h-auto"
+                priority
+              />
+            </div>
           </div>
-          <h2 className="text-2xl font-bold text-center mb-6">Admin Login</h2>
+
+          <div className="mb-10 text-center lg:text-left">
+            <h2 className="text-3xl font-bold mb-2 text-base-content tracking-tight">Welcome Back</h2>
+            <p className="text-base-content/60 text-lg">Sign in to access your administrative workspace.</p>
+          </div>
 
           {error && (
-            <div className="alert alert-error mb-4">
+            <div className="alert alert-error mb-6 shadow-sm rounded-xl">
+              <span className="material-symbols-outlined">error</span>
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="form-control">
-              <label className="label">
-                <span className="label-text">Email</span>
-              </label>
-              <input
-                type="email"
-                className="input input-bordered w-full"
-                value={formData.email}
-                onChange={(e) =>
-                  setFormData({ ...formData, email: e.target.value })
-                }
-                required
-              />
-            </div>
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text">Password</span>
+              <label className="label pb-2">
+                <span className="label-text font-medium text-base-content/80">Email Address</span>
               </label>
               <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-base-content/40">
+                  <span className="material-symbols-outlined text-xl">mail</span>
+                </div>
+                <input
+                  type="email"
+                  className="input input-bordered w-full pl-12 bg-base-100 hover:border-primary focus:border-primary transition-colors h-14 rounded-xl"
+                  placeholder="Enter your email"
+                  value={formData.email}
+                  onChange={(e) =>
+                    setFormData({ ...formData, email: e.target.value })
+                  }
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="form-control">
+              <label className="label pb-2">
+                <span className="label-text font-medium text-base-content/80">Password</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-base-content/40">
+                  <span className="material-symbols-outlined text-xl">lock</span>
+                </div>
                 <input
                   type={showPassword ? "text" : "password"}
-                  className="input input-bordered w-full pr-12"
+                  className="input input-bordered w-full pl-12 pr-12 bg-base-100 hover:border-primary focus:border-primary transition-colors h-14 rounded-xl"
+                  placeholder="Enter your password"
                   value={formData.password}
                   onChange={(e) =>
                     setFormData({ ...formData, password: e.target.value })
@@ -211,30 +325,47 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                  className="btn btn-ghost btn-circle btn-sm absolute right-2 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
                   onClick={() => setShowPassword((prev) => !prev)}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   title={showPassword ? "Hide password" : "Show password"}
                 >
-                  <span className="material-symbols-outlined text-base">
+                  <span className="material-symbols-outlined text-xl">
                     {showPassword ? "visibility_off" : "visibility"}
                   </span>
                 </button>
               </div>
             </div>
-            <div className="form-control mt-6">
-              <button type="submit" className="btn btn-primary w-full" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <span className="loading loading-spinner loading-sm"></span>
-                    Logging in...
-                  </>
-                ) : (
-                  "Login"
-                )}
-              </button>
+            
+            <div className="flex items-center justify-between pb-2">
+              <label className="label cursor-pointer justify-start gap-3 p-0">
+                <input type="checkbox" className="checkbox checkbox-primary checkbox-sm rounded-md" />
+                <span className="label-text text-base-content/70">Remember me</span>
+              </label>
+              <a href="#" className="text-sm text-primary hover:text-primary-focus font-medium transition-colors">
+                Forgot Password?
+              </a>
             </div>
+
+            <button 
+              type="submit" 
+              className="btn btn-primary w-full h-14 rounded-xl text-lg font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all border-0" 
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <span className="loading loading-spinner loading-md"></span>
+                  Authenticating...
+                </>
+              ) : (
+                "Sign In to Dashboard"
+              )}
+            </button>
           </form>
+          
+          <div className="mt-12 text-center text-sm text-base-content/40">
+            &copy; {new Date().getFullYear()} OptiWMS Inc. All rights reserved.
+          </div>
         </div>
       </div>
     </div>
