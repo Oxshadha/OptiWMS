@@ -12,7 +12,7 @@ def test_ortools_plan_contract_when_solver_available():
     result = optimize_plan(
         PlanOptimizeRequest(
             warehouse_id="colombo-main",
-            relocation_budget_pct=50,
+            relocation_budget_pct=100,
             solver_engine="ortools",
             materials=[
                 PlanMaterialInput(
