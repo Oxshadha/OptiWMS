@@ -90,6 +90,18 @@ export interface PutawaySplitPlanRequest {
   preferredLocationCode?: string;
 }
 
+export interface PutawayBatchSplitPlanItemRequest {
+  itemIndex: number;
+  materialId: string;
+  quantity: number;
+  preferredLocationCode?: string;
+}
+
+export interface PutawayBatchSplitPlanRequest {
+  warehouseId: string;
+  items: PutawayBatchSplitPlanItemRequest[];
+}
+
 export interface PutawaySplitCapacitySnapshot {
   quantityUsed?: number | null;
   quantityCapacity?: number | null;
@@ -121,6 +133,18 @@ export interface PutawaySplitPlanResponse {
   availablePalletSlots?: number | null;
   unitsPerPallet?: string | null;
   allocations: PutawaySplitPlanLine[];
+  notes: string[];
+}
+
+export interface PutawayBatchSplitPlanLine {
+  itemIndex: number;
+  success: boolean;
+  error?: string | null;
+  plan: PutawaySplitPlanResponse;
+}
+
+export interface PutawayBatchSplitPlanResponse {
+  items: PutawayBatchSplitPlanLine[];
   notes: string[];
 }
 
@@ -289,6 +313,10 @@ export const operationsApi = {
 
   planPutawaySplit: async (request: PutawaySplitPlanRequest): Promise<PutawaySplitPlanResponse> => {
     return apiClient.post<PutawaySplitPlanResponse>('/operations/putaway/split-plan', request);
+  },
+
+  planPutawaySplitBatch: async (request: PutawayBatchSplitPlanRequest): Promise<PutawayBatchSplitPlanResponse> => {
+    return apiClient.post<PutawayBatchSplitPlanResponse>('/operations/putaway/split-plan/batch', request);
   },
 
   // Stock Transfer
