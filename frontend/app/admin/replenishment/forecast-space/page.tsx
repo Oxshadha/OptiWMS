@@ -15,14 +15,17 @@ const statusTone: Record<string, string> = {
   DATA_INSUFFICIENT: "badge-ghost",
   PENDING_APPROVAL: "badge-warning",
   APPROVED: "badge-success",
+  ROLLED_BACK: "badge-ghost",
   DRAFT: "badge-info",
 };
+
+type PolicyFilter = "all" | "review" | "safe" | "increase" | "reduce" | "gap";
 
 export default function ForecastSpacePage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehouseId, setWarehouseId] = useState("");
-  const [horizonMonths, setHorizonMonths] = useState(3);
-  const [materialType, setMaterialType] = useState<MaterialScope>("");
+  const [horizonMonths, setHorizonMonths] = useState(6);
+  const [materialType, setMaterialType] = useState<MaterialScope>("raw_material");
   const [readiness, setReadiness] = useState<ForecastSpaceReadiness | null>(null);
   const [policyRuns, setPolicyRuns] = useState<PolicyRecommendationRun[]>([]);
   const [policyLines, setPolicyLines] = useState<PolicyRecommendationLine[]>([]);
@@ -33,6 +36,10 @@ export default function ForecastSpacePage() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [approvalOpen, setApprovalOpen] = useState(false);
+  const [policyFilter, setPolicyFilter] = useState<PolicyFilter>("all");
+  const [policyPage, setPolicyPage] = useState(1);
+  const [spacePage, setSpacePage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,8 +47,10 @@ export default function ForecastSpacePage() {
       try {
         const result = await warehousesApi.getAll();
         if (cancelled) return;
-        setWarehouses(result);
-        if (!warehouseId && result[0]) setWarehouseId(result[0].id);
+        const scoped = result.filter((warehouse) => warehouse.name.toLowerCase().includes("colombo"));
+        const visible = scoped.length ? scoped : result;
+        setWarehouses(visible);
+        if (!warehouseId && visible[0]) setWarehouseId(visible[0].id);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load warehouses");
       }
@@ -109,6 +118,11 @@ export default function ForecastSpacePage() {
     const reviewCount = policyLines.filter((line) => ["HIGH_RISK_REVIEW", "INFEASIBLE", "DATA_INSUFFICIENT"].includes(line.recommendationStatus)).length;
     return { reduceCount, increaseCount, reviewCount };
   }, [policyLines]);
+
+  const safePolicyCount = useMemo(
+    () => policyLines.filter((line) => line.confidenceScore >= 90 && line.recommendationStatus !== "DATA_INSUFFICIENT").length,
+    [policyLines]
+  );
 
   async function refresh() {
     if (!warehouseId) return;
@@ -199,6 +213,22 @@ export default function ForecastSpacePage() {
     }
   }
 
+  async function rollbackPolicyRun() {
+    const runId = selectedPolicyRun?.id;
+    if (!runId) return;
+    try {
+      setBusyAction("rollback-policy");
+      setError(null);
+      await forecastSpaceApi.rollbackPolicyRun(runId, { rolledBackBy: "warehouse-manager-ui" });
+      await refresh();
+      setSelectedPolicyRunId(runId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to rollback stock rules");
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   async function approveSpaceRun() {
     const runId = selectedSpaceRun?.id;
     if (!runId) return;
@@ -221,7 +251,7 @@ export default function ForecastSpacePage() {
         <div>
           <h1 className="text-3xl font-bold text-base-content">Inventory Policy & Space Planner</h1>
           <p className="text-sm text-base-content/60 mt-2 max-w-4xl">
-            Inventory policy recommendations and storage impact review under forecast, MOQ, lead-time, expiry, capacity, and compatibility constraints.
+            Colombo Main RM stock and space planning using the 12-month operational forecast, supplier rules, expiry, capacity, and location compatibility.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
@@ -247,8 +277,8 @@ export default function ForecastSpacePage() {
             <select className="select select-bordered select-sm" value={materialType} onChange={(e) => setMaterialType(e.target.value as MaterialScope)}>
               <option value="">All materials</option>
               <option value="raw_material">Raw materials</option>
-              <option value="packaging_material">Packaging materials</option>
-              <option value="product">Finished goods</option>
+              <option value="packaging_material" disabled>Packaging materials</option>
+              <option value="product" disabled>Finished goods</option>
             </select>
           </label>
           <button className="btn btn-sm btn-outline" onClick={refresh} disabled={loading || !warehouseId}>
@@ -268,8 +298,8 @@ export default function ForecastSpacePage() {
 
       <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <MetricCard label="Readiness" value={loading ? "..." : readiness?.ready ? "Ready" : "Review"} detail={readiness ? `${readiness.forecastCoveragePct}% forecast · ${readiness.inventoryCoveragePct}% inventory` : "No warehouse selected"} tone={readiness?.ready ? "success" : "warning"} />
-        <MetricCard label="Policy stock delta" value={fmt(selectedPolicyRun?.totalStockDelta)} detail={`${policySummary.reduceCount} reduce · ${policySummary.increaseCount} increase`} />
-        <MetricCard label="Pallet position delta" value={fmt(selectedPolicyRun?.totalPalletPositionsDelta)} detail={selectedPolicyRun ? `${selectedPolicyRun.highRiskCount} high-risk · ${selectedPolicyRun.dataInsufficientCount} data gaps` : "No run generated"} />
+        <MetricCard label="Stock rule change" value={fmt(selectedPolicyRun?.totalStockDelta)} detail={`${policySummary.reduceCount} reduce · ${policySummary.increaseCount} increase`} />
+        <MetricCard label="Pallet position change" value={fmt(selectedPolicyRun?.totalPalletPositionsDelta)} detail={selectedPolicyRun ? `${selectedPolicyRun.highRiskCount} high-risk · ${selectedPolicyRun.dataInsufficientCount} data gaps` : "No run generated"} />
         <MetricCard label="Space impact" value={fmt(selectedSpaceRun?.totalSpaceSavedPalletPositions)} detail={selectedSpaceRun ? `${fmt(selectedSpaceRun.totalSpaceNeededPalletPositions)} needed · ${selectedSpaceRun.infeasibleCount} infeasible` : "No space run generated"} />
       </section>
 
@@ -295,7 +325,7 @@ export default function ForecastSpacePage() {
         <div className="xl:col-span-2 bg-base-100 border border-base-300 rounded-lg">
           <div className="p-4 border-b border-base-300 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="font-semibold">Inventory Policy Run</h2>
+              <h2 className="font-semibold">RM Stock Rule Recommendation</h2>
               <p className="text-xs text-base-content/60">{selectedPolicyRun ? `${selectedPolicyRun.status} · ${dateText(selectedPolicyRun.createdAt)}` : "Generate a run to calculate min, max, reorder point, and order quantity."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -307,15 +337,28 @@ export default function ForecastSpacePage() {
               </select>
               <button className="btn btn-sm btn-primary" onClick={createPolicyRun} disabled={!warehouseId || busyAction !== null}>
                 {busyAction === "policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">calculate</span>}
-                {busyAction === "policy" ? "Generating..." : "Generate Policy"}
+                {busyAction === "policy" ? "Generating..." : "Generate stock rules"}
               </button>
-              <button className="btn btn-sm btn-success" onClick={approvePolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction !== null}>
+              <button className="btn btn-sm btn-success" onClick={() => setApprovalOpen(true)} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction !== null}>
                 {busyAction === "approve-policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">done_all</span>}
-                Apply Min/Max
+                Approve stock rules
+              </button>
+              <button className="btn btn-sm btn-outline" onClick={rollbackPolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status !== "APPROVED" || busyAction !== null}>
+                {busyAction === "rollback-policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">undo</span>}
+                Rollback
               </button>
             </div>
           </div>
-          <PolicyLinesTable lines={policyLines} />
+          <PolicyLinesTable
+            lines={policyLines}
+            filter={policyFilter}
+            onFilterChange={(next) => {
+              setPolicyFilter(next);
+              setPolicyPage(1);
+            }}
+            page={policyPage}
+            onPageChange={setPolicyPage}
+          />
         </div>
 
         <div className="bg-base-100 border border-base-300 rounded-lg">
@@ -327,6 +370,7 @@ export default function ForecastSpacePage() {
             <RiskRow label="Need buffer reduction" value={policySummary.reduceCount} />
             <RiskRow label="Need stock increase" value={policySummary.increaseCount} />
             <RiskRow label="Require review" value={policySummary.reviewCount} danger />
+            <RiskRow label="High confidence" value={safePolicyCount} />
             <RiskRow label="Forecast coverage" value={readiness?.forecastCoveragePct ?? 0} suffix="%" />
             <RiskRow label="Pallet spec coverage" value={readiness?.palletSpecCoveragePct ?? 0} suffix="%" />
           </div>
@@ -337,7 +381,7 @@ export default function ForecastSpacePage() {
         <div className="p-4 border-b border-base-300 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h2 className="font-semibold">Space Optimization Run</h2>
-            <p className="text-xs text-base-content/60">{selectedSpaceRun ? `${selectedSpaceRun.algorithm} · ${selectedSpaceRun.status} · ${dateText(selectedSpaceRun.createdAt)}` : "Create after a policy run to map released and needed pallet positions."}</p>
+            <p className="text-xs text-base-content/60">{selectedSpaceRun ? `${engineLabel(selectedSpaceRun.algorithm)} · ${selectedSpaceRun.status} · ${dateText(selectedSpaceRun.createdAt)} · move cap ${selectedSpaceRun.relocationCapPct ?? (horizonMonths >= 6 ? 30 : 15)}%` : "Create after a policy run to map released and needed pallet positions."}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <select className="select select-bordered select-sm min-w-64" value={selectedSpaceRunId} onChange={(e) => setSelectedSpaceRunId(e.target.value)} disabled={!spaceRuns.length}>
@@ -348,7 +392,7 @@ export default function ForecastSpacePage() {
             </select>
             <button className="btn btn-sm btn-secondary" onClick={createSpaceRun} disabled={!selectedPolicyRun || busyAction !== null}>
               {busyAction === "space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">warehouse</span>}
-              {busyAction === "space" ? "Optimizing..." : "Optimize Space"}
+              {busyAction === "space" ? "Optimizing..." : "Run OR-Tools optimizer"}
             </button>
             <button className="btn btn-sm btn-success" onClick={approveSpaceRun} disabled={!selectedSpaceRun || selectedSpaceRun.status === "APPROVED" || busyAction !== null}>
               {busyAction === "approve-space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">playlist_add_check</span>}
@@ -356,8 +400,36 @@ export default function ForecastSpacePage() {
             </button>
           </div>
         </div>
-        <SpaceLinesTable lines={spaceLines} />
+        <SpaceLinesTable lines={spaceLines} page={spacePage} onPageChange={setSpacePage} />
       </section>
+      {approvalOpen && selectedPolicyRun && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-3xl">
+            <h3 className="font-bold text-lg">Approve RM stock rules?</h3>
+            <p className="text-sm text-base-content/70 mt-2">
+              This updates min stock, max stock, reorder point, buffer stock, order quantity, and pallet requirement for the selected run. A rollback snapshot will be kept.
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+              <MetricCard label="Reduce stock" value={String(policySummary.reduceCount)} detail="SKUs freeing buffer" />
+              <MetricCard label="Increase stock" value={String(policySummary.increaseCount)} detail="SKUs needing cover" />
+              <MetricCard label="Review lines" value={String(policySummary.reviewCount)} detail="Check before next step" tone={policySummary.reviewCount > 0 ? "warning" : "success"} />
+              <MetricCard label="High confidence" value={String(safePolicyCount)} detail="90% or above" tone="success" />
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost" onClick={() => setApprovalOpen(false)}>Cancel</button>
+              <button
+                className="btn btn-success"
+                onClick={async () => {
+                  setApprovalOpen(false);
+                  await approvePolicyRun();
+                }}
+              >
+                Approve stock rules
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -381,28 +453,81 @@ function RiskRow({ label, value, suffix = "", danger = false }: { label: string;
   );
 }
 
-function PolicyLinesTable({ lines }: { lines: PolicyRecommendationLine[] }) {
+function PolicyLinesTable({
+  lines,
+  filter,
+  onFilterChange,
+  page,
+  onPageChange,
+}: {
+  lines: PolicyRecommendationLine[];
+  filter: PolicyFilter;
+  onFilterChange: (filter: PolicyFilter) => void;
+  page: number;
+  onPageChange: (page: number) => void;
+}) {
+  const pageSize = 25;
+  const filtered = lines.filter((line) => {
+    if (filter === "review") return ["HIGH_RISK_REVIEW", "INFEASIBLE"].includes(line.recommendationStatus);
+    if (filter === "safe") return line.confidenceScore >= 90 && !["DATA_INSUFFICIENT", "INFEASIBLE"].includes(line.recommendationStatus);
+    if (filter === "increase") return (line.stockDelta ?? 0) > 0;
+    if (filter === "reduce") return (line.stockDelta ?? 0) < 0;
+    if (filter === "gap") return line.recommendationStatus === "DATA_INSUFFICIENT";
+    return true;
+  });
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
-    <div className="overflow-x-auto">
+    <div>
+      <div className="p-3 border-b border-base-300 flex flex-wrap items-center justify-between gap-2">
+        <div className="join">
+          {([
+            ["all", "All"],
+            ["review", "Needs review"],
+            ["safe", "High confidence"],
+            ["increase", "Increase"],
+            ["reduce", "Reduce"],
+            ["gap", "Data gaps"],
+          ] as [PolicyFilter, string][]).map(([value, label]) => (
+            <button
+              key={value}
+              className={clsx("btn btn-xs join-item", filter === value ? "btn-primary" : "btn-outline")}
+              onClick={() => onFilterChange(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="text-xs text-base-content/60">
+          Showing {visible.length} of {filtered.length} line(s)
+        </div>
+      </div>
+      <div className="overflow-x-auto max-h-[620px]">
       <table className="table table-sm">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-base-100 shadow-sm">
           <tr>
             <th>Material</th>
             <th className="text-right">Current</th>
-            <th className="text-right">Proposed max</th>
+            <th className="text-right">Recommended max</th>
             <th className="text-right">ROP</th>
             <th className="text-right">Order qty</th>
-            <th className="text-right">Stock delta</th>
-            <th className="text-right">Pallet delta</th>
+            <th className="text-right">Minimum order</th>
+            <th className="text-right">Multiple</th>
+            <th className="text-right">Units/pallet</th>
+            <th className="text-right">Lead time</th>
+            <th className="text-right">Stock change</th>
+            <th className="text-right">Pallet change</th>
+            <th className="text-right">Confidence</th>
             <th>Risk</th>
-            <th>Rationale</th>
+            <th>Why</th>
           </tr>
         </thead>
         <tbody>
           {lines.length === 0 && (
-            <tr><td colSpan={9} className="text-center text-base-content/50 py-8">No policy lines loaded.</td></tr>
+            <tr><td colSpan={14} className="text-center text-base-content/50 py-8">No stock-rule lines loaded.</td></tr>
           )}
-          {lines.slice(0, 25).map((line) => (
+          {visible.map((line) => (
             <tr key={line.id}>
               <td>
                 <div className="font-semibold">{line.materialCode}</div>
@@ -412,23 +537,55 @@ function PolicyLinesTable({ lines }: { lines: PolicyRecommendationLine[] }) {
               <td className="text-right">{fmt(line.proposedMaxStock)}</td>
               <td className="text-right">{fmt(line.proposedReorderPoint)}</td>
               <td className="text-right">{fmt(line.proposedOrderQty)}</td>
+              <td className="text-right">{fmt(line.moq)}</td>
+              <td className="text-right">{fmt(line.orderMultiple)}</td>
+              <td className="text-right">{fmt(line.unitsPerHandlingUnit)}</td>
+              <td className="text-right">{line.leadTimeDays ?? "-"}</td>
               <td className={clsx("text-right font-semibold", (line.stockDelta ?? 0) < 0 ? "text-success" : (line.stockDelta ?? 0) > 0 ? "text-warning" : "")}>{fmt(line.stockDelta)}</td>
               <td className="text-right">{fmt(line.palletPositionsDelta)}</td>
+              <td className="text-right"><ConfidenceBadge value={line.confidenceScore} /></td>
               <td><StatusBadge status={line.recommendationStatus} /></td>
-              <td className="min-w-72 max-w-xl text-xs text-base-content/70">{line.rationale ?? "-"}</td>
+              <td className="min-w-80 max-w-xl text-xs text-base-content/70">
+                <div>{line.rationale ?? "-"}</div>
+                <details className="mt-1">
+                  <summary className="cursor-pointer link link-primary">Formula inputs</summary>
+                  <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
+                    <span>Expected demand: {fmt(line.forecastP50)}</span>
+                    <span>High-demand case: {fmt(line.forecastP90)}</span>
+                    <span>Low-demand case: {fmt(line.forecastP10)}</span>
+                    <span>Expiry-safe max: {fmt(line.expiryLimitedMaxStock)}</span>
+                    <span>Before max: {fmt(line.currentMaxStock)}</span>
+                    <span>Before ROP: {fmt(line.currentReorderPoint)}</span>
+                  </div>
+                </details>
+              </td>
             </tr>
           ))}
+          {lines.length > 0 && visible.length === 0 && (
+            <tr><td colSpan={14} className="text-center text-base-content/50 py-8">No lines match this filter.</td></tr>
+          )}
         </tbody>
       </table>
+      </div>
+      <div className="p-3 border-t border-base-300 flex items-center justify-end gap-2">
+        <button className="btn btn-xs btn-outline" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>Previous</button>
+        <span className="text-xs text-base-content/60">Page {currentPage} / {pageCount}</span>
+        <button className="btn btn-xs btn-outline" disabled={currentPage >= pageCount} onClick={() => onPageChange(currentPage + 1)}>Next</button>
+      </div>
     </div>
   );
 }
 
-function SpaceLinesTable({ lines }: { lines: SpaceOptimizationLine[] }) {
+function SpaceLinesTable({ lines, page, onPageChange }: { lines: SpaceOptimizationLine[]; page: number; onPageChange: (page: number) => void }) {
+  const pageSize = 30;
+  const pageCount = Math.max(1, Math.ceil(lines.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visible = lines.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
-    <div className="overflow-x-auto">
+    <div>
+    <div className="overflow-x-auto max-h-[520px]">
       <table className="table table-sm">
-        <thead>
+        <thead className="sticky top-0 z-10 bg-base-100 shadow-sm">
           <tr>
             <th>Material</th>
             <th>Current pick</th>
@@ -445,7 +602,7 @@ function SpaceLinesTable({ lines }: { lines: SpaceOptimizationLine[] }) {
           {lines.length === 0 && (
             <tr><td colSpan={9} className="text-center text-base-content/50 py-8">No space lines loaded.</td></tr>
           )}
-          {lines.slice(0, 30).map((line) => (
+          {visible.map((line) => (
             <tr key={line.id}>
               <td>
                 <div className="font-semibold">{line.materialCode}</div>
@@ -464,11 +621,30 @@ function SpaceLinesTable({ lines }: { lines: SpaceOptimizationLine[] }) {
         </tbody>
       </table>
     </div>
+    <div className="p-3 border-t border-base-300 flex items-center justify-end gap-2">
+      <button className="btn btn-xs btn-outline" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>Previous</button>
+      <span className="text-xs text-base-content/60">Page {currentPage} / {pageCount}</span>
+      <button className="btn btn-xs btn-outline" disabled={currentPage >= pageCount} onClick={() => onPageChange(currentPage + 1)}>Next</button>
+    </div>
+    </div>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={clsx("badge badge-sm font-semibold whitespace-nowrap", statusTone[status] ?? "badge-ghost")}>{status.replaceAll("_", " ")}</span>;
+}
+
+function ConfidenceBadge({ value }: { value: number }) {
+  const tone = value >= 90 ? "badge-success" : value >= 75 ? "badge-warning" : value >= 60 ? "badge-info" : "badge-error";
+  const label = value >= 90 ? "High" : value >= 75 ? "Review" : value >= 60 ? "Caution" : "Gap";
+  return <span className={clsx("badge badge-sm whitespace-nowrap", tone)}>{label} {fmt(value)}%</span>;
+}
+
+function engineLabel(algorithm?: string | null) {
+  if (algorithm === "ORTOOLS_MILP_V1") return "OR-Tools MILP optimized";
+  if (algorithm === "JAVA_FEASIBLE_FALLBACK_V1") return "Fallback rule plan";
+  if (!algorithm || algorithm === "PENDING_OPTIMIZER") return "Optimizer pending";
+  return algorithm.replaceAll("_", " ");
 }
 
 function fmt(value: number | null | undefined) {
