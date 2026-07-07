@@ -144,7 +144,6 @@ export function IntelligentEngineHubStrip({ warehouseId: warehouseIdProp, compac
             >
               Slotting Planner
             </Link>
-            <Link href="/admin/ai-slotting" className="btn btn-sm btn-ghost">Advanced Solver Lab</Link>
           </div>
         </div>
       </div>}
