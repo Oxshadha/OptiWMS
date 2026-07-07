@@ -1,0 +1,15 @@
+{
+  "builder": "backend/scripts/build_colombo_rm_operational_plan_data.py",
+  "seed": 20260707,
+  "warehouse_name": "Colombo Main Warehouse",
+  "material_scope": "raw_material",
+  "output_dir": "Ai miroservices/modeling/outputs/colombo_rm_operational_demo",
+  "files": [
+    "forecast_results_colombo_rm.csv",
+    "material_issue_history_colombo_rm.csv",
+    "supplier_rules_colombo_rm.csv",
+    "inventory_batches_colombo_rm.csv",
+    "operation_events_colombo_rm.csv",
+    "quality_report.json"
+  ]
+}
