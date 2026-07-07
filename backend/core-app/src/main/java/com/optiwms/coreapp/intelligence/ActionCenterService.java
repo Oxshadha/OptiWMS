@@ -111,8 +111,8 @@ public class ActionCenterService {
 
         SolverGuidance solverGuidance = new SolverGuidance(
                 "Inbound orders use deterministic capacity feasibility checks only.",
-                "Forecast-to-space uses deterministic policy and compatibility rules for auditable manager decisions.",
-                "Slotting Planner uses heuristic allocation with optional MILP/knapsack pressure for 3/6-month or manager-triggered restructures.",
+                "Forecast-to-space uses auditable stock-rule math with MOQ, lead-time, expiry, and pallet-position impact.",
+                "Slotting Planner uses a deterministic MILP/knapsack optimizer with move caps for 3/6-month RM restructures.",
                 "Advanced Solver Lab exposes GA parameters for admin experimentation, not daily manager operation.");
 
         return new ActionCenterSummary(
