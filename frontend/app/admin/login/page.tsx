@@ -47,7 +47,7 @@ function TypewriterText({
   return (
     <span>
       {displayedText}
-      {(!hideCursorWhenDone || phase !== "done") && (
+      {phase !== "waiting" && (!hideCursorWhenDone || phase !== "done") && (
         <span className={`text-primary font-light ml-1 ${phase === "done" ? "animate-pulse" : ""}`}>|</span>
       )}
     </span>
