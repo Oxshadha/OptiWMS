@@ -11,7 +11,6 @@ import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi, type Material, type MaterialOrderingProfile } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
-import { materialDefaultLocationsApi } from "@/lib/api/materialDefaultLocations";
 import {
   AISlottingService,
   type SlottingRecommendationItemResponse,
@@ -221,6 +220,8 @@ export function CreateInboundOrderModal({
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<Map<number, CapacityPlan>>(new Map());
   const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, SlottingRecommendationItemResponse>>(new Map());
   const [profilesByMaterialId, setProfilesByMaterialId] = useState<Map<string, MaterialOrderingProfile>>(new Map());
+  const [capacityError, setCapacityError] = useState<string | null>(null);
+  const [lastCapacityCheckKey, setLastCapacityCheckKey] = useState("");
   const [formData, setFormData] = useState({
     supplierId: "",
     warehouseId: "",
@@ -230,12 +231,6 @@ export function CreateInboundOrderModal({
     items: [] as InboundItemForm[],
   });
   const [materialSearch, setMaterialSearch] = useState("");
-
-  const hasInfeasibleCapacity = formData.items.some((_, idx) => {
-    const plan = capacityPlansByItem.get(idx);
-    return Boolean(plan && !plan.feasible);
-  });
-  const hasIncompleteMeasurements = false;
 
   const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
   const materialProfileKey = useMemo(
@@ -253,6 +248,12 @@ export function CreateInboundOrderModal({
       .join("|"),
     [formData.items]
   );
+  const hasInfeasibleCapacity = formData.items.some((_, idx) => {
+    const plan = capacityPlansByItem.get(idx);
+    return Boolean(plan && !plan.feasible);
+  });
+  const capacityCheckCurrent = lastCapacityCheckKey === capacityCheckKey && capacityPlansByItem.size > 0;
+  const hasIncompleteMeasurements = false;
   const filteredMaterials = useMemo(() => {
     const query = materialSearch.trim().toLowerCase();
     if (!query) return materials.slice(0, 80);
@@ -323,105 +324,11 @@ export function CreateInboundOrderModal({
   }, [formData.supplierId]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function runCapacityCheck() {
-      if (step !== 3 || !formData.warehouseId || formData.items.length === 0) {
-        setCapacityPlansByItem(new Map());
-        setCapacityCheckLoading(false);
-        setCapacityProgress(null);
-        return;
-      }
-
-      const eligibleItems = formData.items
-        .map((item, idx) => ({ item, idx }))
-        .filter(({ item }) => item.productId && item.quantityOrdered > 0);
-
-      if (eligibleItems.length === 0) {
-        setCapacityPlansByItem(new Map());
-        setCapacityCheckLoading(false);
-        setCapacityProgress(null);
-        return;
-      }
-
-      setCapacityCheckLoading(true);
-      setCapacityPlansByItem(new Map());
-      setCapacityProgress({
-        total: eligibleItems.length,
-        completed: 0,
-        currentLabel: "Preparing storage capacity check...",
-      });
-      const resultMap = new Map<number, CapacityPlan>();
-
-      for (let position = 0; position < eligibleItems.length; position += 1) {
-        const { item, idx } = eligibleItems[position];
-        const materialLabel = materialById.get(item.productId)?.description || `item ${idx + 1}`;
-        if (cancelled) return;
-        setCapacityProgress({
-          total: eligibleItems.length,
-          completed: position,
-          currentLabel: `Checking storage for ${materialLabel}...`,
-        });
-
-        try {
-          let preferredLocationCode = item.locationCode || undefined;
-          if (!preferredLocationCode) {
-            try {
-              const defaults = await materialDefaultLocationsApi.getDefaultLocations(item.productId, formData.warehouseId);
-              preferredLocationCode = (defaults.find((d) => d.priority === 1) || defaults[0])?.locationCode;
-            } catch {
-              preferredLocationCode = undefined;
-            }
-          }
-
-          const plan = await operationsApi.planPutawaySplit({
-            warehouseId: formData.warehouseId,
-            materialId: item.productId,
-            quantity: item.quantityOrdered,
-            preferredLocationCode,
-          });
-          resultMap.set(idx, {
-            feasible: plan.feasible,
-            plannedQuantity: plan.plannedQuantity,
-            requestedQuantity: plan.requestedQuantity,
-            requiredPalletSlots: plan.requiredPalletSlots,
-            availablePalletSlots: plan.availablePalletSlots,
-            unitsPerPallet: plan.unitsPerPallet,
-            notes: plan.notes || [],
-          });
-        } catch (err) {
-          resultMap.set(idx, {
-            feasible: false,
-            plannedQuantity: 0,
-            requestedQuantity: item.quantityOrdered,
-            requiredPalletSlots: null,
-            availablePalletSlots: null,
-            unitsPerPallet: null,
-            notes: [err instanceof Error ? err.message : "Capacity check failed"],
-          });
-        }
-
-        if (cancelled) return;
-        setCapacityPlansByItem(new Map(resultMap));
-        setCapacityProgress({
-          total: eligibleItems.length,
-          completed: position + 1,
-          currentLabel: position + 1 === eligibleItems.length
-            ? "Finalizing capacity result..."
-            : "Continuing capacity checks...",
-        });
-      }
-
-      if (cancelled) return;
-      setCapacityPlansByItem(new Map(resultMap));
-      setCapacityCheckLoading(false);
-      setCapacityProgress(null);
-    }
-    void runCapacityCheck();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, formData.warehouseId, formData.items, capacityCheckKey, materialById]);
+    setCapacityPlansByItem(new Map());
+    setCapacityError(null);
+    setLastCapacityCheckKey("");
+    setCapacityProgress(null);
+  }, [capacityCheckKey, formData.warehouseId]);
 
   useEffect(() => {
     async function loadProfiles() {
@@ -523,6 +430,67 @@ export function CreateInboundOrderModal({
     }
     next[index] = merged;
     setFormData({ ...formData, items: next });
+  }
+
+  async function runCapacityCheck() {
+    if (!formData.warehouseId) {
+      setCapacityError("Select a warehouse before checking storage capacity.");
+      return;
+    }
+    const eligibleItems = formData.items
+      .map((item, idx) => ({ item, idx }))
+      .filter(({ item }) => item.productId && item.quantityOrdered > 0);
+    if (eligibleItems.length === 0) {
+      setCapacityError("Add at least one material with a positive rounded purchasing quantity.");
+      return;
+    }
+
+    setCapacityCheckLoading(true);
+    setCapacityError(null);
+    setCapacityPlansByItem(new Map());
+    setCapacityProgress({
+      total: eligibleItems.length,
+      completed: 0,
+      currentLabel: "Checking storage capacity for selected inbound items...",
+    });
+
+    try {
+      const response = await operationsApi.planPutawaySplitBatch({
+        warehouseId: formData.warehouseId,
+        items: eligibleItems.map(({ item, idx }) => ({
+          itemIndex: idx,
+          materialId: item.productId,
+          quantity: item.quantityOrdered,
+          preferredLocationCode: item.locationCode || undefined,
+        })),
+      });
+      const resultMap = new Map<number, CapacityPlan>();
+      response.items.forEach((line) => {
+        const plan = line.plan;
+        resultMap.set(line.itemIndex, {
+          feasible: Boolean(plan?.feasible),
+          plannedQuantity: plan?.plannedQuantity ?? 0,
+          requestedQuantity: plan?.requestedQuantity ?? 0,
+          requiredPalletSlots: plan?.requiredPalletSlots,
+          availablePalletSlots: plan?.availablePalletSlots,
+          unitsPerPallet: plan?.unitsPerPallet,
+          notes: line.error ? [line.error, ...(plan?.notes || [])] : (plan?.notes || []),
+        });
+      });
+      setCapacityPlansByItem(resultMap);
+      setLastCapacityCheckKey(capacityCheckKey);
+      setCapacityProgress({
+        total: eligibleItems.length,
+        completed: eligibleItems.length,
+        currentLabel: "Capacity check complete.",
+      });
+    } catch (err) {
+      logger.error("Failed to run batch capacity check:", err);
+      setCapacityError(err instanceof Error ? err.message : "Capacity check failed. Try again.");
+      setCapacityProgress(null);
+    } finally {
+      setCapacityCheckLoading(false);
+    }
   }
 
   function validateBeforeSubmit(items: InboundItemForm[]) {
@@ -669,12 +637,15 @@ export function CreateInboundOrderModal({
                       ) : (
                         <NumberControl label="Required units" value={item.requestedQuantity} min={1} onChange={(value) => updateItem(idx, { requestedQuantity: value })} />
                       )}
-                      <ReadOnlyInput label="Rounded order quantity" value={item.quantityOrdered > 0 ? `${item.quantityOrdered} units` : "Select quantity"} />
+                      <ReadOnlyInput label="Rounded purchasing quantity" value={item.quantityOrdered > 0 ? `${item.quantityOrdered} units` : "Select quantity"} />
                       {material && (
                         <div className="md:col-span-2 rounded-lg border border-base-300 bg-base-100 p-3 text-xs text-base-content/70">
                           <div className="font-semibold text-base-content mb-1">{material.materialCode} packaging</div>
+                          <div>Requested units: {item.quantityMode === "handling" ? item.handlingUnitCount * unitsPerHandlingUnit : item.requestedQuantity}</div>
+                          <div>Rounded purchasing quantity: {item.quantityOrdered || "-"}</div>
+                          <div>Rounded by minimum order, order multiple, and units per handling unit.</div>
                           <div>Handling unit: {handlingLabel} | Units/{handlingLabel}: {unitsPerHandlingUnit}</div>
-                          <div>MOQ: {profile?.effectiveMinimumOrderQuantity ?? material.minOrderQuantity ?? 1} | Order multiple: {profile?.effectiveOrderMultiple ?? material.orderMultiple ?? unitsPerHandlingUnit}</div>
+                          <div>Minimum order: {profile?.effectiveMinimumOrderQuantity ?? material.minOrderQuantity ?? 1} | Order multiple: {profile?.effectiveOrderMultiple ?? material.orderMultiple ?? unitsPerHandlingUnit}</div>
                           <div>Weight: {material.weightKg ?? "-"} kg | Size: {material.lengthCm ?? "-"} x {material.widthCm ?? "-"} x {material.heightCm ?? "-"} cm</div>
                         </div>
                       )}
@@ -699,6 +670,21 @@ export function CreateInboundOrderModal({
         {step === 3 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content">Capacity Review</h3>
+            <div className="rounded-lg border border-base-300 bg-base-200 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <div>
+                <div className="font-semibold text-base-content">Storage capacity check</div>
+                <div className="text-sm text-base-content/70">
+                  Run this after quantities are final. If you change material, quantity, or location, run it again.
+                </div>
+              </div>
+              <button className="btn btn-primary" onClick={() => void runCapacityCheck()} disabled={capacityCheckLoading}>
+                {capacityCheckLoading ? <><span className="loading loading-spinner loading-sm"></span>Checking...</> : capacityCheckCurrent ? "Recheck capacity" : "Check capacity"}
+              </button>
+            </div>
+            {capacityError && <div className="alert alert-error"><span>{capacityError}</span></div>}
+            {!capacityCheckCurrent && !capacityCheckLoading && (
+              <div className="alert alert-info"><span>Capacity has not been checked for the current item list.</span></div>
+            )}
             {capacityCheckLoading && capacityProgress && (
               <div className="rounded-lg border border-info/30 bg-info/10 p-3">
                 <div className="flex items-center justify-between gap-3 text-sm">
@@ -728,7 +714,7 @@ export function CreateInboundOrderModal({
                 );
               })}
             </div>
-            <ModalActions onBack={() => setStep(2)} onNext={() => setStep(4)} nextDisabled={capacityCheckLoading || hasInfeasibleCapacity} />
+            <ModalActions onBack={() => setStep(2)} onNext={() => setStep(4)} nextDisabled={capacityCheckLoading || !capacityCheckCurrent || hasInfeasibleCapacity} />
           </div>
         )}
 
