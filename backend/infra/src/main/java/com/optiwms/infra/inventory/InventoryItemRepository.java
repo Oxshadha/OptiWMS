@@ -32,8 +32,11 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
                 MAX(min_stock) AS minStock,
                 MAX(max_stock) AS maxStock,
                 MAX(reorder_point) AS reorderPoint,
+                MAX(buffer_stock) AS bufferStock,
                 MAX(moq) AS moq,
                 MAX(lead_time_days) AS leadTimeDays,
+                MAX(order_quantity) AS orderQuantity,
+                MAX(pallet_requirement) AS palletRequirement,
                 MIN(expiry_date) AS expiryDate
             FROM inventory
             WHERE warehouse_id = :warehouseId
@@ -49,8 +52,11 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
         BigDecimal getMinStock();
         BigDecimal getMaxStock();
         BigDecimal getReorderPoint();
+        BigDecimal getBufferStock();
         BigDecimal getMoq();
         Integer getLeadTimeDays();
+        BigDecimal getOrderQuantity();
+        BigDecimal getPalletRequirement();
         LocalDate getExpiryDate();
     }
 }

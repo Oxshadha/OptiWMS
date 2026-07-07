@@ -31,6 +31,15 @@ public class SpaceOptimizationRunEntity {
     private String status;
     @Column(name = "algorithm", nullable = false, length = 64)
     private String algorithm;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "optimizer_metadata", columnDefinition = "jsonb")
+    private String optimizerMetadata;
+    @Column(name = "relocation_cap_pct")
+    private BigDecimal relocationCapPct;
+    @Column(name = "relocation_cap_skus")
+    private Integer relocationCapSkus;
+    @Column(name = "objective_value")
+    private BigDecimal objectiveValue;
     @Column(name = "created_by", length = 128)
     private String createdBy;
     @Column(name = "approved_by", length = 128)
@@ -61,7 +70,7 @@ public class SpaceOptimizationRunEntity {
         updatedAt = now;
         if (horizonMonths == null) horizonMonths = 3;
         if (status == null) status = "DRAFT";
-        if (algorithm == null) algorithm = "FORECAST_SPACE_HEURISTIC_V1";
+        if (algorithm == null) algorithm = "MILP_KNAPSACK_V1";
         if (totalSpaceSavedPalletPositions == null) totalSpaceSavedPalletPositions = BigDecimal.ZERO;
         if (totalSpaceNeededPalletPositions == null) totalSpaceNeededPalletPositions = BigDecimal.ZERO;
         if (totalDistanceSavedMeters == null) totalDistanceSavedMeters = BigDecimal.ZERO;
@@ -84,6 +93,14 @@ public class SpaceOptimizationRunEntity {
     public void setStatus(String status) { this.status = status; }
     public String getAlgorithm() { return algorithm; }
     public void setAlgorithm(String algorithm) { this.algorithm = algorithm; }
+    public String getOptimizerMetadata() { return optimizerMetadata; }
+    public void setOptimizerMetadata(String optimizerMetadata) { this.optimizerMetadata = optimizerMetadata; }
+    public BigDecimal getRelocationCapPct() { return relocationCapPct; }
+    public void setRelocationCapPct(BigDecimal relocationCapPct) { this.relocationCapPct = relocationCapPct; }
+    public Integer getRelocationCapSkus() { return relocationCapSkus; }
+    public void setRelocationCapSkus(Integer relocationCapSkus) { this.relocationCapSkus = relocationCapSkus; }
+    public BigDecimal getObjectiveValue() { return objectiveValue; }
+    public void setObjectiveValue(BigDecimal objectiveValue) { this.objectiveValue = objectiveValue; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public String getApprovedBy() { return approvedBy; }
