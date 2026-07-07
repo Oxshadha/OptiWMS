@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ordersApi, type Order } from "@/lib/api/orders";
+import { ordersApi, type CanonicalOrderRepairResult, type Order } from "@/lib/api/orders";
 import { orderItemsApi } from "@/lib/api/orderItems";
 import { suppliersApi, type SupplierMaterial } from "@/lib/api/suppliers";
 import { materialsApi } from "@/lib/api/materials";
@@ -45,69 +45,71 @@ export default function DataQualityPage() {
   const [materialsMissingPackRules, setMaterialsMissingPackRules] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [repairResult, setRepairResult] = useState<CanonicalOrderRepairResult | null>(null);
+  const [repairLoading, setRepairLoading] = useState<"dry-run" | "apply" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [allOrders, materials, suppliers] = await Promise.all([
+        ordersApi.getAll(),
+        materialsApi.getAll(),
+        suppliersApi.getAll(),
+      ]);
+
+      const auditedOrders = await Promise.all(
+        allOrders.map(async (order) => {
+          try {
+            const items = await orderItemsApi.getByOrderId(order.id);
+            return { order, itemCount: items.length };
+          } catch (loadItemsError) {
+            logger.warn(`Failed to audit order items for ${order.orderNumber}`, loadItemsError);
+            return { order, itemCount: 0 };
+          }
+        })
+      );
+
+      const supplierRules = await Promise.all(
+        suppliers.map(async (supplier) => {
+          try {
+            const linkedMaterials = await suppliersApi.getMaterials(supplier.id);
+            return linkedMaterials
+              .filter(hasEmptyPurchasingRules)
+              .map((material) => ({
+                supplierName: supplier.name,
+                materialCode: material.materialCode,
+                description: material.description,
+              }));
+          } catch (loadSupplierError) {
+            logger.warn(`Failed to audit supplier rules for ${supplier.name}`, loadSupplierError);
+            return [];
+          }
+        })
+      );
+
+      setOrders(auditedOrders);
+      setRuleGaps(supplierRules.flat());
+      setMaterialsMissingPackRules(
+        materials.filter(
+          (material) =>
+            !material.handlingUnitType ||
+            !material.unitsPerHandlingUnit ||
+            !material.orderMultiple ||
+            !material.minOrderQuantity
+        ).length
+      );
+    } catch (loadError) {
+      logger.error("Failed to load data quality report:", loadError);
+      setError(loadError instanceof Error ? loadError.message : "Failed to load data quality report");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const [allOrders, materials, suppliers] = await Promise.all([
-          ordersApi.getAll(),
-          materialsApi.getAll(),
-          suppliersApi.getAll(),
-        ]);
-
-        const auditedOrders = await Promise.all(
-          allOrders.map(async (order) => {
-            try {
-              const items = await orderItemsApi.getByOrderId(order.id);
-              return { order, itemCount: items.length };
-            } catch (loadItemsError) {
-              logger.warn(`Failed to audit order items for ${order.orderNumber}`, loadItemsError);
-              return { order, itemCount: 0 };
-            }
-          })
-        );
-
-        const supplierRules = await Promise.all(
-          suppliers.map(async (supplier) => {
-            try {
-              const linkedMaterials = await suppliersApi.getMaterials(supplier.id);
-              return linkedMaterials
-                .filter(hasEmptyPurchasingRules)
-                .map((material) => ({
-                  supplierName: supplier.name,
-                  materialCode: material.materialCode,
-                  description: material.description,
-                }));
-            } catch (loadSupplierError) {
-              logger.warn(`Failed to audit supplier rules for ${supplier.name}`, loadSupplierError);
-              return [];
-            }
-          })
-        );
-
-        setOrders(auditedOrders);
-        setRuleGaps(supplierRules.flat());
-        setMaterialsMissingPackRules(
-          materials.filter(
-            (material) =>
-              !material.handlingUnitType ||
-              !material.unitsPerHandlingUnit ||
-              !material.orderMultiple ||
-              !material.minOrderQuantity
-          ).length
-        );
-      } catch (loadError) {
-        logger.error("Failed to load data quality report:", loadError);
-        setError(loadError instanceof Error ? loadError.message : "Failed to load data quality report");
-      } finally {
-        setLoading(false);
-      }
-    };
-
     void load();
-  }, []);
+  }, [load]);
 
   const supplierIds = useMemo(
     () => new Set((suppliersQuery.data || []).map((supplier) => supplier.id)),
@@ -132,6 +134,23 @@ export default function DataQualityPage() {
   const nonCanonicalOrders = orders.filter(({ order }) => !isCanonicalOrderNumber(order));
   const currentMonth = new Date().toISOString().slice(0, 7);
   const oldRecords = orders.filter(({ order }) => !order.orderDate?.startsWith(currentMonth));
+
+  const runCanonicalRepair = async (dryRun: boolean) => {
+    try {
+      setRepairLoading(dryRun ? "dry-run" : "apply");
+      setError(null);
+      const result = await ordersApi.repairCanonicalNumbers(dryRun);
+      setRepairResult(result);
+      if (!dryRun) {
+        await load();
+      }
+    } catch (repairError) {
+      logger.error("Failed to repair canonical order numbers:", repairError);
+      setError(repairError instanceof Error ? repairError.message : "Failed to repair canonical order numbers");
+    } finally {
+      setRepairLoading(null);
+    }
+  };
 
   const cards = [
     {
@@ -209,16 +228,69 @@ export default function DataQualityPage() {
             <pre data-prefix="$"><code>python3 scripts/repair_zero_item_inbound_orders.py --dry-run</code></pre>
             <pre data-prefix="$"><code>python3 scripts/repair_zero_item_inbound_orders.py --apply</code></pre>
           </div>
+          <div className="mt-4 text-sm text-base-content/65">
+            Current month: {currentMonth}. <span className="font-semibold">{oldRecords.length}</span> order(s) are outside this dashboard period.
+          </div>
         </div>
 
         <div className="card bg-base-100 border border-base-300 rounded-xl p-5">
-          <h2 className="text-lg font-bold">Activity period</h2>
+          <h2 className="text-lg font-bold">Canonical order repair</h2>
           <p className="text-sm text-base-content/65 mt-2">
-            Current month: {currentMonth}. Available order data: {formatDateRange(orders.map((row) => row.order))}.
+            Converts legacy inbound/outbound numbers to canonical PO/SO numbers and saves the old number as a lookup alias.
           </p>
-          <div className="mt-4 text-sm">
-            <span className="font-semibold">{oldRecords.length}</span> order(s) are outside the current dashboard period.
+          <div className="mt-2 text-xs text-base-content/55">
+            Available order data: {formatDateRange(orders.map((row) => row.order))}.
           </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="btn btn-outline btn-sm"
+              onClick={() => void runCanonicalRepair(true)}
+              disabled={repairLoading !== null}
+            >
+              {repairLoading === "dry-run" && <span className="loading loading-spinner loading-xs"></span>}
+              Dry run
+            </button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => void runCanonicalRepair(false)}
+              disabled={repairLoading !== null || nonCanonicalOrders.length === 0}
+            >
+              {repairLoading === "apply" && <span className="loading loading-spinner loading-xs"></span>}
+              Repair order numbers
+            </button>
+          </div>
+          {repairResult && (
+            <div className="mt-4 rounded-lg bg-base-200 p-3 text-sm">
+              <div className="font-semibold">
+                {repairResult.dryRun ? "Dry run" : "Applied"}: {repairResult.candidates} candidate(s), {repairResult.repaired} repaired.
+              </div>
+              <div className="text-xs text-base-content/60 mt-1">
+                Aliases to create: {repairResult.aliasesCreated}; already present: {repairResult.aliasesAlreadyPresent}.
+              </div>
+              {repairResult.items.length > 0 && (
+                <div className="mt-3 max-h-36 overflow-auto rounded bg-base-100 border border-base-300">
+                  <table className="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Old</th>
+                        <th>New</th>
+                        <th>Alias</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {repairResult.items.slice(0, 20).map((item) => (
+                        <tr key={item.orderId}>
+                          <td className="font-mono">{item.oldOrderNumber || "missing"}</td>
+                          <td className="font-mono">{item.newOrderNumber}</td>
+                          <td>{item.aliasStatus === "no_alias" ? "No alias" : item.aliasStatus === "alias_exists" ? "Existing" : "Create"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -253,7 +325,7 @@ export default function DataQualityPage() {
               <tr>
                 <td>Non-canonical order numbers</td>
                 <td>{nonCanonicalOrders.length}</td>
-                <td>Keep aliases, normalize through order-number repair</td>
+                <td>Use dry run, then repair order numbers above</td>
               </tr>
               <tr>
                 <td>Supplier purchasing rules using product defaults</td>
