@@ -2,6 +2,7 @@ package com.optiwms.coreapp.forecastspace;
 
 import com.optiwms.coreapp.master.HandlingUnitCapacityService;
 import com.optiwms.coreapp.master.StockPlacementPlanner;
+import com.optiwms.coreapp.slotting.SlottingPlanClient;
 import com.optiwms.infra.forecastspace.*;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
@@ -40,6 +41,7 @@ public class ForecastSpaceOptimizationService {
     private final LocationRepository locationRepository;
     private final StockPlacementPlanner stockPlacementPlanner;
     private final HandlingUnitCapacityService capacityService;
+    private final SlottingPlanClient slottingPlanClient;
     private final SlottingPlanRepository slottingPlanRepository;
     private final SlottingPlanLineRepository slottingPlanLineRepository;
 
@@ -55,6 +57,7 @@ public class ForecastSpaceOptimizationService {
             LocationRepository locationRepository,
             StockPlacementPlanner stockPlacementPlanner,
             HandlingUnitCapacityService capacityService,
+            SlottingPlanClient slottingPlanClient,
             SlottingPlanRepository slottingPlanRepository,
             SlottingPlanLineRepository slottingPlanLineRepository) {
         this.runRepository = runRepository;
@@ -68,6 +71,7 @@ public class ForecastSpaceOptimizationService {
         this.locationRepository = locationRepository;
         this.stockPlacementPlanner = stockPlacementPlanner;
         this.capacityService = capacityService;
+        this.slottingPlanClient = slottingPlanClient;
         this.slottingPlanRepository = slottingPlanRepository;
         this.slottingPlanLineRepository = slottingPlanLineRepository;
     }
@@ -81,6 +85,8 @@ public class ForecastSpaceOptimizationService {
         run.setWarehouseId(policyRun.getWarehouseId());
         run.setPolicyRunId(policyRun.getId());
         run.setHorizonMonths(policyRun.getHorizonMonths());
+        run.setAlgorithm("PENDING_OPTIMIZER");
+        run.setRelocationCapPct(relocationCapPct(policyRun.getHorizonMonths()));
         run.setCreatedBy(request.createdBy());
         run.setNotes(request.notes());
         run = runRepository.save(run);
@@ -93,11 +99,7 @@ public class ForecastSpaceOptimizationService {
                 .stream().collect(Collectors.toMap(MaterialEntity::getId, m -> m));
         List<ReleasedSpace> releasePool = buildReleasePool(warehouseId, policyLines);
 
-        BigDecimal saved = BigDecimal.ZERO;
-        BigDecimal needed = BigDecimal.ZERO;
-        BigDecimal distance = BigDecimal.ZERO;
-        int infeasible = 0;
-        int highRisk = 0;
+        List<SpaceOptimizationLineEntity> savedLines = new ArrayList<>();
 
         for (InventoryPolicyRecommendationLineEntity policyLine : policyLines) {
             MaterialEntity material = materials.get(policyLine.getMaterialId());
@@ -106,8 +108,22 @@ public class ForecastSpaceOptimizationService {
             }
             SpaceOptimizationLineEntity line = buildLine(run.getId(), warehouseId, policyLine, material, releasePool);
             line = lineRepository.save(line);
+            savedLines.add(line);
             createScenario(line);
+        }
 
+        run.setRelocationCapSkus(Math.max(1, BigDecimal.valueOf(policyLines.size())
+                .multiply(run.getRelocationCapPct() != null ? run.getRelocationCapPct() : BigDecimal.valueOf(15))
+                .divide(BigDecimal.valueOf(100), 0, RoundingMode.FLOOR)
+                .intValue()));
+        OptimizerOutcome optimizerOutcome = applyPythonOptimizerIfAvailable(run, savedLines, policyLines, materials);
+        savedLines = lineRepository.findByRunIdOrderByMaterialCodeAsc(run.getId());
+        BigDecimal saved = BigDecimal.ZERO;
+        BigDecimal needed = BigDecimal.ZERO;
+        BigDecimal distance = BigDecimal.ZERO;
+        int infeasible = 0;
+        int highRisk = 0;
+        for (SpaceOptimizationLineEntity line : savedLines) {
             saved = saved.add(nz(line.getSpaceSavedPalletPositions()));
             needed = needed.add(nz(line.getSpaceNeededPalletPositions()));
             distance = distance.add(nz(line.getDistanceSavedMeters()));
@@ -118,10 +134,14 @@ public class ForecastSpaceOptimizationService {
                 highRisk++;
             }
         }
-
         run.setTotalSpaceSavedPalletPositions(saved.setScale(2, RoundingMode.HALF_UP));
         run.setTotalSpaceNeededPalletPositions(needed.setScale(2, RoundingMode.HALF_UP));
         run.setTotalDistanceSavedMeters(distance.setScale(2, RoundingMode.HALF_UP));
+        run.setObjectiveValue(optimizerOutcome.objectiveValue() != null
+                ? optimizerOutcome.objectiveValue()
+                : saved.add(distance).subtract(needed).setScale(4, RoundingMode.HALF_UP));
+        run.setAlgorithm(optimizerOutcome.algorithm());
+        run.setOptimizerMetadata(optimizerOutcome.metadataJson());
         run.setInfeasibleCount(infeasible);
         run.setHighRiskCount(highRisk);
         run.setStatus("PENDING_APPROVAL");
@@ -183,16 +203,29 @@ public class ForecastSpaceOptimizationService {
         plan.setValidFrom(today);
         plan.setValidTo(today.plusMonths(Math.max(1, run.getHorizonMonths() != null ? run.getHorizonMonths() : 3)));
         plan.setStatus("DRAFT");
-        plan.setAlgorithm("FORECAST_SPACE_HEURISTIC_V1");
+        plan.setAlgorithm(run.getAlgorithm() != null ? run.getAlgorithm() : "JAVA_FEASIBLE_FALLBACK_V1");
         plan.setCreatedBy(createdBy);
         plan.setSourceStatsAt(OffsetDateTime.now());
         plan.setNotes("Generated from forecast-space optimization run " + run.getId());
         plan = slottingPlanRepository.save(plan);
 
         int moves = 0;
+        int moveCap = run.getRelocationCapSkus() != null && run.getRelocationCapSkus() > 0
+                ? run.getRelocationCapSkus()
+                : Math.max(1, spaceLines.size());
         BigDecimal totalDistance = BigDecimal.ZERO;
-        for (SpaceOptimizationLineEntity spaceLine : spaceLines) {
+        for (SpaceOptimizationLineEntity spaceLine : spaceLines.stream()
+                .sorted(Comparator.comparing(this::lineObjectiveScore).reversed())
+                .toList()) {
             InventoryPolicyRecommendationLineEntity policy = policyById.get(spaceLine.getSourcePolicyLineId());
+            boolean relocation = spaceLine.getCurrentPrimaryLocationCode() != null
+                    && spaceLine.getRecommendedPrimaryLocationCode() != null
+                    && !spaceLine.getCurrentPrimaryLocationCode().equals(spaceLine.getRecommendedPrimaryLocationCode());
+            boolean overMoveCap = relocation && moves >= moveCap;
+            String finalLocation = overMoveCap
+                    ? spaceLine.getCurrentPrimaryLocationCode()
+                    : spaceLine.getRecommendedPrimaryLocationCode();
+
             SlottingPlanLineEntity planLine = new SlottingPlanLineEntity();
             planLine.setPlanId(plan.getId());
             planLine.setMaterialId(spaceLine.getMaterialId());
@@ -200,7 +233,7 @@ public class ForecastSpaceOptimizationService {
             planLine.setMaterialType(spaceLine.getMaterialType());
             planLine.setCurrentPrimaryLocationCode(spaceLine.getCurrentPrimaryLocationCode());
             planLine.setRecommendedPrimaryLocationCode(spaceLine.getRecommendedPrimaryLocationCode());
-            planLine.setFinalPrimaryLocationCode(spaceLine.getRecommendedPrimaryLocationCode());
+            planLine.setFinalPrimaryLocationCode(finalLocation);
             planLine.setActivePickPalletPositions(nzInt(spaceLine.getRequiredActivePickPalletPositions(), 1));
             planLine.setRequiredReservePalletPositions(nzInt(spaceLine.getRequiredReservePalletPositions(), 0));
             planLine.setMaxStockPalletPositions(maxStockPalletPositions(spaceLine));
@@ -211,18 +244,17 @@ public class ForecastSpaceOptimizationService {
             planLine.setDistanceSavedMeters(nz(spaceLine.getDistanceSavedMeters()));
             planLine.setMoveReason(spaceLine.getRationale());
             planLine.setGainScore(nz(spaceLine.getSpaceSavedPalletPositions()).add(nz(spaceLine.getDistanceSavedMeters())));
-            boolean relocation = spaceLine.getCurrentPrimaryLocationCode() != null
-                    && spaceLine.getRecommendedPrimaryLocationCode() != null
-                    && !spaceLine.getCurrentPrimaryLocationCode().equals(spaceLine.getRecommendedPrimaryLocationCode());
-            planLine.setRelocationFlag(relocation);
+            planLine.setRelocationFlag(relocation && !overMoveCap);
             planLine.setRelocationApplied(false);
             planLine.setObjectiveCost(planLine.getGainScore());
-            planLine.setStatus("PROPOSED");
+            planLine.setStatus(overMoveCap ? "KEPT_INCUMBENT" : "PROPOSED");
             planLine.setConstraintSnapshot(spaceLine.getConstraintSnapshot());
             slottingPlanLineRepository.save(planLine);
 
-            if (relocation) moves++;
-            totalDistance = totalDistance.add(nz(spaceLine.getDistanceSavedMeters()));
+            if (relocation && !overMoveCap) moves++;
+            if (!overMoveCap) {
+                totalDistance = totalDistance.add(nz(spaceLine.getDistanceSavedMeters()));
+            }
         }
 
         plan.setTotalMovesProposed(moves);
@@ -478,6 +510,170 @@ public class ForecastSpaceOptimizationService {
         return current + "\n" + addition;
     }
 
+    private OptimizerOutcome applyPythonOptimizerIfAvailable(
+            SpaceOptimizationRunEntity run,
+            List<SpaceOptimizationLineEntity> savedLines,
+            List<InventoryPolicyRecommendationLineEntity> policyLines,
+            Map<UUID, MaterialEntity> materials) {
+        if (!slottingPlanClient.isEnabled()) {
+            return fallbackOutcome(run, policyLines.size(), "slotting-service disabled");
+        }
+        if (!slottingPlanClient.isHealthy()) {
+            return fallbackOutcome(run, policyLines.size(), "slotting-service health check failed");
+        }
+
+        SlottingPlanClient.PlanOptimizeRequest request = new SlottingPlanClient.PlanOptimizeRequest();
+        request.warehouse_id = run.getWarehouseId().toString();
+        request.relocation_budget_pct = run.getRelocationCapPct() != null ? run.getRelocationCapPct().doubleValue() : 30.0;
+        request.use_milp_a_class = true;
+        request.solver_engine = "ortools";
+        request.locked_material_ids = List.of();
+
+        Map<UUID, SpaceOptimizationLineEntity> linesByMaterial = savedLines.stream()
+                .collect(Collectors.toMap(SpaceOptimizationLineEntity::getMaterialId, line -> line, (a, b) -> a));
+        request.materials = new ArrayList<>();
+        for (InventoryPolicyRecommendationLineEntity policyLine : policyLines) {
+            MaterialEntity material = materials.get(policyLine.getMaterialId());
+            SpaceOptimizationLineEntity spaceLine = linesByMaterial.get(policyLine.getMaterialId());
+            if (material == null || spaceLine == null) {
+                continue;
+            }
+            SlottingPlanClient.PlanMaterialPayload payload = new SlottingPlanClient.PlanMaterialPayload();
+            payload.material_id = material.getId().toString();
+            payload.material_code = material.getMaterialCode();
+            payload.material_type = material.getMaterialType();
+            payload.amalgamated_class = "CS";
+            payload.abc_class = "C";
+            payload.fms_class = "S";
+            payload.issue_volume = policyLine.getForecastP50() != null ? policyLine.getForecastP50().doubleValue() : 0;
+            payload.issue_count = 1;
+            payload.weight_kg = material.getWeightKg() != null ? material.getWeightKg().doubleValue() : null;
+            payload.volume_cm3 = material.getVolumeCm3() != null ? material.getVolumeCm3().doubleValue() : null;
+            payload.pallet_spaces = policyLine.getUnitsPerHandlingUnit() != null
+                    ? policyLine.getUnitsPerHandlingUnit().doubleValue()
+                    : material.getPalletSpaces() != null ? material.getPalletSpaces().doubleValue() : null;
+            payload.incumbent_primary_location_code = spaceLine.getCurrentPrimaryLocationCode();
+            payload.locked = false;
+            payload.required_pallets = Math.max(1, nz(policyLine.getPalletPositionsDelta()).abs().setScale(0, RoundingMode.CEILING).intValue());
+            payload.demand_trend = nz(policyLine.getStockDelta()).compareTo(BigDecimal.ZERO) >= 0 ? "RISING" : "FALLING";
+            payload.min_stock_units = policyLine.getProposedMinStock() != null ? policyLine.getProposedMinStock().doubleValue() : null;
+            request.materials.add(payload);
+        }
+
+        request.locations = locationRepository.findByWarehouseIdAndIsActive(run.getWarehouseId(), true).stream()
+                .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
+                .filter(loc -> loc.getZoneType() == null || "STORAGE".equalsIgnoreCase(loc.getZoneType()))
+                .limit(1500)
+                .map(loc -> {
+                    SlottingPlanClient.PlanLocationPayload payload = new SlottingPlanClient.PlanLocationPayload();
+                    payload.location_id = loc.getId().toString();
+                    payload.location_code = loc.getLocationCode();
+                    payload.amalgamated_class = loc.getAmalgamatedClass();
+                    payload.area = loc.getArea();
+                    payload.level_number = loc.getLevelNumber() != null ? loc.getLevelNumber() : 1;
+                    payload.accessibility_rating = loc.getAccessibilityRating() != null ? loc.getAccessibilityRating() : 3;
+                    payload.coordinate_x = loc.getCoordinateX() != null ? loc.getCoordinateX().doubleValue() : 0;
+                    payload.coordinate_y = loc.getCoordinateY() != null ? loc.getCoordinateY().doubleValue() : 0;
+                    payload.max_weight_kg = loc.getMaxWeightKg() != null ? loc.getMaxWeightKg().doubleValue() : null;
+                    payload.max_volume_cm3 = loc.getMaxVolumeCm3() != null ? loc.getMaxVolumeCm3().doubleValue() : null;
+                    payload.capacity = loc.getCapacity() != null ? loc.getCapacity().doubleValue() : null;
+                    payload.max_pallet_capacity = loc.getMaxPalletCapacity();
+                    payload.is_active = Boolean.TRUE.equals(loc.getIsActive());
+                    return payload;
+                })
+                .toList();
+
+        Optional<SlottingPlanClient.PlanOptimizeResponse> response = slottingPlanClient.optimize(request);
+        if (response.isEmpty()) {
+            return fallbackOutcome(run, policyLines.size(), "slotting-service returned no plan");
+        }
+
+        SlottingPlanClient.PlanOptimizeResponse py = response.get();
+        if (!"ORTOOLS_MILP_V1".equalsIgnoreCase(py.algorithm) || py.assignments == null || py.assignments.isEmpty()) {
+            return new OptimizerOutcome(
+                    "JAVA_FEASIBLE_FALLBACK_V1",
+                    null,
+                    optimizerMetadata(run, policyLines.size(), 0, "FALLBACK", py.infeasible_reason != null ? py.infeasible_reason : "OR-Tools did not return assignments"));
+        }
+
+        Map<String, SlottingPlanClient.PlanAssignmentPayload> assignments = py.assignments.stream()
+                .collect(Collectors.toMap(a -> a.material_id, a -> a, (a, b) -> a));
+        List<SpaceOptimizationLineEntity> updates = new ArrayList<>();
+        for (SpaceOptimizationLineEntity line : savedLines) {
+            SlottingPlanClient.PlanAssignmentPayload assignment = assignments.get(line.getMaterialId().toString());
+            if (assignment == null) {
+                continue;
+            }
+            line.setRecommendedPrimaryLocationCode(assignment.final_primary_location_code != null
+                    ? assignment.final_primary_location_code
+                    : assignment.recommended_primary_location_code);
+            line.setRequiredActivePickPalletPositions(assignment.active_pick_pallet_positions);
+            line.setRequiredReservePalletPositions(assignment.required_reserve_pallet_positions);
+            line.setDistanceSavedMeters(BigDecimal.valueOf(assignment.distance_saved_meters).setScale(2, RoundingMode.HALF_UP));
+            line.setRecommendedReserveLocations(reserveJsonFromPython(assignment.reserve_locations));
+            line.setCompatible(true);
+            line.setRecommendationStatus("APPLY_WITH_APPROVAL");
+            line.setRationale(assignment.move_reason != null ? assignment.move_reason : "OR-Tools MILP assignment selected by slotting-service.");
+            line.setConstraintSnapshot("{\"engine\":\"ORTOOLS_MILP_V1\",\"status\":\"" + escape(py.solver_status) + "\"}");
+            updates.add(line);
+        }
+        lineRepository.saveAll(updates);
+        return new OptimizerOutcome(
+                py.algorithm,
+                py.objective_value != null ? BigDecimal.valueOf(py.objective_value).setScale(4, RoundingMode.HALF_UP) : null,
+                optimizerMetadata(run, policyLines.size(), 0, py.solver_status, py.infeasible_reason));
+    }
+
+    private OptimizerOutcome fallbackOutcome(SpaceOptimizationRunEntity run, int skuCount, String reason) {
+        return new OptimizerOutcome(
+                "JAVA_FEASIBLE_FALLBACK_V1",
+                null,
+                optimizerMetadata(run, skuCount, 0, "FALLBACK", reason));
+    }
+
+    private String reserveJsonFromPython(List<SlottingPlanClient.PlanReservePayload> reserves) {
+        if (reserves == null || reserves.isEmpty()) {
+            return "[]";
+        }
+        return reserves.stream()
+                .map(r -> String.format(Locale.ROOT,
+                        "{\"locationCode\":\"%s\",\"palletPositions\":%d,\"zoneHint\":\"%s\"}",
+                        escape(r.location_code),
+                        Math.max(0, r.reserve_pallet_positions),
+                        escape(r.reserve_zone_hint)))
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private BigDecimal lineObjectiveScore(SpaceOptimizationLineEntity line) {
+        return nz(line.getSpaceSavedPalletPositions())
+                .add(nz(line.getDistanceSavedMeters()))
+                .subtract(nz(line.getSpaceNeededPalletPositions()))
+                .subtract(nz(line.getMoveCostScore()));
+    }
+
+    private BigDecimal relocationCapPct(Integer horizonMonths) {
+        if (horizonMonths != null && horizonMonths >= 6) {
+            return BigDecimal.valueOf(30);
+        }
+        if (horizonMonths != null && horizonMonths >= 3) {
+            return BigDecimal.valueOf(15);
+        }
+        return BigDecimal.valueOf(5);
+    }
+
+    private String optimizerMetadata(SpaceOptimizationRunEntity run, int skuCount, int infeasibleCount, String solverStatus, String fallbackReason) {
+        String engine = "FALLBACK".equalsIgnoreCase(solverStatus) ? "JAVA_FEASIBLE_FALLBACK_V1" : "ORTOOLS_MILP_V1";
+        return String.format(Locale.ROOT,
+                "{\"engine\":\"%s\",\"solver_status\":\"%s\",\"fallbackReason\":\"%s\",\"objective\":\"service_gain + travel_saving + released_space_reuse - relocation_cost - holding_cost - risk_penalties\",\"relocation_cap_pct\":%s,\"relocation_cap_skus\":%d,\"candidate_skus\":%d,\"infeasible_skus\":%d,\"constraints\":[\"one_primary_pick_per_sku\",\"location_pallet_capacity\",\"rack_weight_capacity\",\"rack_volume_capacity\",\"material_zone_compatibility\",\"abc_fms_class_fit\",\"expiry_safe_max\",\"moq_order_multiple\",\"move_count_cap\"]}",
+                engine,
+                escape(solverStatus),
+                escape(fallbackReason),
+                run.getRelocationCapPct() != null ? run.getRelocationCapPct().stripTrailingZeros().toPlainString() : "0",
+                run.getRelocationCapSkus() != null ? run.getRelocationCapSkus() : 0,
+                skuCount,
+                infeasibleCount);
+    }
+
     private String escape(String raw) {
         return raw == null ? "" : raw.replace("\\", "\\\\").replace("\"", "\\\"");
     }
@@ -493,6 +689,8 @@ public class ForecastSpaceOptimizationService {
             this.remainingPallets = remainingPallets;
         }
     }
+
+    private record OptimizerOutcome(String algorithm, BigDecimal objectiveValue, String metadataJson) {}
 
     public record CreateSpaceRunRequest(UUID policyRunId, String createdBy, String notes) {}
 }
