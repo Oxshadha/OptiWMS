@@ -168,16 +168,18 @@ export default function WorkerLoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-base-200">
       <div className="w-full max-w-md">
         {/* Logo and System Name */}
-        <div className="flex flex-col items-center mb-8 space-y-4">
-          <Image
-            src="/assets/logos/OptiWMS Logo.png?v=5"
-            alt="OptiWMS Logo"
-            width={240}
-            height={80}
-            className="object-contain h-20 w-auto"
-            priority
-          />
-          <p className="text-sm text-base-content/60 font-medium tracking-wide uppercase">Worker Portal</p>
+        <div className="flex flex-col items-center mb-10 space-y-6">
+          <div className="bg-neutral w-36 h-36 rounded-[2rem] shadow-2xl transition-transform duration-300 flex items-center justify-center">
+            <Image
+              src="/assets/logos/OptiWMS Logo.png?v=5"
+              alt="OptiWMS Logo"
+              width={200}
+              height={100}
+              className="object-contain w-[85%] h-auto"
+              priority
+            />
+          </div>
+          <p className="text-base text-base-content/70 font-semibold tracking-widest uppercase">Worker Portal</p>
         </div>
 
         {/* Login Form */}
