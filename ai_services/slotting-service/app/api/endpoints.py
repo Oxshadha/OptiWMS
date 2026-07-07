@@ -139,6 +139,7 @@ class PlanOptimizeRequestBody(BaseModel):
     locations: List[dict] = []
     locked_material_ids: List[str] = []
     use_milp_a_class: bool = False
+    solver_engine: str = "heuristic"
 
 
 class PlanOptimizeResponseBody(BaseModel):
@@ -147,6 +148,12 @@ class PlanOptimizeResponseBody(BaseModel):
     assignments: List[PlanAssignmentItemResponse] = []
     total_moves_proposed: int = 0
     relocation_moves_applied: int = 0
+    solver_status: str = "NOT_RUN"
+    objective_value: Optional[float] = None
+    infeasible_reason: Optional[str] = None
+    constraints_used: List[str] = []
+    relocation_cap_used: int = 0
+    assignment_confidence_inputs: dict = {}
  
 
 def _stable_location_id(location_code: str) -> str:
@@ -594,6 +601,7 @@ def optimize_plan_endpoint(request: PlanOptimizeRequestBody):
       locations=locations,
       locked_material_ids=request.locked_material_ids,
       use_milp_a_class=request.use_milp_a_class,
+      solver_engine=request.solver_engine,
   ))
 
   return PlanOptimizeResponseBody(
@@ -601,6 +609,12 @@ def optimize_plan_endpoint(request: PlanOptimizeRequestBody):
       algorithm=result.algorithm,
       total_moves_proposed=result.total_moves_proposed,
       relocation_moves_applied=result.relocation_moves_applied,
+      solver_status=result.solver_status,
+      objective_value=result.objective_value,
+      infeasible_reason=result.infeasible_reason,
+      constraints_used=result.constraints_used,
+      relocation_cap_used=result.relocation_cap_used,
+      assignment_confidence_inputs=result.assignment_confidence_inputs,
       assignments=[
           PlanAssignmentItemResponse(
               material_id=a.material_id,
