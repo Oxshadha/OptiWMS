@@ -20,7 +20,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <RouteGuard requiredRole="admin">
         <div className="min-h-screen bg-base-200">
           <Sidebar />
-          <div className="flex min-h-screen flex-1 flex-col lg:ml-64">
+          <div className="flex min-h-screen flex-1 flex-col lg:ml-72">
             <Topbar />
             <main className="p-6 space-y-6">{children}</main>
           </div>
