@@ -13,6 +13,7 @@ import {
 } from "@/lib/admin-roles";
 
 const allNavItems = [
+  // Top Level
   { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
   {
     href: "/admin/warehouses",
@@ -32,13 +33,8 @@ const allNavItems = [
       { href: "/admin/orders/outbound", label: "Outbound Orders" },
     ],
   },
-  { href: "/admin/shipments", label: "Shipments", icon: "local_shipping" },
-  {
-    href: "/admin/delivery-partners",
-    label: "Delivery Partners",
-    icon: "handshake",
-  },
   { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
+  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
   {
     href: "/admin/replenishment",
@@ -50,39 +46,55 @@ const allNavItems = [
       { href: "/admin/slotting-plans", label: "Slotting Planner" },
     ],
   },
-  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
-  { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
-  { href: "/admin/bom-master", label: "BOM Master", icon: "account_tree" },
-  { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
+  { href: "/admin/tasks", label: "Tasks", icon: "task" },
+  
+  // Operations Group
   {
-    href: "/admin/labor-productivity",
-    label: "Labor Productivity",
-    icon: "groups_3",
-  },
-  {
-    href: "/admin/staff",
-    label: "Staff",
-    icon: "group",
+    href: "/admin/operations",
+    label: "Warehouse Operations",
+    icon: "engineering",
     subItems: [
-      { href: "/admin/workers", label: "Workers" },
-      { href: "/admin/admins", label: "Managers" },
+      { href: "/admin/packing", label: "Packing" },
+      { href: "/admin/picking", label: "Picking" },
+      { href: "/admin/cycle-counts", label: "Cycle Counts" },
+      { href: "/admin/stock-transfers", label: "Stock Transfers" },
+      { href: "/admin/quality-checks", label: "Quality Checks" },
+      { href: "/admin/returns", label: "Returns" },
+      { href: "/admin/shipments", label: "Shipments" },
+      { href: "/admin/anomalies", label: "Anomalies" },
     ],
   },
-  { href: "/admin/tasks", label: "Tasks", icon: "task" },
-  { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
+
+  // Network & Partners Group
   {
-    href: "/admin/stock-transfers",
-    label: "Stock Transfers",
-    icon: "swap_horiz",
+    href: "/admin/network",
+    label: "Network & Partners",
+    icon: "hub",
+    subItems: [
+      { href: "/admin/suppliers", label: "Suppliers" },
+      { href: "/admin/delivery-partners", label: "Delivery Partners" },
+      { href: "/admin/customers", label: "Customers" },
+    ],
   },
-  { href: "/admin/packing", label: "Packing", icon: "inventory" },
-  { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
-  { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
-  { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
-  { href: "/admin/customers", label: "Customers", icon: "people" },
-  { href: "/admin/sops", label: "SOPs", icon: "description" },
-  { href: "/admin/reports", label: "Export Reports", icon: "description" },
-  { href: "/admin/data-quality", label: "Data Quality", icon: "rule_settings" },
+
+  // Management & Data Group
+  {
+    href: "/admin/management",
+    label: "Management & Data",
+    icon: "admin_panel_settings",
+    subItems: [
+      { href: "/admin/labor-productivity", label: "Labor Productivity" },
+      { href: "/admin/workers", label: "Workers" },
+      { href: "/admin/admins", label: "Managers" },
+      { href: "/admin/supply-plans", label: "Supply Plans" },
+      { href: "/admin/bom-master", label: "BOM Master" },
+      { href: "/admin/sops", label: "SOPs" },
+      { href: "/admin/reports", label: "Export Reports" },
+      { href: "/admin/data-quality", label: "Data Quality" },
+    ],
+  },
+  { href: "/admin/dashboard-settings", label: "Settings", icon: "settings" },
+  { href: "/admin/help", label: "Help Center", icon: "help" },
 ];
 
 /**
@@ -102,68 +114,48 @@ function getRoleRelevantNavItems(
     return filterRoutesByRole(items, role);
   }
 
-  // Warehouse Manager: Focus on operational and inventory management
-  // Hide: Admins (no access), Settings (no access), Customers (not primary focus)
+  // Filter routes based on core role permissions via admin-roles.ts
+  let allowedItems = filterRoutesByRole(items, role);
+
+  // For specific roles, we manually prune items that might technically be viewable 
+  // but clutter the UX for that role's primary workflow.
+  
   if (role === "warehouse_manager") {
-    return filterRoutesByRole(items, role).filter((item) => {
-      // Hide Admins sub-item from Staff menu
-      if (item.href === "/admin/staff" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href !== "/admin/admins"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
-        }
+    // Hide: Admins (no access), Settings (no access), Customers (not primary focus)
+    const hiddenHrefs = ["/admin/admins"];
+    allowedItems = allowedItems.map(item => {
+      if (item.subItems) {
+        return { ...item, subItems: item.subItems.filter(sub => !hiddenHrefs.includes(sub.href)) };
       }
-      // Keep all other accessible items
-      return true;
-    });
+      return item;
+    }).filter(item => !hiddenHrefs.includes(item.href) && !(item.subItems && item.subItems.length === 0));
   }
 
-  // Inbound Coordinator: Focus on inbound coordination
-  // Hide: Outbound-focused items (Packing, Shipments - outbound focus), Customers (view only, not primary), Labor Productivity (view-only, Warehouse Manager primary)
-  // Keep: Inbound Orders, Suppliers, Inventory, Products, Quality Checks (inbound), Returns (to supplier), Tasks (receiving)
   if (role === "inbound_coordinator") {
-    return filterRoutesByRole(items, role).filter((item) => {
-      // Hide outbound-focused operational items and non-primary features
-      if (
-        item.href === "/admin/packing" ||
-        item.href === "/admin/shipments" ||
-        item.href === "/admin/customers" ||
-        item.href === "/admin/labor-productivity"
-      ) {
-        return false;
-      }
+    // Hide: Outbound-focused items and non-primary features
+    const hiddenHrefs = [
+      "/admin/packing",
+      "/admin/picking",
+      "/admin/shipments",
+      "/admin/customers",
+      "/admin/labor-productivity",
+      "/admin/admins"
+    ];
 
-      // Filter Orders sub-items to show only Inbound
-      if (item.href === "/admin/orders" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href === "/admin/orders/inbound"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
+    allowedItems = allowedItems.map(item => {
+      if (item.subItems) {
+        let newSubItems = item.subItems.filter(sub => !hiddenHrefs.includes(sub.href));
+        // Force orders to only show inbound
+        if (item.href === "/admin/orders") {
+          newSubItems = newSubItems.filter(sub => sub.href === "/admin/orders/inbound");
         }
+        return { ...item, subItems: newSubItems };
       }
-
-      // Hide Admins sub-item from Staff menu
-      if (item.href === "/admin/staff" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href !== "/admin/admins"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
-        }
-      }
-
-      return true;
-    });
+      return item;
+    }).filter(item => !hiddenHrefs.includes(item.href) && !(item.subItems && item.subItems.length === 0));
   }
 
-  // Default: use permission-based filtering
-  return filterRoutesByRole(items, role);
+  return allowedItems;
 }
 
 export function Sidebar() {
@@ -201,136 +193,118 @@ export function Sidebar() {
     );
   };
 
-  return (
-    <aside className="hidden lg:flex flex-col w-64 bg-neutral text-neutral-content fixed h-screen">
-      <div className="p-4 border-b border-white/10">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
-            style={{ backgroundColor: "#EEEEEE" }}
-          >
-            <Image
-              src="/assets/logos/OptiWMS Logo.JPG"
-              alt="OptiWMS Logo"
-              width={56}
-              height={56}
-              className="object-contain w-full h-full"
-              style={{ objectFit: "contain" }}
-            />
-          </div>
-          <span className="text-xl font-bold">OptiWMS</span>
-        </div>
-      </div>
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-        {navItems.map((item) => {
-          const active = pathname.startsWith(item.href);
-          const hasSubItems = item.subItems && item.subItems.length > 0;
-          const isExpanded = expandedItems.includes(item.href);
-          const hasActiveSubItem =
-            hasSubItems &&
-            item.subItems?.some((sub) => pathname.startsWith(sub.href));
+  const renderNavItem = (item: typeof allNavItems[0]) => {
+    const active = pathname.startsWith(item.href);
+    const hasSubItems = item.subItems && item.subItems.length > 0;
+    const isExpanded = expandedItems.includes(item.href);
+    const hasActiveSubItem =
+      hasSubItems &&
+      item.subItems?.some((sub) => pathname.startsWith(sub.href));
 
-          return (
-            <div key={item.href} className="space-y-1">
-              {hasSubItems ? (
-                <>
-                  <button
-                    onClick={() => toggleExpand(item.href)}
-                    className={clsx(
-                      "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all",
-                      active || hasActiveSubItem
-                        ? "bg-primary text-primary-content"
-                        : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-xl">
-                        {item.icon}
-                      </span>
-                      <span>{item.label}</span>
-                    </div>
-                    <span
+    return (
+      <div key={item.href} className="space-y-1">
+        {hasSubItems ? (
+          <>
+            <button
+              onClick={() => toggleExpand(item.href)}
+              className={clsx(
+                "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all text-left",
+                active || hasActiveSubItem
+                  ? "bg-primary text-primary-content"
+                  : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-xl">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </div>
+              <span
+                className={clsx(
+                  "material-symbols-outlined text-sm transition-transform",
+                  isExpanded && "rotate-90"
+                )}
+              >
+                chevron_right
+              </span>
+            </button>
+            {isExpanded && (
+              <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
+                {item.subItems?.map((subItem) => {
+                  const subActive = pathname.startsWith(subItem.href);
+                  return (
+                    <Link
+                      key={subItem.href}
+                      href={subItem.href}
                       className={clsx(
-                        "material-symbols-outlined text-sm transition-transform",
-                        isExpanded && "rotate-90"
+                        "flex items-center gap-3 rounded-lg px-4 py-2 text-sm transition-all",
+                        subActive
+                          ? "bg-primary/20 text-primary-content"
+                          : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
                       )}
                     >
-                      chevron_right
-                    </span>
-                  </button>
-                  {isExpanded && (
-                    <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
-                      {item.subItems?.map((subItem) => {
-                        const subActive = pathname.startsWith(subItem.href);
-                        return (
-                          <Link
-                            key={subItem.href}
-                            href={subItem.href}
-                            className={clsx(
-                              "flex items-center gap-3 rounded-lg px-4 py-2 text-sm transition-all",
-                              subActive
-                                ? "bg-primary/20 text-primary-content"
-                                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                            )}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                            <span>{subItem.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <Link
-                  href={item.href}
-                  className={clsx(
-                    "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-                    active
-                      ? "bg-primary text-primary-content"
-                      : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                  )}
-                >
-                  <span className="material-symbols-outlined text-xl">
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
-              )}
-            </div>
-          );
-        })}
-      </nav>
-      <div className="p-4 border-t border-white/10 space-y-2">
-        {canAccessRoute(role, "/admin/dashboard-settings") && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      <span>{subItem.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : (
           <Link
-            href="/admin/dashboard-settings"
+            href={item.href}
             className={clsx(
               "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-              pathname.startsWith("/admin/dashboard-settings")
+              active
                 ? "bg-primary text-primary-content"
                 : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
             )}
           >
-            <span className="material-symbols-outlined text-xl">settings</span>
-            <span>Settings</span>
-          </Link>
-        )}
-        {canAccessRoute(role, "/admin/help") && (
-          <Link
-            href="/admin/help"
-            className={clsx(
-              "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-              pathname.startsWith("/admin/help")
-                ? "bg-primary text-primary-content"
-                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-            )}
-          >
-            <span className="material-symbols-outlined text-xl">help</span>
-            <span>Help Center</span>
+            <span className="material-symbols-outlined text-xl shrink-0">
+              {item.icon}
+            </span>
+            <span>{item.label}</span>
           </Link>
         )}
       </div>
+    );
+  };
+
+  return (
+    <aside className="hidden lg:flex flex-col w-72 bg-neutral text-neutral-content fixed h-screen">
+      <div className="px-4 pb-4 pt-2 border-b border-white/10 flex justify-center items-center overflow-hidden">
+        <Image
+          src="/assets/logos/OptiWMS Logo.png?v=5"
+          alt="OptiWMS Logo"
+          width={150}
+          height={150}
+          className="object-contain w-[150px] h-auto scale-150"
+          priority
+        />
+      </div>
+      <nav className="flex-1 p-4 overflow-y-auto flex flex-col">
+        <div className="space-y-2">
+          {navItems
+            .filter(
+              (item) =>
+                item.href !== "/admin/dashboard-settings" &&
+                item.href !== "/admin/help"
+            )
+            .map(renderNavItem)}
+        </div>
+        <div className="mt-auto pt-4 space-y-2 border-t border-white/10">
+          {navItems
+            .filter(
+              (item) =>
+                item.href === "/admin/dashboard-settings" ||
+                item.href === "/admin/help"
+            )
+            .map(renderNavItem)}
+        </div>
+      </nav>
+
     </aside>
   );
 }
