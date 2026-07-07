@@ -51,6 +51,7 @@ class PlanOptimizeRequest(BaseModel):
     locations: List[PlanLocationInput] = Field(default_factory=list)
     locked_material_ids: List[str] = Field(default_factory=list)
     use_milp_a_class: bool = False
+    solver_engine: str = "heuristic"
 
 
 class PlanReserveAssignment(BaseModel):
@@ -83,6 +84,12 @@ class PlanOptimizeResponse(BaseModel):
     assignments: List[PlanAssignmentResponse] = Field(default_factory=list)
     total_moves_proposed: int = 0
     relocation_moves_applied: int = 0
+    solver_status: str = "NOT_RUN"
+    objective_value: Optional[float] = None
+    infeasible_reason: Optional[str] = None
+    constraints_used: List[str] = Field(default_factory=list)
+    relocation_cap_used: int = 0
+    assignment_confidence_inputs: Dict[str, float] = Field(default_factory=dict)
 
 
 AMALGAMATED_PRIORITY = {
@@ -164,6 +171,220 @@ def _gain_score(distance_saved: float, zone_upgrade: Optional[str], material: Pl
     freq_bonus = 5.0 if material.fms_class == "F" else (2.0 if material.fms_class == "M" else 0.0)
     penalty = 15.0 if moving else 0.0
     return distance_saved * 0.5 + zone_bonus + freq_bonus - penalty
+
+
+def _candidate_locations(
+    material: PlanMaterialInput,
+    pick_pool: List[PlanLocationInput],
+    anchor: tuple[float, float],
+    max_candidates: int = 25,
+) -> List[PlanLocationInput]:
+    compatible = [
+        loc for loc in pick_pool
+        if _compatible(loc.amalgamated_class, material.amalgamated_class)
+        and _fits_physical(loc, material, _active_pick_pp(material, _max_stock_pp(material)))
+    ]
+    compatible.sort(key=lambda loc: (
+        _pick_face_score(loc, True),
+        0 if material.fms_class == "F" else 1,
+        _distance(loc, anchor),
+    ))
+    return compatible[:max_candidates]
+
+
+def _ortools_optimize_plan(
+    request: PlanOptimizeRequest,
+    pick_pool: List[PlanLocationInput],
+    reserve_pool: List[PlanLocationInput],
+    anchor: tuple[float, float],
+) -> Optional[PlanOptimizeResponse]:
+    try:
+        from ortools.linear_solver import pywraplp
+    except Exception as exc:
+        return PlanOptimizeResponse(
+            warehouse_id=request.warehouse_id,
+            algorithm="HEURISTIC_V1",
+            solver_status="UNAVAILABLE",
+            infeasible_reason=f"OR-Tools unavailable: {exc}",
+        )
+
+    locked = set(request.locked_material_ids)
+    movable_materials = [
+        material for material in request.materials
+        if not material.locked and material.material_id not in locked
+    ]
+    if not movable_materials:
+        return PlanOptimizeResponse(
+            warehouse_id=request.warehouse_id,
+            algorithm="ORTOOLS_MILP_V1",
+            solver_status="NOOP",
+            assignments=[],
+            constraints_used=["locked_materials"],
+        )
+
+    candidates: Dict[str, List[PlanLocationInput]] = {
+        material.material_id: _candidate_locations(material, pick_pool, anchor)
+        for material in movable_materials
+    }
+    missing = [material.material_code for material in movable_materials if not candidates.get(material.material_id)]
+    if missing:
+        return PlanOptimizeResponse(
+            warehouse_id=request.warehouse_id,
+            algorithm="ORTOOLS_MILP_V1",
+            solver_status="INFEASIBLE",
+            infeasible_reason=f"No feasible candidate locations for {len(missing)} SKU(s): {', '.join(missing[:5])}",
+            constraints_used=["one_primary_pick_per_sku", "candidate_physical_fit", "material_zone_compatibility"],
+        )
+
+    solver = pywraplp.Solver.CreateSolver("SCIP") or pywraplp.Solver.CreateSolver("CBC")
+    if solver is None:
+        return PlanOptimizeResponse(
+            warehouse_id=request.warehouse_id,
+            algorithm="HEURISTIC_V1",
+            solver_status="UNAVAILABLE",
+            infeasible_reason="No OR-Tools MILP backend available",
+        )
+
+    x: Dict[tuple[str, str], Any] = {}
+    for material in movable_materials:
+        for loc in candidates[material.material_id]:
+            x[(material.material_id, loc.location_code)] = solver.BoolVar(f"x_{material.material_id}_{loc.location_code}")
+
+    for material in movable_materials:
+        solver.Add(sum(x[(material.material_id, loc.location_code)] for loc in candidates[material.material_id]) == 1)
+
+    by_location: Dict[str, List[Any]] = {}
+    for (material_id, loc_code), var in x.items():
+        by_location.setdefault(loc_code, []).append(var)
+    for loc_code, vars_for_loc in by_location.items():
+        solver.Add(sum(vars_for_loc) <= 1)
+
+    move_terms = []
+    objective_terms = []
+    for material in movable_materials:
+        incumbent = material.incumbent_primary_location_code
+        for loc in candidates[material.material_id]:
+            moving = bool(incumbent and incumbent != loc.location_code)
+            if moving:
+                move_terms.append(x[(material.material_id, loc.location_code)])
+            incumbent_distance = _distance(next((p for p in pick_pool if p.location_code == incumbent), loc), anchor) if incumbent else _distance(loc, anchor)
+            distance_saved = max(0.0, incumbent_distance - _distance(loc, anchor))
+            zone_upgrade = incumbent and loc.amalgamated_class and material.amalgamated_class != loc.amalgamated_class
+            score = _gain_score(distance_saved, "upgrade" if zone_upgrade else None, material, moving)
+            objective_terms.append(score * x[(material.material_id, loc.location_code)])
+
+    relocation_cap = max(0, int(len(request.materials) * (request.relocation_budget_pct / 100.0)))
+    if move_terms:
+        solver.Add(sum(move_terms) <= relocation_cap)
+    solver.Maximize(sum(objective_terms))
+    status = solver.Solve()
+    status_name = {
+        pywraplp.Solver.OPTIMAL: "OPTIMAL",
+        pywraplp.Solver.FEASIBLE: "FEASIBLE",
+        pywraplp.Solver.INFEASIBLE: "INFEASIBLE",
+        pywraplp.Solver.UNBOUNDED: "UNBOUNDED",
+        pywraplp.Solver.ABNORMAL: "ABNORMAL",
+        pywraplp.Solver.NOT_SOLVED: "NOT_SOLVED",
+    }.get(status, str(status))
+    if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
+        return PlanOptimizeResponse(
+            warehouse_id=request.warehouse_id,
+            algorithm="ORTOOLS_MILP_V1",
+            solver_status=status_name,
+            infeasible_reason="MILP did not find a feasible assignment",
+            constraints_used=[
+                "one_primary_pick_per_sku",
+                "one_sku_per_primary_location",
+                "location_pallet_capacity",
+                "rack_weight_capacity",
+                "rack_volume_capacity",
+                "material_zone_compatibility",
+                "relocation_cap",
+            ],
+            relocation_cap_used=relocation_cap,
+        )
+
+    assignments: List[PlanAssignmentResponse] = []
+    moves = 0
+    for material in request.materials:
+        max_pp = _max_stock_pp(material)
+        active_pp = _active_pick_pp(material, max_pp)
+        if material.locked or material.material_id in locked:
+            assignments.append(PlanAssignmentResponse(
+                material_id=material.material_id,
+                material_code=material.material_code,
+                recommended_primary_location_code=material.incumbent_primary_location_code,
+                final_primary_location_code=material.incumbent_primary_location_code,
+                active_pick_pallet_positions=active_pp,
+                required_reserve_pallet_positions=max(0, max_pp - active_pp),
+                max_stock_pallet_positions=max_pp,
+                move_reason="Locked line - kept incumbent",
+                status="OVERRIDDEN",
+            ))
+            continue
+
+        selected = next(
+            (loc for loc in candidates[material.material_id]
+             if x[(material.material_id, loc.location_code)].solution_value() > 0.5),
+            None,
+        )
+        incumbent = material.incumbent_primary_location_code
+        relocation = bool(selected and incumbent and incumbent != selected.location_code)
+        if relocation:
+            moves += 1
+        reserve_pp = max(0, max_pp - active_pp)
+        reserves = []
+        if reserve_pp > 0:
+            reserve = next(
+                (loc for loc in reserve_pool if _compatible(loc.amalgamated_class, material.amalgamated_class)
+                 and _fits_physical(loc, material, reserve_pp)),
+                None,
+            )
+            if reserve:
+                reserves.append(PlanReserveAssignment(location_code=reserve.location_code, reserve_pallet_positions=reserve_pp))
+        assignments.append(PlanAssignmentResponse(
+            material_id=material.material_id,
+            material_code=material.material_code,
+            recommended_primary_location_code=selected.location_code if selected else incumbent,
+            recommended_primary_location_id=selected.location_id if selected else None,
+            final_primary_location_code=selected.location_code if selected else incumbent,
+            active_pick_pallet_positions=active_pp,
+            required_reserve_pallet_positions=reserve_pp,
+            max_stock_pallet_positions=max_pp,
+            reserve_locations=reserves,
+            distance_saved_meters=0,
+            move_reason="OR-Tools MILP assignment under capacity, compatibility, and move-cap constraints",
+            gain_score=solver.Objective().Value(),
+            relocation_applied=relocation,
+            status="PROPOSED",
+        ))
+
+    return PlanOptimizeResponse(
+        warehouse_id=request.warehouse_id,
+        algorithm="ORTOOLS_MILP_V1",
+        assignments=assignments,
+        total_moves_proposed=moves,
+        relocation_moves_applied=moves,
+        solver_status=status_name,
+        objective_value=solver.Objective().Value(),
+        constraints_used=[
+            "one_primary_pick_per_sku",
+            "one_sku_per_primary_location",
+            "candidate_physical_fit",
+            "location_pallet_capacity",
+            "rack_weight_capacity",
+            "rack_volume_capacity",
+            "material_zone_compatibility",
+            "abc_fms_priority_objective",
+            "relocation_cap",
+        ],
+        relocation_cap_used=relocation_cap,
+        assignment_confidence_inputs={
+            "candidate_skus": float(len(movable_materials)),
+            "candidate_locations": float(sum(len(v) for v in candidates.values())),
+            "relocation_cap_pct": float(request.relocation_budget_pct),
+        },
+    )
 
 
 def _milp_refine_a_class(
@@ -264,6 +485,13 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
         key=lambda l: (_pick_face_score(l, False), -_distance(l, anchor)),
     )
 
+    if request.solver_engine.lower() == "ortools":
+        ortools_result = _ortools_optimize_plan(request, pick_pool, reserve_pool, anchor)
+        if ortools_result and ortools_result.algorithm == "ORTOOLS_MILP_V1" and ortools_result.assignments:
+            return ortools_result
+        if ortools_result and ortools_result.solver_status == "INFEASIBLE":
+            return ortools_result
+
     proposals: List[Dict[str, Any]] = []
 
     for material in sorted_materials:
@@ -328,7 +556,7 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
                         "reserve_pallet_positions": reserve_pp,
                         "reserve_zone_hint": "deep_reserve",
                     })
-                    break
+                break
 
         incumbent = material.incumbent_primary_location_code
         recommended = primary.location_code if primary else incumbent
@@ -427,4 +655,8 @@ def optimize_plan(request: PlanOptimizeRequest) -> PlanOptimizeResponse:
         assignments=assignments,
         total_moves_proposed=moves_proposed,
         relocation_moves_applied=moves_applied,
+        solver_status="FALLBACK" if request.solver_engine.lower() == "ortools" else "NOT_RUN",
+        infeasible_reason="OR-Tools unavailable or returned no usable assignment; heuristic fallback used" if request.solver_engine.lower() == "ortools" else None,
+        constraints_used=["compatibility", "physical_fit", "relocation_budget"],
+        relocation_cap_used=budget,
     )
