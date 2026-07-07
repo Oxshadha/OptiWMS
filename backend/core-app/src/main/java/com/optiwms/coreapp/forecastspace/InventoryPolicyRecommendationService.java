@@ -10,6 +10,8 @@ import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
 import com.optiwms.infra.master.SupplierConstraintEntity;
 import com.optiwms.infra.master.SupplierConstraintRepository;
+import com.optiwms.infra.master.SupplierMaterialEntity;
+import com.optiwms.infra.master.SupplierMaterialRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +38,7 @@ public class InventoryPolicyRecommendationService {
     private final InventoryItemRepository inventoryRepository;
     private final MaterialRepository materialRepository;
     private final SupplierConstraintRepository supplierConstraintRepository;
+    private final SupplierMaterialRepository supplierMaterialRepository;
     private final HandlingUnitCapacityService capacityService;
 
     public InventoryPolicyRecommendationService(
@@ -46,6 +49,7 @@ public class InventoryPolicyRecommendationService {
             InventoryItemRepository inventoryRepository,
             MaterialRepository materialRepository,
             SupplierConstraintRepository supplierConstraintRepository,
+            SupplierMaterialRepository supplierMaterialRepository,
             HandlingUnitCapacityService capacityService) {
         this.runRepository = runRepository;
         this.lineRepository = lineRepository;
@@ -54,6 +58,7 @@ public class InventoryPolicyRecommendationService {
         this.inventoryRepository = inventoryRepository;
         this.materialRepository = materialRepository;
         this.supplierConstraintRepository = supplierConstraintRepository;
+        this.supplierMaterialRepository = supplierMaterialRepository;
         this.capacityService = capacityService;
     }
 
@@ -159,14 +164,11 @@ public class InventoryPolicyRecommendationService {
             }
 
             List<InventoryItemEntity> stockRows = inventory.getOrDefault(material.getId(), List.of());
-            BigDecimal moq = material.getMinOrderQuantity() != null
-                    ? material.getMinOrderQuantity()
-                    : first(stockRows, InventoryItemEntity::getMoq);
-            if (moq == null || moq.compareTo(BigDecimal.ZERO) <= 0) {
+            SupplierPolicy supplier = supplierPolicy(material, stockRows);
+            if (!supplier.hasMoqInput()) {
                 missingMoq++;
             }
-            boolean hasLeadTime = stockRows.stream().anyMatch(i -> i.getLeadTimeDays() != null && i.getLeadTimeDays() > 0);
-            if (!hasLeadTime) {
+            if (!supplier.hasLeadTimeInput()) {
                 missingLeadTime++;
             }
         }
@@ -226,6 +228,9 @@ public class InventoryPolicyRecommendationService {
     @Transactional
     public InventoryPolicyRecommendationRunEntity approveRun(UUID runId, String approvedBy) {
         InventoryPolicyRecommendationRunEntity run = getRun(runId);
+        if ("APPROVED".equals(run.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Policy run is already approved");
+        }
         List<InventoryPolicyRecommendationLineEntity> lines = lineRepository.findByRunIdOrderByMaterialCodeAsc(runId);
         List<InventoryItemEntity> updatedInventory = new ArrayList<>();
         List<InventoryPolicyRecommendationLineEntity> updatedLines = new ArrayList<>();
@@ -237,6 +242,9 @@ public class InventoryPolicyRecommendationService {
             List<InventoryItemEntity> stockRows = inventoryRepository.findByMaterialIdAndWarehouseId(
                     line.getMaterialId(),
                     run.getWarehouseId());
+            if (line.getApprovalSnapshot() == null || line.getApprovalSnapshot().isBlank()) {
+                line.setApprovalSnapshot(approvalSnapshot(stockRows));
+            }
             for (InventoryItemEntity item : stockRows) {
                 item.setMinStock(line.getProposedMinStock());
                 item.setMaxStock(line.getProposedMaxStock());
@@ -256,6 +264,42 @@ public class InventoryPolicyRecommendationService {
         run.setStatus("APPROVED");
         run.setApprovedBy(approvedBy);
         run.setApprovedAt(OffsetDateTime.now());
+        return runRepository.save(run);
+    }
+
+    @Transactional
+    public InventoryPolicyRecommendationRunEntity rollbackRun(UUID runId, String rolledBackBy) {
+        InventoryPolicyRecommendationRunEntity run = getRun(runId);
+        if (!"APPROVED".equals(run.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only approved policy runs can be rolled back");
+        }
+        List<InventoryPolicyRecommendationLineEntity> lines = lineRepository.findByRunIdOrderByMaterialCodeAsc(runId);
+        List<InventoryItemEntity> updatedInventory = new ArrayList<>();
+        List<InventoryPolicyRecommendationLineEntity> updatedLines = new ArrayList<>();
+        for (InventoryPolicyRecommendationLineEntity line : lines) {
+            if (!"APPROVED".equals(line.getRecommendationStatus())) {
+                continue;
+            }
+            List<InventoryItemEntity> stockRows = inventoryRepository.findByMaterialIdAndWarehouseId(
+                    line.getMaterialId(),
+                    run.getWarehouseId());
+            for (InventoryItemEntity item : stockRows) {
+                item.setMinStock(line.getCurrentMinStock());
+                item.setMaxStock(line.getCurrentMaxStock());
+                item.setReorderPoint(line.getCurrentReorderPoint());
+                item.setBufferStock(line.getCurrentBufferStock());
+                item.setOrderQuantity(line.getCurrentOrderQty());
+                item.setPalletRequirement(line.getCurrentPalletRequirement());
+                updatedInventory.add(item);
+            }
+            line.setRecommendationStatus("APPLY_WITH_APPROVAL");
+            updatedLines.add(line);
+        }
+        inventoryRepository.saveAll(updatedInventory);
+        lineRepository.saveAll(updatedLines);
+        run.setStatus("ROLLED_BACK");
+        run.setApprovedBy(rolledBackBy);
+        run.setNotes(appendNote(run.getNotes(), "Rolled back approved stock rules by " + rolledBackBy));
         return runRepository.save(run);
     }
 
@@ -279,22 +323,24 @@ public class InventoryPolicyRecommendationService {
         line.setCurrentMinStock(first(stockRows, InventoryItemEntity::getMinStock));
         line.setCurrentMaxStock(first(stockRows, InventoryItemEntity::getMaxStock));
         line.setCurrentReorderPoint(first(stockRows, InventoryItemEntity::getReorderPoint));
+        line.setCurrentBufferStock(first(stockRows, InventoryItemEntity::getBufferStock));
+        line.setCurrentOrderQty(first(stockRows, InventoryItemEntity::getOrderQuantity));
+        line.setCurrentPalletRequirement(first(stockRows, InventoryItemEntity::getPalletRequirement));
 
         ForecastAggregate forecast = aggregateForecasts(forecastRows);
         line.setForecastP10(forecast.p10());
         line.setForecastP50(forecast.p50());
         line.setForecastP90(forecast.p90());
 
-        int leadTimeDays = stockRows.stream()
-                .map(InventoryItemEntity::getLeadTimeDays)
-                .filter(Objects::nonNull)
-                .findFirst()
-                .orElse(14);
+        SupplierPolicy supplier = supplierPolicy(material, stockRows);
+        int leadTimeDays = supplier.leadTimeDays() != null && supplier.leadTimeDays() > 0
+                ? supplier.leadTimeDays()
+                : 14;
         line.setLeadTimeDays(leadTimeDays);
 
-        SupplierPolicy supplier = supplierPolicy(material, stockRows);
         line.setMoq(supplier.moq());
         line.setOrderMultiple(supplier.orderMultiple());
+        line.setUnitsPerHandlingUnit(supplier.unitsPerHandlingUnit());
         line.setUnitCost(supplier.unitCost());
         line.setLeadTimeStdDays(supplier.leadTimeStdDays());
 
@@ -317,11 +363,14 @@ public class InventoryPolicyRecommendationService {
             return line;
         }
 
-        BigDecimal dailyP50 = safeDivide(forecast.p50(), BigDecimal.valueOf(Math.max(horizonMonths * 30L, 1)));
-        BigDecimal dailySpread = safeDivide(forecast.p90().subtract(forecast.p10()).abs(), BigDecimal.valueOf(2.56 * Math.max(horizonMonths * 30L, 1)));
+        BigDecimal horizonDays = BigDecimal.valueOf(Math.max(horizonMonths * 30L, 1));
+        BigDecimal dailyP50 = safeDivide(forecast.p50(), horizonDays);
+        BigDecimal dailySpread = safeDivide(forecast.p90().subtract(forecast.p10()).abs(), BigDecimal.valueOf(2 * 1.2816).multiply(horizonDays));
         BigDecimal leadTime = BigDecimal.valueOf(leadTimeDays);
         BigDecimal leadDemand = dailyP50.multiply(leadTime);
-        BigDecimal safetyStock = Z_95.multiply(sqrt(leadTime.multiply(dailySpread.pow(2))));
+        BigDecimal leadTimeVariance = supplier.leadTimeStdDays().pow(2).multiply(dailyP50.pow(2));
+        BigDecimal demandVariance = leadTime.multiply(dailySpread.pow(2));
+        BigDecimal safetyStock = Z_95.multiply(sqrt(demandVariance.add(leadTimeVariance)));
         if (safetyStock.compareTo(BigDecimal.ZERO) == 0 && material.getSafetyStockLevel() != null) {
             safetyStock = material.getSafetyStockLevel();
         }
@@ -359,7 +408,7 @@ public class InventoryPolicyRecommendationService {
 
         BigDecimal stockoutRisk = stockoutRisk(available, proposedRop, forecast.p90(), forecast.p50());
         BigDecimal expiryRisk = expiryRisk(expiryCap, proposedMax);
-        BigDecimal confidence = confidence(forecastRows, material, supplier);
+        BigDecimal confidence = confidence(forecastRows, material, supplier, stockoutRisk, expiryRisk);
         line.setStockoutRiskScore(stockoutRisk);
         line.setExpiryRiskScore(expiryRisk);
         line.setConfidenceScore(confidence);
@@ -412,17 +461,63 @@ public class InventoryPolicyRecommendationService {
         List<SupplierConstraintEntity> constraints = supplierConstraintRepository.findByMaterialId(material.getId()).stream()
                 .filter(c -> !Boolean.FALSE.equals(c.getIsActive()))
                 .toList();
-        BigDecimal moq = material.getMinOrderQuantity() != null ? material.getMinOrderQuantity() : first(stockRows, InventoryItemEntity::getMoq);
+        SupplierMaterialEntity supplierRule = supplierMaterialRepository.findByMaterialId(material.getId()).stream()
+                .sorted(Comparator
+                        .comparing((SupplierMaterialEntity link) -> Boolean.TRUE.equals(link.getPreferred())).reversed()
+                        .thenComparing(SupplierMaterialEntity::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(SupplierMaterialEntity::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .findFirst()
+                .orElse(null);
+
+        BigDecimal inventoryMoq = first(stockRows, InventoryItemEntity::getMoq);
+        Integer inventoryLeadTime = stockRows.stream()
+                .map(InventoryItemEntity::getLeadTimeDays)
+                .filter(Objects::nonNull)
+                .filter(days -> days > 0)
+                .findFirst()
+                .orElse(null);
+
+        BigDecimal providedMoq = firstPositiveOrNull(
+                supplierRule != null ? supplierRule.getMinimumOrderQuantity() : null,
+                !constraints.isEmpty() && constraints.get(0).getMinOrderQty() != null ? BigDecimal.valueOf(constraints.get(0).getMinOrderQty()) : null,
+                material.getMinOrderQuantity(),
+                inventoryMoq);
+        BigDecimal providedUnitsPerHandlingUnit = firstPositiveOrNull(
+                supplierRule != null ? supplierRule.getUnitsPerHandlingUnit() : null,
+                material.getUnitsPerHandlingUnit());
+        BigDecimal providedOrderMultiple = firstPositiveOrNull(
+                supplierRule != null ? supplierRule.getOrderMultiple() : null,
+                material.getOrderMultiple(),
+                providedUnitsPerHandlingUnit);
+        Integer leadTimeDays = firstPositiveInteger(
+                supplierRule != null ? supplierRule.getLeadTimeDays() : null,
+                inventoryLeadTime);
+        BigDecimal moq = providedMoq != null ? providedMoq : BigDecimal.ONE;
+        BigDecimal unitsPerHandlingUnit = providedUnitsPerHandlingUnit != null ? providedUnitsPerHandlingUnit : BigDecimal.ONE;
+        BigDecimal orderMultiple = providedOrderMultiple != null ? providedOrderMultiple : unitsPerHandlingUnit;
+        String source = supplierRule != null
+                ? Boolean.TRUE.equals(supplierRule.getPreferred()) ? "preferred_supplier_material" : "supplier_material"
+                : "material_inventory";
         BigDecimal unitCost = BigDecimal.ONE;
         BigDecimal leadStd = BigDecimal.ZERO;
         if (!constraints.isEmpty()) {
             SupplierConstraintEntity primary = constraints.get(0);
-            if (primary.getMinOrderQty() != null) moq = BigDecimal.valueOf(primary.getMinOrderQty());
             if (primary.getUnitPrice() != null && primary.getUnitPrice() > 0) unitCost = BigDecimal.valueOf(primary.getUnitPrice());
             if (primary.getLeadTimeStdDevDays() != null) leadStd = BigDecimal.valueOf(primary.getLeadTimeStdDevDays());
+            if (supplierRule == null) {
+                source = "supplier_constraint_material_inventory";
+            }
         }
-        if (moq == null || moq.compareTo(BigDecimal.ZERO) <= 0) moq = BigDecimal.ONE;
-        return new SupplierPolicy(moq, BigDecimal.ONE, unitCost, leadStd);
+        return new SupplierPolicy(
+                moq,
+                orderMultiple,
+                unitsPerHandlingUnit,
+                leadTimeDays,
+                unitCost,
+                leadStd,
+                source,
+                providedMoq != null,
+                leadTimeDays != null);
     }
 
     private BigDecimal expiryLimitedMax(List<InventoryItemEntity> stockRows, BigDecimal dailyDemand) {
@@ -480,21 +575,42 @@ public class InventoryPolicyRecommendationService {
         return clamp(excess.divide(expiryCap, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
     }
 
-    private BigDecimal confidence(List<ForecastResultEntity> forecastRows, MaterialEntity material, SupplierPolicy supplier) {
-        int score = 45;
-        if (forecastRows.size() >= 3) score += 20;
-        if (material.getPalletSpaces() != null && material.getPalletSpaces().compareTo(BigDecimal.ZERO) > 0) score += 15;
-        if (supplier.moq().compareTo(BigDecimal.ONE) > 0) score += 5;
-        if (supplier.leadTimeStdDays().compareTo(BigDecimal.ZERO) > 0) score += 5;
-        if (material.getWeightKg() != null && material.getVolumeCm3() != null) score += 10;
-        return score(Math.min(score, 100));
+    private BigDecimal confidence(
+            List<ForecastResultEntity> forecastRows,
+            MaterialEntity material,
+            SupplierPolicy supplier,
+            BigDecimal stockoutRisk,
+            BigDecimal expiryRisk) {
+        BigDecimal forecastBacktest = BigDecimal.valueOf(Math.min(100, 45 + forecastRows.size() * 12L));
+        BigDecimal intervalCoverage = forecastRows.stream().anyMatch(row -> row.getForecastP10() != null && row.getForecastP90() != null)
+                ? BigDecimal.valueOf(90)
+                : BigDecimal.valueOf(60);
+        BigDecimal dataCompleteness = BigDecimal.ZERO;
+        if (material.getPalletSpaces() != null && material.getPalletSpaces().compareTo(BigDecimal.ZERO) > 0) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(25));
+        if (supplier.hasMoqInput()) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(20));
+        if (supplier.hasLeadTimeInput()) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(20));
+        if (supplier.leadTimeStdDays().compareTo(BigDecimal.ZERO) > 0) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(10));
+        if (material.getWeightKg() != null) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(10));
+        if (material.getVolumeCm3() != null) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(10));
+        if (material.getStorageType() != null && !material.getStorageType().isBlank()) dataCompleteness = dataCompleteness.add(BigDecimal.valueOf(5));
+        BigDecimal feasibility = BigDecimal.valueOf(100).subtract(expiryRisk.multiply(new BigDecimal("0.8"))).max(BigDecimal.ZERO);
+        BigDecimal stability = BigDecimal.valueOf(100).subtract(stockoutRisk.multiply(new BigDecimal("0.5"))).max(BigDecimal.ZERO);
+        BigDecimal recency = BigDecimal.valueOf(95);
+        return forecastBacktest.multiply(new BigDecimal("0.35"))
+                .add(intervalCoverage.multiply(new BigDecimal("0.20")))
+                .add(dataCompleteness.min(BigDecimal.valueOf(100)).multiply(new BigDecimal("0.15")))
+                .add(feasibility.multiply(new BigDecimal("0.15")))
+                .add(stability.multiply(new BigDecimal("0.10")))
+                .add(recency.multiply(new BigDecimal("0.05")))
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     private String status(BigDecimal stockoutRisk, BigDecimal expiryRisk, BigDecimal confidence, BigDecimal stockDelta) {
         if (confidence.compareTo(score(45)) < 0) return "DATA_INSUFFICIENT";
         if (expiryRisk.compareTo(score(80)) >= 0) return "INFEASIBLE";
         if (stockoutRisk.compareTo(score(70)) >= 0 || expiryRisk.compareTo(score(60)) >= 0) return "HIGH_RISK_REVIEW";
-        if (stockDelta.abs().compareTo(BigDecimal.ZERO) == 0) return "SAFE_TO_APPLY";
+        if (stockDelta.abs().compareTo(BigDecimal.ZERO) == 0 && confidence.compareTo(score(90)) >= 0) return "SAFE_TO_APPLY";
+        if (confidence.compareTo(score(90)) < 0) return "HIGH_RISK_REVIEW";
         return "APPLY_WITH_APPROVAL";
     }
 
@@ -503,25 +619,32 @@ public class InventoryPolicyRecommendationService {
         String direction = stockDelta.compareTo(BigDecimal.ZERO) < 0 ? "reduce buffer" : "increase/retain stock";
         String expiry = expiryCap != null ? ", expiry cap applied" : "";
         return String.format(
-                "Forecast p50=%s, p90=%s; recommendation is to %s by %s units (%s pallet positions). MOQ=%s%s.",
+                "Forecast p50=%s, p90=%s; recommendation is to %s by %s units (%s pallet positions). MOQ=%s, multiple=%s, units/HU=%s, lead time=%s days%s.",
                 forecast.p50().setScale(0, RoundingMode.HALF_UP),
                 forecast.p90().setScale(0, RoundingMode.HALF_UP),
                 direction,
                 stockDelta.abs().setScale(0, RoundingMode.HALF_UP),
                 palletDelta.abs().setScale(2, RoundingMode.HALF_UP),
                 supplier.moq().setScale(0, RoundingMode.HALF_UP),
+                supplier.orderMultiple().setScale(0, RoundingMode.HALF_UP),
+                supplier.unitsPerHandlingUnit().setScale(0, RoundingMode.HALF_UP),
+                supplier.leadTimeDays() != null ? supplier.leadTimeDays() : 14,
                 expiry);
     }
 
     private String snapshot(MaterialEntity material, SupplierPolicy supplier, String status) {
         return String.format(Locale.ROOT,
-                "{\"status\":\"%s\",\"storage_type\":\"%s\",\"requires_pallet\":%s,\"pallet_spaces\":%s,\"moq\":%s,\"lead_time_std_days\":%s}",
+                "{\"status\":\"%s\",\"storage_type\":\"%s\",\"requires_pallet\":%s,\"pallet_spaces\":%s,\"moq\":%s,\"order_multiple\":%s,\"units_per_handling_unit\":%s,\"lead_time_days\":%s,\"lead_time_std_days\":%s,\"rule_source\":\"%s\"}",
                 escape(status),
                 escape(material.getStorageType()),
                 Boolean.TRUE.equals(material.getRequiresPallet()),
                 material.getPalletSpaces() != null ? material.getPalletSpaces() : BigDecimal.ZERO,
                 supplier.moq(),
-                supplier.leadTimeStdDays());
+                supplier.orderMultiple(),
+                supplier.unitsPerHandlingUnit(),
+                supplier.leadTimeDays() != null ? supplier.leadTimeDays() : 14,
+                supplier.leadTimeStdDays(),
+                escape(supplier.source()));
     }
 
     private int normalizeHorizon(Integer horizon) {
@@ -565,10 +688,42 @@ public class InventoryPolicyRecommendationService {
         row.setMinStock(summary.getMinStock());
         row.setMaxStock(summary.getMaxStock());
         row.setReorderPoint(summary.getReorderPoint());
+        row.setBufferStock(summary.getBufferStock());
         row.setMoq(summary.getMoq());
         row.setLeadTimeDays(summary.getLeadTimeDays());
+        row.setOrderQuantity(summary.getOrderQuantity());
+        row.setPalletRequirement(summary.getPalletRequirement());
         row.setExpiryDate(summary.getExpiryDate());
         return row;
+    }
+
+    private String approvalSnapshot(List<InventoryItemEntity> stockRows) {
+        if (stockRows == null || stockRows.isEmpty()) {
+            return "[]";
+        }
+        return stockRows.stream()
+                .map(row -> String.format(Locale.ROOT,
+                        "{\"inventory_id\":\"%s\",\"location_code\":\"%s\",\"min_stock\":%s,\"max_stock\":%s,\"reorder_point\":%s,\"buffer_stock\":%s,\"order_quantity\":%s,\"pallet_requirement\":%s}",
+                        row.getId(),
+                        escape(row.getLocationCode()),
+                        jsonNumber(row.getMinStock()),
+                        jsonNumber(row.getMaxStock()),
+                        jsonNumber(row.getReorderPoint()),
+                        jsonNumber(row.getBufferStock()),
+                        jsonNumber(row.getOrderQuantity()),
+                        jsonNumber(row.getPalletRequirement())))
+                .collect(Collectors.joining(",", "[", "]"));
+    }
+
+    private String jsonNumber(BigDecimal value) {
+        return value != null ? value.stripTrailingZeros().toPlainString() : "null";
+    }
+
+    private String appendNote(String current, String addition) {
+        if (current == null || current.isBlank()) {
+            return addition;
+        }
+        return current + "\n" + addition;
     }
 
     private int toInt(BigDecimal value) {
@@ -612,6 +767,33 @@ public class InventoryPolicyRecommendationService {
         return rows.stream().map(fn).filter(Objects::nonNull).findFirst().orElse(null);
     }
 
+    private boolean isPositive(BigDecimal value) {
+        return value != null && value.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private BigDecimal firstPositive(BigDecimal... values) {
+        BigDecimal value = firstPositiveOrNull(values);
+        return value != null ? value : BigDecimal.ONE;
+    }
+
+    private BigDecimal firstPositiveOrNull(BigDecimal... values) {
+        for (BigDecimal value : values) {
+            if (isPositive(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private Integer firstPositiveInteger(Integer... values) {
+        for (Integer value : values) {
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return null;
+    }
+
     private String escape(String raw) {
         return raw == null ? "" : raw.replace("\\", "\\\\").replace("\"", "\\\"");
     }
@@ -642,5 +824,14 @@ public class InventoryPolicyRecommendationService {
             List<String> blockers) {}
 
     private record ForecastAggregate(BigDecimal p10, BigDecimal p50, BigDecimal p90) {}
-    private record SupplierPolicy(BigDecimal moq, BigDecimal orderMultiple, BigDecimal unitCost, BigDecimal leadTimeStdDays) {}
+    private record SupplierPolicy(
+            BigDecimal moq,
+            BigDecimal orderMultiple,
+            BigDecimal unitsPerHandlingUnit,
+            Integer leadTimeDays,
+            BigDecimal unitCost,
+            BigDecimal leadTimeStdDays,
+            String source,
+            boolean hasMoqInput,
+            boolean hasLeadTimeInput) {}
 }

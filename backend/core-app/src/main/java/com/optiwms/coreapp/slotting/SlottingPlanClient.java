@@ -120,6 +120,7 @@ public class SlottingPlanClient {
         req.relocation_budget_pct = relocationBudgetPct != null
                 ? relocationBudgetPct.doubleValue() : 30.0;
         req.use_milp_a_class = useMilpAClass;
+        req.solver_engine = useMilpAClass ? "ortools" : "heuristic";
         req.locked_material_ids = lockedMaterialIds.stream().map(UUID::toString).toList();
 
         req.materials = new ArrayList<>();
@@ -182,7 +183,8 @@ public class SlottingPlanClient {
         List<SlottingPlanOptimizer.OptimizedLine> merged = new ArrayList<>();
         for (SlottingPlanOptimizer.OptimizedLine line : javaLines) {
             PlanAssignmentPayload py = byMaterialId.get(line.material().materialId().toString());
-            if (py == null || !"A".equals(line.material().abcClass())) {
+            boolean fullMilp = "ORTOOLS_MILP_V1".equalsIgnoreCase(pythonResponse.algorithm);
+            if (py == null || (!fullMilp && !"A".equals(line.material().abcClass()))) {
                 merged.add(line);
                 continue;
             }
@@ -198,7 +200,7 @@ public class SlottingPlanClient {
 
             String reason = py.move_reason != null ? py.move_reason : line.moveReason();
             if (pythonResponse.algorithm != null && pythonResponse.algorithm.contains("MILP")) {
-                reason = reason + " (A-class MILP via slotting-service)";
+                reason = reason + (fullMilp ? " (OR-Tools MILP via slotting-service)" : " (A-class MILP via slotting-service)");
             }
 
             merged.add(new SlottingPlanOptimizer.OptimizedLine(
@@ -245,6 +247,7 @@ public class SlottingPlanClient {
         public List<PlanLocationPayload> locations = List.of();
         public List<String> locked_material_ids = List.of();
         public boolean use_milp_a_class = true;
+        public String solver_engine = "heuristic";
     }
 
     public static class PlanMaterialPayload {
@@ -288,6 +291,12 @@ public class SlottingPlanClient {
         public List<PlanAssignmentPayload> assignments = List.of();
         public int total_moves_proposed;
         public int relocation_moves_applied;
+        public String solver_status;
+        public Double objective_value;
+        public String infeasible_reason;
+        public List<String> constraints_used = List.of();
+        public int relocation_cap_used;
+        public Map<String, Double> assignment_confidence_inputs = Map.of();
     }
 
     public static class PlanAssignmentPayload {

@@ -87,6 +87,11 @@ public class ForecastSpaceOptimizationController {
         return toPolicyRun(policyService.approveRun(runId, body.approvedBy()));
     }
 
+    @PostMapping("/policy-runs/{runId}/rollback")
+    public PolicyRunDto rollbackPolicyRun(@PathVariable UUID runId, @RequestBody RollbackRunDto body) {
+        return toPolicyRun(policyService.rollbackRun(runId, body.rolledBackBy()));
+    }
+
     @PostMapping("/space-runs")
     public ResponseEntity<SpaceRunDto> createSpaceRun(@RequestBody CreateSpaceRunDto body) {
         SpaceOptimizationRunEntity run = spaceService.createRun(
@@ -154,6 +159,9 @@ public class ForecastSpaceOptimizationController {
                 dbl(line.getCurrentMinStock()),
                 dbl(line.getCurrentMaxStock()),
                 dbl(line.getCurrentReorderPoint()),
+                dbl(line.getCurrentBufferStock()),
+                dbl(line.getCurrentOrderQty()),
+                dbl(line.getCurrentPalletRequirement()),
                 dbl(line.getForecastP10()),
                 dbl(line.getForecastP50()),
                 dbl(line.getForecastP90()),
@@ -161,6 +169,7 @@ public class ForecastSpaceOptimizationController {
                 dbl(line.getLeadTimeStdDays()),
                 dbl(line.getMoq()),
                 dbl(line.getOrderMultiple()),
+                dbl(line.getUnitsPerHandlingUnit()),
                 dbl(line.getUnitCost()),
                 dbl(line.getExpiryLimitedMaxStock()),
                 dbl(line.getProposedMinStock()),
@@ -177,6 +186,7 @@ public class ForecastSpaceOptimizationController {
                 line.getRecommendationStatus(),
                 line.getRationale(),
                 line.getConstraintSnapshot(),
+                line.getApprovalSnapshot(),
                 line.getManagerOverride(),
                 line.getOverrideReason());
     }
@@ -189,6 +199,10 @@ public class ForecastSpaceOptimizationController {
                 run.getHorizonMonths(),
                 run.getStatus(),
                 run.getAlgorithm(),
+                run.getOptimizerMetadata(),
+                dbl(run.getRelocationCapPct()),
+                run.getRelocationCapSkus(),
+                dbl(run.getObjectiveValue()),
                 run.getCreatedBy(),
                 run.getApprovedBy(),
                 run.getApprovedAt() != null ? run.getApprovedAt().toString() : null,
@@ -260,6 +274,7 @@ public class ForecastSpaceOptimizationController {
 
     public record CreateSpaceRunDto(String policyRunId, String createdBy, String notes) {}
     public record ApproveRunDto(String approvedBy) {}
+    public record RollbackRunDto(String rolledBackBy) {}
 
     public record ReadinessDto(
             String warehouseId,
@@ -306,6 +321,9 @@ public class ForecastSpaceOptimizationController {
             Double currentMinStock,
             Double currentMaxStock,
             Double currentReorderPoint,
+            Double currentBufferStock,
+            Double currentOrderQty,
+            Double currentPalletRequirement,
             Double forecastP10,
             Double forecastP50,
             Double forecastP90,
@@ -313,6 +331,7 @@ public class ForecastSpaceOptimizationController {
             Double leadTimeStdDays,
             Double moq,
             Double orderMultiple,
+            Double unitsPerHandlingUnit,
             Double unitCost,
             Double expiryLimitedMaxStock,
             Double proposedMinStock,
@@ -329,6 +348,7 @@ public class ForecastSpaceOptimizationController {
             String recommendationStatus,
             String rationale,
             String constraintSnapshot,
+            String approvalSnapshot,
             Boolean managerOverride,
             String overrideReason) {}
 
@@ -339,6 +359,10 @@ public class ForecastSpaceOptimizationController {
             Integer horizonMonths,
             String status,
             String algorithm,
+            String optimizerMetadata,
+            Double relocationCapPct,
+            Integer relocationCapSkus,
+            Double objectiveValue,
             String createdBy,
             String approvedBy,
             String approvedAt,
