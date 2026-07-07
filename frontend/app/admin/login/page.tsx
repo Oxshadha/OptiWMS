@@ -60,20 +60,25 @@ function AnimatedHeroText() {
   useEffect(() => {
     const interval = setInterval(() => {
       setKey(prev => prev + 1);
-    }, 10000); // Loop every 10 seconds
+    }, 12000); // Loop every 12 seconds
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <div key={key} className="flex flex-col items-center">
-      <h1 className="text-4xl font-bold mb-4 tracking-tight min-h-[40px]">
-        <TypewriterText text="Intelligent Warehouse Management" speed={50} delay={0} hideCursorWhenDone={true} />
+    <div key={key} className="flex flex-col items-start w-full mt-2">
+      <h1 className="text-4xl lg:text-[2.75rem] leading-[1.1] font-bold mb-6 tracking-tight flex flex-col gap-2 min-h-[96px]">
+        <span className="text-white">
+          <TypewriterText text="Intelligent Warehouse" speed={50} delay={0} hideCursorWhenDone={true} />
+        </span>
+        <span className="text-primary">
+          <TypewriterText text="Management System" speed={50} delay={1200} hideCursorWhenDone={true} />
+        </span>
       </h1>
-      <p className="text-xl text-neutral-content/80 max-w-lg mx-auto min-h-[84px]">
+      <p className="text-lg lg:text-lg text-white/80 max-w-md min-h-[84px] leading-relaxed">
         <TypewriterText 
-          text="Optimize your supply chain, empower your workforce, and deliver with unparalleled precision." 
+          text="Optimize your supply chain, empower your workforce, and deliver operational excellence." 
           speed={30} 
-          delay={2000} 
+          delay={2200} 
         />
       </p>
     </div>
@@ -233,21 +238,28 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex bg-base-100">
-      {/* Left side - Branding (Dark Theme) */}
-      <div className="hidden lg:flex lg:w-1/2 bg-neutral text-neutral-content flex-col justify-center items-center p-12 relative overflow-hidden">
-        <div className="absolute inset-0 opacity-20 pointer-events-none">
-          {/* Subtle background glow effects */}
-          <div className="absolute top-[-10%] right-[-10%] w-[40rem] h-[40rem] bg-primary rounded-full blur-[100px]"></div>
-          <div className="absolute bottom-[-10%] left-[-10%] w-[40rem] h-[40rem] bg-secondary rounded-full blur-[100px]"></div>
+      {/* Left side - Branding (Dark Theme with Image) */}
+      <div className="hidden lg:flex lg:w-[55%] relative flex-col justify-center overflow-hidden">
+        {/* Background Image */}
+        <div className="absolute inset-0 z-0">
+          <Image
+            src="/assets/logos/Login main .png"
+            alt="Warehouse Background"
+            fill
+            className="object-cover"
+            priority
+          />
+          {/* Dark gradient overlay for text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#0f172a]/95 via-[#0f172a]/80 to-transparent"></div>
         </div>
         
-        <div className="relative z-10 flex flex-col items-center text-center w-full px-8">
+        <div className="relative z-10 flex flex-col items-start w-full px-12 xl:px-20 max-w-3xl -mt-20">
           <Image
             src="/assets/logos/OptiWMS Logo.png?v=5"
             alt="OptiWMS Logo"
-            width={600}
-            height={240}
-            className="object-contain h-48 w-auto mb-12 drop-shadow-2xl scale-125 hover:scale-[1.3] transition-transform duration-500"
+            width={400}
+            height={133}
+            className="object-contain w-48 lg:w-56 xl:w-64 h-auto drop-shadow-2xl transition-transform duration-500 hover:scale-105 origin-left mb-2"
             priority
           />
           <AnimatedHeroText />
@@ -255,8 +267,8 @@ export default function LoginPage() {
       </div>
 
       {/* Right side - Login Form (Light Theme) */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 sm:p-12 lg:p-16">
-        <div className="w-full max-w-md">
+      <div className="w-full lg:w-[45%] flex flex-col items-center justify-center p-8 sm:p-12 lg:p-16 relative bg-base-100">
+        <div className="w-full max-w-md relative z-10 flex-1 flex flex-col justify-center">
           {/* Mobile Logo with dark background for visibility */}
           <div className="lg:hidden flex justify-center mb-10">
             <div className="bg-neutral w-36 h-36 rounded-[2rem] shadow-2xl hover:scale-105 transition-transform duration-300 flex items-center justify-center">
@@ -362,10 +374,22 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-          
-          <div className="mt-12 text-center text-sm text-base-content/40">
-            &copy; {new Date().getFullYear()} OptiWMS Inc. All rights reserved.
-          </div>
+        </div>
+        
+        {/* Footer Art Image */}
+        <div className="hidden lg:block absolute bottom-10 right-0 w-full pointer-events-none opacity-60 z-0">
+           <Image
+             src="/assets/logos/admin login page art.png"
+             alt="Login Art"
+             width={800}
+             height={300}
+             className="w-full h-auto object-contain object-bottom"
+           />
+        </div>
+
+        {/* Copyright Text */}
+        <div className="absolute bottom-3 w-full text-center text-sm text-base-content/40 z-10">
+          &copy; {new Date().getFullYear()} OptiWMS Inc. All rights reserved.
         </div>
       </div>
     </div>
