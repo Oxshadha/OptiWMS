@@ -57,6 +57,18 @@ public class ForecastResultEntity {
     @Column(name = "mlflow_run_id", length = 64)
     private String mlflowRunId;
 
+    @Column(name = "training_source", length = 128)
+    private String trainingSource;
+
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier;
+
+    @Column(name = "synthetic_ratio", precision = 6, scale = 5)
+    private BigDecimal syntheticRatio;
+
+    @Column(name = "decision_eligible", nullable = false)
+    private Boolean decisionEligible = Boolean.FALSE;
+
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;
 
@@ -86,6 +98,14 @@ public class ForecastResultEntity {
     public void setMethod(String method) { this.method = method; }
     public String getMlflowRunId() { return mlflowRunId; }
     public void setMlflowRunId(String mlflowRunId) { this.mlflowRunId = mlflowRunId; }
+    public String getTrainingSource() { return trainingSource; }
+    public void setTrainingSource(String trainingSource) { this.trainingSource = trainingSource; }
+    public String getDataQualityTier() { return dataQualityTier; }
+    public void setDataQualityTier(String dataQualityTier) { this.dataQualityTier = dataQualityTier; }
+    public BigDecimal getSyntheticRatio() { return syntheticRatio; }
+    public void setSyntheticRatio(BigDecimal syntheticRatio) { this.syntheticRatio = syntheticRatio; }
+    public Boolean getDecisionEligible() { return decisionEligible; }
+    public void setDecisionEligible(Boolean decisionEligible) { this.decisionEligible = decisionEligible; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }
