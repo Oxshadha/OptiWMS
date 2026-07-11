@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -30,15 +31,68 @@ class AiProxyControllerTest {
 
     private AiProxyService aiProxyService;
 
+    private ForecastResultReadService forecastResultReadService;
+
     @BeforeEach
     void setUp() {
         aiProxyService = org.mockito.Mockito.mock(AiProxyService.class);
-        aiProxyController = new AiProxyController(aiProxyService);
+        forecastResultReadService = org.mockito.Mockito.mock(ForecastResultReadService.class);
+        aiProxyController = new AiProxyController(aiProxyService, forecastResultReadService);
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders.standaloneSetup(aiProxyController)
                 .setValidator(validator)
                 .build();
+    }
+
+    @Test
+    void forecasts_shouldPreferWmsForecastResultsWhenRowsExist() throws Exception {
+        when(aiProxyService.resolveWarehouseScope(null, "1")).thenReturn("1");
+        when(forecastResultReadService.hasRows("RM-001", 1, "LIGHTGBM", "1")).thenReturn(true);
+        when(forecastResultReadService.getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1"))
+                .thenReturn(ResponseEntity.ok(Map.of(
+                        "source", "wms_forecast_results",
+                        "model_used", "V7_RM_PM_DIRECT",
+                        "count", 1
+                )));
+
+        mockMvc.perform(get("/api/ai/forecasts?sku=RM-001&horizon=1&dataset=P&model=LIGHTGBM&warehouseId=1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("wms_forecast_results"))
+                .andExpect(jsonPath("$.model_used").value("V7_RM_PM_DIRECT"))
+                .andExpect(jsonPath("$.count").value(1));
+
+        verify(forecastResultReadService).getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1");
+    }
+
+    @Test
+    void forecasts_shouldFallBackToPythonServiceWhenCanonicalRowsMissing() throws Exception {
+        when(aiProxyService.resolveWarehouseScope(null, "1")).thenReturn("1");
+        when(forecastResultReadService.hasRows("FG-001", 1, "LIGHTGBM", "1")).thenReturn(false);
+        when(aiProxyService.getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1"))
+                .thenReturn(ResponseEntity.ok(Map.of("source", "forecast_service", "count", 0)));
+
+        mockMvc.perform(get("/api/ai/forecasts?sku=FG-001&horizon=1&dataset=P&model=LIGHTGBM&warehouseId=1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.source").value("forecast_service"))
+                .andExpect(jsonPath("$.count").value(0));
+
+        verify(aiProxyService).getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1");
+    }
+
+    @Test
+    void gatewayModels_shouldExposeWmsChampionWhenCanonicalRowsExist() throws Exception {
+        when(forecastResultReadService.hasCanonicalForecasts()).thenReturn(true);
+        when(forecastResultReadService.getGatewayModels())
+                .thenReturn(ResponseEntity.ok(Map.of(
+                        "champion", Map.of("name", "V7_RM_PM_DIRECT", "source", "wms_forecast_results"),
+                        "available_models", List.of()
+                )));
+
+        mockMvc.perform(get("/api/ai/gateway/models"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.champion.name").value("V7_RM_PM_DIRECT"))
+                .andExpect(jsonPath("$.champion.source").value("wms_forecast_results"));
     }
 
     @Test
