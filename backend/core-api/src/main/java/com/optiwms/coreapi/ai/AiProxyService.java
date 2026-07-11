@@ -128,13 +128,30 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> getRawMaterialRequirements(Integer runId, String dataset, String model, String warehouseId, String rmSku) {
-        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/raw-material-requirements");
-        if (runId != null) ub.queryParam("run_id", runId);
-        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
-        if (model != null && !model.isBlank()) ub.queryParam("model", model);
-        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
-        if (rmSku != null && !rmSku.isBlank()) ub.queryParam("rm_sku", rmSku);
-        return exchangeGet(ub.toUriString());
+        String url = forecastBaseUrl + "/raw-material-requirements";
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url)
+                .queryParam("dataset", dataset)
+                .queryParam("model", model);
+
+        if (runId != null) {
+            builder.queryParam("run_id", runId);
+        }
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            builder.queryParam("warehouse_id", warehouseId);
+        }
+        if (rmSku != null && !rmSku.isBlank()) {
+            builder.queryParam("rm_sku", rmSku);
+        }
+
+        return exchangeGetSafe(builder.toUriString(), "forecast");
+    }
+
+    public ResponseEntity<Object> getRunJobs(Integer runId) {
+        if (runId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "run_id is required"));
+        }
+        String url = forecastBaseUrl + "/runs/" + runId + "/jobs";
+        return exchangeGetSafe(url, "forecast");
     }
 
     public ResponseEntity<Object> getBomMappings(String fgSku, String rmSku, Boolean activeOnly) {
@@ -163,7 +180,7 @@ public class AiProxyService {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
                 .queryParam("model_name", modelName)
-                ;
+                .queryParam("async_run", true);
         if (mode != null && !mode.isBlank()) ub.queryParam("mode", mode);
         if (warehouseId != null && !warehouseId.isBlank()) {
             ub.queryParam("warehouse_id", warehouseId);
@@ -495,8 +512,12 @@ public class AiProxyService {
     private ResponseEntity<Object> exchangeGet(String url) {
         HttpEntity<String> request = new HttpEntity<>(headers());
         ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, request, byte[].class);
+        HttpHeaders safeHeaders = new HttpHeaders();
+        if (response.getHeaders().getContentType() != null) {
+            safeHeaders.setContentType(response.getHeaders().getContentType());
+        }
         return ResponseEntity.status(response.getStatusCode())
-                .headers(response.getHeaders())
+                .headers(safeHeaders)
                 .body(response.getBody());
     }
 
