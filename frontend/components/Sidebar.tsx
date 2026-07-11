@@ -61,7 +61,6 @@ const allNavItems = [
       { href: "/admin/quality-checks", label: "Quality Checks" },
       { href: "/admin/returns", label: "Returns" },
       { href: "/admin/shipments", label: "Shipments" },
-      { href: "/admin/anomalies", label: "Anomalies" },
     ],
   },
 
@@ -93,6 +92,7 @@ const allNavItems = [
       { href: "/admin/data-quality", label: "Data Quality" },
     ],
   },
+  { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
   { href: "/admin/dashboard-settings", label: "Settings", icon: "settings" },
   { href: "/admin/help", label: "Help Center", icon: "help" },
 ];
@@ -284,7 +284,7 @@ export function Sidebar() {
           priority
         />
       </div>
-      <nav className="flex-1 p-4 overflow-y-auto flex flex-col">
+      <nav className="flex-1 p-4 overflow-y-auto flex flex-col dark-scrollbar">
         <div className="space-y-2">
           {navItems
             .filter(

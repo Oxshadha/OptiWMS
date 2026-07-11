@@ -29,6 +29,22 @@ export interface InventoryRecommendation {
   suggested_order_qty: number;
 }
 
+export interface RawMaterialRequirement {
+  run_id: number;
+  dataset: string;
+  model: string;
+  warehouse_id?: string | null;
+  rm_sku: string;
+  rm_category?: string | null;
+  fg_sku_count: number;
+  gross_requirement_qty: number;
+  on_hand_inventory: number;
+  safety_stock: number;
+  reorder_point: number;
+  net_requirement_qty: number;
+  suggested_procure_qty: number;
+}
+
 export interface ForecastMetric {
   run_id: number;
   dataset: string;
@@ -177,11 +193,13 @@ export interface ProductionReadinessResponse {
 export interface GatewayModelsResponse {
   champion?: {
     name: string;
+    dataset?: string;
     version?: string;
     is_champion?: boolean;
   };
   available_models?: Array<{
     name: string;
+    dataset?: string;
     artifact_count?: number;
     is_champion?: boolean;
   }>;
@@ -268,6 +286,19 @@ function buildQuery(params: Record<string, string | number | undefined | null>):
   return q ? `?${q}` : '';
 }
 
+export interface PublishJobResponse {
+  id: number;
+  run_id: number;
+  mode: string;
+  status: string;
+  error: string | null;
+  progress_percent: number | null;
+  progress_message: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 export const aiForecastApi = {
   getForecasts(params: {
     sku?: string;
@@ -324,6 +355,23 @@ export const aiForecastApi = {
     return apiClient.get<PagedResponse<InventoryRecommendation>>(`/ai/inventory-recommendations${query}`);
   },
 
+  getRawMaterialRequirements(params: {
+    rmSku?: string;
+    dataset?: string;
+    model?: string;
+    warehouseId?: string;
+    runId?: number;
+  } = {}) {
+    const query = buildQuery({
+      rm_sku: params.rmSku,
+      dataset: params.dataset,
+      model: params.model,
+      warehouseId: params.warehouseId,
+      run_id: params.runId,
+    });
+    return apiClient.get<PagedResponse<RawMaterialRequirement>>(`/ai/raw-material-requirements${query}`);
+  },
+
   triggerForecastRun(params: {
     dataset?: string;
     modelName?: string;
@@ -339,6 +387,10 @@ export const aiForecastApi = {
       critical_override: params.criticalOverride === true ? "true" : undefined,
     });
     return apiClient.post<ForecastRunTriggerResponse>(`/ai/jobs/forecast-run${query}`);
+  },
+
+  getRunJobs(runId: number) {
+    return apiClient.get<PagedResponse<PublishJobResponse>>(`/ai/runs/${runId}/jobs`);
   },
 
   getHealth() {

@@ -379,12 +379,7 @@ export default function WarehousesPage() {
       )}
 
       <WarehouseStatsCards stats={stats} />
-      {layoutLimitNotice && (
-        <div className="alert alert-info">
-          <span className="material-symbols-outlined">info</span>
-          <span>{layoutLimitNotice}</span>
-        </div>
-      )}
+
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
       {layoutHasRealData ? (
