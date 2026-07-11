@@ -1,0 +1,52 @@
+{
+  "position": "offline corrected experiment; not published to forecast_results",
+  "data_lineage": "HEMAS_SYNTHETIC_WMS_V6 / canonical_v6 simulated operational history",
+  "backtest_design": "6 expanding-window rolling origins; one-step-ahead per origin",
+  "old_v7_lightgbm": {
+    "model": "lightgbm_global_rm_pm",
+    "rows": 1728,
+    "materials": 288,
+    "WAPE": 0.2508921958929702,
+    "MAE": 433.2421829057567,
+    "RMSE": 2421.5939277953225,
+    "Bias": 0.0157842226008599,
+    "under_forecast_rate": 0.5063657407407407
+  },
+  "corrected_champion": {
+    "model": "lgb_ratio_log_l2",
+    "rows": 1728,
+    "materials": 288,
+    "WAPE": 0.24172114259342556,
+    "MAE": 417.4055518104844,
+    "RMSE": 2331.4743118153456,
+    "Bias": 0.03634241043266184,
+    "under_forecast_rate": 0.45601851851851855
+  },
+  "corrected_champion_q5": {
+    "model": "lgb_ratio_log_l2",
+    "demand_band": "Q5_highest",
+    "rows": 346,
+    "actual_min": 760.0,
+    "actual_median": 2074.0,
+    "actual_max": 126414.0,
+    "sum_actual": 2851068.0,
+    "sum_abs_error": 654505.4044853759,
+    "MAE": 1891.634117009757,
+    "RMSE": 5194.349966000624,
+    "mean_error": 215.00304727727297,
+    "under_forecast_rate": 0.5433526011560693,
+    "WAPE": 0.22956499265726943
+  },
+  "feature_alignment": "target month t uses only observations through t-1; future inference follows the same contract",
+  "variants": [
+    "lgb_log_l2_aligned",
+    "lgb_log_huber_aligned",
+    "lgb_raw_l1_aligned",
+    "lgb_ratio_log_l2",
+    "lgb_ratio_l1",
+    "lgb_tweedie_aligned",
+    "lgb_poisson_aligned",
+    "lgb_log_weighted_volume"
+  ],
+  "claim_limit": "Results measure fit to simulated operational history, not production validity on real RM/PM issues."
+}
