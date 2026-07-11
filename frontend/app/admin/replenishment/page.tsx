@@ -59,25 +59,31 @@ export default function ReplenishmentPage() {
   );
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8">
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Intelligent Engine Action Center</h1>
-          <p className="text-sm text-base-content/60 mt-2 max-w-4xl">
+          <div className="inline-flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 mb-3 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] text-primary">
+              Control Center
+            </span>
+          </div>
+          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">Intelligent Engine Action Center</h1>
+          <p className="text-sm text-base-content/60 mt-2 max-w-4xl font-medium">
             Manager decisions for replenishment policy, released pallet space, location planning, and solver-backed restructures.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="form-control w-72">
-            <span className="label-text text-xs mb-1">Warehouse</span>
-            <select className="select select-bordered select-sm" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+            <span className="label-text text-xs mb-1 font-medium">Warehouse</span>
+            <select className="select select-bordered select-sm rounded-full" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
               ))}
             </select>
           </label>
           <button
-            className="btn btn-sm btn-outline"
+            className="btn btn-sm btn-outline rounded-full"
             onClick={() => warehouseId && intelligenceApi.getActionCenter(warehouseId).then(setSummary).catch((e) => setError(e instanceof Error ? e.message : "Failed to refresh"))}
             disabled={!warehouseId || loading}
           >
@@ -97,17 +103,17 @@ export default function ReplenishmentPage() {
       </section>
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="xl:col-span-2 bg-base-100 border border-base-300 rounded-lg">
-          <div className="p-4 border-b border-base-300 flex items-center justify-between gap-3">
+        <div className="xl:col-span-2 bg-base-100 shadow-sm border-none rounded-2xl">
+          <div className="p-6 border-b border-base-200 flex items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold">Manager Action Queue</h2>
               <p className="text-xs text-base-content/60">
                 {selectedWarehouse ? selectedWarehouse.name : "Selected warehouse"} · exception-first decisions with explainable rationale.
               </p>
             </div>
-            <Link href="/admin/replenishment/forecast-space" className="btn btn-sm btn-primary">Open Planner</Link>
+            <Link href="/admin/replenishment/forecast-space" className="btn btn-sm btn-primary rounded-full">Open Planner</Link>
           </div>
-          <div className="divide-y divide-base-300">
+          <div className="divide-y divide-base-200">
             {summary?.actionItems.length === 0 && (
               <div className="p-6 text-sm text-base-content/60">No immediate manager action is pending for this warehouse.</div>
             )}
@@ -117,12 +123,12 @@ export default function ReplenishmentPage() {
           </div>
         </div>
 
-        <div className="bg-base-100 border border-base-300 rounded-lg">
-          <div className="p-4 border-b border-base-300">
+        <div className="bg-base-100 shadow-sm border-none rounded-2xl">
+          <div className="p-6 border-b border-base-200">
             <h2 className="font-semibold">Solver Routing</h2>
             <p className="text-xs text-base-content/60">What runs where, and why.</p>
           </div>
-          <div className="p-4 space-y-4 text-sm">
+          <div className="p-6 space-y-4 text-sm">
             <GuidanceRow label="Inbound orders" text={summary?.solverGuidance.inboundOrderMode ?? "Fast capacity feasibility checks only."} />
             <GuidanceRow label="Policy + space" text={summary?.solverGuidance.policySpaceMode ?? "Auditable deterministic rules."} />
             <GuidanceRow label="Slotting plans" text={summary?.solverGuidance.slottingPlanMode ?? "Heuristic with optional MILP for restructures."} />
@@ -146,16 +152,16 @@ function ActionRow({ item }: { item: ActionItem }) {
         </div>
         <p className="text-sm text-base-content/65 mt-1">{item.description}</p>
       </div>
-      <Link href={item.href} className="btn btn-sm btn-outline shrink-0">Review</Link>
+      <Link href={item.href} className="btn btn-sm btn-outline shrink-0 rounded-full">Review</Link>
     </div>
   );
 }
 
 function MetricCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "success" | "warning" }) {
   return (
-    <div className={clsx("bg-base-100 border rounded-lg p-4", tone === "success" ? "border-success/40" : tone === "warning" ? "border-warning/50" : "border-base-300")}>
+    <div className={clsx("bg-base-100 shadow-sm rounded-2xl p-6 border-l-4 hover:-translate-y-1 transition-transform duration-300", tone === "success" ? "border-l-success" : tone === "warning" ? "border-l-warning" : "border-l-transparent")}>
       <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">{label}</p>
-      <p className="text-2xl font-bold mt-1">{value}</p>
+      <p className="text-3xl font-bold mt-1">{value}</p>
       <p className="text-xs text-base-content/60 mt-1">{detail}</p>
     </div>
   );

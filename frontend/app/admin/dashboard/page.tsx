@@ -82,7 +82,7 @@ export default function DashboardPage() {
   const [dashboardSettings, setDashboardSettings] = useState(defaultDashboardSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsPeriod>("current_month");
+  const [selectedPeriod, setSelectedPeriod] = useState<AnalyticsPeriod>("all");
 
   const topProductsLimit = Math.min(
     Math.max(Number.parseInt(dashboardSettings.itemsPerPage, 10) || 4, 1),
@@ -315,18 +315,24 @@ export default function DashboardPage() {
     (kpis || ordersChart.length > 0 || topProducts.length > 0 || inventoryOverview) && error;
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-8">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Dashboard</h1>
-          <p className="text-sm text-base-content/60 mt-1">
+          <div className="inline-flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 mb-3 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] text-primary">
+              Core Metrics
+            </span>
+          </div>
+          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">Dashboard</h1>
+          <p className="text-sm text-base-content/60 mt-1 font-medium">
             Welcome back{admin?.name ? `, ${admin.name}` : ""}! Here is what is happening today.
           </p>
         </div>
         <label className="form-control w-full md:w-64">
-          <span className="label-text text-xs text-base-content/60">Dashboard period</span>
+          <span className="label-text text-xs text-base-content/60 font-medium">Dashboard period</span>
           <select
-            className="select select-bordered select-sm"
+            className="select select-bordered select-sm rounded-full"
             value={selectedPeriod}
             onChange={(event) => setSelectedPeriod(event.target.value as AnalyticsPeriod)}
           >
@@ -365,7 +371,7 @@ export default function DashboardPage() {
       )}
 
       <div className={gridClass}>
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Orders in {selectedPeriodLabel}</div>
             <span className="material-symbols-outlined text-primary">inventory_2</span>
@@ -379,7 +385,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Order Statistics</div>
             <span className="material-symbols-outlined text-info">bar_chart</span>
@@ -440,7 +446,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Order Summary</div>
           </div>
@@ -485,7 +491,7 @@ export default function DashboardPage() {
       </div>
 
       <div className={gridClass}>
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6 lg:col-span-2">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 lg:col-span-2">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-base-content">Inventory Overview</h3>
             <button className="btn btn-ghost btn-sm" onClick={() => reload()}>
@@ -526,7 +532,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-base-content">Top Moving Products</h3>
             <button className="btn btn-ghost btn-sm" onClick={() => reload()}>
@@ -580,7 +586,7 @@ export default function DashboardPage() {
       </div>
 
       {dashboardSettings.showNotifications && (
-        <div className="card bg-base-100 border border-base-300 rounded-xl p-6">
+        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-bold text-base-content">Recent Operations</h2>
@@ -631,7 +637,7 @@ export default function DashboardPage() {
             <Link
               key={insight.title}
               href={insight.href}
-              className="card bg-base-100 border border-base-300 rounded-xl p-5 hover:border-primary/40 transition-colors"
+              className="card bg-base-100 shadow-sm border-none rounded-2xl p-5 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-primary text-2xl">{insight.icon}</span>

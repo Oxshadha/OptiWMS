@@ -81,7 +81,7 @@ export function WarehouseHeader({
         )}
 
         {isWarehouseManager && assignedWarehouseName && (
-          <div className="badge badge-lg badge-primary">{assignedWarehouseName}</div>
+          <div className="badge badge-lg bg-base-100 border border-base-300 text-base-content font-medium shadow-sm">{assignedWarehouseName}</div>
         )}
       </div>
     </div>

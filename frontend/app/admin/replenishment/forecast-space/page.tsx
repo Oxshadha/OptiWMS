@@ -246,26 +246,32 @@ export default function ForecastSpacePage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8">
       <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-base-content">Inventory Policy & Space Planner</h1>
-          <p className="text-sm text-base-content/60 mt-2 max-w-4xl">
+          <div className="inline-flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 mb-3 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] text-primary">
+              Space Planning
+            </span>
+          </div>
+          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">Inventory Policy & Space Planner</h1>
+          <p className="text-sm text-base-content/60 mt-2 max-w-4xl font-medium">
             Colombo Main RM stock and space planning using the 12-month operational forecast, supplier rules, expiry, capacity, and location compatibility.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="form-control w-56">
-            <span className="label-text text-xs mb-1">Warehouse</span>
-            <select className="select select-bordered select-sm" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+            <span className="label-text text-xs mb-1 font-medium">Warehouse</span>
+            <select className="select select-bordered select-sm rounded-full" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
               {warehouses.map((warehouse) => (
                 <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
               ))}
             </select>
           </label>
           <label className="form-control w-40">
-            <span className="label-text text-xs mb-1">Horizon</span>
-            <select className="select select-bordered select-sm" value={horizonMonths} onChange={(e) => setHorizonMonths(Number(e.target.value))}>
+            <span className="label-text text-xs mb-1 font-medium">Horizon</span>
+            <select className="select select-bordered select-sm rounded-full" value={horizonMonths} onChange={(e) => setHorizonMonths(Number(e.target.value))}>
               <option value={1}>1 month</option>
               <option value={3}>3 months</option>
               <option value={6}>6 months</option>
@@ -273,15 +279,15 @@ export default function ForecastSpacePage() {
             </select>
           </label>
           <label className="form-control w-52">
-            <span className="label-text text-xs mb-1">Material scope</span>
-            <select className="select select-bordered select-sm" value={materialType} onChange={(e) => setMaterialType(e.target.value as MaterialScope)}>
+            <span className="label-text text-xs mb-1 font-medium">Material scope</span>
+            <select className="select select-bordered select-sm rounded-full" value={materialType} onChange={(e) => setMaterialType(e.target.value as MaterialScope)}>
               <option value="">All materials</option>
               <option value="raw_material">Raw materials</option>
               <option value="packaging_material" disabled>Packaging materials</option>
               <option value="product" disabled>Finished goods</option>
             </select>
           </label>
-          <button className="btn btn-sm btn-outline" onClick={refresh} disabled={loading || !warehouseId}>
+          <button className="btn btn-sm btn-outline rounded-full" onClick={refresh} disabled={loading || !warehouseId}>
             <span className="material-symbols-outlined text-base">refresh</span>
             Refresh
           </button>
@@ -322,28 +328,28 @@ export default function ForecastSpacePage() {
       )}
 
       <section className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="xl:col-span-2 bg-base-100 border border-base-300 rounded-lg">
-          <div className="p-4 border-b border-base-300 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="xl:col-span-2 bg-base-100 shadow-sm border-none rounded-2xl">
+          <div className="p-6 border-b border-base-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="font-semibold">RM Stock Rule Recommendation</h2>
               <p className="text-xs text-base-content/60">{selectedPolicyRun ? `${selectedPolicyRun.status} · ${dateText(selectedPolicyRun.createdAt)}` : "Generate a run to calculate min, max, reorder point, and order quantity."}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <select className="select select-bordered select-sm min-w-64" value={selectedPolicyRunId} onChange={(e) => setSelectedPolicyRunId(e.target.value)} disabled={!policyRuns.length}>
+              <select className="select select-bordered select-sm min-w-64 rounded-full" value={selectedPolicyRunId} onChange={(e) => setSelectedPolicyRunId(e.target.value)} disabled={!policyRuns.length}>
                 {policyRuns.length === 0 && <option value="">No policy runs</option>}
                 {policyRuns.map((run) => (
                   <option key={run.id} value={run.id}>{dateText(run.createdAt)} · {run.status} · {run.horizonMonths}m</option>
                 ))}
               </select>
-              <button className="btn btn-sm btn-primary" onClick={createPolicyRun} disabled={!warehouseId || busyAction !== null}>
+              <button className="btn btn-sm btn-primary rounded-full" onClick={createPolicyRun} disabled={!warehouseId || busyAction !== null}>
                 {busyAction === "policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">calculate</span>}
                 {busyAction === "policy" ? "Generating..." : "Generate stock rules"}
               </button>
-              <button className="btn btn-sm btn-success" onClick={() => setApprovalOpen(true)} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction !== null}>
+              <button className="btn btn-sm btn-success rounded-full" onClick={() => setApprovalOpen(true)} disabled={!selectedPolicyRun || selectedPolicyRun.status === "APPROVED" || busyAction !== null}>
                 {busyAction === "approve-policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">done_all</span>}
                 Approve stock rules
               </button>
-              <button className="btn btn-sm btn-outline" onClick={rollbackPolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status !== "APPROVED" || busyAction !== null}>
+              <button className="btn btn-sm btn-outline rounded-full" onClick={rollbackPolicyRun} disabled={!selectedPolicyRun || selectedPolicyRun.status !== "APPROVED" || busyAction !== null}>
                 {busyAction === "rollback-policy" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">undo</span>}
                 Rollback
               </button>
@@ -361,8 +367,8 @@ export default function ForecastSpacePage() {
           />
         </div>
 
-        <div className="bg-base-100 border border-base-300 rounded-lg">
-          <div className="p-4 border-b border-base-300">
+        <div className="bg-base-100 shadow-sm border-none rounded-2xl">
+          <div className="p-6 border-b border-base-200">
             <h2 className="font-semibold">Policy Risk Mix</h2>
             <p className="text-xs text-base-content/60">Approval should focus on exceptions, not averages.</p>
           </div>
@@ -377,24 +383,24 @@ export default function ForecastSpacePage() {
         </div>
       </section>
 
-      <section className="bg-base-100 border border-base-300 rounded-lg">
-        <div className="p-4 border-b border-base-300 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <section className="bg-base-100 shadow-sm border-none rounded-2xl">
+          <div className="p-6 border-b border-base-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h2 className="font-semibold">Space Optimization Run</h2>
             <p className="text-xs text-base-content/60">{selectedSpaceRun ? `${engineLabel(selectedSpaceRun.algorithm)} · ${selectedSpaceRun.status} · ${dateText(selectedSpaceRun.createdAt)} · move cap ${selectedSpaceRun.relocationCapPct ?? (horizonMonths >= 6 ? 30 : 15)}%` : "Create after a policy run to map released and needed pallet positions."}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="select select-bordered select-sm min-w-64" value={selectedSpaceRunId} onChange={(e) => setSelectedSpaceRunId(e.target.value)} disabled={!spaceRuns.length}>
+            <select className="select select-bordered select-sm min-w-64 rounded-full" value={selectedSpaceRunId} onChange={(e) => setSelectedSpaceRunId(e.target.value)} disabled={!spaceRuns.length}>
               {spaceRuns.length === 0 && <option value="">No space runs</option>}
               {spaceRuns.map((run) => (
                 <option key={run.id} value={run.id}>{dateText(run.createdAt)} · {run.status} · saved {fmt(run.totalSpaceSavedPalletPositions)}</option>
               ))}
             </select>
-            <button className="btn btn-sm btn-secondary" onClick={createSpaceRun} disabled={!selectedPolicyRun || busyAction !== null}>
+            <button className="btn btn-sm btn-secondary rounded-full" onClick={createSpaceRun} disabled={!selectedPolicyRun || busyAction !== null}>
               {busyAction === "space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">warehouse</span>}
               {busyAction === "space" ? "Optimizing..." : "Run OR-Tools optimizer"}
             </button>
-            <button className="btn btn-sm btn-success" onClick={approveSpaceRun} disabled={!selectedSpaceRun || selectedSpaceRun.status === "APPROVED" || busyAction !== null}>
+            <button className="btn btn-sm btn-success rounded-full" onClick={approveSpaceRun} disabled={!selectedSpaceRun || selectedSpaceRun.status === "APPROVED" || busyAction !== null}>
               {busyAction === "approve-space" ? <span className="loading loading-spinner loading-xs" /> : <span className="material-symbols-outlined text-base">playlist_add_check</span>}
               Create Slotting Draft
             </button>
@@ -436,9 +442,9 @@ export default function ForecastSpacePage() {
 
 function MetricCard({ label, value, detail, tone }: { label: string; value: string; detail: string; tone?: "success" | "warning" }) {
   return (
-    <div className={clsx("bg-base-100 border rounded-lg p-4", tone === "success" ? "border-success/40" : tone === "warning" ? "border-warning/50" : "border-base-300")}>
+    <div className={clsx("bg-base-100 shadow-sm rounded-2xl p-6 border-l-4 hover:-translate-y-1 transition-transform duration-300", tone === "success" ? "border-l-success" : tone === "warning" ? "border-l-warning" : "border-l-transparent")}>
       <p className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">{label}</p>
-      <p className="text-2xl font-bold mt-1">{value}</p>
+      <p className="text-3xl font-bold mt-1">{value}</p>
       <p className="text-xs text-base-content/60 mt-1">{detail}</p>
     </div>
   );
