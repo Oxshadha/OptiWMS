@@ -14,6 +14,7 @@ def trigger_forecast_run(
     model_name: str = "AUTO",
     warehouse_id: str | None = None,
     mode: str = "auto",
+    async_run: bool = False,
 ) -> dict:
     try:
         r = httpx.post(
@@ -36,6 +37,17 @@ def trigger_forecast_run(
         )
         p.raise_for_status()
         publish_result = p.json()
+
+        if async_run:
+            return {
+                "job": "forecast-run",
+                "status": publish_result.get("status", "publishing"),
+                "run_id": run_id,
+                "mode_requested": mode,
+                "triggered_at": datetime.utcnow().isoformat() + "Z",
+                "publish_result": publish_result,
+                "run_state": {"id": run_id, "status": publish_result.get("status", "publishing")},
+            }
 
         started_at = time.time()
         final_status = "publishing"

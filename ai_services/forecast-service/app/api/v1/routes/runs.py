@@ -117,6 +117,8 @@ def get_run_jobs(run_id: int, db: Session = Depends(get_db)):
                 "created_at": j.created_at.isoformat() if j.created_at else None,
                 "started_at": j.started_at.isoformat() if j.started_at else None,
                 "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+                "progress_percent": j.progress_percent,
+                "progress_message": j.progress_message,
             }
             for j in rows
         ],
