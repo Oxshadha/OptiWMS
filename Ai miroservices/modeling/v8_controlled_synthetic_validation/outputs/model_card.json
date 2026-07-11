@@ -1,0 +1,55 @@
+{
+  "model_id": "V8_CONTROLLED_EXTRA_TREES_CAUSAL",
+  "display_name": "Controlled RM/PM Causal Extra Trees",
+  "model_family": "ExtraTreesRegressor",
+  "role": "enterprise_validation_harness",
+  "training_data_tier": "CONTROLLED_SYNTHETIC_GROUND_TRUTH",
+  "training_source": "generated_fg_plan_bom_rm_pm_history",
+  "synthetic_ratio": 1.0,
+  "production_decision_eligible": false,
+  "simulation_decision_eligible": true,
+  "locked_before_test": true,
+  "test_protocol": "6 tuning origins + 6 champion-selection origins + 12 untouched rolling origins",
+  "test_metrics": {
+    "model": "extra_trees_causal",
+    "rows": 1440,
+    "materials": 120,
+    "WAPE": 0.08335697840628727,
+    "MAE": 736.7584634403185,
+    "RMSE": 1408.4608905558036,
+    "Bias": -0.0015093530870204453,
+    "under_forecast_rate": 0.4826388888888889,
+    "shock_WAPE": 0.08567139890507648
+  },
+  "interval_coverage": {
+    "model": "extra_trees_causal",
+    "nominal_coverage": 0.9,
+    "empirical_coverage": 0.9208333333333332,
+    "normalized_error_quantile": 0.1916289242724866,
+    "average_interval_width": 3382.3475283500206,
+    "calibration_rows": 720,
+    "test_rows": 1440
+  },
+  "approved_uses": [
+    "offline statistical validation",
+    "simulation UI mode",
+    "MILP and knapsack sandbox tests",
+    "inventory-policy integration tests",
+    "schema and API contract testing"
+  ],
+  "prohibited_uses": [
+    "automatic operational min/max updates",
+    "production purchase-order creation",
+    "production slotting or space-plan approval",
+    "publication as a real Hemas forecast",
+    "claiming measured production accuracy"
+  ],
+  "promotion_requirements": [
+    "real material-issue history with source lineage",
+    "validated effective-dated FG-to-RM/PM BOM coverage",
+    "production plans known at forecast creation time",
+    "same nested rolling-origin protocol on real data",
+    "calibrated intervals and inventory service/cost validation",
+    "shadow-mode approval before decision eligibility"
+  ]
+}

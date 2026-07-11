@@ -1,0 +1,19 @@
+database_url: postgresql://optiwms:optiwms@localhost:5434/optiwms
+schema: public
+warehouse_code: WH-001
+model_name: V7_RM_PM_DIRECT
+history_min_months: 18
+backtest_months: 6
+forecast_horizon_months: 12
+material_types:
+  - raw_material
+  - packaging_material
+  - packaging
+output_dir: outputs
+service_level_z: 1.65
+default_lead_time_days: 14
+default_lead_time_std_days: 0
+default_supplier_otif: 0.95
+intermittent_nonzero_threshold: 0.55
+abc_a_cutoff: 0.80
+abc_b_cutoff: 0.95
