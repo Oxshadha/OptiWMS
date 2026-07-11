@@ -15,6 +15,7 @@ public interface ForecastResultRepository extends JpaRepository<ForecastResultEn
     @Query("""
             SELECT f FROM ForecastResultEntity f
             WHERE f.materialId = :materialId
+              AND f.decisionEligible = TRUE
               AND (:warehouseId IS NULL OR f.warehouseId IS NULL OR f.warehouseId = :warehouseId)
               AND f.forecastPeriod >= :fromPeriod
               AND f.forecastPeriod < :toPeriod
@@ -29,6 +30,7 @@ public interface ForecastResultRepository extends JpaRepository<ForecastResultEn
     @Query("""
             SELECT f FROM ForecastResultEntity f
             WHERE (:warehouseId IS NULL OR f.warehouseId IS NULL OR f.warehouseId = :warehouseId)
+              AND f.decisionEligible = TRUE
               AND f.forecastPeriod >= :fromPeriod
               AND f.forecastPeriod < :toPeriod
             ORDER BY f.materialId, f.forecastPeriod ASC, f.createdAt DESC
