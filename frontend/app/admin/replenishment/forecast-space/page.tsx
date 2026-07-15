@@ -162,7 +162,7 @@ export default function ForecastSpacePage() {
         warehouseId,
         horizonMonths,
         materialType: materialType || undefined,
-        forecastModelName: "forecast-space-core",
+        forecastModelName: "EXTRA_TREES",
         createdBy: "warehouse-intelligence-ui",
         notes: "Forecast-driven min/max/ROP recommendation run",
       });
@@ -647,7 +647,7 @@ function ConfidenceBadge({ value }: { value: number }) {
 }
 
 function engineLabel(algorithm?: string | null) {
-  if (algorithm === "ORTOOLS_MILP_V1") return "OR-Tools MILP optimized";
+  if (algorithm === "ORTOOLS_MILP_V2" || algorithm === "ORTOOLS_MILP_V1") return "OR-Tools MILP optimized";
   if (algorithm === "JAVA_FEASIBLE_FALLBACK_V1") return "Fallback rule plan";
   if (!algorithm || algorithm === "PENDING_OPTIMIZER") return "Optimizer pending";
   return algorithm.replaceAll("_", " ");

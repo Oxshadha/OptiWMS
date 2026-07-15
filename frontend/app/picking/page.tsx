@@ -3,10 +3,11 @@
 export const dynamic = 'force-dynamic';
 
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 import { ArrowLeftIcon } from '@heroicons/react/20/solid';
 import AdvancedPickingInterface from '@/components/AdvancedPickingInterface';
 
-export default function AdvancedPickingPage() {
+function AdvancedPickingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const orderId = searchParams.get('orderId');
@@ -42,5 +43,13 @@ export default function AdvancedPickingPage() {
       {/* Content */}
       <AdvancedPickingInterface orderId={orderId} customerId={customerId} />
     </main>
+  );
+}
+
+export default function AdvancedPickingPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-slate-900" aria-busy="true" />}>
+      <AdvancedPickingContent />
+    </Suspense>
   );
 }

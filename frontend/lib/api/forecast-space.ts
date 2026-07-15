@@ -132,6 +132,23 @@ export interface ScenarioResult {
   explanation?: string | null;
 }
 
+export interface PolicySimulationEvidence {
+  id: string;
+  policyRunId: string;
+  materialId: string;
+  serviceLevelTarget: number;
+  simulatedFillRate: number;
+  currentExpectedCost: number;
+  proposedExpectedCost: number;
+  expectedCostDelta: number;
+  stockoutDaysCurrent: number;
+  stockoutDaysProposed: number;
+  capacityFeasible: boolean;
+  simulationMethod: string;
+  sourceLineage: string;
+  createdAt?: string | null;
+}
+
 export interface ForecastSpaceReadiness {
   warehouseId: string;
   horizonMonths: number;
@@ -179,6 +196,9 @@ export const forecastSpaceApi = {
 
   getPolicyRunLines: (runId: string): Promise<PolicyRecommendationLine[]> =>
     apiClient.get<PolicyRecommendationLine[]>(`/v1/forecast-space/policy-runs/${runId}/lines`),
+
+  getPolicySimulationEvidence: (runId: string): Promise<PolicySimulationEvidence[]> =>
+    apiClient.get<PolicySimulationEvidence[]>(`/v1/forecast-space/policy-runs/${runId}/simulation-evidence`),
 
   approvePolicyRun: (runId: string, body: { approvedBy: string }): Promise<PolicyRecommendationRun> =>
     apiClient.post<PolicyRecommendationRun>(`/v1/forecast-space/policy-runs/${runId}/approve`, body),
