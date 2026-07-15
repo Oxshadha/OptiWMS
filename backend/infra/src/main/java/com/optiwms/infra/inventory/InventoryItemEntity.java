@@ -82,6 +82,9 @@ public class InventoryItemEntity {
     @Column(name = "material_type", length = 20)
     private String materialType;
 
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier;
+
     // Additional planning fields from CSV (V20 migration)
     @Column(name = "buffer_days")
     private Integer bufferDays;
@@ -122,6 +125,9 @@ public class InventoryItemEntity {
         updatedAt = LocalDateTime.now();
         if (status == null) {
             status = "active";
+        }
+        if (dataQualityTier == null || dataQualityTier.isBlank()) {
+            dataQualityTier = "OPERATIONAL_ENTRY";
         }
     }
 
@@ -307,6 +313,14 @@ public class InventoryItemEntity {
         this.materialType = materialType;
     }
 
+    public String getDataQualityTier() {
+        return dataQualityTier;
+    }
+
+    public void setDataQualityTier(String dataQualityTier) {
+        this.dataQualityTier = dataQualityTier;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -396,4 +410,3 @@ public class InventoryItemEntity {
         this.palletRequirement = palletRequirement;
     }
 }
-

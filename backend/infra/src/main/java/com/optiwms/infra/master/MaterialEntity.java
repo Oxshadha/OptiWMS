@@ -58,6 +58,9 @@ public class MaterialEntity {
     @Column(name = "pallet_spaces", precision = 10, scale = 2)
     private java.math.BigDecimal palletSpaces;
 
+    @Column(name = "units_per_pallet")
+    private Integer unitsPerPallet;
+
     @Column(name = "stackable")
     private Boolean stackable;
 
@@ -92,6 +95,15 @@ public class MaterialEntity {
     @Column(name = "safety_stock_level", precision = 15, scale = 2)
     private java.math.BigDecimal safetyStockLevel;
 
+    @Column(name = "abc_class", length = 1)
+    private String abcClass;
+
+    @Column(name = "fms_class", length = 1)
+    private String fmsClass;
+
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -102,6 +114,9 @@ public class MaterialEntity {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (dataQualityTier == null || dataQualityTier.isBlank()) {
+            dataQualityTier = "OPERATIONAL_ENTRY";
+        }
     }
 
     @PreUpdate
@@ -238,6 +253,14 @@ public class MaterialEntity {
         this.palletSpaces = palletSpaces;
     }
 
+    public Integer getUnitsPerPallet() {
+        return unitsPerPallet;
+    }
+
+    public void setUnitsPerPallet(Integer unitsPerPallet) {
+        this.unitsPerPallet = unitsPerPallet;
+    }
+
     public Boolean getStackable() {
         return stackable;
     }
@@ -277,6 +300,13 @@ public class MaterialEntity {
     public void setFragile(Boolean fragile) {
         this.fragile = fragile;
     }
+
+    public String getAbcClass() { return abcClass; }
+    public void setAbcClass(String abcClass) { this.abcClass = abcClass; }
+    public String getFmsClass() { return fmsClass; }
+    public void setFmsClass(String fmsClass) { this.fmsClass = fmsClass; }
+    public String getDataQualityTier() { return dataQualityTier; }
+    public void setDataQualityTier(String dataQualityTier) { this.dataQualityTier = dataQualityTier; }
 
     public java.math.BigDecimal getMaxPalletWeightKg() {
         return maxPalletWeightKg;

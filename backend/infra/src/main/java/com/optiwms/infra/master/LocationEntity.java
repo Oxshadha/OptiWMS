@@ -97,6 +97,12 @@ public class LocationEntity {
     @Column(name = "max_lpn_count")
     private Integer maxLpnCount;
 
+    @Column(name = "temperature_zone", length = 32)
+    private String temperatureZone;
+
+    @Column(name = "hazard_allowed")
+    private Boolean hazardAllowed;
+
     // Getters and Setters
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
@@ -154,6 +160,10 @@ public class LocationEntity {
     public void setMaxVolumeCm3(java.math.BigDecimal maxVolumeCm3) { this.maxVolumeCm3 = maxVolumeCm3; }
     public Integer getMaxLpnCount() { return maxLpnCount; }
     public void setMaxLpnCount(Integer maxLpnCount) { this.maxLpnCount = maxLpnCount; }
+    public String getTemperatureZone() { return temperatureZone; }
+    public void setTemperatureZone(String temperatureZone) { this.temperatureZone = temperatureZone; }
+    public Boolean getHazardAllowed() { return hazardAllowed; }
+    public void setHazardAllowed(Boolean hazardAllowed) { this.hazardAllowed = hazardAllowed; }
 
     @PrePersist
     protected void onCreate() {
@@ -169,6 +179,12 @@ public class LocationEntity {
         }
         if (this.currentPalletCount == null) {
             this.currentPalletCount = 0;
+        }
+        if (this.temperatureZone == null) {
+            this.temperatureZone = "AMBIENT";
+        }
+        if (this.hazardAllowed == null) {
+            this.hazardAllowed = false;
         }
     }
 }
