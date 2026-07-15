@@ -425,7 +425,11 @@ public class SlottingPlanService {
                 m.getWeightKg(),
                 m.getVolumeCm3(),
                 m.getPalletSpaces(),
-                m.getMaxPalletWeightKg());
+                m.getMaxPalletWeightKg(),
+                Boolean.TRUE.equals(m.getTemperatureControlled()),
+                Boolean.TRUE.equals(m.getHazardous()),
+                Boolean.TRUE.equals(m.getFragile()),
+                !Boolean.FALSE.equals(m.getStackable()));
     }
 
     private Map<UUID, String> loadIncumbentPrimary(UUID warehouseId) {

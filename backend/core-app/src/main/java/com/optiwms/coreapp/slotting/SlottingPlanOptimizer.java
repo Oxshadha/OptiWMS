@@ -594,7 +594,11 @@ public class SlottingPlanOptimizer {
             BigDecimal weightKg,
             BigDecimal volumeCm3,
             BigDecimal palletSpaces,
-            BigDecimal maxPalletWeightKg) {}
+            BigDecimal maxPalletWeightKg,
+            boolean temperatureControlled,
+            boolean hazardous,
+            boolean fragile,
+            boolean stackable) {}
 
     public record ReserveSlot(String locationCode, int palletPositions, String zoneHint) {}
 

@@ -16,10 +16,27 @@ import java.util.Locale;
 @Service
 public class HandlingUnitCapacityService {
 
+    public BigDecimal resolvePalletFootprintSpaces(MaterialEntity material) {
+        if (material == null) {
+            return BigDecimal.ONE;
+        }
+        BigDecimal spaces = material.getPalletSpaces();
+        if (spaces != null && spaces.compareTo(BigDecimal.ZERO) > 0) {
+            return spaces;
+        }
+        return BigDecimal.ONE;
+    }
+
     public BigDecimal resolveUnitsPerPallet(MaterialEntity material) {
         if (material == null) {
             return BigDecimal.ONE;
         }
+        Integer unitsPerPallet = material.getUnitsPerPallet();
+        if (unitsPerPallet != null && unitsPerPallet > 0) {
+            return BigDecimal.valueOf(unitsPerPallet);
+        }
+        // Legacy records stored unit capacity in pallet_spaces. New records keep
+        // pallet footprint and units-per-pallet as separate physical attributes.
         BigDecimal spaces = material.getPalletSpaces();
         if (spaces != null && spaces.compareTo(BigDecimal.ZERO) > 0) {
             return spaces;

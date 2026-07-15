@@ -75,8 +75,7 @@ public class MaterialDefaultLocationService {
         }
 
         // Only allow storage locations (exclude staging, receiving, shipment, packing)
-        if (!"storage".equals(location.getLocationType()) &&
-                !"STORAGE".equals(location.getZoneType())) {
+        if (!isOperationalStorageLocation(location.getLocationType(), location.getZoneType())) {
             throw new RuntimeException("Only storage locations can be assigned to materials. Location type: "
                     + location.getLocationType());
         }
@@ -132,6 +131,13 @@ public class MaterialDefaultLocationService {
         }
 
         return toDomain(saved);
+    }
+
+    static boolean isOperationalStorageLocation(String locationType, String zoneType) {
+        String type = locationType == null ? "" : locationType.trim().toUpperCase(java.util.Locale.ROOT);
+        String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(java.util.Locale.ROOT);
+        return java.util.Set.of("STORAGE", "PICKING").contains(type)
+                || java.util.Set.of("STORAGE", "PICK_FACE", "RESERVE").contains(zone);
     }
 
     private void validateMaterialStorageCompatibility(Material material, String locationCode, String locationTypeRaw) {

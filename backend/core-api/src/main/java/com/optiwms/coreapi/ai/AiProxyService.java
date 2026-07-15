@@ -20,6 +20,8 @@ import java.util.Map;
 @Service
 public class AiProxyService {
 
+    private static final String CANONICAL_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM";
+
     private final RestTemplate restTemplate;
     private final UserRepository userRepository;
 
@@ -169,11 +171,42 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String mode, String warehouseId) {
+        if (CANONICAL_DATASET.equalsIgnoreCase(dataset)) {
+            return triggerCanonicalForecastRun();
+        }
         ResponseEntity<Object> orchestratorResult = triggerForecastRunViaOrchestrator(dataset, modelName, mode, warehouseId);
         if (orchestratorResult.getStatusCode().is2xxSuccessful()) {
             return orchestratorResult;
         }
         return triggerForecastRunViaForecastService(dataset, modelName, mode, warehouseId, orchestratorResult);
+    }
+
+    private ResponseEntity<Object> triggerCanonicalForecastRun() {
+        try {
+            HttpEntity<String> request = new HttpEntity<>(headers());
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    forecastBaseUrl + "/canonical/recalculate",
+                    HttpMethod.POST,
+                    request,
+                    Map.class
+            );
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", "canonical_forecast_service_unavailable",
+                    "message", "Canonical RM/PM forecast worker is unavailable.",
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", "canonical_forecast_failed",
+                    "message", "Canonical RM/PM forecast worker rejected the recalculation.",
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        }
     }
 
     private ResponseEntity<Object> triggerForecastRunViaOrchestrator(String dataset, String modelName, String mode, String warehouseId) {
@@ -302,6 +335,9 @@ public class AiProxyService {
             String warehouseId,
             boolean criticalOverrideRequested
     ) {
+        if (CANONICAL_DATASET.equalsIgnoreCase(dataset)) {
+            return triggerForecastRun(dataset, modelName, mode, warehouseId);
+        }
         if (!blockTriggerOnCritical) {
             return triggerForecastRun(dataset, modelName, mode, warehouseId);
         }

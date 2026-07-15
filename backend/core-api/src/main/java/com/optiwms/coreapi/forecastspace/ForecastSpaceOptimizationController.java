@@ -77,6 +77,11 @@ public class ForecastSpaceOptimizationController {
         return policyService.getLines(runId).stream().map(this::toPolicyLine).toList();
     }
 
+    @GetMapping("/policy-runs/{runId}/simulation-evidence")
+    public List<PolicySimulationEvidenceDto> getPolicySimulationEvidence(@PathVariable UUID runId) {
+        return policyService.getSimulationEvidence(runId).stream().map(this::toSimulationEvidence).toList();
+    }
+
     @GetMapping("/policy-lines/{lineId}/scenarios")
     public List<ScenarioDto> getPolicyLineScenarios(@PathVariable UUID lineId) {
         return policyService.getScenariosForPolicyLine(lineId).stream().map(this::toScenario).toList();
@@ -255,6 +260,24 @@ public class ForecastSpaceOptimizationController {
                 scenario.getExplanation());
     }
 
+    private PolicySimulationEvidenceDto toSimulationEvidence(InventoryPolicySimulationEvidenceEntity evidence) {
+        return new PolicySimulationEvidenceDto(
+                str(evidence.getId()),
+                str(evidence.getPolicyRunId()),
+                str(evidence.getMaterialId()),
+                dbl(evidence.getServiceLevelTarget()),
+                dbl(evidence.getSimulatedFillRate()),
+                dbl(evidence.getCurrentExpectedCost()),
+                dbl(evidence.getProposedExpectedCost()),
+                dbl(evidence.getExpectedCostDelta()),
+                evidence.getStockoutDaysCurrent(),
+                evidence.getStockoutDaysProposed(),
+                evidence.getCapacityFeasible(),
+                evidence.getSimulationMethod(),
+                evidence.getSourceLineage(),
+                evidence.getCreatedAt() != null ? evidence.getCreatedAt().toString() : null);
+    }
+
     private String str(UUID id) {
         return id != null ? id.toString() : null;
     }
@@ -409,4 +432,20 @@ public class ForecastSpaceOptimizationController {
             Double expiryExcessUnits,
             Double spaceShortfallPalletPositions,
             String explanation) {}
+
+    public record PolicySimulationEvidenceDto(
+            String id,
+            String policyRunId,
+            String materialId,
+            Double serviceLevelTarget,
+            Double simulatedFillRate,
+            Double currentExpectedCost,
+            Double proposedExpectedCost,
+            Double expectedCostDelta,
+            Integer stockoutDaysCurrent,
+            Integer stockoutDaysProposed,
+            Boolean capacityFeasible,
+            String simulationMethod,
+            String sourceLineage,
+            String createdAt) {}
 }

@@ -67,6 +67,7 @@ public class InventoryController {
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q
     ) {
         int safePage = Math.max(page, 0);
@@ -83,6 +84,7 @@ public class InventoryController {
                 materialType,
                 status,
                 q,
+                includeLegacy,
                 PageRequest.of(safePage, safeSize, sort)
         );
 

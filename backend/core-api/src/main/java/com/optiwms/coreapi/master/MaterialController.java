@@ -48,12 +48,17 @@ public class MaterialController {
     public ResponseEntity<List<MaterialDto>> list(
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @NonNull WebRequest webRequest) {
         var materials = supplierId != null
                 ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)
-                : (materialType != null
-                        ? materialService.findByMaterialType(materialType)
-                        : materialService.listAll());
+                : (includeLegacy
+                        ? (materialType != null
+                                ? materialService.findByMaterialType(materialType)
+                                : materialService.listAll())
+                        : (materialType != null
+                                ? materialService.findOperationalByMaterialType(materialType)
+                                : materialService.listOperational()));
         var data = materials.stream().map(this::toMaterialDto).toList();
         return ReferenceDataCacheSupport.ok(
                 webRequest,
@@ -61,6 +66,7 @@ public class MaterialController {
                 "materials",
                 materialType,
                 supplierId,
+                includeLegacy,
                 data);
     }
 
@@ -72,6 +78,7 @@ public class MaterialController {
             @RequestParam(defaultValue = "desc") String sortDir,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
@@ -103,6 +110,7 @@ public class MaterialController {
             materialPage = materialService.findPaged(
                     materialType,
                     q,
+                    includeLegacy,
                     PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
         }
 
