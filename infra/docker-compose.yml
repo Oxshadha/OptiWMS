@@ -36,6 +36,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-optiwms}
       JWT_SECRET: ${JWT_SECRET:-CHANGE_THIS_IN_PRODUCTION}
       JAVA_OPTS: "-Xmx512m -Xms256m"
+      AI_FORECAST_BASE_URL: ${AI_FORECAST_BASE_URL:-http://host.docker.internal:8091}
+      AI_ORCHESTRATOR_BASE_URL: ${AI_ORCHESTRATOR_BASE_URL:-http://host.docker.internal:8092}
       AI_SLOTTING_BASE_URL: ${AI_SLOTTING_BASE_URL:-http://host.docker.internal:8093}
       AI_SLOTTING_ENABLED: ${AI_SLOTTING_ENABLED:-true}
     ports:
@@ -104,5 +106,4 @@ volumes:
 networks:
   optiwms-network:
     driver: bridge
-
 
