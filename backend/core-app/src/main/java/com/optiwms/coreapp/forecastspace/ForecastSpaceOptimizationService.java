@@ -80,6 +80,10 @@ public class ForecastSpaceOptimizationService {
     public SpaceOptimizationRunEntity createRun(CreateSpaceRunRequest request) {
         InventoryPolicyRecommendationRunEntity policyRun = policyRunRepository.findById(request.policyRunId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Policy run not found"));
+        if (!"APPROVED".equals(policyRun.getStatus())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "Inventory policy run must be approved before space optimization");
+        }
 
         SpaceOptimizationRunEntity run = new SpaceOptimizationRunEntity();
         run.setWarehouseId(policyRun.getWarehouseId());
@@ -93,7 +97,16 @@ public class ForecastSpaceOptimizationService {
 
         UUID warehouseId = policyRun.getWarehouseId();
         List<InventoryPolicyRecommendationLineEntity> policyLines =
-                policyLineRepository.findByRunIdOrderByMaterialCodeAsc(policyRun.getId());
+                policyLineRepository.findByRunIdOrderByMaterialCodeAsc(policyRun.getId()).stream()
+                        .filter(line -> "APPROVED".equals(line.getRecommendationStatus())
+                                || (Boolean.TRUE.equals(line.getManagerOverride())
+                                && line.getOverrideReason() != null
+                                && !line.getOverrideReason().isBlank()))
+                        .toList();
+        if (policyLines.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "No approved policy lines are eligible for space optimization");
+        }
         Map<UUID, MaterialEntity> materials = materialRepository.findAllById(
                 policyLines.stream().map(InventoryPolicyRecommendationLineEntity::getMaterialId).collect(Collectors.toSet()))
                 .stream().collect(Collectors.toMap(MaterialEntity::getId, m -> m));
@@ -358,11 +371,24 @@ public class ForecastSpaceOptimizationService {
     }
 
     private String currentPrimary(UUID warehouseId, UUID materialId) {
-        return defaultLocationRepository.findByMaterialIdAndWarehouseId(materialId, warehouseId).stream()
+        Optional<String> configured = defaultLocationRepository.findByMaterialIdAndWarehouseId(materialId, warehouseId).stream()
                 .filter(d -> d.getPriority() != null && d.getPriority() == 1)
                 .map(MaterialDefaultLocationEntity::getLocationCode)
                 .filter(Objects::nonNull)
-                .findFirst()
+                .findFirst();
+        return configured.orElseGet(() -> selectInventoryPrimary(
+                inventoryRepository.findByMaterialIdAndWarehouseId(materialId, warehouseId)));
+    }
+
+    static String selectInventoryPrimary(List<InventoryItemEntity> inventory) {
+        if (inventory == null) {
+            return null;
+        }
+        return inventory.stream()
+                .filter(item -> item.getLocationCode() != null && !item.getLocationCode().isBlank())
+                .filter(item -> item.getQuantity() != null && item.getQuantity() > 0)
+                .max(Comparator.comparing(InventoryItemEntity::getQuantity))
+                .map(InventoryItemEntity::getLocationCode)
                 .orElse(null);
     }
 
@@ -542,16 +568,23 @@ public class ForecastSpaceOptimizationService {
             payload.material_id = material.getId().toString();
             payload.material_code = material.getMaterialCode();
             payload.material_type = material.getMaterialType();
-            payload.amalgamated_class = "CS";
-            payload.abc_class = "C";
-            payload.fms_class = "S";
+            payload.abc_class = material.getAbcClass() != null ? material.getAbcClass() : "C";
+            payload.fms_class = material.getFmsClass() != null ? material.getFmsClass() : "S";
+            payload.amalgamated_class = payload.abc_class + payload.fms_class;
             payload.issue_volume = policyLine.getForecastP50() != null ? policyLine.getForecastP50().doubleValue() : 0;
             payload.issue_count = 1;
             payload.weight_kg = material.getWeightKg() != null ? material.getWeightKg().doubleValue() : null;
             payload.volume_cm3 = material.getVolumeCm3() != null ? material.getVolumeCm3().doubleValue() : null;
-            payload.pallet_spaces = policyLine.getUnitsPerHandlingUnit() != null
-                    ? policyLine.getUnitsPerHandlingUnit().doubleValue()
-                    : material.getPalletSpaces() != null ? material.getPalletSpaces().doubleValue() : null;
+            payload.pallet_spaces = capacityService.resolvePalletFootprintSpaces(material).doubleValue();
+            BigDecimal palletWeightKg = capacityService.resolvePalletWeightKg(material);
+            payload.pallet_weight_kg = palletWeightKg.compareTo(BigDecimal.ZERO) > 0
+                    ? palletWeightKg.doubleValue() : null;
+            payload.temperature_controlled = Boolean.TRUE.equals(material.getTemperatureControlled());
+            payload.hazardous = Boolean.TRUE.equals(material.getHazardous());
+            payload.fragile = Boolean.TRUE.equals(material.getFragile());
+            payload.stackable = !Boolean.FALSE.equals(material.getStackable());
+            payload.forecast_demand = policyLine.getForecastP50() != null
+                    ? policyLine.getForecastP50().doubleValue() : null;
             payload.incumbent_primary_location_code = spaceLine.getCurrentPrimaryLocationCode();
             payload.locked = false;
             payload.required_pallets = Math.max(1, nz(policyLine.getPalletPositionsDelta()).abs().setScale(0, RoundingMode.CEILING).intValue());
@@ -562,8 +595,7 @@ public class ForecastSpaceOptimizationService {
 
         request.locations = locationRepository.findByWarehouseIdAndIsActive(run.getWarehouseId(), true).stream()
                 .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
-                .filter(loc -> loc.getZoneType() == null || "STORAGE".equalsIgnoreCase(loc.getZoneType()))
-                .limit(1500)
+                .filter(loc -> isOptimizerStorageZone(loc.getZoneType()))
                 .map(loc -> {
                     SlottingPlanClient.PlanLocationPayload payload = new SlottingPlanClient.PlanLocationPayload();
                     payload.location_id = loc.getId().toString();
@@ -578,6 +610,9 @@ public class ForecastSpaceOptimizationService {
                     payload.max_volume_cm3 = loc.getMaxVolumeCm3() != null ? loc.getMaxVolumeCm3().doubleValue() : null;
                     payload.capacity = loc.getCapacity() != null ? loc.getCapacity().doubleValue() : null;
                     payload.max_pallet_capacity = loc.getMaxPalletCapacity();
+                    payload.current_pallet_count = loc.getCurrentPalletCount() != null ? loc.getCurrentPalletCount() : 0;
+                    payload.temperature_zone = loc.getTemperatureZone();
+                    payload.hazard_allowed = Boolean.TRUE.equals(loc.getHazardAllowed());
                     payload.is_active = Boolean.TRUE.equals(loc.getIsActive());
                     return payload;
                 })
@@ -589,7 +624,8 @@ public class ForecastSpaceOptimizationService {
         }
 
         SlottingPlanClient.PlanOptimizeResponse py = response.get();
-        if (!"ORTOOLS_MILP_V1".equalsIgnoreCase(py.algorithm) || py.assignments == null || py.assignments.isEmpty()) {
+        if (py.algorithm == null || !py.algorithm.toUpperCase(Locale.ROOT).startsWith("ORTOOLS_MILP_V")
+                || py.assignments == null || py.assignments.isEmpty()) {
             return new OptimizerOutcome(
                     "JAVA_FEASIBLE_FALLBACK_V1",
                     null,
@@ -614,7 +650,7 @@ public class ForecastSpaceOptimizationService {
             line.setCompatible(true);
             line.setRecommendationStatus("APPLY_WITH_APPROVAL");
             line.setRationale(assignment.move_reason != null ? assignment.move_reason : "OR-Tools MILP assignment selected by slotting-service.");
-            line.setConstraintSnapshot("{\"engine\":\"ORTOOLS_MILP_V1\",\"status\":\"" + escape(py.solver_status) + "\"}");
+            line.setConstraintSnapshot("{\"engine\":\"" + escape(py.algorithm) + "\",\"status\":\"" + escape(py.solver_status) + "\"}");
             updates.add(line);
         }
         lineRepository.saveAll(updates);
@@ -622,6 +658,13 @@ public class ForecastSpaceOptimizationService {
                 py.algorithm,
                 py.objective_value != null ? BigDecimal.valueOf(py.objective_value).setScale(4, RoundingMode.HALF_UP) : null,
                 optimizerMetadata(run, policyLines.size(), 0, py.solver_status, py.infeasible_reason));
+    }
+
+    static boolean isOptimizerStorageZone(String zoneType) {
+        if (zoneType == null || zoneType.isBlank()) {
+            return true;
+        }
+        return Set.of("STORAGE", "PICK_FACE", "RESERVE").contains(zoneType.trim().toUpperCase(Locale.ROOT));
     }
 
     private OptimizerOutcome fallbackOutcome(SpaceOptimizationRunEntity run, int skuCount, String reason) {
@@ -662,7 +705,7 @@ public class ForecastSpaceOptimizationService {
     }
 
     private String optimizerMetadata(SpaceOptimizationRunEntity run, int skuCount, int infeasibleCount, String solverStatus, String fallbackReason) {
-        String engine = "FALLBACK".equalsIgnoreCase(solverStatus) ? "JAVA_FEASIBLE_FALLBACK_V1" : "ORTOOLS_MILP_V1";
+        String engine = "FALLBACK".equalsIgnoreCase(solverStatus) ? "JAVA_FEASIBLE_FALLBACK_V1" : "ORTOOLS_MILP_V2";
         return String.format(Locale.ROOT,
                 "{\"engine\":\"%s\",\"solver_status\":\"%s\",\"fallbackReason\":\"%s\",\"objective\":\"service_gain + travel_saving + released_space_reuse - relocation_cost - holding_cost - risk_penalties\",\"relocation_cap_pct\":%s,\"relocation_cap_skus\":%d,\"candidate_skus\":%d,\"infeasible_skus\":%d,\"constraints\":[\"one_primary_pick_per_sku\",\"location_pallet_capacity\",\"rack_weight_capacity\",\"rack_volume_capacity\",\"material_zone_compatibility\",\"abc_fms_class_fit\",\"expiry_safe_max\",\"moq_order_multiple\",\"move_count_cap\"]}",
                 engine,

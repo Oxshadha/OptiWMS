@@ -137,6 +137,11 @@ public class SlottingPlanClient {
             p.weight_kg = m.weightKg() != null ? m.weightKg().doubleValue() : null;
             p.volume_cm3 = m.volumeCm3() != null ? m.volumeCm3().doubleValue() : null;
             p.pallet_spaces = m.palletSpaces() != null ? m.palletSpaces().doubleValue() : null;
+            p.pallet_weight_kg = m.maxPalletWeightKg() != null ? m.maxPalletWeightKg().doubleValue() : null;
+            p.temperature_controlled = m.temperatureControlled();
+            p.hazardous = m.hazardous();
+            p.fragile = m.fragile();
+            p.stackable = m.stackable();
             p.incumbent_primary_location_code = incumbentPrimary.get(m.materialId());
             p.locked = lockedMaterialIds.contains(m.materialId());
             DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
@@ -164,6 +169,9 @@ public class SlottingPlanClient {
             l.max_volume_cm3 = loc.getMaxVolumeCm3() != null ? loc.getMaxVolumeCm3().doubleValue() : null;
             l.capacity = loc.getCapacity() != null ? loc.getCapacity().doubleValue() : null;
             l.max_pallet_capacity = loc.getMaxPalletCapacity();
+            l.current_pallet_count = loc.getCurrentPalletCount() != null ? loc.getCurrentPalletCount() : 0;
+            l.temperature_zone = loc.getTemperatureZone();
+            l.hazard_allowed = Boolean.TRUE.equals(loc.getHazardAllowed());
             l.is_active = Boolean.TRUE.equals(loc.getIsActive());
             req.locations.add(l);
         }
@@ -183,7 +191,8 @@ public class SlottingPlanClient {
         List<SlottingPlanOptimizer.OptimizedLine> merged = new ArrayList<>();
         for (SlottingPlanOptimizer.OptimizedLine line : javaLines) {
             PlanAssignmentPayload py = byMaterialId.get(line.material().materialId().toString());
-            boolean fullMilp = "ORTOOLS_MILP_V1".equalsIgnoreCase(pythonResponse.algorithm);
+            boolean fullMilp = pythonResponse.algorithm != null
+                    && pythonResponse.algorithm.toUpperCase(Locale.ROOT).startsWith("ORTOOLS_MILP_V");
             if (py == null || (!fullMilp && !"A".equals(line.material().abcClass()))) {
                 merged.add(line);
                 continue;
@@ -267,6 +276,15 @@ public class SlottingPlanClient {
         public Integer required_pallets;
         public String demand_trend;
         public Double min_stock_units;
+        public Double pallet_weight_kg;
+        public Double pallet_volume_cm3;
+        public boolean temperature_controlled;
+        public boolean hazardous;
+        public boolean fragile;
+        public boolean stackable = true;
+        public Double forecast_demand;
+        public Double unit_cost;
+        public double stockout_cost_weight = 1.0;
     }
 
     public static class PlanLocationPayload {
@@ -282,6 +300,11 @@ public class SlottingPlanClient {
         public Double max_volume_cm3;
         public Double capacity;
         public Integer max_pallet_capacity;
+        public int current_pallet_count;
+        public String temperature_zone;
+        public boolean hazard_allowed;
+        public boolean fragile_allowed = true;
+        public boolean stackable_allowed = true;
         public boolean is_active;
     }
 

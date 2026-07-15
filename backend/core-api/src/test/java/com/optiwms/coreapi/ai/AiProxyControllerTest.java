@@ -32,12 +32,14 @@ class AiProxyControllerTest {
     private AiProxyService aiProxyService;
 
     private ForecastResultReadService forecastResultReadService;
+    private ForecastJobService forecastJobService;
 
     @BeforeEach
     void setUp() {
         aiProxyService = org.mockito.Mockito.mock(AiProxyService.class);
         forecastResultReadService = org.mockito.Mockito.mock(ForecastResultReadService.class);
-        aiProxyController = new AiProxyController(aiProxyService, forecastResultReadService);
+        forecastJobService = org.mockito.Mockito.mock(ForecastJobService.class);
+        aiProxyController = new AiProxyController(aiProxyService, forecastResultReadService, forecastJobService);
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
         mockMvc = MockMvcBuilders.standaloneSetup(aiProxyController)
@@ -49,7 +51,7 @@ class AiProxyControllerTest {
     void forecasts_shouldPreferWmsForecastResultsWhenRowsExist() throws Exception {
         when(aiProxyService.resolveWarehouseScope(null, "1")).thenReturn("1");
         when(forecastResultReadService.hasRows("RM-001", 1, "LIGHTGBM", "1")).thenReturn(true);
-        when(forecastResultReadService.getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1"))
+        when(forecastResultReadService.getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1", 0, 100))
                 .thenReturn(ResponseEntity.ok(Map.of(
                         "source", "wms_forecast_results",
                         "model_used", "V7_RM_PM_DIRECT",
@@ -62,7 +64,7 @@ class AiProxyControllerTest {
                 .andExpect(jsonPath("$.model_used").value("V7_RM_PM_DIRECT"))
                 .andExpect(jsonPath("$.count").value(1));
 
-        verify(forecastResultReadService).getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1");
+        verify(forecastResultReadService).getForecasts("RM-001", 1, "P", "LIGHTGBM", null, "1", 0, 100);
     }
 
     @Test

@@ -116,6 +116,18 @@ public class InventoryService {
             String query,
             Pageable pageable
     ) {
+        return findPaged(materialId, warehouseId, materialType, status, query, true, pageable);
+    }
+
+    public Page<InventoryItem> findPaged(
+            UUID materialId,
+            UUID warehouseId,
+            String materialType,
+            String status,
+            String query,
+            boolean includeLegacy,
+            Pageable pageable
+    ) {
         Set<UUID> materialIdsForQuery = Collections.emptySet();
         if (query != null && !query.isBlank()) {
             String trimmed = query.trim();
@@ -131,6 +143,12 @@ public class InventoryService {
         final String finalNormalizedQuery = normalizedQuery;
         Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+
+            if (!includeLegacy) {
+                predicates.add(root.get("dataQualityTier").in(
+                        "GENERATED_OPERATIONAL_BASELINE",
+                        "OPERATIONAL_ENTRY"));
+            }
 
             if (materialId != null) {
                 predicates.add(cb.equal(root.get("materialId"), materialId));

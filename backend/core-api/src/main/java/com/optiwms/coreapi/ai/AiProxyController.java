@@ -6,6 +6,7 @@ import com.optiwms.coreapi.ai.dto.AiInferenceAlertsResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -16,10 +17,13 @@ public class AiProxyController {
 
     private final AiProxyService service;
     private final ForecastResultReadService forecastResultReadService;
+    private final ForecastJobService forecastJobService;
 
-    public AiProxyController(AiProxyService service, ForecastResultReadService forecastResultReadService) {
+    public AiProxyController(AiProxyService service, ForecastResultReadService forecastResultReadService,
+            ForecastJobService forecastJobService) {
         this.service = service;
         this.forecastResultReadService = forecastResultReadService;
+        this.forecastJobService = forecastJobService;
     }
 
     @GetMapping("/health")
@@ -42,11 +46,13 @@ public class AiProxyController {
             @RequestParam(required = false) String dataset,
             @RequestParam(required = false) String model,
             @RequestParam(required = false) String warehouseId,
-            @RequestParam(required = false, name = "run_id") Integer runId
+            @RequestParam(required = false, name = "run_id") Integer runId,
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "100") Integer size
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
         if (forecastResultReadService.hasRows(sku, horizon, model, scopedWarehouse)) {
-            return forecastResultReadService.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse);
+            return forecastResultReadService.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse, page, size);
         }
         return service.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse);
     }
@@ -65,6 +71,57 @@ public class AiProxyController {
             return forecastResultReadService.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
         }
         return service.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
+    }
+
+    @GetMapping("/forecast-skus")
+    public ResponseEntity<Object> forecastSkus(
+            Authentication authentication,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId
+    ) {
+        return forecastResultReadService.getForecastSkus(
+                model, service.resolveWarehouseScope(authentication, warehouseId));
+    }
+
+    @GetMapping("/forecast-history")
+    public ResponseEntity<Object> forecastHistory(Authentication authentication,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "100") Integer size) {
+        return forecastResultReadService.getDemandHistory(
+                sku, service.resolveWarehouseScope(authentication, warehouseId), page, size);
+    }
+
+    @GetMapping("/forecast-backtests")
+    public ResponseEntity<Object> forecastBacktests(Authentication authentication,
+            @RequestParam(required = false) String sku,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId,
+            @RequestParam(defaultValue = "0") Integer page,
+            @RequestParam(defaultValue = "100") Integer size) {
+        return forecastResultReadService.getBacktests(
+                sku, model, service.resolveWarehouseScope(authentication, warehouseId), page, size);
+    }
+
+    @GetMapping("/forecast-interval-calibration")
+    public ResponseEntity<Object> forecastIntervalCalibration(Authentication authentication,
+            @RequestParam(required = false) String model,
+            @RequestParam(required = false) String warehouseId) {
+        return forecastResultReadService.getIntervalCalibration(
+                model, service.resolveWarehouseScope(authentication, warehouseId));
+    }
+
+    @GetMapping("/generation-provenance")
+    public ResponseEntity<Object> generationProvenance() {
+        return forecastResultReadService.getGenerationProvenance();
+    }
+
+    @PostMapping("/forecast-models/{model}/approve")
+    @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")
+    public ResponseEntity<Object> approveForecastModel(
+            Authentication authentication, @PathVariable String model) {
+        return forecastResultReadService.approveModel(model, authentication.getName());
     }
 
     @GetMapping("/forecast-run-summary")
@@ -146,14 +203,19 @@ public class AiProxyController {
     @PostMapping("/jobs/forecast-run")
     public ResponseEntity<Object> trigger(
             Authentication authentication,
-            @RequestParam(defaultValue = "P") String dataset,
-            @RequestParam(defaultValue = "LIGHTGBM") String modelName,
+            @RequestParam(defaultValue = "PROJECT_OPERATIONAL_BASELINE_RM_PM") String dataset,
+            @RequestParam(defaultValue = "EXTRA_TREES") String modelName,
             @RequestParam(defaultValue = "online") String mode,
             @RequestParam(required = false) String warehouseId,
             @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        return service.triggerForecastRunWithGuard(authentication, dataset, modelName, mode, scopedWarehouse, criticalOverride);
+        return forecastJobService.queue(authentication, dataset, modelName, mode, scopedWarehouse, criticalOverride);
+    }
+
+    @GetMapping("/jobs/{jobId}")
+    public ResponseEntity<Object> getForecastJob(@PathVariable java.util.UUID jobId) {
+        return forecastJobService.get(jobId);
     }
 
     @GetMapping("/runs/{runId}/jobs")
