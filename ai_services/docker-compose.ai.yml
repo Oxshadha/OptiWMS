@@ -14,7 +14,7 @@ services:
       - DATABASE_URL=sqlite:////data/forecast_service.db
       - REPORTS_DIR=${REPORTS_DIR:-/reports}
       - RUNTIME_DATA_SOURCE_MODE=${RUNTIME_DATA_SOURCE_MODE:-csv}
-      - WMS_RUNTIME_DATABASE_URL=${WMS_RUNTIME_DATABASE_URL:-}
+      - WMS_RUNTIME_DATABASE_URL=${WMS_RUNTIME_DATABASE_URL:-postgresql://optiwms:optiwms@host.docker.internal:5434/optiwms}
       - WMS_RUNTIME_OUTBOUND_STATUSES=${WMS_RUNTIME_OUTBOUND_STATUSES:-shipped,delivered,completed}
       - PUBLISH_QUEUE_POLL_INTERVAL_SECONDS=${PUBLISH_QUEUE_POLL_INTERVAL_SECONDS:-1.0}
       - RETENTION_MAX_RUNS_PER_SCOPE=${RETENTION_MAX_RUNS_PER_SCOPE:-30}
@@ -49,6 +49,8 @@ services:
       - GOVERNANCE_AUTO_ROLLBACK=${GOVERNANCE_AUTO_ROLLBACK:-true}
       - GOVERNANCE_ROLLBACK_MODEL_NAME=${GOVERNANCE_ROLLBACK_MODEL_NAME:-ARIMA}
       - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
+      - CANONICAL_FORECAST_ROOT=/project_operational_baseline
+      - OPTIWMS_REPOSITORY_ROOT=/optiwms
     ports:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
     healthcheck:
@@ -61,6 +63,8 @@ services:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR:-/reports}:ro
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
       - ../Ai miroservices/modeling/v6_academic_final:/v6_academic_final:ro
+      - ../Ai miroservices/modeling/project_operational_baseline:/project_operational_baseline
+      - ..:/optiwms:ro
       - forecast-service-data:/data
 
   orchestrator-service:
