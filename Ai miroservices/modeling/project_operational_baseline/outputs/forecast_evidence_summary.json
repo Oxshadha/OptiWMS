@@ -1,0 +1,43 @@
+{
+  "champion": "EXTRA_TREES",
+  "selection_window": [
+    "2023-01-01",
+    "2024-12-01"
+  ],
+  "selection_origins": [
+    "2023-01-01",
+    "2023-07-01",
+    "2024-01-01"
+  ],
+  "untouched_test_window": [
+    "2025-01-01",
+    "2025-12-01"
+  ],
+  "evaluation_protocol": "expanding-window fixed-origin recursive H1-H12; final 12 months untouched",
+  "forecast_scope": "120 finished goods plus 288 raw and 458 packaging materials",
+  "test_metrics": {
+    "rows": 10392,
+    "materials": 866,
+    "WAPE": 0.12222514107182886,
+    "MAE": 104.58129982918408,
+    "RMSE": 258.49522781919995,
+    "Bias": 0.000503891483390401,
+    "under_forecast_rate": 0.5039453425712086
+  },
+  "seasonal_naive_test_wape": 0.20120968289572988,
+  "relative_wape_improvement": 0.3925484136110492,
+  "interval_nominal_coverage": 0.9,
+  "interval_empirical_coverage": 0.8922247882986913,
+  "critical_class_wape": 0.09780785940918958,
+  "interval_calibration_method": "signed residual 5th/95th quantiles from locked selection window only",
+  "interval_calibration_rows": 31176,
+  "promotion_gate": {
+    "beats_seasonal_naive_by_5pct": true,
+    "wape_at_most_15pct": true,
+    "absolute_bias_at_most_5pct": true,
+    "empirical_90_interval_coverage_85_to_95pct": true,
+    "critical_class_wape_at_most_25pct": true
+  },
+  "promotion_eligible": true,
+  "promotion_status": "PENDING_MANAGER_APPROVAL"
+}

@@ -1,7 +1,9 @@
 # v8 Controlled Synthetic Validation
 
-This package is an offline simulation benchmark for the RM/PM forecasting stack.
-It does not publish forecasts and does not replace v7.
+This package is the controlled simulation benchmark for the RM/PM forecasting
+stack. Its generated rows are also used as the explicitly labelled
+project-operational seed for integrated WMS demonstrations. It does not replace
+or represent externally observed warehouse history.
 
 The generated data has known causal structure: FG production plans, complete BOMs,
 yield/scrap, promotions, holidays, shocks, RM/PM usage, MOQ, order multiples and
@@ -36,3 +38,4 @@ PYTHONPATH=. \
 - `outputs/plots/*.png`: EDA, model, residual, high-volume and feature evidence.
 - `00_Controlled_Data_Generation.ipynb` through `05_Statistical_Conclusion.ipynb`.
 - `06_Final_Enterprise_Model_Decision_And_E2E.ipynb`: final research-guideline and integration decision.
+- `07_Synthetic_Data_Generation_Methods_And_Proof.ipynb`: standalone evaluator proof of the generator equations, distributions, causal structure, plots, integrity gates, reproducibility hash and WMS workflow mapping.

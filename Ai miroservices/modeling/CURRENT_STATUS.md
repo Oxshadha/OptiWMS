@@ -1,26 +1,19 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-07-11
+> Last updated: 2026-07-15
 > Scope: forecast modeling, Spring/WMS runtime alignment, Forecasts dashboard, inventory policy, and slotting planning evidence.
 
 ## Executive Status
 
-The forecast runtime has moved from the older v6 FG/bootstrap path toward a v7 RM/PM planning path.
+The current operational baseline supersedes the earlier v6/v7 demo paths described later in this historical log.
 
-Current truth:
-
-- `forecast_results` in Spring/WMS PostgreSQL is now the canonical operational forecast table.
-- v7 generated and published RM/PM forecast rows with model id `V7_RM_PM_DIRECT`.
-- The Forecasts dashboard can now read canonical rows through Spring `/api/ai/*` endpoints when those rows exist.
-- The notebook/evidence layer has been rebuilt as a 13-notebook v7 statistical evidence sequence using the v6 academic notebook style and the forecasting-paper methodology.
-
-Important caveat:
-
-- Current v7 LightGBM is a candidate RM/PM model, not a model that should be called production-grade without caveat.
-- Current backtest result is useful but not excellent: WAPE `25.09%`, MAE `433.24`, RMSE `2421.59`, bias `1.58%`, under-forecast rate `50.64%`.
-- This is better than the simple baselines currently tested, but the margin is not enough to hide limitations. The correct evaluator story is honest: direct RM/PM forecasting is now the right architecture, but statistical evidence still needs strengthening.
-- The current `demand_history` rows are labelled `canonical_v6`, but their loader identifies the dataset as `HEMAS_SYNTHETIC_WMS_V6`. They are simulated operational history, not verified real material-issue transactions.
-- A corrected offline experiment now exists. It fixes target/feature alignment and produces a better scale-normalized candidate, but it has not been published or promoted.
+- PostgreSQL is the business authority for forecasts, policy, slotting, transfers, and evidence. Python SQLite is not an operational source.
+- `PROJECT_OPERATIONAL_BASELINE_V1` is the deterministic generated warehouse baseline, seed `20260715`, hash `9cdafb7a9f2770ba7636ec04f1bd97ce585c29313da94ae5d536ef5f9b2dc7a6`.
+- The promoted RM/PM method is **Extra Trees**, selected over LightGBM and statistical baselines using expanding-window selection origins and an untouched final 12-month test.
+- Current untouched-test evidence is WAPE `12.48%`, MAE `96.87`, RMSE `260.49`, bias `0.24%`, under-forecast rate `51.43%`, empirical 90% interval coverage `89.21%`, and critical-class WAPE `9.84%`.
+- Spring serves `8,952` decision-eligible forecast rows directly from `forecast_results`; the live Forecasts page displays those rows and their separate backtest evidence.
+- Inventory policy is a forecast-informed stochastic `(s,S)` workflow with simulation and manager approval. Slotting uses a constrained OR-Tools MILP; it is not relabelled as a separate knapsack algorithm.
+- The current project proves reproducible system behavior on generated data. It does not prove accuracy on an external customer distribution.
 
 ## What Is Wired To The Application
 
@@ -506,3 +499,246 @@ Untouched-test evidence for the locked Extra Trees causal candidate:
 - Persist actuals after forecast publication to produce live residual, calibration and service-level monitoring.
 - Run the full Docker browser/API smoke after the backend/frontend/AI containers are started. This workspace session verified the Docker database container, database load and local compilation; the backend image build was started but could not be completed because the execution environment stopped allowing further Docker build usage.
 - A Recalculate action must be wired to a trained model refresh/publish job before it can truthfully regenerate project forecast rows. It must not pretend that a static seed reload is model inference.
+
+## 2026-07-14 Synthetic Data Generation Proof
+
+Added and executed `v8_controlled_synthetic_validation/07_Synthetic_Data_Generation_Methods_And_Proof.ipynb` as a standalone evaluator-facing notebook.
+
+It now proves and visualizes:
+
+- fixed-seed NumPy generation and a SHA-256 evidence digest;
+- sinusoidal annual seasonality with randomized amplitude and phase;
+- bounded annual trends, Bernoulli promotions and holidays;
+- persistent structural shifts and rare disruption/surge shocks;
+- autoregressive planned-versus-actual FG production;
+- FG-to-RM/PM BOM explosion with scrap and yield;
+- lognormal positive/skewed variables and scale-dependent process noise;
+- master-data parameter distributions for MOQ, order multiples, cost and lead time;
+- 100% controlled FG-parent and RM/PM component coverage, including the explicit coverage-repair rule;
+- production-plan versus actual plots, BOM-degree plots, demand distributions, heteroscedasticity, autocorrelation and intermittency;
+- database/workflow mapping for catalogue, BOM, demand history, inventory policy, slotting/MILP and supplier planning;
+- supported and unsupported claims for project-operational use.
+
+Validation completed: all eight v8 notebooks pass static Python syntax parsing. The new notebook executed all 11 code cells, embedded five plot outputs and produced no error outputs.
+
+### Why Forecast Dashboard Charts Can Be Empty
+
+Forward operational forecast rows contain future period, horizon, P10, P50 and P90. They correctly do not contain future actual demand (`y_true`). Therefore:
+
+- residual-over-time and absolute-error charts require persisted rolling-backtest or matured forecast-versus-actual rows;
+- empirical interval coverage requires actual demand joined to historical forecast intervals;
+- seasonality charts require at least 12 calendar months of actual demand per selected material;
+- promotion/weather/price-driver charts require those exogenous features and their provenance;
+- online inference audit/fallback charts require actual inference events, not a static forecast seed.
+
+The existing empty-state messages are statistically safer than generating decorative values. The next frontend evidence step is a separate backtest/history endpoint; forward forecasts and evaluation rows must remain separate datasets even when shown on the same page.
+
+## 2026-07-15 Canonical Project Operational Baseline
+
+### Operational Truth And Lineage
+
+`PROJECT_OPERATIONAL_BASELINE_V1` is now the single deterministic project-operational dataset for the Colombo warehouse. It uses seed `20260715` and dataset hash `7356c0ba07bc6afa4edf91c12541d09bd64bc503d0ef5103690b852813f2fbd7`. It is generated data, not externally observed customer data; ordinary operator screens omit that distinction, while PostgreSQL lineage, administrator evidence, and evaluator notebooks retain it.
+
+Loaded and idempotently reloaded into PostgreSQL:
+
+- 120 FG, 288 RM, and 458 PM materials; 866 total catalogue rows.
+- 3,000 typed warehouse locations.
+- 120 versioned BOM headers and 1,641 component rows with complete FG coverage.
+- 53,712 monthly RM/PM demand observations over 72 months.
+- 25,000 orders, 100,000 order lines, 125,000 stock movements, 125,000 tasks, and 125,000 operation events.
+- 746 RM/PM supplier links, ABC/FMS classifications, inventory records, and stochastic policy draft lines.
+
+Migrations `V73` and `V74` provide evidence/job/provenance contracts and accept the generated two-digit location bay codes. The canonical loader supports validation-only, full idempotent load, and `--forecast-only` publication.
+
+### Forecast Evidence
+
+The selected champion is **Extra Trees**, selected against seasonal naive, moving average, Croston/SBA, ETS, and LightGBM on expanding-window origins. The final 12 months were untouched until model selection was locked.
+
+| Untouched-test measure | Result |
+|---|---:|
+| WAPE | 12.51% |
+| MAE | 97.07 |
+| RMSE | 260.77 |
+| Bias | 0.18% |
+| Under-forecast rate | 51.42% |
+| Empirical 90% interval coverage | 88.85% |
+| Critical AF/AM/BF WAPE | 9.87% |
+| Seasonal-naive WAPE | 20.25% |
+| Relative WAPE improvement | 38.24% |
+
+All configured evidence gates pass, but registry status remains `PENDING_MANAGER_APPROVAL`. Forward rows remain `decision_eligible=false`; recalculation publishes a draft and never auto-promotes it.
+
+Eight evaluator notebooks execute without code-cell errors and separate lineage, EDA, BOM/classification proof, model selection, residual diagnostics, policy simulation, slotting evidence, and executive claims. Seven statistical plots are embedded across the evidence sequence.
+
+### Runtime Wiring Verified
+
+- Spring/PostgreSQL `forecast_results` is the canonical dashboard and planning store; SQLite is not an operational authority.
+- Canonical APIs return 8,952 forward rows, 8,952 untouched-test rows, metrics, actual history, interval calibration, generation provenance, and 746 deduplicated inventory recommendations.
+- Forecast-only publication was run directly against PostgreSQL and returned 8,952 forward rows, 8,952 backtest rows, and one registry row without rebuilding orders, inventory, BOMs, or policies.
+- `POST /api/ai/jobs/forecast-run` is asynchronous in Spring. Canonical requests now bypass the legacy v6 orchestrator and call `/canonical/recalculate`; legacy dataset/model defaults were replaced by `PROJECT_OPERATIONAL_BASELINE_RM_PM` and `EXTRA_TREES`.
+- The Python canonical route refreshes the controlled feature contract from PostgreSQL `demand_history`, requires complete one-to-one coverage, reruns statistical evidence, and then invokes only the forecast-only PostgreSQL publisher. XGBoost and CatBoost were moved to an optional `legacy-boosting` dependency group so the core ARM service does not download CUDA/NCCL.
+- The Forecasts frontend displays “RM/PM Demand Forecast”, “Extra Trees”, the untouched-test metrics, canonical release status, supported charts only, and no decorative residual, market-driver, inference-success, or stock values.
+- Desktop and 375 px mobile checks found no horizontal overflow, no blank chart SVGs, and three populated overview charts. The header was made responsive.
+
+### Current Verification Boundary
+
+The canonical generator tests, forecast recalculation, forecast-only PostgreSQL publication, Java compile/controller tests, TypeScript checks, API reads, and desktop/mobile browser checks passed during this implementation. A first forecast-service Docker rebuild exhausted disk while the old dependency set attempted a 303 MB CUDA/NCCL download. Docker Desktop then became unresponsive and PostgreSQL stopped. The dependency defect is fixed in source, but the final rebuilt Docker image and live Spring `202 -> worker -> published_draft` poll could not be rerun after the daemon failure. Do not claim that final Docker-chain proof until Docker storage is healthy and that smoke is repeated.
+
+### Defensible Evaluator Claim
+
+OptiWMS demonstrates a reproducible, statistically controlled single-warehouse operation on generated data with complete catalogue, BOM, history, forecast, policy, classification, and workflow records. The Extra Trees champion passes the project evidence gates on an untouched generated-data test period and remains manager-gated. This is evidence of project-system correctness under the controlled baseline, not evidence of accuracy on an external customer distribution.
+
+## 2026-07-15 Final Docker And End-To-End Verification
+
+### Docker Recovery And Runtime Fix
+
+Disk space was recovered without deleting or resetting application containers, images, or named volumes. The persisted PostgreSQL data remained intact. The final runtime defect was cross-compose service discovery: Spring and the AI services run on different Docker networks, but Spring was trying to resolve `forecast-service` as though it were on the same network.
+
+Fixed runtime configuration:
+
+- Spring uses `host.docker.internal:8091`, `:8092`, and `:8093` for forecast, orchestrator, and slotting services.
+- The forecast container uses explicit PostgreSQL authority `host.docker.internal:5434/optiwms` for canonical recalculation.
+- No SQLite copy or Docker-volume database edit is required.
+- Flyway schema is at `V75`.
+
+Live health after the non-destructive rebuild:
+
+- Spring backend `8080`: healthy.
+- Forecast service `8091`: healthy; runtime contract reports `wms_db` and no missing tables/columns.
+- Orchestrator `8092`: healthy.
+- Slotting service `8093`: healthy.
+- PostgreSQL `5434`: healthy.
+- Frontend is running at `http://localhost:3000` for local verification.
+
+### Forecast Recalculation And Governance Proof
+
+The same Spring endpoint used by the frontend was exercised:
+
+- `POST /api/ai/jobs/forecast-run` returned `202` and persisted job `b3010b3a-9913-43ea-9064-f3a2c9ca3ea2`.
+- The job moved from `running/inference_publish` to `succeeded/published` in about one minute.
+- Canonical recalculation refreshed model evidence, republished PostgreSQL rows as draft, and preserved the generated operational dataset.
+- Manager/admin approval promoted `EXTRA_TREES` and marked all `8,952` forecast rows decision-eligible.
+- `/api/ai/forecasts?page=0&size=5` returned canonical, paginated PostgreSQL rows with P10/P50/P90.
+- `/api/ai/forecast-metrics` returned aggregate and H1-H12 untouched-test evidence separately from forward forecasts.
+
+Current model evidence after recalculation:
+
+| Untouched-test measure | Result |
+|---|---:|
+| WAPE | 12.48% |
+| MAE | 96.87 |
+| RMSE | 260.49 |
+| Bias | 0.24% |
+| Under-forecast rate | 51.43% |
+| Empirical 90% interval coverage | 89.21% |
+| Critical AF/AM/BF WAPE | 9.84% |
+| Seasonal-naive WAPE | 20.25% |
+| Relative WAPE improvement | 38.36% |
+
+The live Forecasts page was browser-verified after authentication. It displays `RM/PM Demand Forecast`, `Extra Trees`, `PROMOTED`, populated forecast/history/inventory panels, and supported residual, error-distribution, bias, RMSE, and interval-coverage evidence. It does not obtain residuals from future forecast rows.
+
+### Inventory Policy Proof
+
+Approved policy run `be9477fe-e321-414f-8eda-1012a2b14361` contains `288` RM lines:
+
+- `216` lines passed the service/cost/capacity simulation gate and were approved.
+- `72` lines remain `HIGH_RISK_REVIEW`; they were not silently applied.
+- Expected stock delta: `-843,773.40` units.
+- Expected pallet-position delta: `-262.85`.
+- Expected holding-cost delta: `-151,879.20`.
+- All `288` lines have persisted simulation evidence; `216` satisfy fill-rate target, cost improvement, and capacity feasibility together.
+- No purchase suggestions were created because current stock is above the proposed reorder triggers. That is a valid no-order result, not a missing integration.
+
+The implemented policy is a class-aware stochastic `(s,S)` method. It uses P10/P50/P90 forecast demand, empirical lead-time demand and calibrated residual uncertainty, EOQ economics, MOQ/order multiples, handling-unit rounding, shelf life, and storage capacity. Target service levels are `98%` for AF/AM/BF, `97%` for other A, `95%` for B, and `92%` for C. A deterministic 1,000-trial inventory simulation blocks proposals that miss service, increase expected cost, or violate capacity. Approval creates draft purchasing suggestions only; it never creates purchase orders automatically.
+
+### MILP Slotting And Transfer Proof
+
+Approved space run `8fa46a69-f43b-470d-8062-64ca419f005c` completed with:
+
+- algorithm `ORTOOLS_MILP_V2`;
+- solver status `OPTIMAL`;
+- objective `32,864.6778`;
+- `0` infeasible and `0` high-risk assignments;
+- exactly `64` relocations, matching the configured 30% relocation cap;
+- estimated travel reduction `2,625.85 m`.
+
+Approved plan `d3a450f7-61e3-49d1-91a6-4208df98ea78` (`FSO-2026-07-14-v2`) is `ACTIVE`. Approval created released stock transfer `1c3373c7-92ba-4e2e-bb20-8e06b11d6ecc` (`TF-1784073487622`) with `64` open lines and `64` pending transfer tasks. Moved quantity remains `0`; inventory changes only after worker scan/execution. All source lines currently have sufficient inventory.
+
+The integer assignment model subsumes the requested multidimensional knapsack decision. It considers pallet positions, weight, cubic volume, compatibility, temperature/hazard/fragile rules, stackability, pick-face and reserve assignment, current occupancy, handling-unit multiples, accessibility, travel, relocation cost, overflow, and forecast-weighted risk. A separate feature labelled "Knapsack" would be misleading.
+
+### Comparison With The Two Hemas Documents
+
+The Training Report's core method is covered and extended: 288 RM/458 PM scale, subtype-specific ABC by annual issued volume excluding returns, FMS by issue frequency, AF/AM/BF critical treatment, forecast-informed ROP/min-max, and warehouse allocation. OptiWMS adds reproducible generation, uncertainty intervals, model backtesting, simulation gates, constraints, approvals, audit evidence, APIs, and executable transfer tasks.
+
+The Pallet Project covers a different scope: reverse pallet circulation, reuse, occupancy, damage, repair, recycling/disposal, and shortage triggers. OptiWMS currently optimizes material pallet-position allocation and relocation, but it does **not** implement that complete reverse-pallet asset lifecycle.
+
+### Explicit Remaining Gaps
+
+- **Cannibalization:** correlated demand and promotions exist in the generator, but no validated causal product-substitution/cannibalization model is implemented. Do not claim one.
+- **Reverse pallet logistics:** pallet damage, repair, return, reuse, recycling, and disposal workflows from the Pallet Project remain a separate module.
+- **External validity:** all model and policy evidence is generated-baseline evidence. No external customer performance claim is defensible.
+- **Execution boundary:** the approved relocation transfer is intentionally pending worker scans; the verification did not fake physical movement.
+- **Frontend debt:** the production build passes, but existing React hook/image/font warnings remain. They do not block compilation or the verified Forecasts workflow.
+
+### Final Automated Verification
+
+- Full backend `./gradlew test`: `BUILD SUCCESSFUL`.
+- Forecast service: `11 passed`.
+- OR-Tools slotting service: `2 passed`.
+- Operational baseline: `6 passed`, `31 subtests passed`; all generated notebook code cells parse.
+- Frontend production build: successful, all `68` routes generated.
+- Live browser: authenticated Forecasts overview and Model Performance views populated from the running services.
+
+### Current Evaluator Claim
+
+OptiWMS is complete enough to demonstrate a manager-gated forecast-to-policy-to-slotting-to-transfer workflow for one generated Colombo warehouse. The correct claim is controlled system validity: deterministic data, complete BOMs, statistically separated model selection/test evidence, calibrated uncertainty, stochastic policy simulation, constrained optimal slotting, and executable approval workflows. It is not evidence of deployment performance on an external warehouse, and it does not yet include causal cannibalization or reverse-pallet lifecycle optimization.
+
+## 2026-07-15 FG/RM/PM Forecast And Operational Scope Correction
+
+### Root Causes Corrected
+
+- The one-point forecast chart was a dashboard pagination defect. The initial API page contained one period for many SKUs; it was not evidence that PostgreSQL held only one horizon.
+- Selecting a SKU now performs dedicated paginated reads for that SKU's forward forecasts, actual history, and backtest rows. H1-H12 is no longer inferred from the mixed first page.
+- A canonical forecast SKU endpoint now returns the complete forecast catalogue with material type and horizon count. The Forecast page provides Raw Material, Packaging, and Finished Good selectors.
+- The exposed `(poll/60)` value was a timeout counter, not pipeline progress. The UI now displays explicitly estimated progress while the synchronous inference stage runs and reports 100% only after publication.
+- Inventory and Product Catalogue totals mixed the generated baseline with unclassified legacy rows. Default paged and reference-material reads now include only `GENERATED_OPERATIONAL_BASELINE` and `OPERATIONAL_ENTRY`; `includeLegacy=true` preserves explicit audit access. No legacy records were deleted.
+- New material and inventory records receive `OPERATIONAL_ENTRY` provenance through JPA and database defaults. V76 adds covering indexes for the operational scope.
+- BOM Master now reports canonical FG/RM/PM counts, provides searchable finished-good records with descriptions, retains component add/edit/delete, and moves legacy forecast-SKU mapping behind an Advanced disclosure.
+
+### Expanded Forecast Evidence And PostgreSQL Publication
+
+The leakage-safe forecasting panel now combines the generated 72-month finished-good production history with direct RM/PM demand history. Purchasing policy remains restricted to RM/PM; FG forecasts are exposed for production/BOM planning and do not create FG replenishment proposals.
+
+Current untouched-test evidence across 866 SKUs:
+
+| Measure | Result |
+|---|---:|
+| Forecast scope | 120 FG + 288 RM + 458 PM |
+| Forward forecast rows | 10,392 |
+| H1-H12 test rows | 10,392 |
+| WAPE | 12.22% |
+| MAE | 104.58 |
+| RMSE | 258.50 |
+| Bias | 0.05% |
+| Under-forecast rate | 50.39% |
+| Empirical 90% interval coverage | 89.22% |
+| Critical AF/AM/BF WAPE | 9.78% |
+| Seasonal-naive WAPE | 20.12% |
+| Relative WAPE improvement | 39.25% |
+
+The planning-only transactional loader committed:
+
+- `62,352` FG/RM/PM monthly history rows;
+- `871` canonical inventory rows;
+- `10,392` H1-H12 forward forecast rows;
+- `10,392` untouched-test/backtest rows;
+- one model-registry row.
+
+### Verification And Runtime Boundary
+
+- Full backend Gradle tests: passed.
+- Frontend production build: passed; all 68 routes generated.
+- Operational baseline: `6 passed`, `31 subtests passed`.
+- The frontend build warned that the filesystem had only 115 MiB free and could not persist its webpack cache. The disposable `.next` directory was removed, restoring about 1 GiB.
+- Docker Desktop then stopped responding during the backend image rebuild. A normal non-destructive restart could not terminate stuck Docker helper processes, and ports 8080/3000 were no longer reachable. Containers and named volumes were not deleted; PostgreSQL publication had already committed before Docker stopped.
+- Therefore the new V76 migration, rebuilt Spring image, and final browser screenshots are **not yet live-verified**. Start Docker Desktop successfully, run `docker compose up -d --build backend` from `infra`, and repeat the authenticated Forecast/BOM/Inventory browser smoke before claiming the correction is deployed.
