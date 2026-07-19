@@ -40,8 +40,8 @@ import {
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
 
-const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
-const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
+const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPERATIONAL_BASELINE_RM_PM";
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "EXTRA_TREES_RESPONSIVE";
 const EVAL_SPLIT = "untouched_test";
 const RUN_MODE: "online" = "online";
 
@@ -258,6 +258,8 @@ const getMonthIndex = (monthStr: string): number => {
 
 const displayModelName = (model?: string) => {
   const normalized = (model || "").toUpperCase();
+  if (normalized === "EXTRA_TREES_RESPONSIVE") return "Extra Trees Responsive";
+  if (normalized === "EXTRA_TREES_DAMPED_TREND") return "Extra Trees with Damped Trend";
   if (normalized === "EXTRA_TREES") return "Extra Trees";
   if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "RM/PM Causal Demand Forecast";
   if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "RM/PM Demand Forecast";
@@ -276,8 +278,8 @@ export default function ForecastsPage() {
     sku?: string;
     warehouseId: string;
   }>({
-    dataset: DEFAULT_DATASET || "PROJECT_OPERATIONAL_BASELINE_RM_PM",
-    model: DEFAULT_MODEL || "EXTRA_TREES",
+    dataset: DEFAULT_DATASET,
+    model: DEFAULT_MODEL,
     split: EVAL_SPLIT,
     horizon: undefined,
     sku: "",
@@ -362,8 +364,8 @@ export default function ForecastsPage() {
   };
 
   const resolveBinding = async (): Promise<{ dataset: string; model: string }> => {
-    const championDataset = DEFAULT_DATASET || "PROJECT_OPERATIONAL_BASELINE_RM_PM";
-    const championModel = (DEFAULT_MODEL || "EXTRA_TREES").toUpperCase();
+    const championDataset = DEFAULT_DATASET;
+    const championModel = DEFAULT_MODEL.toUpperCase();
 
     try {
       const models = await aiForecastApi.getGatewayModels();
@@ -1347,17 +1349,17 @@ export default function ForecastsPage() {
     () => backtests.length > 0,
     [backtests]
   );
-  const forecastedUnits6Mo = useMemo(() => {
-    if (selectedSku) {
-      const rmRec = rawMaterialReqs.find(r => r.rm_sku === selectedSku);
-      if (rmRec) return Math.round(rmRec.gross_requirement_qty / 2); // Show 6 months approx from annual gross
-    }
+  const forecastHorizonMonths = filters.horizon ?? 12;
+  const forecastedUnitsForHorizon = useMemo(() => {
     const rows = latestForecasts.filter(
-      (f) => f.horizon <= 6 && (f.y_true === null || f.y_true === undefined)
+      (f) =>
+        (!selectedSku || f.sku === selectedSku) &&
+        f.horizon <= forecastHorizonMonths &&
+        (f.y_true === null || f.y_true === undefined)
     );
     if (!rows.length) return null;
     return Math.round(rows.reduce((s, f) => s + Number(f.p50 || 0), 0));
-  }, [latestForecasts, selectedSku, rawMaterialReqs]);
+  }, [latestForecasts, selectedSku, forecastHorizonMonths]);
   const avgStockCoverDays = useMemo(() => {
     if (!liveSkuDetails.length) return null;
     const vals = liveSkuDetails.map((s) => s.stockDays).filter((d) => Number.isFinite(d) && d > 0);
@@ -1659,7 +1661,7 @@ export default function ForecastsPage() {
           {/* KPI Summary Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={wapeVal !== null ? `${(100 - wapeVal).toFixed(1)}%` : "—"} sub={wapeVal !== null ? `WAPE = ${wapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
-            <KpiCard title="Forecasted Units" value={forecastedUnits6Mo !== null ? forecastedUnits6Mo.toLocaleString() : "—"} sub="Sum P50 horizons 1–6" color={C.accent} icon="package_2" />
+            <KpiCard title="Forecasted Units" value={forecastedUnitsForHorizon !== null ? forecastedUnitsForHorizon.toLocaleString() : "—"} sub={`Sum P50 horizons 1–${forecastHorizonMonths}`} color={C.accent} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} icon="warning" />
             <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent3} icon="grid_view" />
             <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="Aggregate signed error on the untouched test" color={C.warn} icon="balance" />
@@ -1751,10 +1753,10 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Detailed Forecast View */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="6-Month Forward Forecast with Confidence Intervals" sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
+            <SectionHeader title={`${forecastHorizonMonths}-Month Forward Forecast with Confidence Intervals`} sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={processedForecastData.slice(-8)}>
+                <ComposedChart data={processedForecastData.slice(-forecastHorizonMonths)}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
@@ -1800,10 +1802,10 @@ export default function ForecastsPage() {
           {/* Detailed Forecast Points Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="6-Month Forecast Details Table" sub="Monthly forecasts with confidence intervals" color={C.accent} />
+              <SectionHeader title={`${forecastHorizonMonths}-Month Forecast Details Table`} sub="Monthly forecasts with confidence intervals" color={C.accent} />
               <button 
                 className="btn btn-xs btn-outline btn-primary" 
-                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-6))}
+                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-forecastHorizonMonths))}
               >
                 Export Forecast CSV
               </button>
@@ -1820,7 +1822,7 @@ export default function ForecastsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {finalForecastData.slice(-6).map((row, i) => (
+                  {finalForecastData.slice(-forecastHorizonMonths).map((row, i) => (
                     <tr key={i} className="hover">
                       <td className="font-semibold font-mono text-primary text-xs">{row.label}</td>
                       <td className="text-right font-bold">{(row.forecast ?? 0).toLocaleString()}</td>

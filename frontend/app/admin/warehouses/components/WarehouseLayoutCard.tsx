@@ -29,15 +29,24 @@ export function WarehouseLayoutCard({
 
   const getRackFill = (rack: RackUnit): number => {
     const occupied = rack.bins.filter((bin) => bin.status === "occupied" || !!bin.inventory).length;
-    const total = Math.max(rack.maxLevels * 2, 1);
+    const total = Math.max(rack.bins.length, 1);
     return Math.round((occupied / total) * 100);
   };
 
   return (
-    <div className="card bg-base-100 border border-base-300 rounded-xl p-6 shadow-sm relative">
+    <section className="min-w-0 max-w-full bg-base-100 border border-base-300 p-5 shadow-sm relative">
+      <div className="mb-4 flex items-center justify-between gap-6">
+        <div>
+          <h3 className="text-base font-semibold text-base-content">Operational Rack Plan</h3>
+          <p className="mt-1 text-sm text-base-content/60">Metric rack coordinates with complete L1-L5 occupancy and suitability evidence.</p>
+        </div>
+        <div className="flex shrink-0 gap-5 text-sm text-base-content/70">
+          <span><strong className="text-base-content">{layout.racks.length}</strong> racks</span>
+          <span><strong className="text-base-content">{layout.racks.reduce((sum, rack) => sum + rack.bins.length, 0)}</strong> bins</span>
+        </div>
+      </div>
 
-
-      <div className="h-[800px] w-full rounded-lg overflow-x-auto overflow-y-auto border border-base-300">
+      <div className="h-[760px] min-w-0 max-w-full w-full overflow-auto border border-base-300 bg-base-100">
         <WarehouseLayoutVisualization
           layout={layout}
           onRackClick={onRackClick}
@@ -124,6 +133,6 @@ export function WarehouseLayoutCard({
             : "Click on any rack to view its side elevation and all vertical levels"}
         </p>
       </div>
-    </div>
+    </section>
   );
 }

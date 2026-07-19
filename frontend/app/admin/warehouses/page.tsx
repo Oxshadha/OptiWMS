@@ -527,6 +527,7 @@ function createEmptyLayout(warehouseId: string, warehouseName: string): Warehous
     width: 1200,
     height: 600,
     racks: [],
+    stations: [],
     aisles: [],
   };
 }

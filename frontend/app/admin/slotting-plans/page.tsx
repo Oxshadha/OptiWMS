@@ -140,6 +140,14 @@ export default function SlottingPlansPage() {
     () => plans.find((p) => p.id === selectedPlanId) ?? null,
     [plans, selectedPlanId]
   );
+  const solverApprovalBlocked = Boolean(
+    selectedPlan && (
+      selectedPlan.algorithm === "HEURISTIC_FALLBACK_V1" ||
+      ["INFEASIBLE", "UNAVAILABLE", "ABNORMAL", "NOT_SOLVED", "FALLBACK"].includes(
+        selectedPlan.solverStatus ?? ""
+      )
+    )
+  );
 
   const lineSummary = useMemo(() => {
     const total = lines.length;
@@ -278,7 +286,7 @@ export default function SlottingPlansPage() {
         <div>
           <h1 className="text-3xl font-bold">Slotting Planner</h1>
           <p className="text-sm text-base-content/60 mt-2">
-            MILP optimized RM location planning with ABC/FMS demand signals, rack constraints, and operational move caps.
+            MILP optimized RM, PM, and finished-goods location planning with ABC/FMS demand signals, rack constraints, and operational move caps.
           </p>
         </div>
         <Link href="/admin/replenishment" className="btn btn-ghost btn-sm">
@@ -398,9 +406,9 @@ export default function SlottingPlansPage() {
             <div className="flex flex-wrap items-center gap-3">
               <label className="label cursor-pointer gap-2 justify-start mb-0">
                 <input type="checkbox" className="checkbox" checked={useMilp} onChange={(e) => setUseMilp(e.target.checked)} />
-                <span className="label-text">Use MILP/knapsack optimizer for location plan</span>
+                <span className="label-text">Use multi-bin MILP optimizer for location plan</span>
               </label>
-              {isAdmin && selectedPlan && selectedPlan.status === "DRAFT" && (
+              {isAdmin && selectedPlan && selectedPlan.status === "DRAFT" && !solverApprovalBlocked && (
                 <label
                   className="label cursor-pointer gap-2 justify-start mb-0 border border-warning/40 rounded-lg px-3 py-2 bg-warning/5"
                   title="Skips stock transfer jobs and updates inventory location_code immediately"
@@ -421,13 +429,14 @@ export default function SlottingPlansPage() {
                 disabled={loading || !readiness?.ready}
                 onClick={() => void handleCreatePlan()}
               >
-                Generate MILP plan
+                {loading ? "Optimizing plan..." : "Generate MILP plan"}
               </button>
               {selectedPlan && selectedPlan.status === "DRAFT" && (
                 <>
                   <button
                     className={directApply && isAdmin ? "btn btn-warning" : "btn btn-success"}
-                    disabled={loading}
+                    disabled={loading || solverApprovalBlocked}
+                    title={solverApprovalBlocked ? "A fallback plan cannot be approved" : undefined}
                     onClick={() => void handleApprove()}
                   >
                     {directApply && isAdmin ? "Approve & apply directly" : "Approve plan"}
@@ -473,6 +482,8 @@ export default function SlottingPlansPage() {
                     </div>
                     <p className="text-xs text-base-content/60 mt-1">
                       {p.validFrom} → {p.validTo}
+                      {p.algorithm && <> · {p.algorithm}</>}
+                      {p.solverStatus && <> · {p.solverStatus}</>}
                       {p.executionStatus && p.executionStatus !== "NONE" && (
                         <> · {p.executionStatus}</>
                       )}
@@ -501,6 +512,18 @@ export default function SlottingPlansPage() {
               </label>
             )}
           </div>
+          {selectedPlan?.infeasibleReason && (
+            <div className="alert alert-warning mb-3 text-sm">
+              <span>
+                Solver fallback: {selectedPlan.infeasibleReason}. This plan is evidence only and cannot be approved.
+              </span>
+            </div>
+          )}
+          {selectedPlan?.constraintEvidence && (
+            <p className="text-xs text-base-content/60 mb-3">
+              Constraint contract: {selectedPlan.constraintEvidence.split(",").join(" · ")}
+            </p>
+          )}
           {selectedPlan ? (
             <div className="overflow-x-auto max-h-[520px]">
               <table className="table table-sm">

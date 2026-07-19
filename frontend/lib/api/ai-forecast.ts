@@ -458,7 +458,7 @@ export const aiForecastApi = {
   } = {}) {
     const query = buildQuery({
       dataset: params.dataset ?? 'PROJECT_OPERATIONAL_BASELINE_RM_PM',
-      modelName: params.modelName ?? 'EXTRA_TREES',
+      modelName: params.modelName ?? 'EXTRA_TREES_RESPONSIVE',
       mode: params.mode ?? 'snapshot',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,

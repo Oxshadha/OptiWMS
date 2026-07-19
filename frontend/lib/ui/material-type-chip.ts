@@ -17,5 +17,5 @@ export function getMaterialTypeChip(value?: string | null): MaterialTypeChip {
     return { label: "Packaging", tone: "neutral", className: "border-base-content/35" };
   }
 
-  return { label: "Raw Material", tone: "info" };
+  return { label: "Raw", tone: "info" };
 }

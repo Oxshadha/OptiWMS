@@ -162,6 +162,7 @@ export interface ForecastSpaceReadiness {
   palletSpecCoveragePct: number;
   missingMoqCount: number;
   missingLeadTimeCount: number;
+  unapprovedForecastMaterialsCount: number;
   ready: boolean;
   blockers: string[];
 }

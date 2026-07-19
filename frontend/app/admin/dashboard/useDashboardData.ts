@@ -10,6 +10,7 @@ import {
   OrderChartData,
   TopProduct,
 } from "@/lib/api/analytics";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { logger } from "@/lib/utils/logger";
 
 interface DashboardDataState {
@@ -58,27 +59,33 @@ export function useDashboardData(options?: { topProductsLimit?: number; period?:
       return Promise.race([promise, timeout]);
     };
 
+    const warehouses = await fetchWithTimeout(warehousesApi.getAll());
+    const warehouseId = warehouses[0]?.id;
+    if (!warehouseId) {
+      throw new Error("No operational warehouse is available for dashboard analytics.");
+    }
+
     const [kpisData, ordersChartData, allOrdersChartData, topProductsData, inventoryData] =
       await Promise.all([
-        fetchWithTimeout(analyticsApi.getDashboardKPIs(undefined, period)).catch(
+        fetchWithTimeout(analyticsApi.getDashboardKPIs(warehouseId, period)).catch(
           (err) => {
             logger.error("[Dashboard] KPIs fetch error:", err);
             return null;
           }
         ),
-        fetchWithTimeout(analyticsApi.getOrdersChart(period)).catch((err) => {
+        fetchWithTimeout(analyticsApi.getOrdersChart(period, warehouseId)).catch((err) => {
           logger.error("[Dashboard] Orders chart fetch error:", err);
           return [];
         }),
-        fetchWithTimeout(analyticsApi.getOrdersChart("all")).catch((err) => {
+        fetchWithTimeout(analyticsApi.getOrdersChart("all", warehouseId)).catch((err) => {
           logger.error("[Dashboard] All-period orders chart fetch error:", err);
           return [];
         }),
-        fetchWithTimeout(analyticsApi.getTopProducts(topProductsLimit, undefined, period)).catch((err) => {
+        fetchWithTimeout(analyticsApi.getTopProducts(topProductsLimit, warehouseId, period)).catch((err) => {
           logger.error("[Dashboard] Top products fetch error:", err);
           return [];
         }),
-        fetchWithTimeout(analyticsApi.getInventoryOverview()).catch((err) => {
+        fetchWithTimeout(analyticsApi.getInventoryOverview(warehouseId)).catch((err) => {
           logger.error("[Dashboard] Inventory overview fetch error:", err);
           return null;
         }),
