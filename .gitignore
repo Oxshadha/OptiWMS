@@ -186,6 +186,7 @@ Desktop.ini
 
 #LOCAL GRADLE CACHE
 backend/.gradle-local/
+.gradle-local/
 
 *.puml
 
