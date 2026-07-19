@@ -9,14 +9,16 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
+import numpy as np
 import psycopg2
 from psycopg2.extras import Json, execute_values
 
 
-DATASET_VERSION = "PROJECT_OPERATIONAL_BASELINE_V1"
+DATASET_VERSION = "PROJECT_OPERATIONAL_BASELINE_V3"
+ARCHIVE_DATASET_VERSION = f"{DATASET_VERSION}_ARCHIVE"
 QUALITY_TIER = "GENERATED_OPERATIONAL_BASELINE"
 FORECAST_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM"
-BOM_VERSION = "PROJECT_OPERATIONAL_BASELINE_V1"
+BOM_VERSION = "PROJECT_OPERATIONAL_BASELINE_V3"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / "Ai miroservices/modeling/project_operational_baseline/outputs"
 
@@ -92,6 +94,13 @@ def load_materials(cur, source: Path, manifest: dict) -> tuple[dict[str, str], d
     materials = read(source, "materials")
     fg = read(source, "finished_goods")
     combined = pd.concat([materials, fg], ignore_index=True, sort=False)
+    current_codes = combined.material_code.tolist()
+    cur.execute("""
+        UPDATE materials
+        SET data_quality_tier='ARCHIVED_GENERATED_BASELINE',updated_at=now()
+        WHERE data_quality_tier=%s
+          AND NOT (material_code=ANY(%s))
+    """, (QUALITY_TIER, current_codes))
     rows = []
     for item in combined.itertuples(index=False):
         rows.append((
@@ -100,7 +109,7 @@ def load_materials(cur, source: Path, manifest: dict) -> tuple[dict[str, str], d
             float(item.order_multiple), float(item.min_order_quantity), int(item.lead_time_days),
             float(item.length_cm), float(item.width_cm), float(item.height_cm), float(item.weight_kg),
             float(item.volume_cm3), float(item.units_per_pallet), float(item.pallet_spaces), bool(item.stackable),
-            int(item.max_stack_height), bool(item.temperature_controlled), bool(item.hazardous), bool(item.fragile),
+            float(item.max_pallet_weight_kg), int(item.max_stack_height), bool(item.temperature_controlled), bool(item.hazardous), bool(item.fragile),
             int(item.shelf_life_days), float(item.unit_cost), True, QUALITY_TIER, 1.0, True,
             lineage(manifest, "materials"),
         ))
@@ -109,7 +118,7 @@ def load_materials(cur, source: Path, manifest: dict) -> tuple[dict[str, str], d
             id,material_code,description,unit_type,storage_type,material_type,category,
             handling_unit_type,units_per_handling_unit,order_multiple,min_order_quantity,
             order_delivery_days,length_cm,width_cm,height_cm,weight_kg,volume_cm3,units_per_pallet,
-            pallet_spaces,stackable,max_stack_height,temperature_controlled,hazardous,fragile,
+            pallet_spaces,stackable,max_pallet_weight_kg,max_stack_height,temperature_controlled,hazardous,fragile,
             shelf_life_days,unit_cost_standard,requires_pallet,data_quality_tier,synthetic_ratio,
             decision_eligible,source_lineage
         ) VALUES %s
@@ -121,14 +130,15 @@ def load_materials(cur, source: Path, manifest: dict) -> tuple[dict[str, str], d
             order_delivery_days=EXCLUDED.order_delivery_days,length_cm=EXCLUDED.length_cm,width_cm=EXCLUDED.width_cm,
             height_cm=EXCLUDED.height_cm,weight_kg=EXCLUDED.weight_kg,volume_cm3=EXCLUDED.volume_cm3,
             units_per_pallet=EXCLUDED.units_per_pallet,pallet_spaces=EXCLUDED.pallet_spaces,
-            stackable=EXCLUDED.stackable,max_stack_height=EXCLUDED.max_stack_height,
+            stackable=EXCLUDED.stackable,max_pallet_weight_kg=EXCLUDED.max_pallet_weight_kg,
+            max_stack_height=EXCLUDED.max_stack_height,
             temperature_controlled=EXCLUDED.temperature_controlled,hazardous=EXCLUDED.hazardous,
             fragile=EXCLUDED.fragile,shelf_life_days=EXCLUDED.shelf_life_days,
             unit_cost_standard=EXCLUDED.unit_cost_standard,requires_pallet=EXCLUDED.requires_pallet,
             data_quality_tier=EXCLUDED.data_quality_tier,synthetic_ratio=EXCLUDED.synthetic_ratio,
             decision_eligible=EXCLUDED.decision_eligible,source_lineage=EXCLUDED.source_lineage,updated_at=now()
     """, rows)
-    codes = combined.material_code.tolist()
+    codes = current_codes
     cur.execute("SELECT material_code,id::text FROM materials WHERE material_code=ANY(%s)", (codes,))
     code_to_id = dict(cur.fetchall())
     generated_to_actual = dict(zip(combined.material_id, combined.material_code.map(code_to_id)))
@@ -137,20 +147,21 @@ def load_materials(cur, source: Path, manifest: dict) -> tuple[dict[str, str], d
 
 def load_locations(cur, source: Path, manifest: dict, warehouse_id: str) -> int:
     frame = read(source, "locations")
+    frame["amalgamated_class"] = frame.get("physical_class")
     rows = [(
         row.location_id, warehouse_id, row.location_code, row.area, str(row.row_number).zfill(2),
         str(row.bay_number).zfill(2), int(row.level_number), row.bin_position, row.location_type,
         row.zone_type, float(row.capacity), True, int(row.accessibility_rating), float(row.coordinate_x),
         float(row.coordinate_y), float(row.coordinate_z), int(row.max_pallet_capacity), 0,
         float(row.max_weight_kg), float(row.max_volume_cm3), row.temperature_zone,
-        bool(row.hazard_allowed), DATASET_VERSION, lineage(manifest, "locations"),
+        bool(row.hazard_allowed), value(row.amalgamated_class), DATASET_VERSION, lineage(manifest, "locations"),
     ) for row in frame.itertuples(index=False)]
     execute_batched(cur, """
         INSERT INTO locations(
             id,warehouse_id,location_code,area,row_number,bay_number,level_number,bin_position,
             location_type,zone_type,capacity,is_active,accessibility_rating,coordinate_x,coordinate_y,
             coordinate_z,max_pallet_capacity,current_pallet_count,max_weight_kg,max_volume_cm3,
-            temperature_zone,hazard_allowed,dataset_version,source_lineage
+            temperature_zone,hazard_allowed,amalgamated_class,dataset_version,source_lineage
         ) VALUES %s
         ON CONFLICT(location_code) DO UPDATE SET
             warehouse_id=EXCLUDED.warehouse_id,area=EXCLUDED.area,row_number=EXCLUDED.row_number,
@@ -160,10 +171,23 @@ def load_locations(cur, source: Path, manifest: dict, warehouse_id: str) -> int:
             coordinate_x=EXCLUDED.coordinate_x,coordinate_y=EXCLUDED.coordinate_y,coordinate_z=EXCLUDED.coordinate_z,
             max_pallet_capacity=EXCLUDED.max_pallet_capacity,max_weight_kg=EXCLUDED.max_weight_kg,
             max_volume_cm3=EXCLUDED.max_volume_cm3,temperature_zone=EXCLUDED.temperature_zone,
-            hazard_allowed=EXCLUDED.hazard_allowed,dataset_version=EXCLUDED.dataset_version,
+            hazard_allowed=EXCLUDED.hazard_allowed,amalgamated_class=EXCLUDED.amalgamated_class,
+            dataset_version=EXCLUDED.dataset_version,
             source_lineage=EXCLUDED.source_lineage
     """, rows)
     return len(rows)
+
+
+def remove_stale_generated_locations(cur, source: Path, warehouse_id: str) -> int:
+    current_codes = read(source, "locations").location_code.tolist()
+    cur.execute("""
+        UPDATE locations
+        SET is_active=false,dataset_version=%s
+        WHERE warehouse_id=%s
+          AND COALESCE(source_lineage->>'source_type','')='generated_operational_baseline'
+          AND NOT (location_code=ANY(%s))
+    """, (ARCHIVE_DATASET_VERSION, warehouse_id, current_codes))
+    return cur.rowcount
 
 
 def load_partners(cur, source: Path, manifest: dict, warehouse_id: str) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
@@ -286,32 +310,97 @@ def load_demand_and_inventory(cur, source: Path, manifest: dict, warehouse_id: s
         lead_time_days=EXCLUDED.lead_time_days,source=EXCLUDED.source,data_quality_tier=EXCLUDED.data_quality_tier,
         synthetic_ratio=EXCLUDED.synthetic_ratio,decision_eligible=EXCLUDED.decision_eligible,source_lineage=EXCLUDED.source_lineage
     """,demand_rows)
+    return len(demand_rows), load_inventory(cur, source, manifest, warehouse_id, material_map)
+
+
+def load_inventory(cur, source: Path, manifest: dict, warehouse_id: str, material_map: dict[str, str]) -> int:
     inventory = read(source,"inventory")
+    cur.execute(
+        "DELETE FROM inventory WHERE warehouse_id=%s AND data_quality_tier=%s",
+        (warehouse_id, QUALITY_TIER),
+    )
     rows = [(
         row.inventory_id,material_map[row.material_id],warehouse_id,row.location_code,int(round(row.quantity)),
         int(round(row.available_quantity)),int(round(row.reserved_quantity)),float(row.buffer_stock),float(row.max_stock),
         float(row.min_stock),float(row.reorder_point),float(row.moq),int(row.lead_time_days),row.batch_number,row.expiry_date,
-        int(row.lead_time_days),float(row.order_quantity),float(row.pallet_requirement),row.status,QUALITY_TIER,
+        int(row.lead_time_days),float(row.order_quantity),float(row.pallet_requirement),int(row.stacking_quantity),
+        row.status,row.material_type,QUALITY_TIER,
         lineage(manifest,"inventory"),
     ) for row in inventory.itertuples(index=False)]
     execute_batched(cur, """
         INSERT INTO inventory(id,material_id,warehouse_id,location_code,quantity,available_quantity,reserved_quantity,
         buffer_stock,max_stock,min_stock,reorder_point,moq,lead_time_days,batch_number,expiry_date,order_delivery_days,
-        order_quantity,pallet_requirement,status,data_quality_tier,source_lineage)
+        order_quantity,pallet_requirement,stacking_quantity,status,material_type,data_quality_tier,source_lineage)
         VALUES %s ON CONFLICT(id) DO UPDATE SET location_code=EXCLUDED.location_code,quantity=EXCLUDED.quantity,
         available_quantity=EXCLUDED.available_quantity,reserved_quantity=EXCLUDED.reserved_quantity,
         buffer_stock=EXCLUDED.buffer_stock,max_stock=EXCLUDED.max_stock,min_stock=EXCLUDED.min_stock,
         reorder_point=EXCLUDED.reorder_point,moq=EXCLUDED.moq,lead_time_days=EXCLUDED.lead_time_days,
         batch_number=EXCLUDED.batch_number,expiry_date=EXCLUDED.expiry_date,order_quantity=EXCLUDED.order_quantity,
-        pallet_requirement=EXCLUDED.pallet_requirement,status=EXCLUDED.status,data_quality_tier=EXCLUDED.data_quality_tier,
+        pallet_requirement=EXCLUDED.pallet_requirement,stacking_quantity=EXCLUDED.stacking_quantity,
+        status=EXCLUDED.status,material_type=EXCLUDED.material_type,
+        data_quality_tier=EXCLUDED.data_quality_tier,
         source_lineage=EXCLUDED.source_lineage,updated_at=now()
     """,rows)
+    cur.execute("UPDATE locations SET current_pallet_count=0 WHERE warehouse_id=%s", (warehouse_id,))
     cur.execute("""
         UPDATE locations l SET current_pallet_count=x.cnt FROM (
             SELECT location_code,COUNT(*)::int cnt FROM inventory WHERE warehouse_id=%s AND data_quality_tier=%s GROUP BY location_code
         ) x WHERE l.warehouse_id=%s AND l.location_code=x.location_code
     """,(warehouse_id,QUALITY_TIER,warehouse_id))
-    return len(demand_rows),len(rows)
+    return len(rows)
+
+
+def load_material_location_assignments(
+    cur, source: Path, warehouse_id: str, material_map: dict[str, str]
+) -> int:
+    """Persist one pick face plus every occupied reserve position per SKU.
+
+    These rows are slotting/putaway assignments. They do not mutate inventory;
+    physical movement remains transfer-task controlled.
+    """
+    inventory = read(source, "inventory")
+    locations = read(source, "locations")[[
+        "location_code", "zone_type", "accessibility_rating", "coordinate_x",
+        "coordinate_y", "level_number", "travel_distance_m",
+    ]]
+    assigned = inventory[["material_id", "material_type", "location_code"]].drop_duplicates().merge(
+        locations, on="location_code", how="left", validate="many_to_one"
+    )
+    assigned["zone_rank"] = assigned.zone_type.map({"PICK_FACE": 0, "RESERVE": 1}).fillna(2)
+    assigned["flow_distance"] = assigned.travel_distance_m.fillna(9999)
+    assigned = assigned.sort_values(
+        ["material_id", "zone_rank", "accessibility_rating", "flow_distance", "level_number", "location_code"],
+        ascending=[True, True, False, True, True, True],
+    )
+    assigned["priority"] = assigned.groupby("material_id").cumcount() + 1
+
+    actual_material_ids = list(material_map.values())
+    cur.execute("""
+        DELETE FROM material_default_locations mdl
+        USING materials m
+        WHERE mdl.material_id=m.id
+          AND mdl.warehouse_id=%s
+          AND m.data_quality_tier='ARCHIVED_GENERATED_BASELINE'
+    """, (warehouse_id,))
+    cur.execute(
+        "DELETE FROM material_default_locations WHERE warehouse_id=%s AND material_id=ANY(%s::uuid[])",
+        (warehouse_id, actual_material_ids),
+    )
+    rows = [(
+        material_map[row.material_id], warehouse_id, row.location_code, int(row.priority),
+        row.material_type,
+        "PRIMARY_PICK_FACE: forecast/velocity access slot" if int(row.priority) == 1
+        else "RESERVE: overflow pallet position linked to primary pick face",
+    ) for row in assigned.itertuples(index=False)]
+    execute_batched(cur, """
+        INSERT INTO material_default_locations(
+            material_id,warehouse_id,location_code,priority,material_type,notes
+        ) VALUES %s
+        ON CONFLICT(material_id,warehouse_id,location_code) DO UPDATE SET
+            priority=EXCLUDED.priority,material_type=EXCLUDED.material_type,
+            notes=EXCLUDED.notes,updated_at=now()
+    """, rows)
+    return len(rows)
 
 
 def load_classification(cur, source: Path, manifest: dict, warehouse_id: str, material_map: dict[str, str]) -> tuple[int,int]:
@@ -369,7 +458,7 @@ def load_forecast(cur, source: Path, manifest: dict, warehouse_id: str, material
     forecast_rows=[(
         material_map[row.material_id],warehouse_id,row.forecast_period,int(row.horizon),model,
         round(float(row.forecast_p05),2),round(float(row.forecast_p50),2),round(float(row.forecast_p95),2),
-        row.method,"PROJECT_OPERATIONAL_BASELINE_V1",DATASET_VERSION,QUALITY_TIER,1.0,False,
+        row.method,DATASET_VERSION,DATASET_VERSION,QUALITY_TIER,1.0,False,
         lineage(manifest,"forecast_results_legacy_p10_p90_store_p05_p95"),
     ) for row in future.itertuples(index=False)]
     execute_batched(cur,"""
@@ -397,7 +486,7 @@ def load_forecast(cur, source: Path, manifest: dict, warehouse_id: str, material
         FORECAST_DATASET,model,warehouse_id,"untouched_test",0,int(metrics["rows"]),int(metrics["materials"]),
         float(metrics["WAPE"]),float(metrics["MAE"]),float(metrics["RMSE"]),float(metrics["Bias"]),
         float(metrics["under_forecast_rate"]),float(summary["interval_nominal_coverage"]),
-        float(summary["interval_empirical_coverage"]),QUALITY_TIER,1.0,bool(summary["promotion_eligible"]),
+        float(summary["interval_empirical_coverage"]),QUALITY_TIER,1.0,False,
         lineage(manifest,"forecast_model_evidence_aggregate"),
     )]
     horizon_metrics=read(source,"champion_horizon_metrics")
@@ -405,7 +494,7 @@ def load_forecast(cur, source: Path, manifest: dict, warehouse_id: str, material
         evidence_rows.append((
             FORECAST_DATASET,model,warehouse_id,"untouched_test",int(row.horizon),int(row.rows),int(row.materials),
             float(row.WAPE),float(row.MAE),float(row.RMSE),float(row.Bias),float(row.under_forecast_rate),
-            float(summary["interval_nominal_coverage"]),float(row.interval_empirical_coverage),QUALITY_TIER,1.0,bool(summary["promotion_eligible"]),
+            float(summary["interval_nominal_coverage"]),float(row.interval_empirical_coverage),QUALITY_TIER,1.0,False,
             lineage(manifest,"forecast_model_evidence_horizon"),
         ))
     execute_batched(cur,"""
@@ -496,7 +585,38 @@ def load_policy_draft(cur, source: Path, manifest: dict, warehouse_id: str, mate
     return 1,len(line_rows)
 
 
+def archive_previous_generated_operations(cur, warehouse_id: str, dataset_hash: str) -> dict[str, int]:
+    """Remove previous artifact revisions from canonical scope without deleting audit history."""
+    archived: dict[str, int] = {}
+    warehouse_tables = ("operation_events", "stock_movements", "tasks", "orders")
+    for table in warehouse_tables:
+        cur.execute(
+            f"""
+            UPDATE {table}
+            SET dataset_version=%s
+            WHERE warehouse_id=%s
+              AND dataset_version=%s
+              AND COALESCE(source_lineage->>'dataset_hash', '') <> %s
+            """,
+            (ARCHIVE_DATASET_VERSION, warehouse_id, DATASET_VERSION, dataset_hash),
+        )
+        archived[f"archived_{table}"] = cur.rowcount
+
+    cur.execute(
+        """
+        UPDATE order_items
+        SET dataset_version=%s
+        WHERE dataset_version=%s
+          AND COALESCE(source_lineage->>'dataset_hash', '') <> %s
+        """,
+        (ARCHIVE_DATASET_VERSION, DATASET_VERSION, dataset_hash),
+    )
+    archived["archived_order_items"] = cur.rowcount
+    return archived
+
+
 def load_operations(cur, source: Path, manifest: dict, warehouse_id: str, material_map: dict[str,str], supplier_map: dict[str,str], customer_map: dict[str,str], user_map: dict[str,str]) -> dict:
+    archived = archive_previous_generated_operations(cur, warehouse_id, manifest["dataset_hash"])
     orders=read(source,"orders")
     order_rows=[(
         row.order_id,row.order_number,row.order_type,customer_map.get(str(row.customer_id)),supplier_map.get(str(row.supplier_id)),
@@ -551,9 +671,12 @@ def load_operations(cur, source: Path, manifest: dict, warehouse_id: str, materi
         reference_id=EXCLUDED.reference_id,notes=EXCLUDED.notes,created_at=EXCLUDED.created_at,
         dataset_version=EXCLUDED.dataset_version,source_lineage=EXCLUDED.source_lineage,updated_at=now()
     """,task_rows)
+    cur.execute("SELECT task_number,id::text FROM tasks WHERE task_number=ANY(%s)",(tasks.task_number.tolist(),))
+    task_code_to_id=dict(cur.fetchall())
+    generated_task_map=dict(zip(tasks.task_id,tasks.task_number.map(task_code_to_id)))
     events=read(source,"operation_events")
     event_rows=[(
-        row.event_id,row.operation_type,user_map[row.worker_id],row.task_id,generated_order_map.get(row.order_id,row.order_id),
+        row.event_id,row.operation_type,user_map[row.worker_id],generated_task_map.get(row.task_id,row.task_id),generated_order_map.get(row.order_id,row.order_id),
         generated_item_map.get(row.order_item_id,row.order_item_id),warehouse_id,material_map[row.material_id],int(row.quantity),
         row.started_at,row.completed_at,int(row.duration_minutes),row.status,row.metadata,DATASET_VERSION,lineage(manifest,"operation_events"),
     ) for row in events.itertuples(index=False)]
@@ -565,7 +688,14 @@ def load_operations(cur, source: Path, manifest: dict, warehouse_id: str, materi
         started_at=EXCLUDED.started_at,completed_at=EXCLUDED.completed_at,duration_minutes=EXCLUDED.duration_minutes,
         status=EXCLUDED.status,metadata=EXCLUDED.metadata,dataset_version=EXCLUDED.dataset_version,source_lineage=EXCLUDED.source_lineage
     """,event_rows)
-    return {"orders":len(order_rows),"order_items":len(line_rows),"stock_movements":len(movement_rows),"tasks":len(task_rows),"operation_events":len(event_rows)}
+    return {
+        **archived,
+        "orders":len(order_rows),
+        "order_items":len(line_rows),
+        "stock_movements":len(movement_rows),
+        "tasks":len(task_rows),
+        "operation_events":len(event_rows),
+    }
 
 
 def artifact_validation(source: Path) -> dict:
@@ -594,6 +724,8 @@ def validate_database(cur, warehouse_id: str, manifest: dict) -> dict:
         "forecast_results":"SELECT count(*) FROM forecast_results WHERE warehouse_id=%s AND training_source=%s",
         "backtest_rows":"SELECT count(*) FROM forecast_backtest_rows WHERE warehouse_id=%s AND dataset=%s",
         "classification_rows":"SELECT count(*) FROM material_classification_history WHERE warehouse_id=%s",
+        "location_assignments":"SELECT count(*) FROM material_default_locations WHERE warehouse_id=%s AND material_id IN (SELECT id FROM materials WHERE data_quality_tier=%s)",
+        "assigned_materials":"SELECT count(DISTINCT material_id) FROM material_default_locations WHERE warehouse_id=%s AND material_id IN (SELECT id FROM materials WHERE data_quality_tier=%s)",
     }
     results={}
     for key,sql in checks.items():
@@ -603,6 +735,7 @@ def validate_database(cur, warehouse_id: str, manifest: dict) -> dict:
         elif key=="forecast_results": params=(warehouse_id,DATASET_VERSION)
         elif key=="backtest_rows": params=(warehouse_id,FORECAST_DATASET)
         elif key=="classification_rows": params=(warehouse_id,)
+        elif key in {"location_assignments", "assigned_materials"}: params=(warehouse_id,QUALITY_TIER)
         else: params=(warehouse_id,DATASET_VERSION)
         cur.execute(sql,params); results[key]=cur.fetchone()[0]
     expected=manifest["row_counts"]
@@ -613,6 +746,8 @@ def validate_database(cur, warehouse_id: str, manifest: dict) -> dict:
         and results["tasks"]==expected["tasks"] and results["operation_events"]==expected["operation_events"]
         and results["demand_history"]==expected["demand_history"]+expected["production_history"]
         and results["classification_rows"]>=expected["material_classifications"]
+        and results["location_assignments"]>=results["expected_materials"]
+        and results["assigned_materials"]==results["expected_materials"]
     )
     return results
 
@@ -678,6 +813,9 @@ def load_planning_only(db_url: str, source: Path, manifest: dict) -> dict:
             demand_rows, inventory_rows = load_demand_and_inventory(
                 cur, source, manifest, warehouse_id, material_map
             )
+            location_assignments = load_material_location_assignments(
+                cur, source, warehouse_id, material_map
+            )
             forecast_rows, backtest_rows, registry_rows = load_forecast(
                 cur, source, manifest, warehouse_id, material_map
             )
@@ -688,6 +826,7 @@ def load_planning_only(db_url: str, source: Path, manifest: dict) -> dict:
             "warehouse_id": warehouse_id,
             "demand_history": demand_rows,
             "inventory": inventory_rows,
+            "location_assignments": location_assignments,
             "forecast_results": forecast_rows,
             "backtest_rows": backtest_rows,
             "model_registry": registry_rows,
@@ -699,8 +838,59 @@ def load_planning_only(db_url: str, source: Path, manifest: dict) -> dict:
         conn.close()
 
 
+def load_layout_only(db_url: str, source: Path, manifest: dict) -> dict:
+    """Refresh physical locations and SKU placement without replaying planning or operations."""
+    conn = psycopg2.connect(db_url)
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            require_contract(cur)
+            warehouse = read(source, "warehouses").iloc[0]
+            cur.execute("SELECT id::text FROM warehouses WHERE code=%s", (warehouse.code,))
+            warehouse_row = cur.fetchone()
+            if not warehouse_row:
+                raise RuntimeError("Canonical warehouse is not loaded; run the full baseline loader first")
+            warehouse_id = warehouse_row[0]
+            _, material_map = load_materials(cur, source, manifest)
+            if any(pd.isna(value) for value in material_map.values()):
+                raise RuntimeError("Canonical material mapping is incomplete")
+
+            location_rows = load_locations(cur, source, manifest, warehouse_id)
+            inventory_rows = load_inventory(cur, source, manifest, warehouse_id, material_map)
+            assignment_rows = load_material_location_assignments(
+                cur, source, warehouse_id, material_map
+            )
+            stale_rows = remove_stale_generated_locations(cur, source, warehouse_id)
+            cur.execute(
+                "SELECT count(DISTINCT material_id) FROM material_default_locations "
+                "WHERE warehouse_id=%s AND material_id=ANY(%s::uuid[])",
+                (warehouse_id, list(material_map.values())),
+            )
+            assigned_materials = int(cur.fetchone()[0])
+            if assigned_materials != len(material_map):
+                raise RuntimeError(
+                    f"Layout assignment coverage failed: {assigned_materials}/{len(material_map)}"
+                )
+        conn.commit()
+        return {
+            "mode": "layout-only",
+            "dataset_version": DATASET_VERSION,
+            "warehouse_id": warehouse_id,
+            "locations": location_rows,
+            "inventory": inventory_rows,
+            "location_assignments": assignment_rows,
+            "assigned_materials": assigned_materials,
+            "stale_locations_removed": stale_rows,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def run(db_url: str, source: Path, validate_only: bool, forecast_only: bool = False,
-        planning_only: bool = False) -> dict:
+        planning_only: bool = False, layout_only: bool = False) -> dict:
     manifest=artifact_validation(source)
     if validate_only:
         return {"mode":"artifact-validation-only","manifest":manifest}
@@ -708,6 +898,8 @@ def run(db_url: str, source: Path, validate_only: bool, forecast_only: bool = Fa
         return load_forecast_only(db_url, source, manifest)
     if planning_only:
         return load_planning_only(db_url, source, manifest)
+    if layout_only:
+        return load_layout_only(db_url, source, manifest)
     conn=psycopg2.connect(db_url)
     try:
         conn.autocommit=False
@@ -728,10 +920,12 @@ def run(db_url: str, source: Path, validate_only: bool, forecast_only: bool = Fa
             counts["supplier_links"]=load_supplier_links(cur,source,material_map,supplier_map)
             counts["bom_headers"],counts["bom_components"]=load_bom(cur,source,manifest,warehouse_id,material_map)
             counts["demand_history"],counts["inventory"]=load_demand_and_inventory(cur,source,manifest,warehouse_id,material_map)
+            counts["location_assignments"]=load_material_location_assignments(cur,source,warehouse_id,material_map)
             counts["classification_thresholds"],counts["classifications"]=load_classification(cur,source,manifest,warehouse_id,material_map)
             counts["forecast_results"],counts["backtest_rows"],counts["model_registry"]=load_forecast(cur,source,manifest,warehouse_id,material_map)
             counts["policy_runs"],counts["policy_lines"]=load_policy_draft(cur,source,manifest,warehouse_id,material_map)
             counts.update(load_operations(cur,source,manifest,warehouse_id,material_map,supplier_map,customer_map,user_map))
+            counts["stale_locations_removed"]=remove_stale_generated_locations(cur,source,warehouse_id)
             validation=validate_database(cur,warehouse_id,manifest)
             if not validation["valid"]:
                 raise RuntimeError(f"Post-load validation failed: {validation}")
@@ -759,8 +953,15 @@ def main() -> None:
         "--planning-only", action="store_true",
         help="Upsert FG/RM/PM demand, inventory and forecast evidence without replaying operational events",
     )
+    parser.add_argument(
+        "--layout-only", action="store_true",
+        help="Upsert locations, inventory positions, and SKU location assignments only",
+    )
     args=parser.parse_args()
-    print(json.dumps(run(args.db_url,args.source,args.validate_only,args.forecast_only,args.planning_only),indent=2,default=str))
+    print(json.dumps(run(
+        args.db_url, args.source, args.validate_only, args.forecast_only,
+        args.planning_only, args.layout_only,
+    ), indent=2, default=str))
 
 
 if __name__=="__main__":
