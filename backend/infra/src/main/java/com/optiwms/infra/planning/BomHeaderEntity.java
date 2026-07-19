@@ -39,6 +39,9 @@ public class BomHeaderEntity {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier = "OPERATIONAL_ENTRY";
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -72,9 +75,10 @@ public class BomHeaderEntity {
     public void setEffectiveTo(LocalDate effectiveTo) { this.effectiveTo = effectiveTo; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public String getDataQualityTier() { return dataQualityTier; }
+    public void setDataQualityTier(String dataQualityTier) { this.dataQualityTier = dataQualityTier; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }
-

@@ -68,6 +68,18 @@ public class SlottingPlanEntity {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "solver_status", nullable = false, length = 32)
+    private String solverStatus;
+
+    @Column(name = "objective_value", precision = 18, scale = 4)
+    private BigDecimal objectiveValue;
+
+    @Column(name = "infeasible_reason", columnDefinition = "TEXT")
+    private String infeasibleReason;
+
+    @Column(name = "constraint_evidence", columnDefinition = "TEXT")
+    private String constraintEvidence;
+
     @Column(name = "execution_status", length = 32)
     private String executionStatus;
 
@@ -113,6 +125,9 @@ public class SlottingPlanEntity {
         if (executionStatus == null) {
             executionStatus = "NONE";
         }
+        if (solverStatus == null) {
+            solverStatus = "NOT_RUN";
+        }
         if (transfersCreated == null) {
             transfersCreated = 0;
         }
@@ -157,6 +172,14 @@ public class SlottingPlanEntity {
     public void setSourceStatsAt(OffsetDateTime sourceStatsAt) { this.sourceStatsAt = sourceStatsAt; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+    public String getSolverStatus() { return solverStatus; }
+    public void setSolverStatus(String solverStatus) { this.solverStatus = solverStatus; }
+    public BigDecimal getObjectiveValue() { return objectiveValue; }
+    public void setObjectiveValue(BigDecimal objectiveValue) { this.objectiveValue = objectiveValue; }
+    public String getInfeasibleReason() { return infeasibleReason; }
+    public void setInfeasibleReason(String infeasibleReason) { this.infeasibleReason = infeasibleReason; }
+    public String getConstraintEvidence() { return constraintEvidence; }
+    public void setConstraintEvidence(String constraintEvidence) { this.constraintEvidence = constraintEvidence; }
     public String getExecutionStatus() { return executionStatus; }
     public void setExecutionStatus(String executionStatus) { this.executionStatus = executionStatus; }
     public UUID getExecutionTransferId() { return executionTransferId; }

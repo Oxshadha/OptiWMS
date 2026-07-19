@@ -137,7 +137,16 @@ public class SlottingPlanClient {
             p.weight_kg = m.weightKg() != null ? m.weightKg().doubleValue() : null;
             p.volume_cm3 = m.volumeCm3() != null ? m.volumeCm3().doubleValue() : null;
             p.pallet_spaces = m.palletSpaces() != null ? m.palletSpaces().doubleValue() : null;
-            p.pallet_weight_kg = m.maxPalletWeightKg() != null ? m.maxPalletWeightKg().doubleValue() : null;
+            BigDecimal palletUnits = BigDecimal.valueOf(
+                    m.unitsPerPallet() != null ? Math.max(1, m.unitsPerPallet()) : 1);
+            BigDecimal palletWeight = m.maxPalletWeightKg() != null
+                    ? m.maxPalletWeightKg()
+                    : (m.weightKg() != null ? m.weightKg().multiply(palletUnits) : null);
+            BigDecimal palletVolume = m.volumeCm3() != null
+                    ? m.volumeCm3().multiply(palletUnits) : null;
+            p.pallet_weight_kg = palletWeight != null ? palletWeight.doubleValue() : null;
+            p.pallet_volume_cm3 = palletVolume != null ? palletVolume.doubleValue() : null;
+            p.unit_cost = m.unitCost() != null ? m.unitCost().doubleValue() : null;
             p.temperature_controlled = m.temperatureControlled();
             p.hazardous = m.hazardous();
             p.fragile = m.fragile();
@@ -148,6 +157,9 @@ public class SlottingPlanClient {
             if (profile != null) {
                 p.required_pallets = profile.requiredPalletPositions();
                 p.demand_trend = profile.demandTrend().name();
+                p.forecast_demand = profile.forecastP50Units() != null
+                        ? profile.forecastP50Units().doubleValue() : null;
+                p.stockout_cost_weight = Math.max(0.1, profile.stockoutRiskScore());
                 p.min_stock_units = profile.minStockUnits() != null
                         ? profile.minStockUnits().doubleValue() : null;
             }
@@ -161,6 +173,8 @@ public class SlottingPlanClient {
             l.location_code = loc.getLocationCode();
             l.amalgamated_class = loc.getAmalgamatedClass();
             l.area = loc.getArea();
+            l.location_type = loc.getLocationType();
+            l.zone_type = loc.getZoneType();
             l.level_number = loc.getLevelNumber() != null ? loc.getLevelNumber() : 1;
             l.accessibility_rating = loc.getAccessibilityRating() != null ? loc.getAccessibilityRating() : 3;
             l.coordinate_x = loc.getCoordinateX() != null ? loc.getCoordinateX().doubleValue() : 0;
@@ -292,6 +306,8 @@ public class SlottingPlanClient {
         public String location_code;
         public String amalgamated_class;
         public String area;
+        public String location_type;
+        public String zone_type;
         public int level_number;
         public int accessibility_rating;
         public double coordinate_x;

@@ -100,6 +100,30 @@ public class LocationController {
                 .toList());
     }
 
+    @GetMapping("/warehouse/{warehouseId}/operational-stations")
+    public ResponseEntity<List<OperationalStationDto>> getOperationalStations(@PathVariable UUID warehouseId) {
+        var rows = jdbcTemplate.query("""
+                SELECT location_code, location_type, zone_type,
+                       COALESCE(coordinate_x, 0)::double precision AS coordinate_x,
+                       COALESCE(coordinate_y, 0)::double precision AS coordinate_y
+                FROM locations
+                WHERE warehouse_id = ?
+                  AND dataset_version = COALESCE(
+                      (SELECT dataset_version FROM warehouses WHERE id = ?), dataset_version)
+                  AND UPPER(COALESCE(zone_type, '')) IN
+                      ('RECEIVING', 'STAGING', 'DOOR', 'PACKING', 'DISPATCH', 'QUARANTINE')
+                  AND COALESCE(is_active, true) = true
+                ORDER BY coordinate_y, coordinate_x, location_code
+                """, (rs, rowNum) -> new OperationalStationDto(
+                rs.getString("location_code"),
+                rs.getString("location_type"),
+                rs.getString("zone_type"),
+                rs.getDouble("coordinate_x"),
+                rs.getDouble("coordinate_y")
+        ), warehouseId, warehouseId);
+        return ResponseEntity.ok(rows);
+    }
+
     @GetMapping("/warehouse/{warehouseId}/rack-summaries")
     public ResponseEntity<List<RackSummaryDto>> getWarehouseRackSummaries(
             @PathVariable UUID warehouseId,
@@ -123,6 +147,8 @@ public class LocationController {
                         l.amalgamated_class,
                         l.description,
                         l.is_active,
+                        l.coordinate_x,
+                        l.coordinate_y,
                         COALESCE(l.max_pallet_capacity, 1) AS max_pallet_capacity,
                         COALESCE(l.max_weight_kg, CASE WHEN l.level_number <= 3 THEN 500 ELSE 300 END) AS max_weight_kg,
                         COALESCE(SUM(i.quantity), 0) AS quantity,
@@ -136,9 +162,15 @@ public class LocationController {
                         ON i.location_code = l.location_code
                        AND i.warehouse_id = l.warehouse_id
                        AND i.quantity > 0
+                       AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     LEFT JOIN materials m ON m.id = i.material_id
                     WHERE l.warehouse_id = ?
-                      AND l.zone_type = 'STORAGE'
+                      AND l.dataset_version = COALESCE(
+                          (SELECT dataset_version FROM warehouses WHERE id = ?), l.dataset_version)
+                      AND (
+                          UPPER(COALESCE(l.zone_type, '')) IN ('STORAGE', 'PICK_FACE', 'RESERVE')
+                          OR UPPER(COALESCE(l.location_type, '')) IN ('STORAGE', 'PICKING', 'BULK')
+                      )
                       AND COALESCE(l.is_active, true) = true
                     GROUP BY l.id
                 )
@@ -157,7 +189,11 @@ public class LocationController {
                     ) AS rack_status,
                     MAX(amalgamated_class) AS amalgamated_class,
                     MAX(description) AS description,
+                    AVG(coordinate_x)::double precision AS coordinate_x,
+                    AVG(coordinate_y)::double precision AS coordinate_y,
                     COUNT(*)::int AS bin_count,
+                    MAX(level_number)::int AS max_levels,
+                    COUNT(DISTINCT bin_position)::int AS positions_per_level,
                     COUNT(*) FILTER (WHERE quantity > 0)::int AS occupied_bins,
                     COALESCE(SUM(quantity), 0)::int AS total_quantity,
                     COALESCE(SUM(pallet_count), 0)::int AS pallet_count,
@@ -182,7 +218,11 @@ public class LocationController {
                 rs.getString("rack_status"),
                 rs.getString("amalgamated_class"),
                 rs.getString("description"),
+                rs.getDouble("coordinate_x"),
+                rs.getDouble("coordinate_y"),
                 rs.getInt("bin_count"),
+                rs.getInt("max_levels"),
+                rs.getInt("positions_per_level"),
                 rs.getInt("occupied_bins"),
                 rs.getInt("total_quantity"),
                 rs.getInt("pallet_count"),
@@ -190,7 +230,7 @@ public class LocationController {
                 rs.getInt("pallet_capacity"),
                 rs.getDouble("weight_capacity_kg"),
                 rs.getBoolean("auto_generated")
-        ), warehouseId, boundedLimit, boundedOffset);
+        ), warehouseId, warehouseId, boundedLimit, boundedOffset);
         return ResponseEntity.ok(rows);
     }
 
@@ -230,9 +270,15 @@ public class LocationController {
                         ON i.location_code = l.location_code
                        AND i.warehouse_id = l.warehouse_id
                        AND i.quantity > 0
+                       AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     LEFT JOIN materials m ON m.id = i.material_id
                     WHERE l.warehouse_id = ?
-                      AND l.zone_type = 'STORAGE'
+                      AND l.dataset_version = COALESCE(
+                          (SELECT dataset_version FROM warehouses WHERE id = ?), l.dataset_version)
+                      AND (
+                          UPPER(COALESCE(l.zone_type, '')) IN ('STORAGE', 'PICK_FACE', 'RESERVE')
+                          OR UPPER(COALESCE(l.location_type, '')) IN ('STORAGE', 'PICKING', 'BULK')
+                      )
                       AND UPPER(l.area) = ?
                       AND LPAD(l.row_number, 2, '0') = ?
                       AND LPAD(l.bay_number, 3, '0') = ?
@@ -277,7 +323,7 @@ public class LocationController {
                 readNullableDouble(rs, "level_weight_capacity_kg"),
                 readNullableDouble(rs, "level_weight_used_kg"),
                 rs.getInt("level_pallet_capacity")
-        ), warehouseId, parts.area(), parts.row(), parts.bay());
+        ), warehouseId, warehouseId, parts.area(), parts.row(), parts.bay());
         return ResponseEntity.ok(rows);
     }
 
@@ -285,30 +331,38 @@ public class LocationController {
     public ResponseEntity<IntegritySummaryDto> getIntegritySummary(@PathVariable UUID warehouseId) {
         var sql = """
                 WITH material_counts AS (
-                    SELECT COUNT(*)::int AS total_materials FROM materials
+                    SELECT COUNT(*)::int AS total_materials
+                    FROM materials
+                    WHERE data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 defaults AS (
                     SELECT
-                        COUNT(DISTINCT material_id)::int AS defaults_assigned,
+                        COUNT(DISTINCT mdl.material_id)::int AS defaults_assigned,
                         COUNT(*) FILTER (
-                            WHERE priority = 1
-                              AND location_code IN (
-                                  SELECT location_code
-                                  FROM material_default_locations
-                                  WHERE warehouse_id = ?
-                                    AND priority = 1
-                                  GROUP BY location_code
+                            WHERE mdl.priority = 1
+                              AND mdl.location_code IN (
+                                  SELECT mdl2.location_code
+                                  FROM material_default_locations mdl2
+                                  JOIN materials m2 ON m2.id = mdl2.material_id
+                                  WHERE mdl2.warehouse_id = ?
+                                    AND mdl2.priority = 1
+                                    AND m2.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                                  GROUP BY mdl2.location_code
                                   HAVING COUNT(*) > 1
                               )
                         )::int AS duplicate_primary_location_count
-                    FROM material_default_locations
-                    WHERE warehouse_id = ?
+                    FROM material_default_locations mdl
+                    JOIN materials m ON m.id = mdl.material_id
+                    WHERE mdl.warehouse_id = ?
+                      AND m.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 invalid_defaults AS (
                     SELECT COUNT(*)::int AS defaults_to_inactive_or_blocked
                     FROM material_default_locations mdl
+                    JOIN materials m ON m.id = mdl.material_id
                     LEFT JOIN locations l ON l.location_code = mdl.location_code
                     WHERE mdl.warehouse_id = ?
+                      AND m.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                       AND (
                           l.location_code IS NULL
                           OR COALESCE(l.is_active, true) = false
@@ -340,6 +394,7 @@ public class LocationController {
                     LEFT JOIN materials m ON m.id = i.material_id
                     LEFT JOIN locations l ON l.location_code = i.location_code
                     WHERE i.warehouse_id = ?
+                      AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 material_stock AS (
                     SELECT
@@ -349,6 +404,7 @@ public class LocationController {
                         MAX(COALESCE(buffer_stock, 0)) AS buffer_stock
                     FROM inventory
                     WHERE warehouse_id = ?
+                      AND data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     GROUP BY material_id
                 ),
                 stock_health AS (
@@ -818,7 +874,11 @@ public class LocationController {
             String rackStatus,
             String amalgamatedClass,
             String description,
+            double coordinateX,
+            double coordinateY,
             int binCount,
+            int maxLevels,
+            int positionsPerLevel,
             int occupiedBins,
             int totalQuantity,
             int palletCount,
@@ -826,6 +886,13 @@ public class LocationController {
             int palletCapacity,
             double weightCapacityKg,
             boolean autoGenerated) {}
+
+    public record OperationalStationDto(
+            String locationCode,
+            String locationType,
+            String zoneType,
+            double coordinateX,
+            double coordinateY) {}
 
     private record RackIdParts(String area, String row, String bay) {}
 

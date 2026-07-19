@@ -44,6 +44,7 @@ public class ForecastSpaceOptimizationController {
                 readiness.palletSpecCoveragePct(),
                 readiness.missingMoqCount(),
                 readiness.missingLeadTimeCount(),
+                readiness.unapprovedForecastMaterialsCount(),
                 readiness.ready(),
                 readiness.blockers());
     }
@@ -312,6 +313,7 @@ public class ForecastSpaceOptimizationController {
             Integer palletSpecCoveragePct,
             Integer missingMoqCount,
             Integer missingLeadTimeCount,
+            Integer unapprovedForecastMaterialsCount,
             Boolean ready,
             List<String> blockers) {}
 

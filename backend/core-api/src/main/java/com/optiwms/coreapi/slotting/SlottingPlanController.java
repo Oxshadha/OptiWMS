@@ -138,6 +138,10 @@ public class SlottingPlanController {
                 plan.getApprovedAt() != null ? plan.getApprovedAt().toString() : null,
                 plan.getSourceStatsAt() != null ? plan.getSourceStatsAt().toString() : null,
                 plan.getNotes(),
+                plan.getSolverStatus(),
+                plan.getObjectiveValue() != null ? plan.getObjectiveValue().doubleValue() : null,
+                plan.getInfeasibleReason(),
+                plan.getConstraintEvidence(),
                 plan.getExecutionStatus(),
                 plan.getExecutionTransferId() != null ? plan.getExecutionTransferId().toString() : null,
                 plan.getTransfersCreated());
@@ -226,6 +230,10 @@ public class SlottingPlanController {
             String approvedAt,
             String sourceStatsAt,
             String notes,
+            String solverStatus,
+            Double objectiveValue,
+            String infeasibleReason,
+            String constraintEvidence,
             String executionStatus,
             String executionTransferId,
             Integer transfersCreated) {}

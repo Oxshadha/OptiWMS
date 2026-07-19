@@ -235,6 +235,7 @@ public class MaterialService {
         entity.setWeightKg(material.getWeightKg());
         entity.setVolumeCm3(material.getVolumeCm3());
         entity.setPalletSpaces(material.getPalletSpaces());
+        entity.setUnitsPerPallet(material.getUnitsPerPallet());
         entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
         entity.setMinOrderQuantity(material.getMinOrderQuantity());
         entity.setHandlingUnitType(normalizeUnitType(material.getHandlingUnitType() != null ? material.getHandlingUnitType() : material.getUnitType()));
@@ -445,6 +446,7 @@ public class MaterialService {
         m.setWeightKg(entity.getWeightKg());
         m.setVolumeCm3(entity.getVolumeCm3());
         m.setPalletSpaces(entity.getPalletSpaces());
+        m.setUnitsPerPallet(entity.getUnitsPerPallet());
         m.setStackable(entity.getStackable());
         m.setMaxStackHeight(entity.getMaxStackHeight());
         m.setTemperatureControlled(entity.getTemperatureControlled());
