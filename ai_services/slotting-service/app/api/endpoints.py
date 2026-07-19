@@ -650,6 +650,8 @@ def slotting_health():
     return {
         "status":    "ok",
         "service":   "slotting-service",
-        "algorithm": "DEAP Genetic Algorithm",
+        "algorithm": "ORTOOLS_MILP_V2",
+        "assignment_model": "integer pick-face and reserve handling-unit allocation",
+        "approval_required": True,
         "timestamp": datetime.utcnow().isoformat(),
     }
