@@ -1,0 +1,7 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_BASE: ${OPTIWMS_RUNTIME_BASE:-eclipse-temurin:21-jre-alpine}
