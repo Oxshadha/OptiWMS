@@ -205,12 +205,19 @@ export function WarehouseLayoutVisualization({
   };
 
   return (
-    <div className="w-full h-full relative">
+    <div
+      className="h-full relative"
+      style={{
+        width: `${layout.width}px`,
+        minWidth: `${layout.width}px`,
+        height: `${layout.height}px`,
+        minHeight: `${layout.height}px`,
+      }}
+    >
       <svg
         viewBox={`0 0 ${layout.width} ${layout.height}`}
-        className="w-full h-full border border-base-300 rounded-lg bg-base-200"
-        preserveAspectRatio="none"
-        style={{ minWidth: `${layout.width}px`, minHeight: `${layout.height}px` }}
+        className="block w-full h-full bg-base-100"
+        preserveAspectRatio="xMidYMin meet"
       >
         {/* Define patterns for maintenance status */}
         <defs>
@@ -269,6 +276,32 @@ export function WarehouseLayoutVisualization({
             strokeDasharray="4,4"
             opacity={0.5}
           />
+        ))}
+
+        {layout.stations.map((station) => (
+          <g key={station.id}>
+            <rect
+              x={station.x}
+              y={station.y}
+              width={station.width}
+              height={station.height}
+              rx="4"
+              fill={station.kind === 'DOOR' ? '#FEE2E2' : '#DCFCE7'}
+              stroke={station.kind === 'DOOR' ? '#DC2626' : '#16A34A'}
+              strokeWidth="2"
+            />
+            <text
+              x={station.x + station.width / 2}
+              y={station.y + station.height / 2}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="11"
+              fontWeight="700"
+              fill="#1F2937"
+            >
+              {station.label}
+            </text>
+          </g>
         ))}
 
         {/* Render racks */}

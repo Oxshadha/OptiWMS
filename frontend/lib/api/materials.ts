@@ -13,6 +13,8 @@ export interface Material {
   weightKg?: number;
   volumeCm3?: number;
   palletSpaces?: number;
+  unitsPerPallet?: number;
+  maxStackHeight?: number;
   maxPalletWeightKg?: number;
   minOrderQuantity?: number;
   handlingUnitType?: string;
@@ -36,6 +38,14 @@ export interface PagedMaterialsResponse {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+export interface MaterialSummary {
+  total: number;
+  dimensioned: number;
+  rawMaterials: number;
+  products: number;
+  packaging: number;
 }
 
 export interface MaterialOrderingProfile {
@@ -67,8 +77,8 @@ export const materialsApi = {
   getPaged: async ({
     page = 0,
     size = 10,
-    sortBy = "createdAt",
-    sortDir = "desc",
+    sortBy = "materialCode",
+    sortDir = "asc",
     materialType,
     supplierId,
     q,
@@ -90,6 +100,10 @@ export const materialsApi = {
     if (supplierId) params.append("supplierId", supplierId);
     if (q && q.trim()) params.append("q", q.trim());
     return apiClient.get<PagedMaterialsResponse>(`/master/materials/paged?${params.toString()}`);
+  },
+
+  getSummary: async (): Promise<MaterialSummary> => {
+    return apiClient.get<MaterialSummary>('/master/materials/summary');
   },
 
   getByCode: async (materialCode: string): Promise<Material> => {

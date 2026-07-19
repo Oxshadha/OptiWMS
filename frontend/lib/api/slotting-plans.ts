@@ -18,6 +18,10 @@ export interface SlottingPlanSummary {
   approvedAt?: string;
   sourceStatsAt?: string;
   notes?: string;
+  solverStatus?: string;
+  objectiveValue?: number | null;
+  infeasibleReason?: string | null;
+  constraintEvidence?: string | null;
   executionStatus?: string;
   executionTransferId?: string | null;
   transfersCreated?: number;

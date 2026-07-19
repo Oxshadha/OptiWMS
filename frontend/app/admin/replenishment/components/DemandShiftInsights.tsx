@@ -137,7 +137,7 @@ export function DemandShiftInsights({
                 <th>Current bins</th>
                 <th>Recommended</th>
                 <th>ROP risk</th>
-                <th>Confidence</th>
+                <th>Evidence</th>
                 <th>Action</th>
               </tr>
             </thead>
@@ -162,7 +162,13 @@ export function DemandShiftInsights({
                     <td>{row.currentBins}</td>
                     <td>{row.recommendedBins}</td>
                     <td className={risk.className}>{risk.text}</td>
-                    <td>{row.confidencePct}%</td>
+                    <td className="text-xs">
+                      {row.evidenceStatus === "FORECAST_BACKED"
+                        ? `${row.confidencePct}% interval quality`
+                        : row.evidenceStatus === "PARTIAL_FORECAST"
+                          ? `${row.confidencePct}% partial horizon`
+                          : "Historical fallback"}
+                    </td>
                     <td className="text-xs">{action}</td>
                   </tr>
                 );

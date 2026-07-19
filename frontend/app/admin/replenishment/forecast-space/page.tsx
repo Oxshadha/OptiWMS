@@ -162,7 +162,7 @@ export default function ForecastSpacePage() {
         warehouseId,
         horizonMonths,
         materialType: materialType || undefined,
-        forecastModelName: "EXTRA_TREES",
+        forecastModelName: "EXTRA_TREES_RESPONSIVE",
         createdBy: "warehouse-intelligence-ui",
         notes: "Forecast-driven min/max/ROP recommendation run",
       });
@@ -255,7 +255,7 @@ export default function ForecastSpacePage() {
               Space Planning
             </span>
           </div>
-          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">Inventory Policy & Space Planner</h1>
+          <h1 className="text-3xl font-bold text-base-content pb-1">Inventory Policy & Space Planner</h1>
           <p className="text-sm text-base-content/60 mt-2 max-w-4xl font-medium">
             Colombo Main RM stock and space planning using the 12-month operational forecast, supplier rules, expiry, capacity, and location compatibility.
           </p>
@@ -283,8 +283,8 @@ export default function ForecastSpacePage() {
             <select className="select select-bordered select-sm rounded-full" value={materialType} onChange={(e) => setMaterialType(e.target.value as MaterialScope)}>
               <option value="">All materials</option>
               <option value="raw_material">Raw materials</option>
-              <option value="packaging_material" disabled>Packaging materials</option>
-              <option value="product" disabled>Finished goods</option>
+              <option value="packaging_material">Packaging materials</option>
+              <option value="product">Finished goods</option>
             </select>
           </label>
           <button className="btn btn-sm btn-outline rounded-full" onClick={refresh} disabled={loading || !warehouseId}>
@@ -310,19 +310,25 @@ export default function ForecastSpacePage() {
       </section>
 
       {readiness && !readiness.ready && (
-        <div className="alert alert-warning">
-          <span className="material-symbols-outlined">priority_high</span>
-          <div>
-            <p className="font-semibold">Data gate: policy recommendations are blocked until required planning inputs are available.</p>
-            <p className="text-sm">
-              Forecast coverage {readiness.forecastCoveragePct}% · pallet specs {readiness.palletSpecCoveragePct}% · missing MOQ {readiness.missingMoqCount} · missing lead time {readiness.missingLeadTimeCount}
+        <div className="flex items-start gap-3 border-l-4 border-warning bg-warning/5 px-4 py-3 text-sm">
+          <span className="material-symbols-outlined text-warning">gpp_maybe</span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">Planning gate requires review</p>
+              <span className="text-xs text-base-content/60">
+                {readiness.forecastCoveragePct}% forecast · {readiness.inventoryCoveragePct}% inventory · {readiness.palletSpecCoveragePct}% pallet specs
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-base-content/70">
+              {readiness.unapprovedForecastMaterialsCount > 0
+                ? `${readiness.unapprovedForecastMaterialsCount} material forecasts passed evaluation and await manager model promotion.`
+                : readiness.blockers[0] || "Required planning inputs are incomplete."}
             </p>
-            {readiness.forecastCoveragePct === 0 && (
-              <p className="text-xs mt-1">
-                No forecast rows were found for the selected scope. Switch material scope or publish the latest forecast run before creating policy recommendations.
-              </p>
-            )}
-            {readiness.blockers[0] && <p className="text-xs mt-1">{readiness.blockers[0]}</p>}
+            <details className="mt-1 text-xs">
+              <summary className="cursor-pointer font-medium text-base-content/70">View gate details</summary>
+              <p className="mt-1">Missing MOQ {readiness.missingMoqCount} · missing lead time {readiness.missingLeadTimeCount}</p>
+              {readiness.blockers.map((blocker) => <p key={blocker}>{blocker}</p>)}
+            </details>
           </div>
         </div>
       )}
@@ -509,29 +515,24 @@ function PolicyLinesTable({
           Showing {visible.length} of {filtered.length} line(s)
         </div>
       </div>
-      <div className="overflow-x-auto max-h-[620px]">
+      <div className="max-h-[620px] overflow-y-auto">
       <table className="table table-sm">
         <thead className="sticky top-0 z-10 bg-base-100 shadow-sm">
           <tr>
             <th>Material</th>
             <th className="text-right">Current</th>
-            <th className="text-right">Recommended max</th>
+            <th className="text-right">Proposed min / max</th>
             <th className="text-right">ROP</th>
             <th className="text-right">Order qty</th>
-            <th className="text-right">Minimum order</th>
-            <th className="text-right">Multiple</th>
-            <th className="text-right">Units/pallet</th>
-            <th className="text-right">Lead time</th>
             <th className="text-right">Stock change</th>
-            <th className="text-right">Pallet change</th>
-            <th className="text-right">Confidence</th>
-            <th>Risk</th>
-            <th>Why</th>
+            <th className="text-right">Space change</th>
+            <th>Decision</th>
+            <th>Evidence</th>
           </tr>
         </thead>
         <tbody>
           {lines.length === 0 && (
-            <tr><td colSpan={14} className="text-center text-base-content/50 py-8">No stock-rule lines loaded.</td></tr>
+            <tr><td colSpan={9} className="text-center text-base-content/50 py-8">No stock-rule lines loaded.</td></tr>
           )}
           {visible.map((line) => (
             <tr key={line.id}>
@@ -540,35 +541,35 @@ function PolicyLinesTable({
                 <div className="text-xs text-base-content/50">{line.materialType ?? "material"}</div>
               </td>
               <td className="text-right">{fmt(line.currentStock)}</td>
-              <td className="text-right">{fmt(line.proposedMaxStock)}</td>
+              <td className="text-right">
+                <div>{fmt(line.proposedMinStock)}</div>
+                <div className="text-xs text-base-content/50">max {fmt(line.proposedMaxStock)}</div>
+              </td>
               <td className="text-right">{fmt(line.proposedReorderPoint)}</td>
               <td className="text-right">{fmt(line.proposedOrderQty)}</td>
-              <td className="text-right">{fmt(line.moq)}</td>
-              <td className="text-right">{fmt(line.orderMultiple)}</td>
-              <td className="text-right">{fmt(line.unitsPerHandlingUnit)}</td>
-              <td className="text-right">{line.leadTimeDays ?? "-"}</td>
               <td className={clsx("text-right font-semibold", (line.stockDelta ?? 0) < 0 ? "text-success" : (line.stockDelta ?? 0) > 0 ? "text-warning" : "")}>{fmt(line.stockDelta)}</td>
               <td className="text-right">{fmt(line.palletPositionsDelta)}</td>
-              <td className="text-right"><ConfidenceBadge value={line.confidenceScore} /></td>
               <td><StatusBadge status={line.recommendationStatus} /></td>
-              <td className="min-w-80 max-w-xl text-xs text-base-content/70">
-                <div>{line.rationale ?? "-"}</div>
+              <td className="max-w-sm text-xs text-base-content/70">
+                <div className="line-clamp-2">{line.rationale ?? "-"}</div>
                 <details className="mt-1">
-                  <summary className="cursor-pointer link link-primary">Formula inputs</summary>
+                  <summary className="cursor-pointer link link-primary">Inputs and controls</summary>
                   <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
                     <span>Expected demand: {fmt(line.forecastP50)}</span>
                     <span>High-demand case: {fmt(line.forecastP90)}</span>
                     <span>Low-demand case: {fmt(line.forecastP10)}</span>
                     <span>Expiry-safe max: {fmt(line.expiryLimitedMaxStock)}</span>
-                    <span>Before max: {fmt(line.currentMaxStock)}</span>
-                    <span>Before ROP: {fmt(line.currentReorderPoint)}</span>
+                    <span>MOQ / multiple: {fmt(line.moq)} / {fmt(line.orderMultiple)}</span>
+                    <span>Lead time: {line.leadTimeDays ?? "-"} days</span>
+                    <span>Units/pallet: {fmt(line.unitsPerHandlingUnit)}</span>
+                    <span>Evidence score: {line.confidenceScore}%</span>
                   </div>
                 </details>
               </td>
             </tr>
           ))}
           {lines.length > 0 && visible.length === 0 && (
-            <tr><td colSpan={14} className="text-center text-base-content/50 py-8">No lines match this filter.</td></tr>
+            <tr><td colSpan={9} className="text-center text-base-content/50 py-8">No lines match this filter.</td></tr>
           )}
         </tbody>
       </table>

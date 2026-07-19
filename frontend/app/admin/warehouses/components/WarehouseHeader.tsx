@@ -28,8 +28,8 @@ export function WarehouseHeader({
   onWarehouseChange,
 }: WarehouseHeaderProps) {
   return (
-    <div className="flex items-center justify-between">
-      <div>
+    <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div className="min-w-0">
         <h1 className="text-3xl font-bold text-base-content">Warehouse Layout</h1>
         <p className="text-base-content/70 mt-1">
           {isWarehouseManager
@@ -37,7 +37,7 @@ export function WarehouseHeader({
             : "Interactive visualization of warehouse storage locations"}
         </p>
       </div>
-      <div className="flex gap-3">
+      <div className="flex min-w-0 flex-wrap items-end gap-2">
         <button className="btn btn-sm btn-ghost" onClick={onRefresh} title="Refresh layout" disabled={isLoadingLayout}>
           <span className="material-symbols-outlined">refresh</span>
         </button>
@@ -57,7 +57,7 @@ export function WarehouseHeader({
         )}
 
         {isSystemAdmin && (
-          <div className="form-control w-full max-w-xs">
+          <div className="form-control w-full sm:w-64">
             <label className="label">
               <span className="label-text font-semibold">Select Warehouse</span>
             </label>
