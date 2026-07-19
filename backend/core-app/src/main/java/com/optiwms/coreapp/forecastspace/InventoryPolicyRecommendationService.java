@@ -172,6 +172,8 @@ public class InventoryPolicyRecommendationService {
                 .filter(m -> requestedType == null || requestedType.equals(normalizeType(m.getMaterialType())))
                 .toList();
         Set<UUID> materialIds = materials.stream().map(MaterialEntity::getId).collect(Collectors.toSet());
+        int unapprovedForecastMaterials = materialIds.isEmpty() ? 0 : Math.toIntExact(
+                forecastRepository.countUnapprovedForecastMaterials(warehouseId, materialIds, today, horizonEnd));
 
         Set<UUID> forecastedMaterials = warehouseForecasts.stream()
                 .map(ForecastResultEntity::getMaterialId)
@@ -214,7 +216,12 @@ public class InventoryPolicyRecommendationService {
 
         List<String> blockers = new ArrayList<>();
         if (materialsTotal == 0) blockers.add("No materials found for the selected scope.");
-        if (forecastCoveragePct < 70) blockers.add("Forecast coverage is below 70% for the selected horizon.");
+        if (forecastCoveragePct < 70 && unapprovedForecastMaterials > 0) {
+            blockers.add(unapprovedForecastMaterials
+                    + " materials have forecast rows awaiting manager model promotion.");
+        } else if (forecastCoveragePct < 70) {
+            blockers.add("Forecast coverage is below 70% for the selected horizon.");
+        }
         if (inventoryCoveragePct < 70) blockers.add("Inventory coverage is below 70% for the selected warehouse.");
         if (palletSpecCoveragePct < 80) blockers.add("Pallet-space coverage is below 80%; space impact will be unreliable.");
         if (missingLeadTime > Math.max(3, materialsTotal / 4)) blockers.add("Lead-time data is missing for too many materials.");
@@ -232,6 +239,7 @@ public class InventoryPolicyRecommendationService {
                 palletSpecCoveragePct,
                 missingMoq,
                 missingLeadTime,
+                unapprovedForecastMaterials,
                 ready,
                 blockers);
     }
@@ -1045,6 +1053,7 @@ public class InventoryPolicyRecommendationService {
             Integer palletSpecCoveragePct,
             Integer missingMoqCount,
             Integer missingLeadTimeCount,
+            Integer unapprovedForecastMaterialsCount,
             Boolean ready,
             List<String> blockers) {}
 

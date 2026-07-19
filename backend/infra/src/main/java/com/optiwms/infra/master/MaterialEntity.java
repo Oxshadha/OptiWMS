@@ -95,6 +95,9 @@ public class MaterialEntity {
     @Column(name = "safety_stock_level", precision = 15, scale = 2)
     private java.math.BigDecimal safetyStockLevel;
 
+    @Column(name = "unit_cost_standard", precision = 15, scale = 2)
+    private java.math.BigDecimal unitCostStandard;
+
     @Column(name = "abc_class", length = 1)
     private String abcClass;
 
@@ -354,5 +357,13 @@ public class MaterialEntity {
 
     public void setSafetyStockLevel(java.math.BigDecimal safetyStockLevel) {
         this.safetyStockLevel = safetyStockLevel;
+    }
+
+    public java.math.BigDecimal getUnitCostStandard() {
+        return unitCostStandard;
+    }
+
+    public void setUnitCostStandard(java.math.BigDecimal unitCostStandard) {
+        this.unitCostStandard = unitCostStandard;
     }
 }

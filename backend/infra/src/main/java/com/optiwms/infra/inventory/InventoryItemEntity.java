@@ -7,6 +7,7 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import com.optiwms.infra.master.MaterialEntity;
 
 @Entity
 @Table(name = "inventory")
@@ -20,6 +21,10 @@ public class InventoryItemEntity {
 
     @Column(name = "material_id", columnDefinition = "UUID")
     private UUID materialId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "material_id", insertable = false, updatable = false)
+    private MaterialEntity material;
 
     @Column(name = "warehouse_id", columnDefinition = "UUID")
     private UUID warehouseId;

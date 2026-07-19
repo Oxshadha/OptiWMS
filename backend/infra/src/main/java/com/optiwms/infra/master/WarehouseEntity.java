@@ -44,6 +44,9 @@ public class WarehouseEntity {
     @Column(name = "status", length = 20)
     private String status;
 
+    @Column(name = "dataset_version", length = 128)
+    private String datasetVersion;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -54,6 +57,9 @@ public class WarehouseEntity {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (datasetVersion == null || datasetVersion.isBlank()) {
+            datasetVersion = "OPERATIONAL_ENTRY";
+        }
     }
 
     @PreUpdate
@@ -142,6 +148,14 @@ public class WarehouseEntity {
         this.status = status;
     }
 
+    public String getDatasetVersion() {
+        return datasetVersion;
+    }
+
+    public void setDatasetVersion(String datasetVersion) {
+        this.datasetVersion = datasetVersion;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -158,5 +172,4 @@ public class WarehouseEntity {
         this.updatedAt = updatedAt;
     }
 }
-
 

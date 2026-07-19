@@ -22,6 +22,12 @@ public class WarehouseService {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
     }
 
+    public List<Warehouse> listOperational() {
+        return repository.findByDatasetVersion("PROJECT_OPERATIONAL_BASELINE_V3").stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Warehouse findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -98,5 +104,3 @@ public class WarehouseService {
         return w;
     }
 }
-
-

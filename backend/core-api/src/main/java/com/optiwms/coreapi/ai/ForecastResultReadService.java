@@ -20,9 +20,9 @@ public class ForecastResultReadService {
      * be presented as externally observed production history.
      */
     private static final String CANONICAL_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM";
-    private static final String CANONICAL_MODEL = "EXTRA_TREES";
+    private static final String CANONICAL_MODEL = "EXTRA_TREES_RESPONSIVE";
     private static final String CANONICAL_QUALITY_TIER = "GENERATED_OPERATIONAL_BASELINE";
-    private static final String CANONICAL_TRAINING_SOURCE = "PROJECT_OPERATIONAL_BASELINE_V1";
+    private static final String CANONICAL_TRAINING_SOURCE = "PROJECT_OPERATIONAL_BASELINE_V3";
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -47,7 +47,7 @@ public class ForecastResultReadService {
                 .map(row -> Map.<String, Object>of(
                         "name", String.valueOf(row.get("name")),
                         "dataset", CANONICAL_DATASET,
-                        "version", "PROJECT_OPERATIONAL_BASELINE_V1",
+                        "version", "PROJECT_OPERATIONAL_BASELINE_V3",
                         "is_champion", Boolean.TRUE.equals(row.get("is_champion")),
                         "source", "wms_forecast_results",
                         "data_quality_tier", CANONICAL_QUALITY_TIER,
@@ -65,8 +65,10 @@ public class ForecastResultReadService {
         int registryUpdated = entityManager.createNativeQuery("""
                 UPDATE forecast_model_registry
                 SET status = 'PROMOTED', promoted_by = :approvedBy, promoted_at = now(), updated_at = now()
-                WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model) AND promotion_eligible = TRUE
+                WHERE dataset = :dataset AND version = :version
+                  AND LOWER(model_name) = LOWER(:model) AND promotion_eligible = TRUE
                 """).setParameter("approvedBy", approvedBy).setParameter("dataset", CANONICAL_DATASET)
+                .setParameter("version", CANONICAL_TRAINING_SOURCE)
                 .setParameter("model", model).executeUpdate();
         if (registryUpdated == 0) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -74,8 +76,11 @@ public class ForecastResultReadService {
         }
         entityManager.createNativeQuery("""
                 UPDATE forecast_model_registry SET status = 'CHALLENGER', updated_at = now()
-                WHERE dataset = :dataset AND LOWER(model_name) <> LOWER(:model) AND status = 'PROMOTED'
-                """).setParameter("dataset", CANONICAL_DATASET).setParameter("model", model).executeUpdate();
+                WHERE dataset = :dataset AND version = :version
+                  AND LOWER(model_name) <> LOWER(:model) AND status = 'PROMOTED'
+                """).setParameter("dataset", CANONICAL_DATASET)
+                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("model", model).executeUpdate();
         int forecastRows = entityManager.createNativeQuery("""
                 UPDATE forecast_results SET decision_eligible = TRUE
                 WHERE training_source = :source AND LOWER(model_name) = LOWER(:model)
@@ -139,7 +144,16 @@ public class ForecastResultReadService {
         if (warehouseId != null && !warehouseId.isBlank()) {
             sql.append(" AND (fr.warehouse_id IS NULL OR fr.warehouse_id::text = :warehouseId)");
         }
-        sql.append(" GROUP BY m.material_code, m.description, m.material_type ORDER BY m.material_type, m.material_code");
+        sql.append("""
+                 GROUP BY m.material_code, m.description, m.material_type
+                 ORDER BY CASE LOWER(m.material_type)
+                            WHEN 'raw_material' THEN 1
+                            WHEN 'packaging_material' THEN 2
+                            WHEN 'product' THEN 3
+                            ELSE 4
+                          END,
+                          m.material_code
+                """);
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("model", selectedModel)
                 .setParameter("source", CANONICAL_TRAINING_SOURCE);
@@ -487,10 +501,13 @@ public class ForecastResultReadService {
         }
         @SuppressWarnings("unchecked")
         List<String> registry = entityManager.createNativeQuery("""
-                SELECT model_name FROM forecast_model_registry WHERE dataset = :dataset
+                SELECT model_name FROM forecast_model_registry
+                WHERE dataset = :dataset AND version = :version
                 ORDER BY CASE status WHEN 'PROMOTED' THEN 0 WHEN 'PENDING_MANAGER_APPROVAL' THEN 1 ELSE 2 END,
                          promotion_eligible DESC, updated_at DESC LIMIT 1
-                """).setParameter("dataset", CANONICAL_DATASET).getResultList();
+                """).setParameter("dataset", CANONICAL_DATASET)
+                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .getResultList();
         if (!registry.isEmpty() && hasModelRows(registry.get(0), warehouseId)) return registry.get(0);
         return normalized.isBlank() ? CANONICAL_MODEL : normalized;
     }
@@ -710,9 +727,12 @@ public class ForecastResultReadService {
         @SuppressWarnings("unchecked")
         List<String> rows = entityManager.createNativeQuery("""
                 SELECT status FROM forecast_model_registry
-                WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model)
+                WHERE dataset = :dataset AND version = :version
+                  AND LOWER(model_name) = LOWER(:model)
                 ORDER BY updated_at DESC LIMIT 1
-                """).setParameter("dataset", CANONICAL_DATASET).setParameter("model", model).getResultList();
+                """).setParameter("dataset", CANONICAL_DATASET)
+                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("model", model).getResultList();
         return rows.isEmpty() ? "UNREGISTERED" : rows.get(0);
     }
 

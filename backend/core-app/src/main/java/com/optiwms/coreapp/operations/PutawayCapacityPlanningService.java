@@ -49,7 +49,8 @@ public class PutawayCapacityPlanningService {
         }
 
         Material inboundMaterial = materialService.findById(materialId);
-        BigDecimal unitsPerPalletEarly = inboundMaterial.getPalletSpaces();
+        BigDecimal unitsPerPalletEarly = inboundMaterial.getUnitsPerPallet() != null
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
         if (unitsPerPalletEarly != null && unitsPerPalletEarly.compareTo(BigDecimal.ZERO) > 0) {
             StockPlacementPlanner.PlacementPlan placementPlan = stockPlacementPlanner.planPlacement(
                     warehouseId,
@@ -95,7 +96,8 @@ public class PutawayCapacityPlanningService {
         List<String> notes = new ArrayList<>();
         Integer requiredPalletSlots = null;
         Integer availablePalletSlots = null;
-        BigDecimal unitsPerPallet = inboundMaterial.getPalletSpaces();
+        BigDecimal unitsPerPallet = inboundMaterial.getUnitsPerPallet() != null
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
         if (unitsPerPallet != null && unitsPerPallet.compareTo(BigDecimal.ZERO) > 0) {
             requiredPalletSlots = toPositiveIntCeil(
                     BigDecimal.valueOf(totalQuantity).divide(unitsPerPallet, 8, RoundingMode.CEILING));

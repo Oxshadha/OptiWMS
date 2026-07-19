@@ -61,12 +61,13 @@ public class InventoryController {
     public ResponseEntity<PagedInventoryResponse> listPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(defaultValue = "sku") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir,
             @RequestParam(required = false) UUID materialId,
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String stockState,
             @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q
     ) {
@@ -83,6 +84,7 @@ public class InventoryController {
                 warehouseId,
                 materialType,
                 status,
+                stockState,
                 q,
                 includeLegacy,
                 PageRequest.of(safePage, safeSize, sort)
@@ -99,6 +101,19 @@ public class InventoryController {
                 itemPage.getTotalElements(),
                 itemPage.getTotalPages()
         ));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<InventorySummaryResponse> summary(
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String materialType
+    ) {
+        var summary = inventoryService.summarize(warehouseId, materialType);
+        return ResponseEntity.ok(new InventorySummaryResponse(
+                summary.totalItems(),
+                summary.inStockItems(),
+                summary.lowStockItems(),
+                summary.outOfStockItems()));
     }
 
     @GetMapping("/{id}")
@@ -429,6 +444,13 @@ public class InventoryController {
             int totalPages
     ) {}
 
+    public record InventorySummaryResponse(
+            long totalItems,
+            long inStockItems,
+            long lowStockItems,
+            long outOfStockItems
+    ) {}
+
     public record CreateInventoryRequest(
             UUID materialId,
             UUID warehouseId,
@@ -470,11 +492,15 @@ public class InventoryController {
 
     private String sanitizeSortBy(String sortBy) {
         if (sortBy == null || sortBy.isBlank()) {
-            return "createdAt";
+            return "material.materialCode";
         }
         return switch (sortBy) {
+            case "sku" -> "material.materialCode";
+            case "name" -> "material.description";
+            case "qty" -> "quantity";
+            case "location" -> "locationCode";
             case "id", "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
-            default -> "createdAt";
+            default -> "material.materialCode";
         };
     }
 }

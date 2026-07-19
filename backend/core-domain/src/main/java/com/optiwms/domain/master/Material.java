@@ -17,6 +17,7 @@ public class Material extends BaseEntity {
     private BigDecimal weightKg;
     private BigDecimal volumeCm3;
     private BigDecimal palletSpaces;
+    private Integer unitsPerPallet;
     private Boolean stackable;
     private Integer maxStackHeight;
     private Boolean temperatureControlled;
@@ -122,6 +123,14 @@ public class Material extends BaseEntity {
 
     public void setPalletSpaces(BigDecimal palletSpaces) {
         this.palletSpaces = palletSpaces;
+    }
+
+    public Integer getUnitsPerPallet() {
+        return unitsPerPallet;
+    }
+
+    public void setUnitsPerPallet(Integer unitsPerPallet) {
+        this.unitsPerPallet = unitsPerPallet;
     }
 
     public Boolean getStackable() {
