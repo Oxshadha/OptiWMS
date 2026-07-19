@@ -18,8 +18,8 @@ def main() -> None:
     cfg = BaselineConfig(seed=args.seed)
     if args.small:
         cfg = BaselineConfig(
-            seed=args.seed, history_months=36, operational_months=6, fg_count=12,
-            rm_count=36, pm_count=48, location_count=240, supplier_count=12,
+            seed=args.seed, history_months=36, operational_months=6, fg_count=8,
+            rm_count=24, pm_count=16, location_count=360, supplier_count=8,
             customer_count=24, worker_count=12, order_count=250,
             order_line_count=1000, stock_movement_count=1250, task_count=1250,
         )

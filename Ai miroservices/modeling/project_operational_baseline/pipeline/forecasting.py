@@ -13,7 +13,8 @@ from sklearn.ensemble import ExtraTreesRegressor
 
 FEATURES = [
     "lag_1", "lag_2", "lag_3", "lag_6", "lag_12", "rolling_mean_3", "rolling_mean_6",
-    "rolling_std_6", "month_sin", "month_cos", "planned_bom_requirement",
+    "rolling_std_6", "rolling_mean_12", "trend_3_to_12", "lag_1_to_12",
+    "planned_to_lag_12", "month_sin", "month_cos", "planned_bom_requirement",
     "promotion_flag", "shutdown_flag", "active_fg_count",
     "lead_time_days", "material_type_code", "category_code",
 ]
@@ -38,6 +39,10 @@ def _features(demand: pd.DataFrame) -> pd.DataFrame:
     panel["rolling_mean_3"] = grouped.transform(lambda series: series.shift(1).rolling(3, min_periods=3).mean())
     panel["rolling_mean_6"] = grouped.transform(lambda series: series.shift(1).rolling(6, min_periods=6).mean())
     panel["rolling_std_6"] = grouped.transform(lambda series: series.shift(1).rolling(6, min_periods=6).std()).fillna(0)
+    panel["rolling_mean_12"] = grouped.transform(lambda series: series.shift(1).rolling(12, min_periods=12).mean())
+    panel["trend_3_to_12"] = (panel.rolling_mean_3 / panel.rolling_mean_12.clip(lower=1e-6)).clip(0.1, 10.0)
+    panel["lag_1_to_12"] = (panel.lag_1 / panel.lag_12.clip(lower=1e-6)).clip(0.1, 10.0)
+    panel["planned_to_lag_12"] = (panel.planned_bom_requirement / panel.lag_12.clip(lower=1e-6)).clip(0.1, 10.0)
     panel["month_sin"] = np.sin(2 * np.pi * panel.month.dt.month / 12)
     panel["month_cos"] = np.cos(2 * np.pi * panel.month.dt.month / 12)
     panel["material_type_code"] = panel.material_type.astype("category").cat.codes
@@ -92,7 +97,15 @@ def _global_models(seed: int, trees: int) -> dict:
         "EXTRA_TREES": ExtraTreesRegressor(
             n_estimators=trees, min_samples_leaf=2, max_features=0.8,
             random_state=seed, n_jobs=-1,
-        )
+        ),
+        "EXTRA_TREES_RESPONSIVE": ExtraTreesRegressor(
+            n_estimators=trees * 2, min_samples_leaf=1, max_features=1.0,
+            random_state=seed + 1000, n_jobs=-1,
+        ),
+        "EXTRA_TREES_DAMPED_TREND": ExtraTreesRegressor(
+            n_estimators=trees, min_samples_leaf=2, max_features=0.8,
+            random_state=seed, n_jobs=-1,
+        ),
     }
     try:
         from lightgbm import LGBMRegressor
@@ -120,10 +133,18 @@ def _metrics(rows: pd.DataFrame) -> dict[str, float]:
 
 def _state_feature(values: list[float], meta, month: pd.Timestamp) -> dict[str, float]:
     lag = lambda n: values[-n] if len(values) >= n else values[-1]
+    rolling_3 = float(np.mean(values[-3:]))
+    rolling_6 = float(np.mean(values[-6:]))
+    rolling_12 = float(np.mean(values[-12:]))
+    lag_12 = max(float(lag(12)), 1e-6)
     return {
         "lag_1": lag(1), "lag_2": lag(2), "lag_3": lag(3), "lag_6": lag(6), "lag_12": lag(12),
-        "rolling_mean_3": float(np.mean(values[-3:])), "rolling_mean_6": float(np.mean(values[-6:])),
+        "rolling_mean_3": rolling_3, "rolling_mean_6": rolling_6,
         "rolling_std_6": float(np.std(values[-6:], ddof=1)) if len(values[-6:]) > 1 else 0.0,
+        "rolling_mean_12": rolling_12,
+        "trend_3_to_12": float(np.clip(rolling_3 / max(rolling_12, 1e-6), 0.1, 10.0)),
+        "lag_1_to_12": float(np.clip(float(lag(1)) / lag_12, 0.1, 10.0)),
+        "planned_to_lag_12": float(np.clip(float(meta.planned_bom_requirement) / lag_12, 0.1, 10.0)),
         "month_sin": math.sin(2 * math.pi * month.month / 12),
         "month_cos": math.cos(2 * math.pi * month.month / 12),
         "planned_bom_requirement": float(meta.planned_bom_requirement),
@@ -131,6 +152,16 @@ def _state_feature(values: list[float], meta, month: pd.Timestamp) -> dict[str, 
         "active_fg_count": float(meta.active_fg_count), "lead_time_days": float(meta.lead_time_days),
         "material_type_code": float(meta.material_type_code), "category_code": float(meta.category_code),
     }
+
+
+def _apply_model_adjustment(name: str, predictions: np.ndarray, features: list[dict[str, float]]) -> np.ndarray:
+    if name != "EXTRA_TREES_DAMPED_TREND":
+        return predictions
+    trend = np.asarray([row["trend_3_to_12"] for row in features], dtype=float)
+    # Damped local trend allows a tree model to extrapolate without applying the
+    # full recent growth ratio, which is unstable for intermittent materials.
+    factor = np.power(np.clip(trend, 0.81, 1.2544), 0.55)
+    return np.maximum(0.0, predictions * factor)
 
 
 def _recursive_backtest(panel: pd.DataFrame, origins: list[pd.Timestamp], cfg: ForecastConfig) -> pd.DataFrame:
@@ -152,6 +183,7 @@ def _recursive_backtest(panel: pd.DataFrame, origins: list[pd.Timestamp], cfg: F
                 features = [_state_feature(states[name][row.material_id], row, month) for row in target.itertuples(index=False)]
                 if name in models:
                     predictions = np.maximum(0.0, models[name].predict(pd.DataFrame(features)[FEATURES]))
+                    predictions = _apply_model_adjustment(name, predictions, features)
                 else:
                     predictions = []
                     for row, feature in zip(target.itertuples(index=False), features):
@@ -181,8 +213,12 @@ def _recursive_backtest(panel: pd.DataFrame, origins: list[pd.Timestamp], cfg: F
 def _leaderboard(rows: pd.DataFrame, split: str) -> pd.DataFrame:
     output = []
     for name, group in rows.groupby("model_name"):
-        output.append({"split": split, "model_name": name, **_metrics(group)})
-    return pd.DataFrame(output).sort_values(["WAPE", "MAE"]).reset_index(drop=True)
+        metrics = _metrics(group)
+        output.append({
+            "split": split, "model_name": name, **metrics,
+            "selection_score": metrics["WAPE"] + 0.5 * abs(metrics["Bias"]),
+        })
+    return pd.DataFrame(output).sort_values(["selection_score", "WAPE", "MAE"]).reset_index(drop=True)
 
 
 def _forecast_panel(output_dir: Path) -> pd.DataFrame:
@@ -202,7 +238,7 @@ def _forecast_panel(output_dir: Path) -> pd.DataFrame:
     fg_demand["material_type"] = "product"
     fg_demand["category"] = fg_demand.material_id.map(fg_meta.category)
     fg_demand["lead_time_days"] = fg_demand.material_id.map(fg_meta.lead_time_days).fillna(1)
-    fg_demand["source"] = "PROJECT_OPERATIONAL_BASELINE_V1"
+    fg_demand["source"] = "PROJECT_OPERATIONAL_BASELINE_V3"
     required = material_demand.columns
     return pd.concat([material_demand, fg_demand[required]], ignore_index=True, sort=False)
 
@@ -229,12 +265,14 @@ def _future_forecast(panel: pd.DataFrame, champion: str, residuals: pd.DataFrame
             lag = lambda n: values[-n] if len(values) >= n else values[-1]
             feature = _state_feature(values, meta, month)
             feature["planned_bom_requirement"] = lag(12)
+            feature["planned_to_lag_12"] = 1.0
             feature["promotion_flag"] = 0
             feature["shutdown_flag"] = 0
             feature_rows.append(feature)
         global_predictions = None
         if model is not None:
             global_predictions = np.maximum(0.0, model.predict(pd.DataFrame(feature_rows)[FEATURES]))
+            global_predictions = _apply_model_adjustment(champion, global_predictions, feature_rows)
         for row_index, (material_id, feature) in enumerate(zip(material_ids, feature_rows)):
             values = state[material_id]
             meta = metadata.loc[material_id]
@@ -331,7 +369,11 @@ def run_forecast_evidence(output_dir: Path, cfg: ForecastConfig = ForecastConfig
         "selection_origins": [str(origin.date()) for origin in selection_origins],
         "untouched_test_window": [str(test_origins[0].date()), str((test_origins[0] + pd.DateOffset(months=11)).date())],
         "evaluation_protocol": "expanding-window fixed-origin recursive H1-H12; final 12 months untouched",
-        "forecast_scope": "120 finished goods plus 288 raw and 458 packaging materials",
+        "selection_objective": "WAPE + 0.5 * absolute bias, computed on selection origins only",
+        "forecast_scope": {
+            material_type: int(group.material_id.nunique())
+            for material_type, group in panel.groupby("material_type")
+        },
         "test_metrics": test_metric, "seasonal_naive_test_wape": baseline_wape,
         "relative_wape_improvement": improvement, "interval_nominal_coverage": 0.90,
         "interval_empirical_coverage": coverage, "critical_class_wape": critical_wape,

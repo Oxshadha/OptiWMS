@@ -20,7 +20,7 @@ def refresh_operational_demand(output: Path, database_url: str) -> int:
                    d.promotion_flag, d.lead_time_days
             FROM demand_history d
             JOIN materials m ON m.id=d.material_id
-            WHERE d.source='PROJECT_OPERATIONAL_BASELINE_V1'
+            WHERE d.source='PROJECT_OPERATIONAL_BASELINE_V3'
             ORDER BY m.material_code,d.period
             """,
             connection,

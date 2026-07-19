@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import math
 import uuid
@@ -10,9 +11,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from pipeline.catalogs import FG_CATALOG, PM_CATALOG, RM_CATALOG, ROLE_WEIGHT
 
-DATASET_VERSION = "PROJECT_OPERATIONAL_BASELINE_V1"
+
+DATASET_VERSION = "PROJECT_OPERATIONAL_BASELINE_V3"
 QUALITY_TIER = "GENERATED_OPERATIONAL_BASELINE"
+LAYOUT_VERSION = "CMB_METRIC_AISLE_V3"
 NAMESPACE = uuid.UUID("40a266a7-b186-4da8-b9f2-89e8508c294a")
 
 
@@ -21,24 +25,24 @@ class BaselineConfig:
     seed: int = 20260715
     history_months: int = 72
     operational_months: int = 18
-    fg_count: int = 120
-    rm_count: int = 288
-    pm_count: int = 458
-    location_count: int = 3000
-    supplier_count: int = 72
-    customer_count: int = 240
-    worker_count: int = 48
-    order_count: int = 25000
-    order_line_count: int = 100000
-    stock_movement_count: int = 125000
-    task_count: int = 125000
+    fg_count: int = 16
+    rm_count: int = 48
+    pm_count: int = 32
+    location_count: int = 600
+    supplier_count: int = 16
+    customer_count: int = 48
+    worker_count: int = 24
+    order_count: int = 5000
+    order_line_count: int = 15000
+    stock_movement_count: int = 30000
+    task_count: int = 30000
     start_month: str = "2020-01-01"
 
 
 RM_SUBTYPES = ("DRUM", "BAG", "REEL", "BOTTLE", "BOX", "BUCKET", "CAN", "IBC")
 PM_SUBTYPES = (
     "CORR_BOX", "BAG", "CAP", "CARTON", "CONTAINER", "DIVIDER", "GLASS_BOTTLE",
-    "INNER_LINER", "INSERT", "NECK_TAG", "POUCH", "SACHET", "TUBE", "WRAPPER",
+    "INNER_LINER", "INSERT", "JAR", "NECK_TAG", "POUCH", "SACHET", "TUBE", "WRAPPER",
 )
 FG_FAMILIES = ("PERSONAL_CARE", "HOME_CARE", "PERSONAL_WASH", "SKIN_CARE", "ORAL_CARE")
 
@@ -59,6 +63,7 @@ HANDLING = {
     "GLASS_BOTTLE": ("PALLET", 800, 120, 100, 125, 720.0),
     "INNER_LINER": ("ROLL", 5000, 90, 90, 60, 180.0),
     "INSERT": ("CARTON", 5000, 60, 45, 35, 28.0),
+    "JAR": ("CARTON", 1000, 72, 52, 48, 32.0),
     "NECK_TAG": ("CARTON", 8000, 60, 45, 35, 22.0),
     "POUCH": ("CARTON", 4000, 70, 50, 40, 35.0),
     "SACHET": ("CARTON", 10000, 70, 50, 40, 32.0),
@@ -73,7 +78,7 @@ def stable_uuid(kind: str, key: str) -> str:
 
 def _write(frame: pd.DataFrame, output: Path, name: str) -> Path:
     path = output / f"{name}.csv.gz"
-    frame.to_csv(path, index=False, compression="gzip")
+    frame.to_csv(path, index=False, compression={"method": "gzip", "mtime": 0})
     return path
 
 
@@ -87,35 +92,59 @@ def _seasonality(rng: np.random.Generator) -> np.ndarray:
 
 
 def _material_master(cfg: BaselineConfig, rng: np.random.Generator) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if cfg.rm_count > len(RM_CATALOG) or cfg.pm_count > len(PM_CATALOG) or cfg.fg_count > len(FG_CATALOG):
+        raise ValueError("Requested baseline scale exceeds the curated operational catalog")
     rows: list[dict] = []
     material_id = 0
-    specs = (("raw_material", cfg.rm_count, RM_SUBTYPES, "RM"), ("packaging_material", cfg.pm_count, PM_SUBTYPES, "PM"))
-    for material_type, count, subtypes, prefix in specs:
-        for index in range(1, count + 1):
+    specs = (
+        ("raw_material", RM_CATALOG[:cfg.rm_count], "RM"),
+        ("packaging_material", PM_CATALOG[:cfg.pm_count], "PM"),
+    )
+    for material_type, catalog, prefix in specs:
+        for index, catalog_item in enumerate(catalog, start=1):
             material_id += 1
-            subtype = subtypes[(index - 1) % len(subtypes)]
+            if material_type == "raw_material":
+                source_code, description, subtype, formula_role, recipe_groups = catalog_item
+                target_fg_indexes = ()
+            else:
+                source_code, description, subtype, formula_role, target_fg_indexes = catalog_item
+                recipe_groups = ()
             hu, units, length, width, height, hu_weight = HANDLING[subtype]
             if material_type == "packaging_material" and subtype == "BAG":
                 units, hu_weight = 2500, 32.0
             units = max(1, int(round(units * rng.lognormal(0, 0.12))))
-            pallet_factor = {"DRUM": 4, "BAG": 40, "ROLL": 1, "BUCKET": 24, "IBC": 1, "PALLET": 1, "CARTON": 30, "BUNDLE": 20}.get(hu, 1)
+            default_pallet_factor = {"DRUM": 4, "BAG": 40, "ROLL": 1, "BUCKET": 24, "IBC": 1, "PALLET": 1, "CARTON": 30, "BUNDLE": 20}.get(hu, 1)
+            handling_unit_volume = length * width * height
+            pallet_factor = max(1, min(
+                default_pallet_factor,
+                max(1, int(1_500_000 // handling_unit_volume)),
+                max(1, int(1_200 // hu_weight)),
+            ))
+            units_per_pallet = units * pallet_factor
+            pallet_weight = hu_weight * pallet_factor
             multiple = units
             moq = multiple * int(rng.integers(1, 7))
             unit_weight = hu_weight / units
             volume_cm3 = length * width * height / units
             code = f"{prefix}-{index:04d}"
-            hazardous = material_type == "raw_material" and rng.random() < 0.08
-            temperature = material_type == "raw_material" and rng.random() < 0.05
+            hazardous = material_type == "raw_material" and formula_role in {"ALKALI", "SOLVENT"}
+            temperature = material_type == "raw_material" and formula_role in {"OIL", "BOTANICAL"}
             rows.append({
                 "material_id": stable_uuid("material", code), "material_code": code,
-                "description": f"{subtype.replace('_', ' ').title()} {prefix} {index:04d}",
+                "description": description, "source_item_code": source_code,
+                "source_record_type": "SUPPLIED_ITEM_MASTER" if source_code.isdigit() else "GENERATED_PACK_SPEC",
                 "material_type": material_type, "category": subtype, "unit_type": "KG" if prefix == "RM" else "EA",
+                "formula_role": formula_role, "recipe_groups": "|".join(recipe_groups),
+                "target_fg_indexes": "|".join(str(value) for value in target_fg_indexes),
                 "storage_type": hu, "handling_unit_type": hu, "units_per_handling_unit": units,
                 "order_multiple": multiple, "min_order_quantity": moq,
                 "lead_time_days": int(rng.integers(5, 46)), "unit_cost": round(float(rng.lognormal(2.8, 0.9)), 2),
                 "length_cm": length, "width_cm": width, "height_cm": height,
-                "weight_kg": round(unit_weight, 4), "volume_cm3": round(volume_cm3, 2),
-                "units_per_pallet": units * pallet_factor, "pallet_spaces": 1, "stackable": not hazardous,
+                # PostgreSQL stores material weight at scale=2; keep lightweight PM units positive after persistence.
+                "weight_kg": max(0.01, round(unit_weight, 4)), "volume_cm3": round(volume_cm3, 2),
+                "handling_units_per_pallet": pallet_factor,
+                "units_per_pallet": units_per_pallet, "pallet_spaces": 1,
+                "max_pallet_weight_kg": round(pallet_weight, 2), "stackable": not hazardous,
                 "max_stack_height": 1 if hazardous else int(rng.integers(2, 5)),
                 "temperature_controlled": temperature, "hazardous": hazardous,
                 "fragile": subtype in {"BOTTLE", "GLASS_BOTTLE"},
@@ -125,17 +154,24 @@ def _material_master(cfg: BaselineConfig, rng: np.random.Generator) -> tuple[pd.
     materials = pd.DataFrame(rows)
 
     fg_rows = []
-    for index in range(1, cfg.fg_count + 1):
+    for index, (description, family, fill_weight_kg, units_per_carton) in enumerate(FG_CATALOG[:cfg.fg_count], start=1):
         code = f"FG-{index:04d}"
+        units_per_pallet = units_per_carton * int(rng.choice([32, 40, 48]))
+        pallet_weight = min(1180.0, units_per_pallet * fill_weight_kg * 1.18)
         fg_rows.append({
             "material_id": stable_uuid("material", code), "fg_id": stable_uuid("fg", code), "material_code": code,
-            "description": f"Finished Good {index:04d}", "material_type": "product",
-            "category": FG_FAMILIES[(index - 1) % len(FG_FAMILIES)], "unit_type": "EA",
+            "description": description, "source_item_code": f"FORMULA-{index:03d}",
+            "source_record_type": "GENERATED_PRODUCT_FORMULA", "material_type": "product",
+            "category": family, "recipe_group": family, "fill_weight_kg": fill_weight_kg, "unit_type": "EA",
             "storage_type": "PALLET", "handling_unit_type": "CARTON",
-            "units_per_handling_unit": int(rng.choice([12, 24, 36, 48])), "order_multiple": 1,
+            "units_per_handling_unit": units_per_carton, "order_multiple": 1,
             "min_order_quantity": 1, "lead_time_days": 1, "unit_cost": round(float(rng.lognormal(3.5, 0.5)), 2),
-            "length_cm": 40, "width_cm": 30, "height_cm": 25, "weight_kg": round(float(rng.uniform(0.2, 2.5)), 3),
-            "volume_cm3": 30000, "units_per_pallet": int(rng.choice([480, 720, 960])), "pallet_spaces": 1,
+            "length_cm": 40, "width_cm": 30, "height_cm": 25,
+            "weight_kg": round(fill_weight_kg * 1.18, 4),
+            "volume_cm3": round((40 * 30 * 25) / units_per_carton, 2),
+            "handling_units_per_pallet": units_per_pallet // units_per_carton,
+            "units_per_pallet": units_per_pallet, "pallet_spaces": 1,
+            "max_pallet_weight_kg": round(pallet_weight, 2),
             "stackable": True, "max_stack_height": 4, "temperature_controlled": False,
             "hazardous": False, "fragile": False, "shelf_life_days": 730,
             "base_monthly_units": int(rng.integers(100, 2000)), "trend_rate_annual": rng.uniform(-0.04, 0.12),
@@ -147,32 +183,90 @@ def _material_master(cfg: BaselineConfig, rng: np.random.Generator) -> tuple[pd.
 def _bom(materials: pd.DataFrame, fg: pd.DataFrame, cfg: BaselineConfig, rng: np.random.Generator) -> pd.DataFrame:
     rm = materials[materials.material_type.eq("raw_material")]
     pm = materials[materials.material_type.eq("packaging_material")]
-    rows = []
-    for parent in fg.itertuples(index=False):
-        rm_sample = rm.sample(int(rng.integers(5, 11)), random_state=int(rng.integers(0, 2**31 - 1)))
-        pm_sample = pm.sample(int(rng.integers(3, 8)), random_state=int(rng.integers(0, 2**31 - 1)))
-        for component in pd.concat([rm_sample, pm_sample]).itertuples(index=False):
-            is_pm = component.material_type == "packaging_material"
-            qty = rng.uniform(0.03, 1.2) if is_pm else rng.lognormal(-3.4, 0.70)
+    rows: list[dict] = []
+    parents = list(fg.itertuples(index=False))
+    assigned_rm: dict[str, set[str]] = {parent.material_code: set() for parent in parents}
+    product_roles = {
+        1: {"ALKALI", "SURFACTANT", "OIL", "EMOLLIENT", "HUMECTANT", "FRAGRANCE", "COLORANT", "ACTIVE"},
+        2: {"ALKALI", "SURFACTANT", "OIL", "EMOLLIENT", "HUMECTANT", "FRAGRANCE", "COLORANT", "ACTIVE"},
+        3: {"ALKALI", "SURFACTANT", "OIL", "EMOLLIENT", "HUMECTANT", "FRAGRANCE", "COLORANT", "ACTIVE"},
+        4: {"SURFACTANT", "HUMECTANT", "THICKENER", "PRESERVATIVE", "PH_ADJUSTER", "FRAGRANCE", "CHELATOR", "BOTANICAL", "ACTIVE", "SOLUBILIZER", "SOLVENT"},
+        5: {"SURFACTANT", "HUMECTANT", "THICKENER", "PRESERVATIVE", "PH_ADJUSTER", "FRAGRANCE", "CHELATOR", "BOTANICAL", "ACTIVE", "SOLUBILIZER", "SOLVENT"},
+        6: {"SURFACTANT", "HUMECTANT", "THICKENER", "PRESERVATIVE", "PH_ADJUSTER", "FRAGRANCE", "CHELATOR", "BOTANICAL", "ACTIVE", "SOLUBILIZER", "SOLVENT"},
+        7: {"SURFACTANT", "HUMECTANT", "THICKENER", "PRESERVATIVE", "PH_ADJUSTER", "CHELATOR", "OIL", "FRAGRANCE"},
+        8: {"EMOLLIENT", "HUMECTANT", "OIL", "PRESERVATIVE", "PH_ADJUSTER", "THICKENER", "ACTIVE", "FRAGRANCE"},
+        9: {"OIL", "EMOLLIENT", "ACTIVE", "FRAGRANCE", "PRESERVATIVE"},
+        10: {"HUMECTANT", "EMOLLIENT", "OIL", "PRESERVATIVE", "ACTIVE", "THICKENER", "SOLUBILIZER", "BOTANICAL", "COLORANT", "FILLER"},
+        11: {"HUMECTANT", "EMOLLIENT", "OIL", "PRESERVATIVE", "ACTIVE", "THICKENER", "SOLUBILIZER", "BOTANICAL", "COLORANT", "FILLER"},
+        12: {"HUMECTANT", "EMOLLIENT", "OIL", "PRESERVATIVE", "ACTIVE", "THICKENER", "SOLUBILIZER", "BOTANICAL", "COLORANT", "FILLER"},
+        13: {"FILLER", "HUMECTANT", "THICKENER", "ACTIVE", "PRESERVATIVE", "FRAGRANCE", "SURFACTANT"},
+        14: {"FILLER", "HUMECTANT", "THICKENER", "ACTIVE", "PRESERVATIVE", "FRAGRANCE", "SURFACTANT"},
+        15: {"SURFACTANT", "BUILDER", "CHELATOR", "PH_ADJUSTER", "FRAGRANCE", "THICKENER", "PRESERVATIVE", "SOLVENT"},
+        16: {"SURFACTANT", "BUILDER", "CHELATOR", "PH_ADJUSTER", "FRAGRANCE", "THICKENER", "PRESERVATIVE", "SOLVENT"},
+    }
+
+    for component_index, component in enumerate(rm.itertuples(index=False)):
+        compatible = [
+            parent for parent in parents
+            if parent.recipe_group in component.recipe_groups.split("|")
+            and component.formula_role in product_roles[int(parent.material_code.split("-")[-1])]
+        ]
+        if not compatible:
+            # Reduced test profiles may omit an entire recipe family. Canonical V3 includes all families.
+            compatible = parents
+        owner = compatible[component_index % len(compatible)]
+        assigned_rm[owner.material_code].add(component.material_id)
+
+    for parent in parents:
+        parent_index = int(parent.material_code.split("-")[-1])
+        eligible = rm[rm.recipe_groups.str.split("|").apply(lambda groups: parent.recipe_group in groups)]
+        eligible = eligible[eligible.formula_role.isin(product_roles[parent_index])]
+        for role in product_roles[parent_index]:
+            matching = eligible[eligible.formula_role.eq(role)]
+            if not matching.empty:
+                assigned_rm[parent.material_code].add(matching.iloc[(int(parent.material_code[-2:]) - 1) % len(matching)].material_id)
+
+        selected_rm = rm[rm.material_id.isin(assigned_rm[parent.material_code])]
+        recipe_weights = selected_rm.formula_role.map(ROLE_WEIGHT).fillna(0.01)
+        recipe_total = float(recipe_weights.sum())
+        for component, role_weight in zip(selected_rm.itertuples(index=False), recipe_weights):
+            qty = parent.fill_weight_kg * 0.96 * float(role_weight) / recipe_total
             rows.append({
                 "bom_id": stable_uuid("bom", f"{parent.material_code}:V1"), "bom_version": "V1",
                 "parent_material_id": parent.material_id, "parent_code": parent.material_code,
                 "component_material_id": component.material_id, "component_code": component.material_code,
                 "component_type": component.material_type, "quantity_per_fg": round(float(qty), 6),
-                "yield_rate": round(float(rng.uniform(0.95, 0.995)), 5),
-                "scrap_rate": round(float(rng.uniform(0.005, 0.055)), 5),
+                "yield_rate": round(float(rng.uniform(0.975, 0.995)), 5),
+                "scrap_rate": round(float(rng.uniform(0.005, 0.025)), 5),
                 "uom": component.unit_type, "effective_from": cfg.start_month, "effective_to": "",
             })
-    used = set(row["component_material_id"] for row in rows)
-    for component in materials[~materials.material_id.isin(used)].itertuples(index=False):
-        parent = fg.iloc[int(rng.integers(0, len(fg)))]
+
+        selected_pm = pm[pm.target_fg_indexes.str.split("|").apply(lambda values: str(parent_index) in values)]
+        for component in selected_pm.itertuples(index=False):
+            qty = 1.0
+            if component.formula_role in {"SHIPPER", "TRANSIT_LINER", "TRANSIT_SEAL"}:
+                qty = 1.0 / parent.units_per_handling_unit
+            elif component.formula_role == "CODING":
+                qty = 1.0 / 5000.0
+            rows.append({
+                "bom_id": stable_uuid("bom", f"{parent.material_code}:V1"), "bom_version": "V1",
+                "parent_material_id": parent.material_id, "parent_code": parent.material_code,
+                "component_material_id": component.material_id, "component_code": component.material_code,
+                "component_type": component.material_type, "quantity_per_fg": round(qty, 6),
+                "yield_rate": 0.995, "scrap_rate": 0.005, "uom": component.unit_type,
+                "effective_from": cfg.start_month, "effective_to": "",
+            })
+    used_component_ids = {row["component_material_id"] for row in rows}
+    for component_index, component in enumerate(materials[~materials.material_id.isin(used_component_ids)].itertuples(index=False)):
+        parent = parents[component_index % len(parents)]
+        qty = 1.0 / parent.units_per_handling_unit if component.material_type == "packaging_material" else 0.001
         rows.append({
             "bom_id": stable_uuid("bom", f"{parent.material_code}:V1"), "bom_version": "V1",
             "parent_material_id": parent.material_id, "parent_code": parent.material_code,
             "component_material_id": component.material_id, "component_code": component.material_code,
-            "component_type": component.material_type,
-            "quantity_per_fg": round(float(rng.uniform(0.02, 0.4)), 6), "yield_rate": 0.98,
-            "scrap_rate": 0.02, "uom": component.unit_type, "effective_from": cfg.start_month, "effective_to": "",
+            "component_type": component.material_type, "quantity_per_fg": round(qty, 6),
+            "yield_rate": 0.995, "scrap_rate": 0.005, "uom": component.unit_type,
+            "effective_from": cfg.start_month, "effective_to": "",
         })
     return pd.DataFrame(rows).drop_duplicates(["parent_material_id", "component_material_id"])
 
@@ -342,29 +436,64 @@ def _policy(materials: pd.DataFrame, demand: pd.DataFrame, classes: pd.DataFrame
 
 
 def _inventory(
-    materials: pd.DataFrame, policy: pd.DataFrame, classes: pd.DataFrame,
+    materials: pd.DataFrame, finished_goods: pd.DataFrame, policy: pd.DataFrame, classes: pd.DataFrame,
     locations: pd.DataFrame, warehouse_id: str, rng: np.random.Generator,
+    fg_rng: np.random.Generator,
 ) -> pd.DataFrame:
-    eligible = locations[locations.location_type.isin(["picking", "storage"])].sort_values(
-        ["accessibility_rating", "location_code"], ascending=[False, True]
-    ).reset_index(drop=True)
+    storage_pool = locations[locations.zone_type.isin(["PICK_FACE", "RESERVE"])].copy()
     class_map = classes.set_index("material_id")
     material_map = materials.set_index("material_id")
-    cursor = 0
+    used_locations: set[str] = set()
+    class_rank = {"A": 0, "B": 1, "C": 2, "F": 0, "M": 1, "S": 2}
+
+    def allocate_positions(count: int, material: pd.Series, desired_class: str) -> list[pd.Series]:
+        assigned: list[pd.Series] = []
+        for position_index in range(count):
+            candidates = storage_pool[~storage_pool.location_code.isin(used_locations)].copy()
+            if bool(material.hazardous):
+                candidates = candidates[candidates.hazard_allowed]
+            else:
+                candidates = candidates[~candidates.hazard_allowed]
+            if bool(material.temperature_controlled):
+                candidates = candidates[candidates.temperature_zone.eq("CONTROLLED")]
+            else:
+                candidates = candidates[candidates.temperature_zone.eq("AMBIENT")]
+            candidates = candidates[
+                candidates.max_weight_kg.ge(float(material.max_pallet_weight_kg))
+                & candidates.max_volume_cm3.ge(float(material.volume_cm3 * material.units_per_pallet))
+            ]
+            if candidates.empty:
+                raise RuntimeError(f"No compatible location remains for {material.material_code}")
+            candidates["class_penalty"] = candidates.physical_class.map(
+                lambda value: abs(class_rank[value[0]] - class_rank[desired_class[0]])
+                + abs(class_rank[value[1]] - class_rank[desired_class[1]])
+            )
+            desired_zone = "PICK_FACE" if position_index == 0 else "RESERVE"
+            candidates["role_penalty"] = candidates.zone_type.ne(desired_zone).astype(int) * 4
+            candidates["score"] = (
+                candidates.class_penalty * 20
+                + candidates.role_penalty
+                + candidates.travel_distance_m
+                + candidates.level_number * (3 if desired_class.endswith("F") else 1)
+            )
+            location = candidates.sort_values(["score", "location_code"]).iloc[0]
+            used_locations.add(location.location_code)
+            assigned.append(location)
+        return assigned
+
     rows = []
-    for item in policy.sort_values(["abc_class", "fms_class", "material_code"]).itertuples(index=False):
+    class_priority = {"AF": 1, "AM": 2, "AS": 3, "BF": 4, "BM": 5, "BS": 6, "CF": 7, "CM": 8, "CS": 9}
+    ordered_policy = policy.copy()
+    ordered_policy["slotting_priority"] = (
+        ordered_policy.abc_class.astype(str) + ordered_policy.fms_class.astype(str)
+    ).map(class_priority).fillna(99)
+    for item in ordered_policy.sort_values(["slotting_priority", "material_code"]).itertuples(index=False):
         material = material_map.loc[item.material_id]
         current_positions = max(1, int(math.ceil(item.current_on_hand / max(material.units_per_pallet, 1))))
-        if cursor + current_positions > len(eligible):
-            raise RuntimeError(
-                f"Generated current inventory needs {cursor + current_positions} pallet positions; "
-                f"warehouse provides {len(eligible)}"
-            )
+        assigned_locations = allocate_positions(current_positions, material, item.amalgamated_class)
         remaining = int(round(item.current_on_hand))
         per_position = max(1, int(math.ceil(remaining / current_positions)))
-        for position in range(current_positions):
-            location = eligible.iloc[cursor]
-            cursor += 1
+        for position, location in enumerate(assigned_locations):
             quantity = remaining if position == current_positions - 1 else min(remaining, per_position)
             remaining -= quantity
             batch = f"B-{item.material_code}-{position + 1:03d}"
@@ -373,6 +502,7 @@ def _inventory(
             rows.append({
                 "inventory_id": stable_uuid("inventory", f"{item.material_code}:{location.location_code}:{batch}"),
                 "material_id": item.material_id, "material_code": item.material_code,
+                "material_type": material.material_type,
                 "warehouse_id": warehouse_id, "location_code": location.location_code,
                 "batch_number": batch, "expiry_date": expiry.date().isoformat(),
                 "quantity": max(0, quantity), "available_quantity": max(0, quantity), "reserved_quantity": 0,
@@ -382,13 +512,70 @@ def _inventory(
                 "reorder_point": round(item.reorder_point * current_factor, 2), "moq": material.min_order_quantity,
                 "lead_time_days": material.lead_time_days, "order_quantity": item.order_quantity,
                 "pallet_requirement": item.required_pallet_positions, "status": "active",
+                "stacking_quantity": int(material.max_stack_height),
                 "abc_class": class_map.loc[item.material_id].abc_class,
                 "fms_class": class_map.loc[item.material_id].fms_class,
+            })
+
+    fg_usage = finished_goods.sort_values("base_monthly_units", ascending=False).copy()
+    annual_total = float((fg_usage.base_monthly_units * 12).sum())
+    fg_usage["cumulative_share"] = (fg_usage.base_monthly_units * 12).cumsum() / annual_total
+    fg_usage["abc_class"] = np.where(
+        fg_usage.cumulative_share <= 0.80, "A",
+        np.where(fg_usage.cumulative_share <= 0.95, "B", "C"),
+    )
+    for material in fg_usage.itertuples(index=False):
+        current_on_hand = max(1, int(round(material.base_monthly_units * fg_rng.uniform(0.65, 1.10))))
+        positions = max(1, int(math.ceil(current_on_hand / max(material.units_per_pallet, 1))))
+        assigned_locations = allocate_positions(positions, pd.Series(material._asdict()), f"{material.abc_class}F")
+        remaining = current_on_hand
+        per_position = max(1, int(math.ceil(remaining / positions)))
+        safety_stock = material.base_monthly_units * 0.20
+        reorder_point = material.base_monthly_units * 0.50
+        maximum = material.base_monthly_units * 1.25
+        for position, location in enumerate(assigned_locations):
+            quantity = remaining if position == positions - 1 else min(remaining, per_position)
+            remaining -= quantity
+            batch = f"FG-{material.material_code}-{position + 1:03d}"
+            expiry = pd.Timestamp("2026-06-30") + pd.Timedelta(days=int(material.shelf_life_days * fg_rng.uniform(0.45, 0.95)))
+            rows.append({
+                "inventory_id": stable_uuid("inventory", f"{material.material_code}:{location.location_code}:{batch}"),
+                "material_id": material.material_id, "material_code": material.material_code,
+                "material_type": material.material_type,
+                "warehouse_id": warehouse_id, "location_code": location.location_code,
+                "batch_number": batch, "expiry_date": expiry.date().isoformat(),
+                "quantity": quantity, "available_quantity": quantity, "reserved_quantity": 0,
+                "buffer_stock": round(safety_stock, 2), "min_stock": round(reorder_point, 2),
+                "max_stock": round(maximum, 2), "reorder_point": round(reorder_point, 2),
+                "moq": 0, "lead_time_days": 1, "order_quantity": 0,
+                "pallet_requirement": positions, "status": "active",
+                "stacking_quantity": int(material.max_stack_height),
+                "abc_class": material.abc_class, "fms_class": "F",
             })
     return pd.DataFrame(rows)
 
 
-def _warehouse(cfg: BaselineConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _shortest_paths(nodes: pd.DataFrame, edges: pd.DataFrame, source: str) -> dict[str, float]:
+    adjacency: dict[str, list[tuple[str, float]]] = {node: [] for node in nodes.node_code}
+    for edge in edges.itertuples(index=False):
+        adjacency[edge.from_node].append((edge.to_node, float(edge.distance_m)))
+        adjacency[edge.to_node].append((edge.from_node, float(edge.distance_m)))
+    distances = {node: math.inf for node in adjacency}
+    distances[source] = 0.0
+    queue: list[tuple[float, str]] = [(0.0, source)]
+    while queue:
+        distance, node = heapq.heappop(queue)
+        if distance > distances[node]:
+            continue
+        for neighbor, cost in adjacency[node]:
+            candidate = distance + cost
+            if candidate < distances[neighbor]:
+                distances[neighbor] = candidate
+                heapq.heappush(queue, (candidate, neighbor))
+    return distances
+
+
+def _warehouse(cfg: BaselineConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     warehouse_id = stable_uuid("warehouse", "CMB-MAIN")
     warehouse = pd.DataFrame([{
         "warehouse_id": warehouse_id, "code": "CMB-MAIN", "name": "Colombo Main Warehouse",
@@ -396,40 +583,119 @@ def _warehouse(cfg: BaselineConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     }])
     locations = []
     special = [
-        ("RCV-01", "R", "receiving", 5), ("STG-01", "R", "staging", 5),
-        ("DSP-01", "D", "dispatch", 5), ("QTN-01", "Q", "quarantine", 2),
+        ("RCV-01", "R", "receiving", "RECEIVING", 5, 3.0, 2.0),
+        ("STG-01", "R", "staging", "STAGING", 5, 5.0, 2.0),
+        ("DOOR-01", "D", "access_point", "DOOR", 5, 2.0, 0.0),
+        ("PACK-01", "P", "packing", "PACKING", 5, 7.0, 2.0),
+        ("DSP-01", "D", "dispatch", "DISPATCH", 5, 4.0, 2.0),
+        ("QTN-01", "Q", "quarantine", "QUARANTINE", 2, 3.0, 6.0),
     ]
-    for code, area, kind, access in special:
+    for code, area, kind, zone, access, coordinate_x, coordinate_y in special:
         locations.append({
             "location_id": stable_uuid("location", code), "warehouse_id": warehouse_id, "location_code": code,
             "area": area, "row_number": "00", "bay_number": "00", "level_number": 1,
-            "bin_position": "A", "location_type": kind, "zone_type": kind.upper(), "capacity": 100,
-            "accessibility_rating": access, "coordinate_x": 0, "coordinate_y": len(locations) * 5,
+            "bin_position": "A", "location_type": kind, "zone_type": zone, "capacity": 100,
+            "accessibility_rating": access, "coordinate_x": coordinate_x, "coordinate_y": coordinate_y,
             "coordinate_z": 0, "max_pallet_capacity": 100, "max_weight_kg": 100000,
             "max_volume_cm3": 1000000000, "temperature_zone": "AMBIENT", "hazard_allowed": kind == "quarantine",
+            "travel_distance_m": 0.0, "distance_to_receiving_m": 0.0,
+            "distance_to_dispatch_m": 0.0, "physical_class": None,
+            "layout_version": LAYOUT_VERSION,
         })
-    storage_count = cfg.location_count - len(locations)
-    for index in range(storage_count):
-        area_index = index % 8
-        row = (index // (8 * 5 * 3)) + 1
-        bay = ((index // (5 * 3)) % 8) + 1
-        level = (index // 3) % 5 + 1
-        position = chr(65 + index % 3)
-        area = chr(65 + area_index)
-        code = f"{area}-{row:02d}-{bay:02d}-{level}-{position}"
-        access = 5 if level == 1 and area_index < 3 else (4 if level <= 2 else max(1, 5 - level))
-        locations.append({
-            "location_id": stable_uuid("location", code), "warehouse_id": warehouse_id, "location_code": code,
-            "area": area, "row_number": f"{row:02d}", "bay_number": f"{bay:02d}", "level_number": level,
-            "bin_position": position, "location_type": "picking" if access >= 4 else "storage",
-            "zone_type": "PICK_FACE" if access >= 4 else "RESERVE", "capacity": 1,
-            "accessibility_rating": access, "coordinate_x": area_index * 8 + bay,
-            "coordinate_y": row * 4, "coordinate_z": level * 1.5, "max_pallet_capacity": 1,
-            "max_weight_kg": 1200 if level <= 3 else 750, "max_volume_cm3": 1800000,
-            "temperature_zone": "CONTROLLED" if area == "H" else "AMBIENT",
-            "hazard_allowed": area == "G" or (area == "H" and bay % 2 == 0),
+    levels_per_rack = 5
+    bins_per_level = 3
+    bins_per_rack = levels_per_rack * bins_per_level
+    rack_count = math.ceil(cfg.location_count / bins_per_rack)
+    aisle_count = 5
+    if rack_count % aisle_count:
+        raise RuntimeError("Metric layout requires a rack count divisible by five operational zones")
+    racks_per_aisle = rack_count // aisle_count
+    aisle_x = [8.0 + index * 6.0 for index in range(aisle_count)]
+    rack_y = [8.0 + index * 5.0 for index in range(racks_per_aisle)]
+    far_cross_aisle_y = max(rack_y) + 5.0
+    graph_y = [4.0, *rack_y, far_cross_aisle_y]
+
+    node_rows = []
+    for aisle_index, x in enumerate(aisle_x):
+        for y in graph_y:
+            node_rows.append({
+                "node_code": f"AISLE-{aisle_index + 1:02d}-Y{int(y):02d}",
+                "node_type": "CROSS_AISLE" if y in {4.0, far_cross_aisle_y} else "RACK_ACCESS",
+                "coordinate_x_m": x, "coordinate_y_m": y,
+            })
+    node_rows.extend([
+        {"node_code": "DOCK-RECEIVING", "node_type": "DOCK", "coordinate_x_m": 3.0, "coordinate_y_m": 2.0},
+        {"node_code": "DOCK-DISPATCH", "node_type": "DOCK", "coordinate_x_m": 4.0, "coordinate_y_m": 2.0},
+    ])
+    graph_nodes = pd.DataFrame(node_rows)
+    edge_rows = []
+    for aisle_index, x in enumerate(aisle_x):
+        aisle_nodes = [f"AISLE-{aisle_index + 1:02d}-Y{int(y):02d}" for y in graph_y]
+        for left, right, y1, y2 in zip(aisle_nodes[:-1], aisle_nodes[1:], graph_y[:-1], graph_y[1:]):
+            edge_rows.append({"from_node": left, "to_node": right, "distance_m": round(y2 - y1, 2), "edge_type": "AISLE"})
+    for y in (4.0, far_cross_aisle_y):
+        for index in range(aisle_count - 1):
+            edge_rows.append({
+                "from_node": f"AISLE-{index + 1:02d}-Y{int(y):02d}",
+                "to_node": f"AISLE-{index + 2:02d}-Y{int(y):02d}",
+                "distance_m": round(aisle_x[index + 1] - aisle_x[index], 2), "edge_type": "CROSS_AISLE",
+            })
+    for dock_code, dock_x in (("DOCK-RECEIVING", 3.0), ("DOCK-DISPATCH", 4.0)):
+        nearest = min(range(aisle_count), key=lambda index: abs(aisle_x[index] - dock_x))
+        edge_rows.append({
+            "from_node": dock_code, "to_node": f"AISLE-{nearest + 1:02d}-Y04",
+            "distance_m": round(abs(aisle_x[nearest] - dock_x) + 2.0, 2), "edge_type": "DOCK_LINK",
         })
-    return warehouse, pd.DataFrame(locations)
+    graph_edges = pd.DataFrame(edge_rows)
+    receiving_distance = _shortest_paths(graph_nodes, graph_edges, "DOCK-RECEIVING")
+    dispatch_distance = _shortest_paths(graph_nodes, graph_edges, "DOCK-DISPATCH")
+
+    for rack_index in range(rack_count):
+        aisle_index = rack_index // racks_per_aisle
+        bay = rack_index % racks_per_aisle + 1
+        row = 1
+        area = chr(65 + aisle_index)
+        coordinate_x = aisle_x[aisle_index]
+        coordinate_y = rack_y[bay - 1]
+        graph_node = f"AISLE-{aisle_index + 1:02d}-Y{int(coordinate_y):02d}"
+        rack_receiving_distance = receiving_distance[graph_node]
+        rack_dispatch_distance = dispatch_distance[graph_node]
+        class_plan = {
+            "A": ("AF", "AF", "AF", "AM", "AM", "AM", "AS", "AS"),
+            "B": ("AF", "AF", "AM", "AM", "AM", "BF", "BF", "BF"),
+            "C": ("BF", "BF", "BF", "BM", "BM", "BM", "CF", "CF"),
+            "D": ("BM", "BM", "BS", "BS", "BS", "CM", "CM", "CM"),
+            "E": ("CF", "CF", "CM", "CM", "CM", "CS", "CS", "CS"),
+        }
+        physical_class = class_plan[area][bay - 1]
+
+        for level in range(1, levels_per_rack + 1):
+            for position_index in range(bins_per_level):
+                position = chr(65 + position_index)
+                code = f"{area}-{row:02d}-{bay:02d}-{level}-{position}"
+                vertical_penalty = (0.0, 0.0, 2.5, 5.0, 8.0)[level - 1]
+                flow_distance = min(rack_receiving_distance, rack_dispatch_distance) + vertical_penalty
+                distance_penalty = min(3, int(flow_distance // 12))
+                access = max(1, min(5, 6 - level - distance_penalty))
+                level_weight = {1: 1200, 2: 1000, 3: 800, 4: 550, 5: 350}[level]
+                locations.append({
+                    "location_id": stable_uuid("location", code), "warehouse_id": warehouse_id,
+                    "location_code": code, "area": area, "row_number": f"{row:02d}",
+                    "bay_number": f"{bay:02d}", "level_number": level,
+                    "bin_position": position, "location_type": "picking" if level <= 2 else "storage",
+                    "zone_type": "PICK_FACE" if level <= 2 else "RESERVE", "capacity": 1,
+                    "accessibility_rating": access, "coordinate_x": coordinate_x,
+                    "coordinate_y": coordinate_y, "coordinate_z": level * 1.5,
+                    "max_pallet_capacity": 1, "max_weight_kg": level_weight,
+                    "max_volume_cm3": 1800000,
+                    "temperature_zone": "CONTROLLED" if area == "E" and bay <= 4 else "AMBIENT",
+                    "hazard_allowed": area == "E" and bay >= 4,
+                    "travel_distance_m": round(flow_distance, 2),
+                    "distance_to_receiving_m": round(rack_receiving_distance + vertical_penalty, 2),
+                    "distance_to_dispatch_m": round(rack_dispatch_distance + vertical_penalty, 2),
+                    "physical_class": physical_class, "layout_version": LAYOUT_VERSION,
+                })
+    return warehouse, pd.DataFrame(locations), graph_nodes, graph_edges
 
 
 def _partners(cfg: BaselineConfig, rng: np.random.Generator) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -555,8 +821,11 @@ def generate_baseline(output_dir: Path, cfg: BaselineConfig = BaselineConfig()) 
     production, demand = _demand(materials, finished_goods, bom, cfg, rng)
     classifications, thresholds = _classifications(demand)
     policy = _policy(materials, demand, classifications, rng)
-    warehouse, locations = _warehouse(cfg)
-    inventory = _inventory(materials, policy, classifications, locations, warehouse.iloc[0].warehouse_id, rng)
+    warehouse, locations, graph_nodes, graph_edges = _warehouse(cfg)
+    inventory = _inventory(
+        materials, finished_goods, policy, classifications, locations,
+        warehouse.iloc[0].warehouse_id, rng, np.random.default_rng(cfg.seed + 1701),
+    )
     suppliers, customers, workers = _partners(cfg, rng)
     supplier_materials = materials[["material_id", "min_order_quantity", "order_multiple", "units_per_handling_unit", "lead_time_days"]].copy()
     supplier_materials["supplier_id"] = [suppliers.iloc[i % len(suppliers)].supplier_id for i in range(len(supplier_materials))]
@@ -564,7 +833,9 @@ def generate_baseline(output_dir: Path, cfg: BaselineConfig = BaselineConfig()) 
     operations = _operations(cfg, rng, warehouse.iloc[0].warehouse_id, materials, finished_goods, suppliers, customers, workers, locations)
 
     tables = {
-        "warehouses": warehouse, "locations": locations, "materials": materials,
+        "warehouses": warehouse, "locations": locations,
+        "warehouse_graph_nodes": graph_nodes, "warehouse_graph_edges": graph_edges,
+        "materials": materials,
         "finished_goods": finished_goods, "bom_components": bom, "production_history": production,
         "demand_history": demand, "classification_thresholds": thresholds,
         "material_classifications": classifications, "inventory_policy": policy, "inventory": inventory,
@@ -582,7 +853,7 @@ def generate_baseline(output_dir: Path, cfg: BaselineConfig = BaselineConfig()) 
     validations = {
         "material_count_expected": len(materials) == cfg.rm_count + cfg.pm_count,
         "finished_good_count_expected": len(finished_goods) == cfg.fg_count,
-        "location_count_expected": len(locations) == cfg.location_count,
+        "location_count_expected": len(locations) == math.ceil(cfg.location_count / 15) * 15 + 6,
         "bom_parent_coverage": int(bom.parent_material_id.nunique()) == cfg.fg_count,
         "bom_component_coverage": int(bom.component_material_id.nunique()) == len(materials),
         "demand_panel_complete": len(demand) == cfg.history_months * len(materials),
@@ -593,9 +864,25 @@ def generate_baseline(output_dir: Path, cfg: BaselineConfig = BaselineConfig()) 
         "no_negative_demand": bool(demand.demand_units.ge(0).all()),
         "current_inventory_fits_warehouse": len(inventory) <= int(locations.max_pallet_capacity.sum()),
         "policy_max_positions_within_capacity": int(policy.required_pallet_positions.sum()) <= int(locations.max_pallet_capacity.sum()),
+        "pallet_weights_within_lower_rack_limit": bool(
+            pd.concat([materials, finished_goods]).max_pallet_weight_kg.le(1200).all()
+        ),
+        "pallet_volumes_within_bin_limit": bool(
+            (
+                pd.concat([materials, finished_goods]).volume_cm3
+                * pd.concat([materials, finished_goods]).units_per_pallet
+            ).le(1_800_000).all()
+        ),
         "controlled_hazard_location_coverage": bool(
             ((locations.temperature_zone == "CONTROLLED") & locations.hazard_allowed).any()
         ),
+        "metric_layout_has_all_physical_classes": set(locations.physical_class.dropna())
+        == {"AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"},
+        "aisle_graph_is_connected": bool(
+            all(math.isfinite(value) for value in _shortest_paths(graph_nodes, graph_edges, "DOCK-DISPATCH").values())
+        ),
+        "inventory_locations_are_unique": not inventory.location_code.duplicated().any(),
+        "inventory_stack_limits_complete": bool(inventory.stacking_quantity.gt(0).all()),
     }
     manifest = {
         "dataset_version": DATASET_VERSION, "quality_tier": QUALITY_TIER,
