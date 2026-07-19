@@ -1,19 +1,116 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-07-15
-> Scope: forecast modeling, Spring/WMS runtime alignment, Forecasts dashboard, inventory policy, and slotting planning evidence.
+> Last updated: 2026-07-19
+> Scope: generated operational baseline, forecast evidence, inventory policy, warehouse geometry, ABC/FMS, multi-bin slotting, runtime alignment, and frontend evidence.
 
 ## Executive Status
 
-The current operational baseline supersedes the earlier v6/v7 demo paths described later in this historical log.
+The current operational baseline supersedes the earlier v6/v7 demo paths described later in this historical log. Repository implementation and the running Docker state are reported separately below.
 
 - PostgreSQL is the business authority for forecasts, policy, slotting, transfers, and evidence. Python SQLite is not an operational source.
-- `PROJECT_OPERATIONAL_BASELINE_V1` is the deterministic generated warehouse baseline, seed `20260715`, hash `9cdafb7a9f2770ba7636ec04f1bd97ce585c29313da94ae5d536ef5f9b2dc7a6`.
-- The promoted RM/PM method is **Extra Trees**, selected over LightGBM and statistical baselines using expanding-window selection origins and an untouched final 12-month test.
-- Current untouched-test evidence is WAPE `12.48%`, MAE `96.87`, RMSE `260.49`, bias `0.24%`, under-forecast rate `51.43%`, empirical 90% interval coverage `89.21%`, and critical-class WAPE `9.84%`.
-- Spring serves `8,952` decision-eligible forecast rows directly from `forecast_results`; the live Forecasts page displays those rows and their separate backtest evidence.
-- Inventory policy is a forecast-informed stochastic `(s,S)` workflow with simulation and manager approval. Slotting uses a constrained OR-Tools MILP; it is not relabelled as a separate knapsack algorithm.
+- `PROJECT_OPERATIONAL_BASELINE_V3` is the deterministic generated warehouse baseline, seed `20260715`, current artifact hash `ba12a1d46e221a5feefa890e10976ef0df76493dab75e1de7eeffd327b38aa22`.
+- The selected champion method is **Extra Trees Responsive**, chosen over LightGBM and statistical baselines using `WAPE + 0.5 * |bias|` on expanding-window selection origins and an untouched final 12-month test; promotion remains manager-controlled.
+- Current untouched-test evidence is WAPE `12.76%`, MAE `128.81`, RMSE `488.24`, bias `-1.74%`, under-forecast rate `48.44%`, empirical 90% interval coverage `89.15%`, and critical-class WAPE `11.39%`.
+- The forward artifact contains `1,152` H1-H12 rows for all `96` FG/RM/PM SKUs. Spring/PostgreSQL remains the canonical publication target.
+- Inventory policy is a forecast-informed stochastic `(s,S)` workflow with simulation and manager approval. Slotting is `ORTOOLS_MILP_FLOW_V3`: MILP for pick-face/move decisions plus integer min-cost flow for complete multi-bin reserve allocation. It is not relabelled as a separate knapsack algorithm.
 - The current project proves reproducible system behavior on generated data. It does not prove accuracy on an external customer distribution.
+
+## 2026-07-19 V3 Operational Baseline Verification
+
+- Material hierarchy: `48` RM, `32` PM, and `16` FG, for `96` active catalogue and forecast SKUs.
+- Warehouse geometry: `40` operational racks in zones A-E, `600` active storage positions, `6` route stations, and a connected `52`-node/`55`-edge metric aisle graph. F/G/H balancing zones are absent.
+- Inventory: `169` material-location rows; every active SKU is stocked and larger holdings span multiple unique bins. Every row has a positive stacking quantity.
+- BOM: all `16` realistic FG parents have effective, product-specific formula and pack-profile definitions, with `250` component lines and complete RM/PM coverage.
+- Planning evidence: `6,912` monthly demand observations, `1,152` untouched-test backtest rows, and `1,152` H1-H12 forward forecast rows.
+- Runtime load: `5,000` orders, `15,000` order lines, and `30,000` stock movements, tasks, and operation events each.
+- Earlier generated warehouses were archived from operational views. The V3 load removed `2,850` stale generated locations rather than showing them as live racks.
+- Product and API contracts now distinguish units per handling unit, units per pallet, maximum stack height, and physical pallet footprint. Inventory exposes populated stacking quantities.
+- The canonical forecast SKU catalog lists RM first, PM second, and FG third. It does not expose forecast-only SKUs that are absent from the active material and inventory scope.
+- Current V3 source verification passed: deterministic regeneration produced the same dataset hash, all generator validations are true, `11` baseline tests plus `130` notebook checks pass, frontend TypeScript passes, and `git diff --check` is clean. The final PostgreSQL reload, Spring rebuild, authenticated API check, and live browser regression are pending as stated below.
+
+The V3 model passes the project promotion thresholds on statistically controlled generated data. Manager approval is still required before promotion, and no external-real-world accuracy claim is made.
+
+Deployment note: the final V3 archived-assignment cleanup and rotated A-E desktop rack canvas are implemented in source, but the local PostgreSQL reload and final backend rebuild were blocked by the current local execution-approval quota. Until `./.venv/bin/python scripts/load_project_operational_baseline.py` and `./scripts/build_backend_runtime.sh` are rerun, the live browser can still show archived default-location counts or the previous rack geometry. No claim below overrides this deployment boundary.
+
+## Historical Log (Superseded By The V3 Status Above)
+
+## 2026-07-19 Superseded V1 Warehouse UI And Analytics Checkpoint
+
+The final authenticated desktop smoke test used `admin@optiwms.com` against the rebuilt local stack. The backend is healthy on `8080`; PostgreSQL, forecast service, orchestrator, slotting service, and MLflow are also healthy. The frontend development runtime is available at `http://localhost:3000`.
+
+- The detailed warehouse view loads the canonical `200` racks and `3,000` storage positions. Every rack renders all five physical levels (`L1` through `L5`) without label overlap. Door, receiving, quarantine, packing, and dispatch anchors are reserved for Forklift Routes rather than mixed into the detailed rack view.
+- Physical rack suitability is persisted and visible as a nine-cell matrix: `AF 18`, `AM 18`, `AS 24`, `BF 21`, `BM 21`, `BS 28`, `CF 21`, `CM 21`, and `CS 28`. These are rack suitability bands consumed by slotting; material ABC/FMS remains demand-derived evidence.
+- Inventory is globally sorted by SKU through the paginated Spring query, not sorted only inside the current browser page. The live screen starts `FG-0001`, `FG-0002`, and so on and reports `1,609` canonical material-location rows.
+- Product Catalogue is globally sorted by SKU and reports exactly `866` materials. Its Assigned Locations column resolves the persisted primary and reserve location rows; multi-bin stock remains separate inventory records rather than being collapsed to one bin.
+- Dashboard analytics now resolve the canonical warehouse before requesting every KPI/chart. Orders are also constrained to the warehouse dataset version plus future `OPERATIONAL_ENTRY` rows. The live dashboard reports exactly `25,000` baseline orders, `1,609` inventory rows, and `1,113` low-stock exceptions computed from quantity/availability/ROP/buffer thresholds instead of stale status strings.
+- Inventory Policy & Space Planner uses a compact governance strip and a nine-column decision table with expandable input/evidence detail. The current readiness result is correctly `Review`: all `288` RM forecast series have passed statistical evaluation but await manager model promotion, so a new policy run cannot silently consume them.
+- Slotting Demand Shift Insights no longer displays a fabricated uniform `45%` confidence. Each row identifies its evidence path (`Forecast backed`, `Partial forecast`, or `Historical fallback`). The existing `ORTOOLS_MILP_FLOW_V3 / OPTIMAL` plan remains a manager-controlled draft.
+
+Final verification for this checkpoint:
+
+- `./scripts/build_backend_runtime.sh`: backend JAR compiled, runtime image rebuilt, container healthy.
+- `./gradlew test --no-daemon` with Gradle `8.10.2`: `BUILD SUCCESSFUL` across all backend modules.
+- `npx tsc --noEmit`: passed.
+- `git diff --check`: passed.
+- Authenticated browser checks passed for Dashboard, Inventory, Product Catalogue, Warehouse Layout, rack suitability, Inventory Policy, and Slotting Planner.
+
+The remaining operational action is governance, not missing data: a manager must promote the statistically eligible forecast release before new forecast-dependent policy and demand-shift recommendations become decision-eligible. Existing approved historical policy runs remain visible for audit and rollback.
+
+## 2026-07-19 Implementation Checkpoint
+
+### Canonical generated warehouse
+
+- Material master: `120` FG + `288` RM + `458` PM = `866` SKUs.
+- Warehouse geometry: `200` racks, `3,000` pallet/bin positions, and `6` operational stations (`3,006` location rows total).
+- Current generated inventory: `1,609` material-location rows with one pick face plus zero or more reserve bins per SKU.
+- BOM: `120/120` finished goods covered, `1,641` effective component rows, and every RM/PM material used by at least one BOM.
+- History and load scale: `72` planning months, `25,000` orders, `100,000` order lines, `125,000` movements, `125,000` tasks, and `125,000` operation events.
+- Physical validation now proves pallet gross weight `<= 1,200 kg` and pallet volume `<= 1,800,000 cm3` for every generated SKU.
+- Material payloads now send true pallet weight and pallet volume to optimization; unit-level values are no longer misrepresented as pallet-level constraints.
+
+### Forecast and policy evidence
+
+- Champion: `EXTRA_TREES`, selected before opening the final 12-month test.
+- Extra Trees WAPE `11.89%` versus seasonal-naive WAPE `19.59%`, a `39.32%` relative improvement.
+- Aggregate bias `-0.21%`, P05-P95 empirical coverage `88.94%`, and critical `AF/AM/BF` WAPE `9.61%`; every configured promotion gate passes.
+- Promotion status remains `PENDING_MANAGER_APPROVAL`; generated-data evidence is not an external production-validity claim.
+- Policy output remains `(s,S)` with empirical lead-time demand, residual uncertainty, MOQ/order-multiple rounding, service-class targets, cost comparison, and capacity checks.
+
+### Warehouse and slotting implementation
+
+- Layout uses physical rack/level/bin codes and generated coordinates relative to receiving, door, packing, and dispatch anchors.
+- Product Catalog and Inventory use the same canonical SKU and location namespace. Product rows expose primary plus reserve assignment counts.
+- ABC is annual issued-volume concentration; FMS is issue-event frequency within subtype. `AF`, `AM`, and `BF` remain critical classes.
+- `ORTOOLS_MILP_FLOW_V3` plans one unique pick face per SKU and all reserve pallet positions across multiple bins.
+- Objective terms include forecast-weighted travel, accessibility, vertical handling, relocation, carrying-space, and stockout-risk weights.
+- Constraints include pallet count, one-pallet-per-bin contract, weight, volume, temperature, hazard, fragility, stackability, compatibility, unique primary bins, and relocation cap.
+- Canonical-scale test result: all `866` SKUs and `2,578` target pallet positions solved and independently validated in about `10.6 s` at the `30%` relocation cap.
+- Approval of `INFEASIBLE`, unavailable, abnormal, not-solved, or fallback plans is blocked in Spring and disabled in the frontend. Successful approvals create transfer work; stock changes only after execution unless an administrator explicitly chooses direct apply.
+
+### Verification completed
+
+- Baseline contract: `7 passed`, including `31` notebook syntax subtests.
+- Slotting service: `5 passed`, including the full `866`-SKU canonical integration test.
+- Full Spring test suite: `./gradlew test --no-daemon` passed after aligning physical capacity with the effective WMS max-stock policy and removing duplicate MOQ rounding.
+- Frontend TypeScript: `npx tsc --noEmit` passed.
+- `git diff --check` passed.
+- Post-edit Spring verification completed successfully: `./gradlew :core-app:compileJava --no-daemon` and the Dockerfile-equivalent `./gradlew build -x test --no-daemon` both pass after mapping `materials.unit_cost_standard` in `MaterialEntity`.
+- The canonical loader now archives prior generated artifact revisions outside the active dataset scope before upserting a new hash. The current load validated exact counts while preserving `OPERATIONAL_ENTRY` records.
+
+### Live runtime status
+
+- The Spring backend was rebuilt from the verified host boot JAR through `Dockerfile.runtime`; container `optiwms-backend` is healthy, `/actuator/health` returns `UP`, PostgreSQL remained intact, and Flyway validated schema version `78`.
+- Forecast service `8091`, orchestrator `8092`, slotting service `8093`, PostgreSQL, backend, MLflow, and pgAdmin are running; all services with health contracts report healthy/`ok`.
+- The forecast service runtime contract reports `mode=wms_db`, `reason=validated`, with no missing tables or columns. PostgreSQL remains the operational authority.
+- The Python slotting image was rebuilt and the running container contains `ORTOOLS_MILP_FLOW_V3`.
+- PostgreSQL load audit is `completed` for artifact hash `73b9c81b40342d4faf1247e87c8a4ec870cfa0bf0bc35c8f1a67eed03824fbb0`; post-load validation is `true` for `866` materials, `3,006` locations, `10,392` forecasts, `25,000` orders, `100,000` order lines, and all movement/task/event counts.
+- End-to-end runtime plan `SLOT-2026-H2-v5` is persisted as `ORTOOLS_MILP_FLOW_V3 / OPTIMAL`: `866` SKU lines, `1,597` reserve pallet positions, objective `367069.7702`, and all physical, compatibility, accessibility, relocation, and complete-allocation constraints recorded.
+- The forecast-to-space contract now uses the effective WMS max-stock policy for simultaneous physical capacity. Six-month cumulative demand remains a trend/risk/accessibility signal and is no longer incorrectly treated as six months of stock stored at once.
+- Frontend port `3000` is reachable and returns the expected `307` authentication redirect. Final authenticated visual regression remains pending because the active browser policy rejected further localhost access; no bypass was attempted.
+- The source-building `backend/Dockerfile` can fail in Docker Desktop when Maven Central terminates TLS handshakes. `scripts/build_backend_runtime.sh` is the deterministic local path: it builds `:core-api:bootJar` with the host Gradle cache and packages that JAR through `backend/Dockerfile.runtime`, without modifying PostgreSQL volumes.
+- Earlier plans `SLOT-2026-H2-v2` through `v4` remain infeasible fallback evidence and cannot be approved. Only `v5` is the current feasible V3 draft.
+- `SLOT-2026-H2-v5` is deliberately still `DRAFT`; manager approval is required before transfer work is created, and inventory moves only after execution.
+- Generated coordinates remain a controlled project baseline pending a physical warehouse survey. External-real-world forecast and travel performance remain unvalidated.
 
 ## What Is Wired To The Application
 
@@ -742,3 +839,70 @@ The planning-only transactional loader committed:
 - The frontend build warned that the filesystem had only 115 MiB free and could not persist its webpack cache. The disposable `.next` directory was removed, restoring about 1 GiB.
 - Docker Desktop then stopped responding during the backend image rebuild. A normal non-destructive restart could not terminate stuck Docker helper processes, and ports 8080/3000 were no longer reachable. Containers and named volumes were not deleted; PostgreSQL publication had already committed before Docker stopped.
 - Therefore the new V76 migration, rebuilt Spring image, and final browser screenshots are **not yet live-verified**. Start Docker Desktop successfully, run `docker compose up -d --build backend` from `infra`, and repeat the authenticated Forecast/BOM/Inventory browser smoke before claiming the correction is deployed.
+
+## 2026-07-18 Canonical Colombo Dataset Deployment
+
+### Live Scope Correction
+
+The V76/V77 operational-scope changes are now deployed. Spring/PostgreSQL defaults no longer mix the project baseline with M5/bootstrap, simulation, or unclassified legacy rows.
+
+- Product Catalogue default scope: `866` materials (`120` FG, `288` RM, `458` PM).
+- Inventory default scope: `1,099` physical stock positions covering the same `866` materials and `1,202,451` total units.
+- Inventory by type: `228` FG positions, `314` RM positions, and `557` PM positions.
+- Warehouse default scope: one `PROJECT_OPERATIONAL_BASELINE_V1` Colombo warehouse. Four historical warehouses remain audit-only.
+- Forecast scope: `10,392` PostgreSQL rows for all `866` SKUs, with complete H1-H12 coverage under `EXTRA_TREES`.
+- History scope: `62,352` monthly observations, equal to `866 x 72` months.
+- Location scope: `3,000` generated Colombo storage locations.
+- BOM scope: exactly `120` generated baseline headers and `1,641` component lines. The default BOM API now excludes 24 older simulation headers and three unclassified legacy headers; administrators can request them explicitly with `includeLegacy=true`.
+
+At ten rows per page, the expected default UI scale is approximately `87` Product Catalogue pages and `110` Inventory pages. Inventory has more rows because one SKU may occupy multiple bins, lots, or handling units. The previous `124` catalogue pages and `15,839` inventory pages were mixed-source defects, not the intended operational scale.
+
+Legacy rows were retained rather than destructively deleted:
+
+- `157,398` unclassified inventory rows;
+- `120` `PROJECT_OPERATIONAL_SIMULATION` inventory rows;
+- 24 `PROJECT_OPS_V8` BOM headers with 211 lines;
+- three unclassified BOM headers.
+
+They are excluded by indexed default repository queries and remain available only for explicit audit/migration work. New material, inventory, warehouse, and BOM records default to `OPERATIONAL_ENTRY`, so future warehouse operations remain visible without reopening the legacy scope.
+
+### Generated Baseline And Model Evidence
+
+The regenerated deterministic baseline hash is `2772ac61aec988b9f09021ce66192fd6a01e12570414bafec2bd5a72fd5adc68`. Determinism was verified by a repeated generation with an identical hash. The untouched-test evidence published with this baseline is:
+
+| Measure | Result |
+|---|---:|
+| WAPE | 12.2818% |
+| Bias | 0.1505% |
+| Empirical P10-P90 coverage | 88.9723% |
+| Critical AF/AM/BF WAPE | 9.8687% |
+| Horizon coverage | H1-H12 |
+| Promotion gates | All statistical gates pass; manager approval remains required |
+
+The evidence supports controlled generated-baseline validity only. It does not establish performance on external customer data.
+
+### Runtime And UI Wiring
+
+- Inventory repositories, aggregate cards, warehouse lists, Product Catalogue, BOM Master, demand history, forecast publication, policy inputs, ABC/FMS inputs, and slotting inputs now share the same canonical material and warehouse identities.
+- `GET /api/inventory/summary` computes whole-scope inventory totals instead of deriving cards from the current ten-row page. The live SQL result is `1,099` in-stock positions, `602` below their reorder point, and zero zero-quantity positions.
+- Generated FG inventory is now loaded alongside RM and PM inventory. Loader reruns reconcile generated rows for the canonical warehouse while preserving manager-created `OPERATIONAL_ENTRY` records.
+- Forecast charts have 12 future periods per selected FG/RM/PM SKU. History, seasonality, backtests, residuals, and stock projections remain separate evidence sources rather than fabricated chart series.
+- Spring `forecast_results` remains the operational forecast authority. Python services remain responsible for model inference, artifacts, and optimization jobs rather than a second SQLite business truth.
+
+### Docker And Verification
+
+- Docker Desktop recovered without deleting PostgreSQL or any named volume.
+- Disposable BuildKit cache was pruned after the disk-full failure; no business volume was pruned.
+- Gradle Plugin Portal was unavailable inside the multi-stage Docker build. A verified offline host boot JAR was therefore packaged through `backend/Dockerfile.runtime` and `infra/docker-compose.runtime.yml`. The ordinary multi-stage Dockerfile remains available for CI/networked builds.
+- Final backend container: `optiwms-backend`, image `infra-backend`, healthy.
+- Actuator: `UP` for liveness and readiness.
+- Forecast service `8091`: healthy; runtime contract is `wms_db/validated` with no missing tables or columns.
+- Orchestrator `8092`: healthy.
+- Slotting service `8093`: healthy.
+- Frontend `3000`: reachable and redirects unauthenticated requests to `/admin/login`.
+- Flyway: V76 and V77 successful; schema version `77`, all `77` migrations validated.
+- Full backend test suite: `BUILD SUCCESSFUL`, 15 tasks.
+- Frontend production build: successful before the final backend-only BOM scope adjustment.
+- Operational baseline contract suite: `6 passed`.
+
+An authenticated browser refresh is still required to replace any stale React Query/browser cache visible in an already-open tab. The backend serving the corrected defaults is live; no final authenticated screenshot was captured after the last BOM-only redeploy.
