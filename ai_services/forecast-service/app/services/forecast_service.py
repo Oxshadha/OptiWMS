@@ -414,7 +414,23 @@ def _persist_online_inventory_recommendations(
     return inserted
 
 
-def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = None) -> dict:
+def _update_job_progress(job_id: int | None, message: str, percent: float) -> None:
+    if not job_id:
+        return
+    from app.db.database import SessionLocal
+    from sqlalchemy import text
+    try:
+        with SessionLocal() as s:
+            s.execute(
+                text("UPDATE publish_jobs SET progress_message = :msg, progress_percent = :pct WHERE id = :jid"),
+                {"msg": message, "pct": percent, "jid": job_id}
+            )
+            s.commit()
+    except Exception:
+        pass
+
+
+def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = None, job_id: int | None = None) -> dict:
     from app.services.artifact_service import infer_boosting_online
 
     horizons = horizons or list(range(1, 13))
@@ -450,7 +466,10 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
     h1_predictions: dict[str, float] = {}
     total_fg_demand: dict[str, float] = {}
     series_meta: dict[str, dict[str, str | None]] = {}
-    for h in horizons:
+    _update_job_progress(job_id, "Publishing backtest actuals...", 5.0)
+
+    for i, h in enumerate(horizons):
+        _update_job_progress(job_id, f"Processing forecast horizon {h} ({i + 1} of {len(horizons)})...", 10.0 + (i / len(horizons)) * 70.0)
         res = infer_boosting_online(
             dataset=run.dataset,
             model_name=run.model_name,
@@ -481,6 +500,8 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
         total_errors += len(res.get("errors") or [])
 
     forecast_skus = set(series_meta.keys())
+    
+    _update_job_progress(job_id, "Generating inventory recommendations...", 85.0)
     inventory_rows = _persist_online_inventory_recommendations(
         db,
         run,
@@ -488,6 +509,8 @@ def publish_online(db: Session, run: ForecastRun, horizons: list[int] | None = N
         series_meta,
         forecast_skus=forecast_skus if forecast_skus else None,
     )
+    
+    _update_job_progress(job_id, "Computing raw material requirements (MRP)...", 95.0)
     raw_material_result = persist_raw_material_requirements(db, run, fg_demand_by_sku=total_fg_demand)
 
     # Minimal online metric record for audit visibility.

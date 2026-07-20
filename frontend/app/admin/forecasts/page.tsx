@@ -5,14 +5,11 @@ import {
   aiForecastApi,
   type ForecastMetric,
   type ForecastPoint,
-  type GovernanceStatus,
-  type InferenceAuditResponse,
-  type InferenceAlertsResponse,
+  type DemandHistoryPoint,
+  type ForecastBacktestPoint,
   type InventoryRecommendation,
-  type OperationalHealthSnapshot,
-  type ProductionReadinessResponse,
-  type ReleaseEvidenceBundle,
-  type RuntimeContractHealth,
+  type RawMaterialRequirement,
+  type ForecastSkuItem,
 } from "@/lib/api/ai-forecast";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -23,8 +20,6 @@ import {
   Line,
   AreaChart,
   Area,
-  PieChart,
-  Pie,
   Cell,
   XAxis,
   YAxis,
@@ -45,44 +40,28 @@ import {
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
 
-const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "";
-const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "";
-const EVAL_SPLIT = "test";
+const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPERATIONAL_BASELINE_RM_PM";
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "EXTRA_TREES_RESPONSIVE";
+const EVAL_SPLIT = "untouched_test";
 const RUN_MODE: "online" = "online";
 
 // ── Design Color Palette ──────────────────────────────────────────
+// ── Design Color Palette (Modern Minimalist) ─────────────────────
 const C = {
-  bg: "#0b0f1a",
-  panel: "#111827",
-  border: "#1e2d45",
-  accent: "#00d4ff",
-  accent2: "#ff6b35",
-  accent3: "#00e5a0",
-  accent4: "#f59e0b",
-  muted: "#4a6080",
-  text: "#e2eaf5",
-  textDim: "#6b8aaa",
-  danger: "#ff4d6d",
-  warn: "#ffd166",
-  ok: "#00e5a0",
+  bg: "transparent",
+  panel: "transparent",
+  border: "#E5E7EB",
+  accent: "#CF0F47", // Primary Crimson
+  accent2: "#00E5A0", // Vibrant Emerald
+  accent3: "#0052FF", // Electric Blue
+  accent4: "#F59E0B", // Vibrant Amber
+  muted: "#9CA3AF",
+  text: "#374151",
+  textDim: "#6B7280",
+  danger: "#FF4D6D", // Vibrant Rose
+  warn: "#F59E0B",
+  ok: "#10B981",
 };
-
-// ── Fallback High-Fidelity Mock Generators ──────────────────────────
-function genBase(months = 24) {
-  const labels = [];
-  const d = new Date(2023, 0, 1);
-  for (let i = 0; i < months; i++) {
-    labels.push(d.toLocaleString("default", { month: "short", year: "2-digit" }));
-    d.setMonth(d.getMonth() + 1);
-  }
-  return labels;
-}
-
-const MONTHS = genBase(24);
-
-function sine(i: number, amp: number, period: number, phase = 0) {
-  return amp * Math.sin((2 * Math.PI * (i + phase)) / period);
-}
 
 const EMPTY_FORECAST: Array<{
   label: string;
@@ -94,13 +73,27 @@ const EMPTY_FORECAST: Array<{
   trend: number | null;
 }> = [];
 
-const CustomBrushHandle = (props: any) => {
-  const { x, y, width, height } = props;
+const ModernBrushHandle = (props: any) => {
+  const { x, y, height } = props;
+  const handleWidth = 14;
+  const handleHeight = 24;
+  const top = (height - handleHeight) / 2;
+  
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <rect x={0} y={0} width={width} height={height} fill={C.panel} stroke={C.textDim} rx={2} />
-      <line x1={width / 2 - 2} y1={height / 3} x2={width / 2 - 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
-      <line x1={width / 2 + 2} y1={height / 3} x2={width / 2 + 2} y2={height * 2 / 3} stroke={C.text} strokeWidth={1.5} strokeLinecap="round" />
+      <rect 
+        x={-handleWidth / 2} 
+        y={top} 
+        width={handleWidth} 
+        height={handleHeight} 
+        fill="#ffffff" 
+        stroke={C.textDim} 
+        strokeWidth={1} 
+        rx={4} 
+        className="cursor-ew-resize drop-shadow-sm hover:fill-base-200"
+      />
+      <line x1={-2} y1={top + 7} x2={-2} y2={top + handleHeight - 7} stroke={C.textDim} strokeWidth={1.5} strokeLinecap="round" />
+      <line x1={2} y1={top + 7} x2={2} y2={top + handleHeight - 7} stroke={C.textDim} strokeWidth={1.5} strokeLinecap="round" />
     </g>
   );
 };
@@ -118,16 +111,14 @@ interface KpiCardProps {
 function KpiCard({ title, value, sub, color, delta, icon }: KpiCardProps) {
   const up = delta !== undefined ? delta >= 0 : false;
   return (
-    <div 
-      className="card bg-base-100 border border-base-300 p-4 shadow-sm transition-all duration-200 hover:shadow-md"
-      style={{ borderTop: `4px solid ${color}` }}
-    >
+    <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300">
+      <div className="absolute top-0 left-0 w-full h-1" style={{ background: color }} />
       <div className="flex justify-between items-center mb-1">
-        <span className="text-[10px] uppercase tracking-wider text-base-content/60 font-semibold">{title}</span>
+        <span className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">{title}</span>
         <span className="material-symbols-outlined text-base-content/70 text-lg" style={{ color }}>{icon}</span>
       </div>
-      <span className="text-2xl font-bold text-base-content leading-none mb-1">{value}</span>
-      <div className="flex items-center gap-1 text-xs text-base-content/60">
+      <span className="text-3xl font-bold text-base-content leading-none mb-1">{value}</span>
+      <div className="flex items-center gap-1 text-xs text-base-content/60 mt-1">
         {delta !== undefined && (
           <span className={up ? "text-success font-semibold" : "text-error font-semibold"}>
             {up ? "▲" : "▼"} {Math.abs(delta)}%
@@ -178,11 +169,10 @@ function SectionHeader({ title, sub, color = C.accent }: { title: string; sub?: 
 function Badge({ label, color }: { label: string; color: string }) {
   return (
     <span 
-      className="px-2 py-0.5 text-[10px] font-bold rounded border"
+      className="px-3 py-1 text-xs font-bold rounded-full border-none"
       style={{ 
         background: color + "15", 
-        color: color, 
-        borderColor: color + "40"
+        color: color
       }}
     >
       {label}
@@ -266,6 +256,16 @@ const getMonthIndex = (monthStr: string): number => {
   return 0;
 };
 
+const displayModelName = (model?: string) => {
+  const normalized = (model || "").toUpperCase();
+  if (normalized === "EXTRA_TREES_RESPONSIVE") return "Extra Trees Responsive";
+  if (normalized === "EXTRA_TREES_DAMPED_TREND") return "Extra Trees with Damped Trend";
+  if (normalized === "EXTRA_TREES") return "Extra Trees";
+  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "RM/PM Causal Demand Forecast";
+  if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "RM/PM Demand Forecast";
+  return model || "Forecast model";
+};
+
 export default function ForecastsPage() {
   const { role, admin } = useAdmin();
   const isAdmin = role === "admin";
@@ -278,8 +278,8 @@ export default function ForecastsPage() {
     sku?: string;
     warehouseId: string;
   }>({
-    dataset: DEFAULT_DATASET || "P",
-    model: DEFAULT_MODEL || "LIGHTGBM",
+    dataset: DEFAULT_DATASET,
+    model: DEFAULT_MODEL,
     split: EVAL_SPLIT,
     horizon: undefined,
     sku: "",
@@ -289,29 +289,28 @@ export default function ForecastsPage() {
   const [triggering, setTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  const [runProgress, setRunProgress] = useState<number | null>(null);
   const [forecasts, setForecasts] = useState<ForecastPoint[]>([]);
+  const [demandHistory, setDemandHistory] = useState<DemandHistoryPoint[]>([]);
+  const [backtests, setBacktests] = useState<ForecastBacktestPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
   const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
-  const [inferenceAlerts, setInferenceAlerts] = useState<InferenceAlertsResponse | null>(null);
-  const [inferenceAudit, setInferenceAudit] = useState<InferenceAuditResponse | null>(null);
-  const [operationalHealth, setOperationalHealth] = useState<OperationalHealthSnapshot | null>(null);
-  const [runtimeContractHealth, setRuntimeContractHealth] = useState<RuntimeContractHealth | null>(null);
-  const [productionReadiness, setProductionReadiness] = useState<ProductionReadinessResponse | null>(null);
-  const [governanceStatus, setGovernanceStatus] = useState<GovernanceStatus | null>(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [rawMaterialReqs, setRawMaterialReqs] = useState<RawMaterialRequirement[]>([]);
+  const [forecastSkuCatalog, setForecastSkuCatalog] = useState<ForecastSkuItem[]>([]);
+  const [releaseStatus, setReleaseStatus] = useState<string>("UNREGISTERED");
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
+  const [skuTypeFilter, setSkuTypeFilter] = useState<"all" | "raw_material" | "packaging_material" | "product">("all");
   const [skuSearchInput, setSkuSearchInput] = useState("");
   const [skuSearchOpen, setSkuSearchOpen] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
   const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
-  const [healthRefreshing, setHealthRefreshing] = useState(false);
   const [showCI, setShowCI] = useState(false);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [runStatus, setRunStatus] = useState<{
     phase: string;
-    runId?: number;
+    jobId?: string;
+    runId?: string;
     message: string;
     updatedAt: string;
   }>({
@@ -332,7 +331,6 @@ export default function ForecastsPage() {
   ];
 
   const abcColor: Record<string, string> = { A: C.ok, B: C.accent4, C: C.muted };
-  const xyzColor: Record<string, string> = { X: C.accent, Y: C.accent2, Z: C.danger };
 
   const managerWarehouseScope = useMemo(() => {
     if (!admin) {
@@ -366,14 +364,15 @@ export default function ForecastsPage() {
   };
 
   const resolveBinding = async (): Promise<{ dataset: string; model: string }> => {
-    const championDataset = DEFAULT_DATASET || "P";
-    const championModel = (DEFAULT_MODEL || "LIGHTGBM").toUpperCase();
+    const championDataset = DEFAULT_DATASET;
+    const championModel = DEFAULT_MODEL.toUpperCase();
 
     try {
       const models = await aiForecastApi.getGatewayModels();
       const name = models?.champion?.name;
       if (name) {
-        return { dataset: championDataset, model: String(name).toUpperCase() };
+        const dataset = models?.champion?.dataset || championDataset;
+        return { dataset: String(dataset), model: String(name).toUpperCase() };
       }
     } catch (gatewayError) {
       logger.warn("[ForecastsPage] Gateway models unavailable, using configured champion:", gatewayError);
@@ -402,17 +401,15 @@ export default function ForecastsPage() {
       setError(null);
       if (!options?.keepInfo) {
         setInfoMessage(null);
+        setRunProgress(null);
       }
       const binding = await resolveBinding();
       if (!binding) {
         setForecasts([]);
         setMetrics([]);
         setRecommendations([]);
-        setInferenceAlerts(null);
-        setInferenceAudit(null);
-        setOperationalHealth(null);
-        setRuntimeContractHealth(null);
-        setProductionReadiness(null);
+        setRawMaterialReqs([]);
+        setReleaseStatus("UNREGISTERED");
         setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
         return { hasRows: false, latestRunId: undefined };
       }
@@ -421,13 +418,15 @@ export default function ForecastsPage() {
         setFilters((prev) => ({ ...prev, dataset: binding.dataset, model: binding.model }));
       }
 
-      const [forecastRes, metricRes, recoRes] = await Promise.all([
-        aiForecastApi.getForecasts({
-          dataset: binding.dataset,
-          model: binding.model,
-          sku: filters.sku,
-          warehouseId: effectiveWarehouseId,
-        }),
+      const forecastRes = await aiForecastApi.getForecasts({
+        dataset: binding.dataset,
+        model: binding.model,
+        sku: filters.sku,
+        warehouseId: effectiveWarehouseId,
+      });
+      setReleaseStatus(forecastRes.release_status ?? "UNREGISTERED");
+
+      const [metricResult, recoResult, rmResult, historyResult, backtestResult] = await Promise.allSettled([
         aiForecastApi.getForecastMetrics({
           dataset: binding.dataset,
           model: binding.model,
@@ -440,16 +439,57 @@ export default function ForecastsPage() {
           sku: filters.sku,
           warehouseId: effectiveWarehouseId,
         }),
+        aiForecastApi.getRawMaterialRequirements({
+          dataset: binding.dataset,
+          model: binding.model,
+          rmSku: filters.sku,
+          warehouseId: effectiveWarehouseId,
+        }),
+        aiForecastApi.getDemandHistory({
+          sku: filters.sku,
+          warehouseId: effectiveWarehouseId,
+          size: 200,
+        }),
+        aiForecastApi.getForecastBacktests({
+          sku: filters.sku,
+          model: binding.model,
+          warehouseId: effectiveWarehouseId,
+          size: 200,
+        }),
       ]);
 
+      try {
+        const skuResult = await aiForecastApi.getForecastSkus({
+          model: binding.model,
+          warehouseId: effectiveWarehouseId,
+        });
+        setForecastSkuCatalog(skuResult.items ?? []);
+      } catch (skuError) {
+        logger.warn("[ForecastsPage] Forecast SKU catalog unavailable:", skuError);
+      }
+
       let nextForecasts = forecastRes.items ?? [];
-      let nextMetrics = metricRes.items ?? [];
-      let nextRecommendations = recoRes.items ?? [];
+      let nextMetrics = metricResult.status === "fulfilled" ? metricResult.value.items ?? [] : [];
+      let nextRecommendations = recoResult.status === "fulfilled" ? recoResult.value.items ?? [] : [];
+      let nextRmReqs = rmResult.status === "fulfilled" ? rmResult.value.items ?? [] : [];
+      const nextHistory = historyResult.status === "fulfilled" ? historyResult.value.items ?? [] : [];
+      const nextBacktests = backtestResult.status === "fulfilled" ? backtestResult.value.items ?? [] : [];
+
+      if (metricResult.status === "rejected") {
+        logger.warn("[ForecastsPage] Metrics endpoint unavailable; continuing with forecast rows:", metricResult.reason);
+      }
+      if (recoResult.status === "rejected") {
+        logger.warn("[ForecastsPage] Inventory recommendation endpoint unavailable; continuing with forecast rows:", recoResult.reason);
+      }
+      if (rmResult.status === "rejected") {
+        logger.warn("[ForecastsPage] Raw-material requirement endpoint unavailable; continuing with direct RM/PM forecasts:", rmResult.reason);
+      }
 
       const candidateRunIds = [
         ...nextForecasts.map((r) => Number(r.run_id)),
         ...nextMetrics.map((r) => Number(r.run_id)),
         ...nextRecommendations.map((r) => Number(r.run_id)),
+        ...nextRmReqs.map((r) => Number(r.run_id)),
       ].filter((v) => Number.isFinite(v) && v > 0);
       const canonicalRunId = candidateRunIds.length ? Math.max(...candidateRunIds) : undefined;
 
@@ -457,16 +497,17 @@ export default function ForecastsPage() {
         const needsRunNormalization =
           nextForecasts.some((r) => Number(r.run_id) !== canonicalRunId) ||
           nextMetrics.some((r) => Number(r.run_id) !== canonicalRunId) ||
-          nextRecommendations.some((r) => Number(r.run_id) !== canonicalRunId);
+          nextRecommendations.some((r) => Number(r.run_id) !== canonicalRunId) ||
+          nextRmReqs.some((r) => Number(r.run_id) !== canonicalRunId);
         if (needsRunNormalization) {
-          const [forecastRunRes, metricRunRes, recoRunRes] = await Promise.all([
-            aiForecastApi.getForecasts({
-              dataset: binding.dataset,
-              model: binding.model,
-              sku: filters.sku,
-              warehouseId: effectiveWarehouseId,
-              runId: canonicalRunId,
-            }),
+          const forecastRunRes = await aiForecastApi.getForecasts({
+            dataset: binding.dataset,
+            model: binding.model,
+            sku: filters.sku,
+            warehouseId: effectiveWarehouseId,
+            runId: canonicalRunId,
+          });
+          const [metricRunResult, recoRunResult, rmRunResult] = await Promise.allSettled([
             aiForecastApi.getForecastMetrics({
               dataset: binding.dataset,
               model: binding.model,
@@ -480,42 +521,20 @@ export default function ForecastsPage() {
               warehouseId: effectiveWarehouseId,
               runId: canonicalRunId,
             }),
+            aiForecastApi.getRawMaterialRequirements({
+              dataset: binding.dataset,
+              model: binding.model,
+              rmSku: filters.sku,
+              warehouseId: effectiveWarehouseId,
+              runId: canonicalRunId,
+            }),
           ]);
           nextForecasts = forecastRunRes.items ?? [];
-          nextMetrics = metricRunRes.items ?? [];
-          nextRecommendations = recoRunRes.items ?? [];
+          nextMetrics = metricRunResult.status === "fulfilled" ? metricRunResult.value.items ?? [] : nextMetrics;
+          nextRecommendations = recoRunResult.status === "fulfilled" ? recoRunResult.value.items ?? [] : nextRecommendations;
+          nextRmReqs = rmRunResult.status === "fulfilled" ? rmRunResult.value.items ?? [] : nextRmReqs;
         }
       }
-
-      const [
-        inferenceAlertsResult,
-        inferenceAuditResult,
-        operationalHealthResult,
-        runtimeContractResult,
-        productionReadinessResult,
-        governanceStatusResult,
-      ] = await Promise.allSettled([
-        aiForecastApi.getInferenceAlerts({
-          limit: 200,
-          dataset: binding.dataset,
-          modelName: binding.model,
-        }),
-        aiForecastApi.getInferenceAudit({
-          limit: 200,
-          dataset: binding.dataset,
-          modelName: binding.model,
-        }),
-        aiForecastApi.getOperationalHealth(),
-        aiForecastApi.getRuntimeContractHealth(false),
-        aiForecastApi.getProductionReadiness({
-          dataset: binding.dataset,
-          modelName: binding.model,
-          split: EVAL_SPLIT,
-          inferenceWindow: 200,
-          soakHours: 24,
-        }),
-        isAdmin ? aiForecastApi.getGovernanceStatus() : Promise.resolve(null),
-      ]);
 
       const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
       const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
@@ -528,43 +547,9 @@ export default function ForecastsPage() {
       setForecasts(nextForecasts);
       setMetrics(nextMetrics);
       setRecommendations(nextRecommendations);
-      if (inferenceAlertsResult.status === "fulfilled") {
-        setInferenceAlerts(inferenceAlertsResult.value ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Inference alerts endpoint unavailable:", inferenceAlertsResult.reason);
-        setInferenceAlerts(null);
-      }
-      if (inferenceAuditResult.status === "fulfilled") {
-        setInferenceAudit(inferenceAuditResult.value ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Inference audit endpoint unavailable:", inferenceAuditResult.reason);
-        setInferenceAudit(null);
-      }
-      if (operationalHealthResult.status === "fulfilled") {
-        setOperationalHealth(operationalHealthResult.value ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Operational health endpoint unavailable:", operationalHealthResult.reason);
-        setOperationalHealth(null);
-      }
-      if (runtimeContractResult.status === "fulfilled") {
-        setRuntimeContractHealth(runtimeContractResult.value ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Runtime contract endpoint unavailable:", runtimeContractResult.reason);
-        setRuntimeContractHealth(null);
-      }
-      if (productionReadinessResult.status === "fulfilled") {
-        setProductionReadiness(productionReadinessResult.value ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Production readiness endpoint unavailable:", productionReadinessResult.reason);
-        setProductionReadiness(null);
-      }
-      if (governanceStatusResult.status === "fulfilled") {
-        setGovernanceStatus((governanceStatusResult.value as GovernanceStatus | null) ?? null);
-      } else {
-        logger.warn("[ForecastsPage] Governance status endpoint unavailable:", governanceStatusResult.reason);
-        setGovernanceStatus(null);
-      }
-      setLastLoadedAt(new Date().toISOString());
+      setRawMaterialReqs(nextRmReqs);
+      setDemandHistory(nextHistory);
+      setBacktests(nextBacktests);
       return {
         hasRows: !gotNoRows,
         latestRunId: canonicalRunId ?? (nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined),
@@ -578,23 +563,55 @@ export default function ForecastsPage() {
     }
   };
 
-  const waitForPublishedRows = async (runId: number) => {
-    const attempts = 40;
+  const waitForPublishedRows = async (jobId: string) => {
+    const attempts = 60;
     const delayMs = 1500;
     for (let i = 0; i < attempts; i += 1) {
       try {
-        const runRows = await aiForecastApi.getForecasts({
-          runId,
-          warehouseId: effectiveWarehouseId,
-        });
-        if ((runRows.items ?? []).length > 0) {
-          return true;
+        const job = await aiForecastApi.getForecastJob(jobId);
+        
+        if (job) {
+          if (job.status === "succeeded") {
+            setRunProgress(100);
+            return true;
+          }
+          if (job.status === "failed") {
+            logger.error("[ForecastsPage] Publish job failed:", job.message);
+            setError(`Publish job failed: ${job.message}`);
+            setRunProgress(null);
+            return false;
+          }
+          
+          // The Python inference call is synchronous, so Spring can only report
+          // its last durable stage. Interpolate the UI value and label it as an
+          // estimate instead of exposing poll attempts as if they were stages.
+          const reportedProgress = job.progress ?? 10;
+          const estimatedProgress = Math.min(
+            95,
+            Math.max(reportedProgress, 10 + Math.floor(((i + 1) / attempts) * 85))
+          );
+          setRunProgress(estimatedProgress);
+
+          const progressMsg = job.message
+            ? `${job.message} Estimated progress: ${estimatedProgress}%.`
+            : `Forecast pipeline is running. Estimated progress: ${estimatedProgress}%.`;
+            
+          setRunStatus(prev => ({
+            ...prev,
+            message: progressMsg
+          }));
+          setInfoMessage(progressMsg);
+        } else {
+          // Fallback if no job found yet
+          const progressMsg = "Forecast job accepted. Waiting for the pipeline to start...";
+          setInfoMessage(progressMsg);
         }
       } catch (pollError) {
-        logger.warn("[ForecastsPage] Polling run rows failed:", pollError);
+        logger.warn("[ForecastsPage] Polling run jobs failed:", pollError);
       }
       await sleep(delayMs);
     }
+    setRunProgress(null);
     return false;
   };
 
@@ -607,21 +624,12 @@ export default function ForecastsPage() {
       return;
     }
 
-    const currentInferenceStatus = String(inferenceAlerts?.status ?? "ok").toLowerCase();
-    let criticalOverride = false;
-    if (currentInferenceStatus === "critical") {
-      const proceed = window.confirm(
-        "Inference health is CRITICAL (high fallback/error/latency). Do you still want to trigger a new run?"
-      );
-      if (!proceed) {
-        return;
-      }
-      criticalOverride = true;
-    }
+    const criticalOverride = false;
 
     try {
       setTriggering(true);
       setError(null);
+      setRunProgress(0);
       setInfoMessage("Forecast run accepted. Waiting for published rows...");
       setRunStatus({
         phase: "triggering",
@@ -635,27 +643,33 @@ export default function ForecastsPage() {
         warehouseId: effectiveWarehouseId,
         criticalOverride,
       });
-      const runId = Number(triggerResult?.run_id ?? 0);
-      if (Number.isFinite(runId) && runId > 0) {
+      const jobId = String(triggerResult?.jobId ?? "");
+      const runId = String(triggerResult?.runId ?? "");
+      if (jobId) {
         setRunStatus({
           phase: "waiting_publish",
+          jobId,
           runId,
-          message: `Run ${runId} accepted (${RUN_MODE}). Waiting for published rows...`,
+          message: `Job ${jobId} accepted (${RUN_MODE}). Waiting for published rows...`,
           updatedAt: new Date().toISOString(),
         });
-        const published = await waitForPublishedRows(runId);
+        const published = await waitForPublishedRows(jobId);
         if (published) {
-          setInfoMessage(`Run ${runId} published. Showing latest data.`);
+          setInfoMessage(`Run ${runId} published successfully. Loading latest data...`);
+          setRunProgress(100);
           setRunStatus({
             phase: "published",
+            jobId,
             runId,
             message: `Run ${runId} published successfully via ${RUN_MODE} mode.`,
             updatedAt: new Date().toISOString(),
           });
         } else {
           setInfoMessage("Run started, but publish is still in progress. Showing latest available data.");
+          setRunProgress(null);
           setRunStatus({
             phase: "timeout",
+            jobId,
             runId,
             message: `Run ${runId} still publishing after wait window. Data may appear shortly.`,
             updatedAt: new Date().toISOString(),
@@ -682,6 +696,10 @@ export default function ForecastsPage() {
       });
     } finally {
       setTriggering(false);
+      setTimeout(() => {
+        setRunProgress(null);
+        setInfoMessage(null);
+      }, 5000);
     }
   };
 
@@ -721,11 +739,19 @@ export default function ForecastsPage() {
     [forecasts, latestRunId]
   );
 
+  const skuCategoryByCode = useMemo(() => {
+    const categories = new Map<string, string>();
+    forecastSkuCatalog.forEach((row) => categories.set(row.sku, String(row.material_type || "").toLowerCase()));
+    recommendations.forEach((row) => categories.set(row.sku, String(row.category || "").toLowerCase()));
+    latestForecasts.forEach((row) => categories.set(row.sku, String(row.category || "").toLowerCase()));
+    return categories;
+  }, [forecastSkuCatalog, latestForecasts, recommendations]);
+
   const skuOptions = useMemo(() => {
-    const fromRecommendations = recommendations.map((row) => row.sku);
-    const fromForecasts = latestForecasts.map((row) => row.sku);
-    return Array.from(new Set([...fromRecommendations, ...fromForecasts])).sort((a, b) => a.localeCompare(b));
-  }, [latestForecasts, recommendations]);
+    return Array.from(skuCategoryByCode.keys())
+      .filter((sku) => skuTypeFilter === "all" || skuCategoryByCode.get(sku) === skuTypeFilter)
+      .sort((a, b) => a.localeCompare(b));
+  }, [skuCategoryByCode, skuTypeFilter]);
 
   useEffect(() => {
     if (!skuOptions.length) {
@@ -743,6 +769,51 @@ export default function ForecastsPage() {
     }
     setSkuSearchInput(selectedSku);
   }, [selectedSku]);
+
+  useEffect(() => {
+    if (!selectedSku || !filters.model) {
+      return;
+    }
+    let cancelled = false;
+    const loadSelectedSkuSeries = async () => {
+      const [forecastResult, historyResult, backtestResult] = await Promise.allSettled([
+        aiForecastApi.getForecasts({
+          dataset: filters.dataset,
+          model: filters.model,
+          sku: selectedSku,
+          warehouseId: effectiveWarehouseId,
+          size: 24,
+        }),
+        aiForecastApi.getDemandHistory({ sku: selectedSku, warehouseId: effectiveWarehouseId, size: 100 }),
+        aiForecastApi.getForecastBacktests({
+          sku: selectedSku,
+          model: filters.model,
+          warehouseId: effectiveWarehouseId,
+          size: 200,
+        }),
+      ]);
+      if (cancelled) return;
+      if (forecastResult.status === "fulfilled") {
+        const selectedRows = forecastResult.value.items ?? [];
+        setForecasts((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+      }
+      if (historyResult.status === "fulfilled") {
+        const selectedRows = historyResult.value.items ?? [];
+        setDemandHistory((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+      }
+      if (backtestResult.status === "fulfilled") {
+        const selectedRows = backtestResult.value.items ?? [];
+        setBacktests((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+      }
+      if (forecastResult.status === "rejected") {
+        logger.warn("[ForecastsPage] Selected SKU forecast series failed:", forecastResult.reason);
+      }
+    };
+    void loadSelectedSkuSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveWarehouseId, filters.dataset, filters.model, selectedSku]);
 
   const deferredSkuQuery = useDeferredValue(skuSearchInput);
   const skuSearchResults = useMemo(() => {
@@ -772,43 +843,50 @@ export default function ForecastsPage() {
     return Array.from(byHorizon.values()).sort((a, b) => a.horizon - b.horizon);
   }, [metrics, filters.horizon]);
 
+  const aggregateMetric = useMemo(
+    () => filteredMetrics.find((metric) => metric.horizon === 0) ?? null,
+    [filteredMetrics]
+  );
+
   const avgWape = useMemo(() => {
+    if (typeof aggregateMetric?.WAPE === "number" && Number.isFinite(aggregateMetric.WAPE)) {
+      return aggregateMetric.WAPE;
+    }
     const values = filteredMetrics
+      .filter((m) => m.horizon > 0)
       .map((m) => m.WAPE)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) {
       return null;
     }
     return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [filteredMetrics]);
-
-  const avgMape = useMemo(() => {
-    const values = filteredMetrics
-      .map((m) => (m.WAPE !== undefined ? m.WAPE * 100 : null))
-      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    if (!values.length) {
-      return null;
-    }
-    return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [filteredMetrics]);
+  }, [aggregateMetric, filteredMetrics]);
 
   const avgRmse = useMemo(() => {
+    if (typeof aggregateMetric?.RMSE === "number" && Number.isFinite(aggregateMetric.RMSE)) {
+      return aggregateMetric.RMSE;
+    }
     const values = filteredMetrics
+      .filter((m) => m.horizon > 0)
       .map((m) => m.RMSE)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) {
       return null;
     }
     return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [filteredMetrics]);
+  }, [aggregateMetric, filteredMetrics]);
 
   const avgBias = useMemo(() => {
+    if (typeof aggregateMetric?.Bias === "number" && Number.isFinite(aggregateMetric.Bias)) {
+      return aggregateMetric.Bias;
+    }
     const values = filteredMetrics
+      .filter((m) => m.horizon > 0)
       .map((m) => m.Bias)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     if (!values.length) return null;
     return values.reduce((s, v) => s + v, 0) / values.length;
-  }, [filteredMetrics]);
+  }, [aggregateMetric, filteredMetrics]);
 
   const avgMase = useMemo(() => {
     const values = filteredMetrics
@@ -819,7 +897,13 @@ export default function ForecastsPage() {
   }, [filteredMetrics]);
 
   const avgCoverage = useMemo(() => {
-    const rows = latestForecasts.filter(
+    if (
+      typeof aggregateMetric?.empirical_interval_coverage === "number" &&
+      Number.isFinite(aggregateMetric.empirical_interval_coverage)
+    ) {
+      return aggregateMetric.empirical_interval_coverage * 100;
+    }
+    const rows = backtests.filter(
       (f) =>
         f.horizon > 0 &&
         f.y_true !== null &&
@@ -834,7 +918,7 @@ export default function ForecastsPage() {
     if (!rows.length) return null;
     const inside = rows.filter((f) => Number(f.y_true) >= Number(f.p10) && Number(f.y_true) <= Number(f.p90)).length;
     return (inside / rows.length) * 100;
-  }, [latestForecasts]);
+  }, [aggregateMetric, backtests]);
 
   const avgActualDemand = useMemo(() => {
     const actualValues = latestForecasts
@@ -859,16 +943,21 @@ export default function ForecastsPage() {
     return (avgRmse / avgActualDemand) * 100;
   }, [avgActualDemand, avgRmse]);
 
-  const reorderNowCount = useMemo(
-    () =>
-      recommendations.filter(
-        (row) =>
-          row.on_hand_inventory !== null &&
-          row.on_hand_inventory !== undefined &&
-          row.on_hand_inventory < row.reorder_point
-      ).length,
-    [recommendations]
-  );
+  const reorderNowCount = useMemo(() => {
+    const fgCount = recommendations.filter(
+      (row) =>
+        row.on_hand_inventory !== null &&
+        row.on_hand_inventory !== undefined &&
+        row.on_hand_inventory < row.reorder_point
+    ).length;
+    const rmCount = rawMaterialReqs.filter(
+      (row) =>
+        row.on_hand_inventory !== null &&
+        row.on_hand_inventory !== undefined &&
+        row.on_hand_inventory < row.reorder_point
+    ).length;
+    return fgCount + rmCount;
+  }, [recommendations, rawMaterialReqs]);
 
   const overstockCount = useMemo(
     () =>
@@ -903,59 +992,6 @@ export default function ForecastsPage() {
     () => recommendations.find((row) => row.sku === selectedSku) ?? null,
     [recommendations, selectedSku]
   );
-
-  const inferenceMix = useMemo(() => {
-    const items = inferenceAudit?.items ?? [];
-    let totalSeries = 0;
-    let totalFallback = 0;
-    let totalErrors = 0;
-    for (const item of items) {
-      const s = Number(item.series_count ?? 0);
-      const f = Number(item.fallback_count ?? 0);
-      const e = Number(item.errors_count ?? 0);
-      totalSeries += Number.isFinite(s) ? s : 0;
-      totalFallback += Number.isFinite(f) ? f : 0;
-      totalErrors += Number.isFinite(e) ? e : 0;
-    }
-    const primary = Math.max(totalSeries - totalFallback - totalErrors, 0);
-    const denom = totalSeries || 1;
-    const primaryModelName = (
-      (items.find((it) => typeof it.model_name === "string" && it.model_name.trim())?.model_name as string | undefined) ||
-      filters.model ||
-      "Primary"
-    ).toString();
-    const fallbackMethodSet = new Set<string>();
-    for (const item of items) {
-      const methods = item.fallback_methods;
-      if (Array.isArray(methods)) {
-        methods.forEach((m) => {
-          if (typeof m === "string" && m.trim()) fallbackMethodSet.add(m.trim().toUpperCase());
-        });
-      }
-      const baseline = item.baseline_method;
-      if (typeof baseline === "string" && baseline.trim()) {
-        fallbackMethodSet.add(baseline.trim().toUpperCase());
-      }
-    }
-    const fallbackLabel =
-      fallbackMethodSet.size > 0 ? Array.from(fallbackMethodSet).sort().join(" / ") : "Fallback";
-    return {
-      totalSeries,
-      totalFallback,
-      totalErrors,
-      primary,
-      primaryModelName,
-      fallbackLabel,
-      fallbackRatePct: Number(((totalFallback / denom) * 100).toFixed(2)),
-      errorRatePct: Number(((totalErrors / denom) * 100).toFixed(2)),
-      primaryRatePct: Number(((primary / denom) * 100).toFixed(2)),
-      donut: [
-        { name: primaryModelName, value: primary, color: C.accent3 },
-        { name: fallbackLabel, value: totalFallback, color: C.accent4 },
-        { name: "Failed", value: totalErrors, color: C.danger },
-      ],
-    };
-  }, [filters.model, inferenceAudit]);
 
   const filteredRecommendations = useMemo(() => {
     const q = inventorySearch.trim().toLowerCase();
@@ -1017,14 +1053,6 @@ export default function ForecastsPage() {
     return "badge-ghost";
   }, [runStatus.phase]);
 
-  const statusBadgeStyle = (status?: string | null) => {
-    const norm = String(status ?? "").toLowerCase();
-    if (norm === "ok") return { color: '#00e5a0', borderColor: '#00e5a0', backgroundColor: 'transparent', borderWidth: '1px' };
-    if (norm === "warn") return { color: '#ffd166', borderColor: '#ffd166', backgroundColor: 'transparent', borderWidth: '1px' };
-    if (norm === "critical" || norm === "error") return { color: '#ff4d6d', borderColor: '#ff4d6d', backgroundColor: 'transparent', borderWidth: '1px' };
-    return {};
-  };
-
   const applySkuSearch = () => {
     const q = skuSearchInput.trim().toLowerCase();
     if (!q) {
@@ -1063,69 +1091,6 @@ export default function ForecastsPage() {
     setSelectedSku(sku);
     setSkuSearchInput(sku);
     setSkuSearchOpen(false);
-  };
-
-  const refreshOperationalHealthNow = async () => {
-    try {
-      setHealthRefreshing(true);
-      setError(null);
-      const snap = await aiForecastApi.refreshOperationalHealth();
-      setOperationalHealth(snap ?? null);
-      const contract = await aiForecastApi.getRuntimeContractHealth(true);
-      setRuntimeContractHealth(contract ?? null);
-      const readiness = await aiForecastApi.getProductionReadiness({
-        dataset: filters.dataset || undefined,
-        modelName: filters.model || undefined,
-        split: EVAL_SPLIT,
-        inferenceWindow: 200,
-        soakHours: 24,
-      });
-      setProductionReadiness(readiness ?? null);
-      if (isAdmin) {
-        const governance = await aiForecastApi.getGovernanceStatus();
-        setGovernanceStatus(governance ?? null);
-      }
-    } catch (ex) {
-      logger.error("[ForecastsPage] Failed to refresh operational health:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to refresh operational health");
-    } finally {
-      setHealthRefreshing(false);
-    }
-  };
-
-  const runGovernanceTickNow = async () => {
-    try {
-      setHealthRefreshing(true);
-      const status = await aiForecastApi.runGovernanceTick();
-      setGovernanceStatus(status ?? null);
-      await refreshOperationalHealthNow();
-    } catch (ex) {
-      logger.error("[ForecastsPage] Failed to run governance tick:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to run governance tick");
-    } finally {
-      setHealthRefreshing(false);
-    }
-  };
-
-  const exportReleaseEvidence = async () => {
-    try {
-      setEvidenceLoading(true);
-      const evidence: ReleaseEvidenceBundle = await aiForecastApi.getReleaseEvidence({
-        dataset: filters.dataset || undefined,
-        modelName: filters.model || undefined,
-        split: EVAL_SPLIT,
-        inferenceWindow: 200,
-        soakHours: 24,
-        historyLimit: 200,
-      });
-      const stamp = new Date().toISOString().replaceAll(":", "-");
-      downloadJson(`forecast_release_evidence_${stamp}.json`, evidence);
-    } catch (ex) {
-      logger.error("[ForecastsPage] Failed to export release evidence:", ex);
-      setError(ex instanceof Error ? ex.message : "Failed to export release evidence");
-    } finally {
-      setEvidenceLoading(false);
-    }
   };
 
   // ── LIVE DATA PROCESSORS ──────────────────────────────────────────
@@ -1190,24 +1155,24 @@ export default function ForecastsPage() {
         upper: Math.round(g.upperSum),
         lower: Math.round(g.lowerSum),
         ciRange: [Math.round(g.lowerSum), Math.round(g.upperSum)],
-        trend: Math.round(g.forecastSum * 0.95)
+        trend: null
       }));
   }, [latestForecasts, selectedSku, filters.horizon]);
 
   // 2. Seasonality Live Calculation
   const liveSeasonality = useMemo(() => {
-    const filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
-      : latestForecasts;
+    const filtered = selectedSku
+      ? demandHistory.filter(f => f.sku === selectedSku)
+      : demandHistory;
       
     if (!filtered.length) return [];
 
     const monthlyActuals: Record<number, number[]> = {};
     filtered.forEach(f => {
-      if (f.y_true === null || f.y_true === undefined || !f.month) return;
+      if (!f.month) return;
       const m = getMonthIndex(f.month);
       if (!monthlyActuals[m]) monthlyActuals[m] = [];
-      monthlyActuals[m].push(Number(f.y_true));
+      monthlyActuals[m].push(Number(f.actual_demand));
     });
     
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -1229,34 +1194,77 @@ export default function ForecastsPage() {
       index: Number((l.avg / overallAvg).toFixed(2)),
       sales: Math.round(l.avg)
     }));
-  }, [latestForecasts, selectedSku]);
+  }, [demandHistory, selectedSku]);
 
   // 3. Inventory Projection Simulation
   const liveInventoryFlow = useMemo(() => {
-    const filtered = selectedSku 
+    let filtered = selectedSku 
       ? latestForecasts.filter(f => f.sku === selectedSku)
       : latestForecasts;
       
-    if (!filtered.length) return [];
-
-    const rec = recommendations.find(r => r.sku === (selectedSku || recommendations[0]?.sku));
-    const startStock = rec?.on_hand_inventory ?? 500;
-    const rop = rec?.reorder_point ?? 100;
-    const maxStock = rec?.target_max ?? 1000;
+    const isRawMaterialOnly = !!selectedSku && !filtered.length && rawMaterialReqs.some(r => r.rm_sku === selectedSku);
     
-    const futureMonths = filtered
-      .filter(f => (f.y_true === null || f.y_true === undefined) && f.month)
-      .reduce((acc, f) => {
-        const dateStr = f.month;
-        const label = formatMonthLabel(dateStr);
-        if (!acc[dateStr]) {
-          acc[dateStr] = { dateStr, label, demand: 0 };
+    if (!filtered.length && !isRawMaterialOnly) return [];
+
+    let sortedFuture: { dateStr: string; label: string; demand: number }[] = [];
+
+    if (isRawMaterialOnly) {
+      const rmRec = rawMaterialReqs.find(r => r.rm_sku === selectedSku)!;
+      const monthlyDemand = Math.round(rmRec.gross_requirement_qty / 12);
+      const d = new Date();
+      for (let i = 1; i <= 12; i++) {
+        const nextDate = new Date(d.getFullYear(), d.getMonth() + i, 1);
+        const dateStr = nextDate.toISOString().substring(0, 7);
+        sortedFuture.push({
+          dateStr,
+          label: formatMonthLabel(dateStr),
+          demand: monthlyDemand
+        });
+      }
+    } else {
+      const futureMonths = filtered
+        .filter(f => (f.y_true === null || f.y_true === undefined) && f.month)
+        .reduce((acc, f) => {
+          const dateStr = f.month;
+          const label = formatMonthLabel(dateStr);
+          if (!acc[dateStr]) {
+            acc[dateStr] = { dateStr, label, demand: 0 };
+          }
+          acc[dateStr].demand += Number(f.p50);
+          return acc;
+        }, {} as Record<string, { dateStr: string; label: string; demand: number }>);
+        
+      sortedFuture = Object.values(futureMonths).sort((a, b) => compareMonthLabels(a.dateStr, b.dateStr));
+    }
+
+    let startStock = 0;
+    let rop = 0;
+    let maxStock = 0;
+
+    if (recommendations.length > 0 || rawMaterialReqs.length > 0) {
+      if (selectedSku) {
+        const rec = recommendations.find(r => r.sku === selectedSku);
+        const rmRec = rawMaterialReqs.find(r => r.rm_sku === selectedSku);
+        
+        if (rec) {
+          startStock = rec.on_hand_inventory ?? 500;
+          rop = rec.reorder_point ?? 0;
+          maxStock = rec.target_max ?? 1000;
+        } else if (rmRec) {
+          startStock = rmRec.on_hand_inventory ?? 500;
+          rop = rmRec.reorder_point ?? 0;
+          maxStock = (rmRec.reorder_point + rmRec.suggested_procure_qty) || 1000;
+        } else {
+          return [];
         }
-        acc[dateStr].demand += Number(f.p50);
-        return acc;
-      }, {} as Record<string, { dateStr: string; label: string; demand: number }>);
-      
-    const sortedFuture = Object.values(futureMonths).sort((a, b) => compareMonthLabels(a.dateStr, b.dateStr));
+      } else {
+        startStock = recommendations.reduce((sum, r) => sum + (r.on_hand_inventory ?? 0), 0) || 500;
+        rop = recommendations.reduce((sum, r) => sum + (r.reorder_point ?? 0), 0) || 0;
+        maxStock = recommendations.reduce((sum, r) => sum + (r.target_max ?? 0), 0) || 1000;
+      }
+    } else {
+      return [];
+    }
     
     let currentStock = startStock;
     return sortedFuture.map(m => {
@@ -1276,7 +1284,7 @@ export default function ForecastsPage() {
         suggested: reorderQty
       };
     });
-  }, [latestForecasts, recommendations, selectedSku]);
+  }, [latestForecasts, recommendations, rawMaterialReqs, selectedSku]);
 
   // 4. SKU Details and Classification
   const liveSkuDetails = useMemo(() => {
@@ -1284,17 +1292,14 @@ export default function ForecastsPage() {
     return recommendations.map(rec => {
       const sid = rec.sku;
       const seriesPoints = latestForecasts.filter(f => f.sku === sid);
-      const actuals = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined).map(f => Number(f.y_true));
-      const skuHash = sid.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 80 + (skuHash % 420);
-      
-      const abc = velocity > 350 ? "A" : velocity > 120 ? "B" : "C";
-      const xyz = rec.suggested_order_qty > 200 ? "Z" : rec.suggested_order_qty > 50 ? "Y" : "X";
-      
-      const hist = seriesPoints.filter(f => f.y_true !== null && f.y_true !== undefined);
-      const sumAbsErr = hist.reduce((s, f) => s + Math.abs(Number(f.y_true) - Number(f.p50)), 0);
+      const actuals = demandHistory.filter(f => f.sku === sid).map(f => Number(f.actual_demand));
+      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 0;
+      const abc = rec.abc_class || "-";
+      const fms = rec.fms_class || "-";
+      const hist = backtests.filter(f => f.sku === sid);
+      const sumAbsErr = hist.reduce((s, f) => s + Number(f.absolute_error), 0);
       const sumActual = hist.reduce((s, f) => s + Number(f.y_true), 0);
-      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 3.0 + (skuHash % 60) / 10;
+      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 0;
       
       const onHand = rec.on_hand_inventory ?? 0;
       const coverDays = velocity > 0 ? Math.round((onHand / (velocity / 30))) : 20;
@@ -1306,7 +1311,7 @@ export default function ForecastsPage() {
         stockDays: coverDays,
         mape: Number(mape.toFixed(1)),
         abc,
-        xyz,
+        fms,
         reorderPoint: rec.reorder_point,
         safetyStock: rec.safety_stock,
         targetMax: rec.target_max,
@@ -1314,28 +1319,24 @@ export default function ForecastsPage() {
         suggested: rec.suggested_order_qty
       };
     });
-  }, [recommendations, latestForecasts]);
+  }, [recommendations, demandHistory, backtests]);
 
   // 5. Model QA Residuals
   const liveResiduals = useMemo(() => {
-    const filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
-      : latestForecasts;
-      
-    const hist = filtered.filter(f => f.y_true !== null && f.y_true !== undefined && f.month);
+    const hist = selectedSku ? backtests.filter(f => f.sku === selectedSku) : backtests;
     if (!hist.length) return [];
     
     const sortedHist = [...hist].sort((a, b) => compareMonthLabels(a.month, b.month));
     return sortedHist.map(f => {
       const label = formatMonthLabel(f.month);
-      const residual = Number(f.y_true) - Number(f.p50);
+      const residual = Number(f.residual);
       return {
         label,
         residual: Math.round(residual),
         absError: Math.round(Math.abs(residual))
       };
     }).slice(-18);
-  }, [latestForecasts, selectedSku]);
+  }, [backtests, selectedSku]);
 
   // ── FINAL DATA RESOLUTION (live API only — no synthetic fallbacks) ──────
   const finalForecastData = aggregatedForecastData.length > 0 ? aggregatedForecastData : EMPTY_FORECAST;
@@ -1345,16 +1346,20 @@ export default function ForecastsPage() {
   const finalInventory = liveInventoryFlow;
   const hasLiveForecastData = aggregatedForecastData.length > 0;
   const hasBacktestActuals = useMemo(
-    () => latestForecasts.some((f) => f.y_true !== null && f.y_true !== undefined),
-    [latestForecasts]
+    () => backtests.length > 0,
+    [backtests]
   );
-  const forecastedUnits6Mo = useMemo(() => {
+  const forecastHorizonMonths = filters.horizon ?? 12;
+  const forecastedUnitsForHorizon = useMemo(() => {
     const rows = latestForecasts.filter(
-      (f) => f.horizon <= 6 && (f.y_true === null || f.y_true === undefined)
+      (f) =>
+        (!selectedSku || f.sku === selectedSku) &&
+        f.horizon <= forecastHorizonMonths &&
+        (f.y_true === null || f.y_true === undefined)
     );
     if (!rows.length) return null;
     return Math.round(rows.reduce((s, f) => s + Number(f.p50 || 0), 0));
-  }, [latestForecasts]);
+  }, [latestForecasts, selectedSku, forecastHorizonMonths]);
   const avgStockCoverDays = useMemo(() => {
     if (!liveSkuDetails.length) return null;
     const vals = liveSkuDetails.map((s) => s.stockDays).filter((d) => Number.isFinite(d) && d > 0);
@@ -1412,38 +1417,39 @@ export default function ForecastsPage() {
     return firstFuture?.label;
   }, [finalForecastData]);
 
-  const mapeVal = avgMape !== null ? Number(avgMape.toFixed(1)) : (avgWape !== null ? Number((avgWape * 100).toFixed(1)) : null);
+  const wapeVal = avgWape !== null ? Number((avgWape * 100).toFixed(1)) : null;
   const rmseVal = avgRmse !== null ? Math.round(avgRmse) : null;
-  const biasVal = avgBias !== null ? Number(avgBias.toFixed(1)) : null;
+  const biasVal = avgBias !== null ? Number((avgBias * 100).toFixed(1)) : null;
   const maseVal = avgMase !== null ? Number(avgMase.toFixed(2)) : null;
   const nrmseVal = avgMase !== null ? Math.round(avgMase) : (normalizedRmse !== null ? Math.round(normalizedRmse) : null);
   const coverageVal = avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
   const fmtMetric = (v: number | null, suffix = "") => (v === null ? "—" : `${v}${suffix}`);
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-8">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-base-300 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center text-xl shadow-md text-white">
-            <span className="material-symbols-outlined text-lg">sensors</span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">DEMAND FORECAST INTELLIGENCE</h1>
-            <p className="text-xs text-base-content/60 mt-0.5">
-              Active Module · Colombo Main Warehouse · Model: {filters.model || "LIGHTGBM"}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-right">
-            <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" /> LIVE ENGINE
+      <div className="flex flex-col xl:flex-row xl:items-end xl:justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 mb-3 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-primary" />
+            <span className="font-mono text-xs uppercase tracking-[0.15em] text-primary">
+              AI Forecast
             </span>
-            <p className="text-[10px] text-base-content/50 mt-0.5">Retrained & updated</p>
           </div>
-          <div className="badge badge-success badge-lg py-3 font-semibold text-xs">
-            MAPE: {fmtMetric(mapeVal, "%")}
+          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">RM/PM Demand Forecast</h1>
+          <p className="text-sm text-base-content/60 mt-2 font-medium">
+            Active Module · Colombo Main Warehouse · Model: {displayModelName(filters.model)}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="text-right mr-2">
+            <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
+              <span className="w-2 h-2 rounded-full bg-success" /> CANONICAL FORECAST
+            </span>
+            <p className="text-[10px] text-base-content/50 mt-0.5">{releaseStatus.replaceAll("_", " ")}</p>
+          </div>
+          <div className="badge badge-success badge-lg py-3 px-4 font-semibold text-xs rounded-full">
+            WAPE: {fmtMetric(wapeVal, "%")}
           </div>
         </div>
       </div>
@@ -1459,7 +1465,7 @@ export default function ForecastsPage() {
       )}
 
       {/* Engine Control Panel Accordion */}
-      <div className="collapse collapse-arrow bg-base-100 border border-base-300 rounded-xl shadow-sm">
+      <div className="collapse collapse-arrow bg-base-100 shadow-sm border-none rounded-2xl">
         <input type="checkbox" defaultChecked={false} /> 
         <div className="collapse-title text-sm font-bold flex items-center gap-2 text-base-content/85">
           <span className="material-symbols-outlined text-primary text-base">settings_applications</span>
@@ -1500,8 +1506,8 @@ export default function ForecastsPage() {
               />
             </label>
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Active Model</span>
-              <input className="input input-bordered input-sm" value={filters.model || "LIGHTGBM"} disabled />
+              <span className="label-text text-xs font-medium mb-1">Active Forecast</span>
+              <input className="input input-bordered input-sm" value={displayModelName(filters.model)} disabled />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
               
@@ -1509,8 +1515,9 @@ export default function ForecastsPage() {
                 {loading ? "Reloading..." : "Reload Data"}
               </button>
               {isAdmin && (
-                <button className="btn btn-primary btn-sm" onClick={() => void triggerRun()} disabled={triggering}>
-                  {triggering ? "Running..." : "Run Forecast"}
+                <button className="btn btn-secondary btn-sm shadow-md" onClick={() => void triggerRun()} disabled={triggering}>
+                  <span className="material-symbols-outlined text-[16px] mr-1">bolt</span>
+                  {triggering ? "Recalculating..." : "Recalculate Forecast Now"}
                 </button>
               )}
             </div>
@@ -1523,102 +1530,58 @@ export default function ForecastsPage() {
             </div>
           )}
           {infoMessage && (
-            <div className="text-xs text-info font-medium flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-xs">info</span>
-              <span>Info: {infoMessage}</span>
-            </div>
-          )}
-
-          {/* Core WMS checks and details */}
-          {isAdmin && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-base-300 pt-3">
-              {/* Operational Check Card */}
-              <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Operational Health</span>
-                  <button className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5" onClick={() => void refreshOperationalHealthNow()} disabled={healthRefreshing}>
-                    Refresh
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                  <div className="flex justify-between items-center">
-                    <span>Overall:</span>
-                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(operationalHealth?.status)}>{operationalHealth?.status ?? "OK"}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span>Drift:</span>
-                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(operationalHealth?.drift_status)}>{operationalHealth?.drift_status ?? "OK"}</span>
-                  </div>
-                  <div className="flex justify-between col-span-2 items-center">
-                    <span>DB Schema Contract:</span>
-                    <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={statusBadgeStyle(runtimeContractHealth?.status)}>{runtimeContractHealth?.status ?? "OK"}</span>
-                  </div>
-                </div>
+            <div className="text-xs font-medium flex items-center gap-3 bg-base-200/50 p-2.5 rounded-lg border border-base-300">
+              <div className="flex items-center gap-1.5 text-info">
+                <span className="material-symbols-outlined text-xs">info</span>
+                <span>{infoMessage}</span>
               </div>
-
-              {/* Readiness Checks Card */}
-              <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Model Readiness Gates</span>
-                  <span className="badge badge-sm font-bold tracking-wider uppercase px-2" style={productionReadiness?.ready ? { color: '#00e5a0', borderColor: '#00e5a0', backgroundColor: 'transparent', borderWidth: '1px' } : { color: '#ffd166', borderColor: '#ffd166', backgroundColor: 'transparent', borderWidth: '1px' }}>
-                    {productionReadiness?.ready ? "PASS" : "WARN"}
+              {runProgress !== null && (
+                <div className="flex-1 flex items-center gap-2 max-w-sm">
+                  <progress 
+                    className="progress progress-info w-full" 
+                    value={runProgress} 
+                    max="100"
+                  ></progress>
+                  <span className="text-[10px] text-base-content/70 font-bold tabular-nums">
+                    {Math.round(runProgress)}%
                   </span>
                 </div>
-                <div className="grid grid-cols-2 gap-1 text-[10px] text-base-content/70">
-                  {(productionReadiness?.checks ?? []).slice(0, 4).map((c) => (
-                    <div key={c.name} className="flex justify-between items-center truncate pr-1">
-                      <span>{c.name}:</span>
-                      <span className="flex items-center">
-                        {c.pass ? (
-                          <span className="material-symbols-outlined text-success text-[14px]">check_circle</span>
-                        ) : (
-                          <span className="material-symbols-outlined text-error text-[14px]">cancel</span>
-                        )}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Automatic Governance Card */}
-              <div className="card bg-base-200/50 p-3 rounded-lg border border-base-300">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-bold text-base-content/80">Auto Governance Status</span>
-                  <button className="btn btn-ghost btn-xs text-[10px] h-auto min-h-0 py-0.5 px-1.5" onClick={() => void runGovernanceTickNow()} disabled={healthRefreshing}>
-                    Governance Tick
-                  </button>
-                </div>
-                <div className="text-[10px] space-y-1">
-                  <div className="flex justify-between">
-                    <span>Active Dataset Mapping:</span>
-                    <span className="font-semibold text-primary">{governanceStatus?.dataset ?? "P"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Promotion Rule Cycle:</span>
-                    <span className="font-semibold">{governanceStatus?.auto_promote ? "Auto Champion" : "Manual"}</span>
-                  </div>
-                  <div className="truncate text-base-content/60">
-                    Msg: {governanceStatus?.last_action?.message || "Operational check status normal"}
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           )}
+
         </div>
       </div>
 
       {/* Global SKU Selector & Search Bar */}
       <div className="card bg-base-100 border border-base-300 p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">Target Analysis SKU:</span>
           <div className="badge badge-outline badge-md font-mono text-primary px-3 py-2 font-bold bg-base-200">
             {selectedSku || "All SKUs Combined"}
+          </div>
+          <div className="join" aria-label="Material type filter">
+            {([
+              ["all", "All"],
+              ["raw_material", "Raw materials"],
+              ["packaging_material", "Packaging"],
+              ["product", "Finished goods"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`join-item btn btn-xs ${skuTypeFilter === value ? "btn-primary" : "btn-outline"}`}
+                onClick={() => setSkuTypeFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
         <div className="relative flex items-center gap-2 w-full md:w-auto">
           <input
             className="input input-bordered input-sm w-full md:w-64"
-            placeholder="Search numeric SKU (e.g. 300001)"
+            placeholder="Search SKU (for example RM-0001)"
             value={skuSearchInput}
             onChange={(e) => onSkuSearchInputChange(e.target.value)}
             onFocus={() => setSkuSearchOpen(true)}
@@ -1697,11 +1660,11 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI Summary Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <KpiCard title="Forecast Accuracy" value={mapeVal !== null ? `${(100 - mapeVal).toFixed(1)}%` : "—"} sub={mapeVal !== null ? `WAPE = ${mapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
-            <KpiCard title="Forecasted Units" value={forecastedUnits6Mo !== null ? forecastedUnits6Mo.toLocaleString() : "—"} sub="Sum P50 horizons 1–6" color={C.accent} icon="package_2" />
+            <KpiCard title="Forecast Accuracy" value={wapeVal !== null ? `${(100 - wapeVal).toFixed(1)}%` : "—"} sub={wapeVal !== null ? `WAPE = ${wapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
+            <KpiCard title="Forecasted Units" value={forecastedUnitsForHorizon !== null ? forecastedUnitsForHorizon.toLocaleString() : "—"} sub={`Sum P50 horizons 1–${forecastHorizonMonths}`} color={C.accent} icon="package_2" />
             <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} icon="warning" />
-            <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent4} icon="grid_view" />
-            <KpiCard title="Forecast Bias (MPE)" value={fmtMetric(biasVal, "%")} sub="Mean Percentage Error across horizons" color={C.warn} icon="balance" />
+            <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent3} icon="grid_view" />
+            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="Aggregate signed error on the untouched test" color={C.warn} icon="balance" />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
@@ -1718,21 +1681,17 @@ export default function ForecastsPage() {
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11, paddingTop: 10 }} />
-                  {transitionLabel && (
-                    <ReferenceLine x={transitionLabel} stroke={C.accent4} strokeDasharray="5 5" label={{ value: "Forecast Start", fill: C.accent4, fontSize: 10 }} />
-                  )}
+                  {transitionLabel && null}
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
-                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
-                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
+                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Upper interval bound" />
+                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower interval bound" />
                     </>
                   )}
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1} dot={false} strokeDasharray="4 3" name="Baseline Trend" />
                   <Line type="monotone" dataKey="actual" stroke="#000000" strokeWidth={2.5} dot={false} name="Actual Demand" connectNulls />
                   <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
                   <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Future Forecast" connectNulls />
-                  <Brush dataKey="label" height={24} stroke={C.textDim} fill={C.border} tickFormatter={() => ""} travellerWidth={14} traveller={CustomBrushHandle} />
+                  <Brush startIndex={Math.max(0, processedForecastData.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
               )}
@@ -1770,7 +1729,7 @@ export default function ForecastsPage() {
 
             {/* Projected Stock Flow Simulation */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Projected Stock vs Demand Flow" sub="Calculated based on dynamic reorder points (ROP)" color={C.accent3} />
+              <SectionHeader title="Projected Stock vs Demand Flow" sub="Inventory-policy simulation using forecast demand and reorder assumptions; not observed future stock" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={finalInventory.slice(-12)}>
@@ -1794,10 +1753,10 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Detailed Forecast View */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="6-Month Forward Forecast with Confidence Intervals" sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
+            <SectionHeader title={`${forecastHorizonMonths}-Month Forward Forecast with Confidence Intervals`} sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={processedForecastData.slice(-8)}>
+                <ComposedChart data={processedForecastData.slice(-forecastHorizonMonths)}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
@@ -1805,38 +1764,24 @@ export default function ForecastsPage() {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {showCI && (
                     <>
-                      <Area type="monotone" dataKey="ciRange" fill={C.accent} fillOpacity={0.15} stroke="none" name="90% Confidence Interval" />
                       <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
                       <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
                     </>
                   )}
                   <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2.5} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
                   <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={3} dot={{ r: 4, fill: C.accent }} name="Future Forecast" connectNulls />
-                  <Line type="monotone" dataKey="trend" stroke={C.muted} strokeWidth={1.5} strokeDasharray="4 3" dot={false} name="Baseline Trend" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          {/* Exogenous Variables & Seasonality Radar */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Market Drivers */}
-            <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Market Drivers & Promotions" sub="How external events (weather, pricing, campaigns) impact our baseline demand" color={C.accent4} />
-              <div className="h-56 w-full mt-3">
-                <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
-                  Exogenous drivers (promo, weather, price) are not published with online runs yet.
-                </div>
-              </div>
-            </div>
-
-            {/* Seasonality Radar */}
+          <div>
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Seasonality Radar" sub="Relative seasonal intensity across calendar year" color={C.accent3} />
               <div className="h-56 w-full mt-3 flex justify-center items-center">
                 {finalSeasonality.length === 0 ? (
                   <div className="text-sm text-base-content/60 px-4 text-center">
-                    Needs ≥12 months of actual demand per SKU. Not available from H+1 online publish.
+                    Needs at least 12 months of demand history for the selected SKU.
                   </div>
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -1857,10 +1802,10 @@ export default function ForecastsPage() {
           {/* Detailed Forecast Points Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="6-Month Forecast Details Table" sub="Monthly forecasts with confidence intervals" color={C.accent} />
+              <SectionHeader title={`${forecastHorizonMonths}-Month Forecast Details Table`} sub="Monthly forecasts with confidence intervals" color={C.accent} />
               <button 
                 className="btn btn-xs btn-outline btn-primary" 
-                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-6))}
+                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-forecastHorizonMonths))}
               >
                 Export Forecast CSV
               </button>
@@ -1871,20 +1816,18 @@ export default function ForecastsPage() {
                   <tr className="border-b border-base-300">
                     <th>Horizon Month</th>
                     <th className="text-right">Expected Demand (p50)</th>
-                    <th className="text-right">Lower Bound (p10)</th>
-                    <th className="text-right">Upper Bound (p90)</th>
-                    <th className="text-right">Trend Component</th>
+                    <th className="text-right">Lower 90% Bound</th>
+                    <th className="text-right">Upper 90% Bound</th>
                     <th className="text-right">Confidence Delta</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {finalForecastData.slice(-6).map((row, i) => (
+                  {finalForecastData.slice(-forecastHorizonMonths).map((row, i) => (
                     <tr key={i} className="hover">
                       <td className="font-semibold font-mono text-primary text-xs">{row.label}</td>
                       <td className="text-right font-bold">{(row.forecast ?? 0).toLocaleString()}</td>
                       <td className="text-right text-base-content/75">{(row.lower ?? 0).toLocaleString()}</td>
                       <td className="text-right text-base-content/75">{(row.upper ?? 0).toLocaleString()}</td>
-                      <td className="text-right text-accent font-semibold">{(row.trend ?? 0).toLocaleString()}</td>
                       <td className="text-right text-warning font-semibold">±{Math.round(((row.upper ?? 0) - (row.lower ?? 0)) / 2).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -1900,13 +1843,13 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Bubble/Scatter plot */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="SKU Demand Velocity vs Model MAPE Error" sub="Bubble size indicates safety stock carrying size · Color corresponds to ABC category" color={C.accent2} />
+            <SectionHeader title="SKU Demand Velocity vs Model WAPE" sub="Bubble size indicates safety stock carrying size · Color corresponds to ABC category" color={C.accent2} />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ left: 10, right: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="velocity" name="Velocity" unit=" u" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Monthly Velocity (Average Demand)", position: "bottom", fill: "currentColor", fontSize: 10, offset: 0 }} />
-                  <YAxis dataKey="mape" name="MAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (MAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
+                  <YAxis dataKey="mape" name="WAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (WAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
@@ -1914,11 +1857,11 @@ export default function ForecastsPage() {
                       <div className="bg-base-200 border border-base-300 rounded-lg p-3 shadow-md text-xs">
                         <p className="text-primary font-bold mb-1 font-mono">{d.sku}</p>
                         <p className="my-0.5">Velocity: <strong>{d.velocity} u/mo</strong></p>
-                        <p className="my-0.5">MAPE: <strong>{d.mape}%</strong></p>
+                        <p className="my-0.5">WAPE: <strong>{d.mape}%</strong></p>
                         <p className="my-0.5">Stock Cover: <strong>{d.stockDays} days</strong></p>
                         <div className="flex gap-1.5 mt-2">
                           <Badge label={`ABC: ${d.abc}`} color={abcColor[d.abc] || C.muted} />
-                          <Badge label={`XYZ: ${d.xyz}`} color={xyzColor[d.xyz] || C.muted} />
+                          <Badge label={`FMS: ${d.fms}`} color={C.accent3} />
                         </div>
                       </div>
                     );
@@ -1936,7 +1879,7 @@ export default function ForecastsPage() {
           {/* Full SKU Classifications Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="SKU Classifications & Reorder Matrix" sub="ABC = revenue contribution · XYZ = predictability coefficient" color={C.accent3} />
+              <SectionHeader title="SKU Classifications & Reorder Matrix" sub="ABC = annual issued volume within subtype · FMS = issue-event frequency within subtype" color={C.accent3} />
               <div className="flex gap-2">
                 <select
                   className="select select-bordered select-xs"
@@ -1964,11 +1907,11 @@ export default function ForecastsPage() {
                     <th>Category</th>
                     <th className="text-right">Velocity</th>
                     <th className="text-right">Stock Cover</th>
-                    <th className="text-right">MAPE %</th>
+                    <th className="text-right">WAPE %</th>
                     <th className="text-right">Reorder Point</th>
                     <th className="text-right">Safety Stock</th>
                     <th>ABC</th>
-                    <th>XYZ</th>
+                    <th>FMS</th>
                     <th>Inventory Status</th>
                   </tr>
                 </thead>
@@ -1988,7 +1931,7 @@ export default function ForecastsPage() {
                         <td className="text-right">{s.reorderPoint.toLocaleString()}</td>
                         <td className="text-right">{s.safetyStock.toLocaleString()}</td>
                         <td><Badge label={s.abc} color={abcColor[s.abc] || C.muted} /></td>
-                        <td><Badge label={s.xyz} color={xyzColor[s.xyz] || C.muted} /></td>
+                        <td><Badge label={s.fms} color={C.accent3} /></td>
                         <td>
                           <span 
                             className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border"
@@ -2032,7 +1975,7 @@ export default function ForecastsPage() {
             </div>
 
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Forecast Error (MAPE %) per SKU" color={C.accent2} />
+              <SectionHeader title="Forecast Error (WAPE %) per SKU" color={C.accent2} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
@@ -2041,7 +1984,7 @@ export default function ForecastsPage() {
                     <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
                     <Tooltip content={<ChartTip />} />
                     <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" />
-                    <Bar dataKey="mape" name="MAPE %" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="mape" name="WAPE %" radius={[0, 4, 4, 0]}>
                       {finalSkuData.slice(0, 6).map((s: any, i: number) => (
                         <Cell key={i} fill={s.mape > 12.0 ? C.danger : s.mape > 8.0 ? C.warn : C.ok} fillOpacity={0.8} />
                       ))}
@@ -2077,7 +2020,7 @@ export default function ForecastsPage() {
                   <ReferenceLine y={finalInventory[0]?.reorder ?? 800} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder Trigger Level", fill: C.danger, fontSize: 10, position: "right" }} />
                   <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Levels" />
                   <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2.5} dot={false} name="Forecasted Demand" />
-                  <Brush dataKey="label" height={20} stroke={C.border + "40"} fill="transparent" />
+                  <Brush startIndex={Math.max(0, finalInventory.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -2116,16 +2059,16 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <KpiCard title="MAPE Error" value={fmtMetric(mapeVal, "%")} sub="Static test CSV (not v6 training ~7.7% WAPE)" color={C.ok} icon="track_changes" />
-            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub="Static test CSV — M5-scale, not current SKUs" color={C.accent} icon="architecture" />
-            <KpiCard title="Model Bias (MPB)" value={fmtMetric(biasVal, "%")} sub="Static test CSV" color={C.warn} icon="balance" />
-            <KpiCard title="90% CI Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside P10–P90" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
-            <KpiCard title="Active Architecture" value={filters.model || "LIGHTGBM"} sub="Global Champion Model" color={C.muted} icon="psychology" />
+            <KpiCard title="WAPE Error" value={fmtMetric(wapeVal, "%")} sub={wapeVal !== null ? "Untouched-test evidence for the selected model" : "No matching backtest evidence"} color={C.ok} icon="track_changes" />
+            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub={rmseVal !== null ? "Untouched-test scale-dependent error" : "No matching backtest evidence"} color={C.accent} icon="architecture" />
+            <KpiCard title="Model Bias" value={fmtMetric(biasVal, "%")} sub={biasVal !== null ? "Untouched-test signed error" : "No matching backtest evidence"} color={C.warn} icon="balance" />
+            <KpiCard title="90% Interval Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside calibrated 90% bounds" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
+            <KpiCard title="Forecast Method" value={displayModelName(filters.model)} sub="Validated project-operational candidate" color={C.muted} icon="psychology" />
           </div>
 
           {/* Model residuals */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Forecast Residuals Over Time (Actual vs Expected)" sub="Ideal residuals: random fluctuations around 0, representing standard Gaussian noise" color={C.accent2} />
+            <SectionHeader title="Forecast Residuals Over Time (Actual vs Expected)" sub="Backtest residuals should be centered near zero; inspect tails, changing variance and autocorrelation rather than assuming Gaussian noise" color={C.accent2} />
             <div className="h-56 w-full mt-3">
               {finalResiduals.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
@@ -2139,11 +2082,9 @@ export default function ForecastsPage() {
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <ReferenceLine y={0} stroke={C.accent4} strokeWidth={1.5} />
-                  <ReferenceLine y={150} stroke={C.danger} strokeDasharray="4 3" label={{ value: "+2σ Boundary", fill: C.danger, fontSize: 8 }} />
-                  <ReferenceLine y={-150} stroke={C.danger} strokeDasharray="4 3" label={{ value: "-2σ Boundary", fill: C.danger, fontSize: 8 }} />
                   <Bar dataKey="residual" name="Residual Error" radius={[3, 3, 0, 0]}>
                     {finalResiduals.map((r, i) => (
-                      <Cell key={i} fill={Math.abs(r.residual) > 130 ? C.danger : C.accent} fillOpacity={0.8} />
+                      <Cell key={i} fill={C.accent} fillOpacity={0.8} />
                     ))}
                   </Bar>
                 </ComposedChart>
@@ -2152,52 +2093,8 @@ export default function ForecastsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Error Area Chart */}
-            
-            {/* Inference Path Mix Donut Chart */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Inference Path Mix" sub="Primary ML model vs. Fallback baseline usage" color={C.ok} />
-              <div className="h-56 w-full mt-3 relative flex justify-center items-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={inferenceMix.donut.filter((d) => d.value > 0)}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={65}
-                      outerRadius={85}
-                      paddingAngle={5}
-                      dataKey="value"
-                      stroke="none"
-                    >
-                      {inferenceMix.donut.filter((d) => d.value > 0).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                    </Pie>
-                    <Tooltip content={({ active, payload }) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0].payload;
-                      return (
-                        <div className="bg-base-200 border border-base-300 rounded-lg p-2 shadow-md text-xs">
-                          <span className="font-bold" style={{ color: d.color }}>{d.name}</span>: {d.value} runs
-                        </div>
-                      );
-                    }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                {/* Hole Details */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold text-accent" style={{ marginTop: '1.5rem' }}>{inferenceMix.primaryRatePct}%</span>
-                  <span className="text-[10px] text-base-content/60 font-semibold">SUCCESS RATE</span>
-                </div>
-              </div>
-              <div className="flex justify-center gap-4 mt-2 text-[10px] font-bold">
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent3 }}></span> {inferenceMix.primaryModelName}</div>
-                <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: C.accent4 }}></span> {inferenceMix.fallbackLabel}</div>
-              </div>
-            </div>
-<div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
               <SectionHeader title="Absolute Forecast Error Distribution" sub="Confidence interval widths and magnitude of absolute residuals" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 {finalResiduals.length === 0 ? (
@@ -2223,10 +2120,10 @@ export default function ForecastsPage() {
               <SectionHeader title="Model Accuracy Scorecard vs Thresholds" sub="Operational SLA targets set for production deployment" color={C.accent4} />
               <div className="space-y-4 mt-3">
                 {[
-                  { label: "Mean Absolute Percentage Error (MAPE)", value: mapeVal, target: 10, unit: "%", good: mapeVal !== null && mapeVal <= 10 },
-                  { label: "Normalized RMSE (NRMSE)", value: nrmseVal, target: 30, unit: "%", good: nrmseVal !== null && nrmseVal <= 30 },
-                  { label: "Forecast Bias Limit", value: biasVal !== null ? Math.abs(biasVal) : null, target: 5.0, unit: "%", good: biasVal !== null && Math.abs(biasVal) <= 5.0 },
-                  { label: "90% CI Bounds Coverage", value: coverageVal, target: 90.0, unit: "%", good: coverageVal !== null && coverageVal >= 90.0 },
+                  { label: "Weighted Absolute Percentage Error (WAPE)", value: wapeVal, target: 15, targetText: "≤ 15%", unit: "%", good: wapeVal !== null && wapeVal <= 15 },
+                  { label: "Normalized RMSE (NRMSE)", value: nrmseVal, target: 30, targetText: "≤ 30%", unit: "%", good: nrmseVal !== null && nrmseVal <= 30 },
+                  { label: "Forecast Bias Limit", value: biasVal !== null ? Math.abs(biasVal) : null, target: 5.0, targetText: "≤ 5%", unit: "%", good: biasVal !== null && Math.abs(biasVal) <= 5.0 },
+                  { label: "90% Interval Empirical Coverage", value: coverageVal, target: 90.0, targetText: "85–95%", unit: "%", good: coverageVal !== null && coverageVal >= 85.0 && coverageVal <= 95.0 },
                 ].map((m, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex justify-between items-center mb-1">
@@ -2236,7 +2133,7 @@ export default function ForecastsPage() {
                         {m.value !== null && (
                           <span className="material-symbols-outlined text-[14px]">{m.good ? "check_circle" : "cancel"}</span>
                         )}
-                        <span>{m.value === null ? "No data" : m.good ? "Deployed" : "Violation"}</span>
+                        <span>{m.value === null ? "No data" : m.good ? "Threshold pass" : "Review required"}</span>
                       </span>
                     </div>
                     {m.value !== null && (
@@ -2247,46 +2144,20 @@ export default function ForecastsPage() {
                       />
                     </div>
                     )}
-                    <div className="text-[10px] text-base-content/40 mt-0.5">SLA Threshold Target: {m.label.includes("Coverage") ? "≥" : "≤"} {m.target}{m.unit}</div>
+                    <div className="text-[10px] text-base-content/40 mt-0.5">Acceptance target: {m.targetText}</div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Model requirements cards */}
-          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Required Forecast Data signals & Schema Checklist" sub="Checklist for data pipelines and runtime verification" color={C.accent} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-              {[
-                { cat: "Core Demand Signals", icon: "package_2", items: ["Historical sales & backorders (≥2yr)", "Granular material code groupings", "Quantity & units filled", "Return & credit adjustments"] },
-                { cat: "Calendars & Exogenous", icon: "calendar_month", items: ["Warehouse seasonal schedule", "Local government holidays", "Warehouse promotion calendar", "Weather indices / shifts"] },
-                { cat: "Warehouse Context", icon: "warehouse", items: ["Current safety stock levels", "Supplier replenishment lead times", "Supplier minimum order quantity", "On-hand inventory capacity"] }
-              ].map((g, i) => (
-                <div key={i} className="bg-base-200/50 rounded-lg p-3 border border-base-300">
-                  <span className="text-xs font-bold text-primary mb-2 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-sm">{g.icon}</span>
-                    {g.cat}
-                  </span>
-                  <ul className="text-[10px] text-base-content/75 space-y-1 pl-1">
-                    {g.items.map((item, j) => (
-                      <li key={j} className="flex items-start gap-1">
-                        <span className="material-symbols-outlined text-success text-[12px] align-middle mt-0.5">check_circle</span>
-                        <span>{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
       {/* Footer */}
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">
         <span>OptiWMS Demand Planning Console v2.4</span>
-        <span>Governance Cycle Tick: Deployed Champion model active · Pipeline lag &lt; 24h</span>
+        <span>Forecast binding active · Production eligibility depends on lineage and governance evidence</span>
       </div>
     </div>
   );

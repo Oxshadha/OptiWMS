@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -78,7 +79,7 @@ public class SlottingPlanService {
     public SlottingPlanEntity createPlan(CreatePlanRequest request) {
         UUID warehouseId = request.warehouseId();
         readinessService.assertReady(warehouseId);
-        OffsetDateTime statsAt = issueStatsService.refreshForWarehouse(warehouseId);
+        OffsetDateTime statsAt = issueStatsService.refreshIfStale(warehouseId, Duration.ofHours(24));
 
         int months = request.validMonths() != null ? request.validMonths() : 6;
         LocalDate validFrom = request.validFrom() != null ? request.validFrom() : LocalDate.now();
@@ -98,6 +99,7 @@ public class SlottingPlanService {
         plan.setStatus("DRAFT");
         plan.setVersion(1);
         plan.setAlgorithm("HEURISTIC_MILP_V1");
+        plan.setSolverStatus("NOT_RUN");
         plan.setRelocationBudgetPct(
                 request.relocationBudgetPct() != null ? request.relocationBudgetPct() : new BigDecimal("30"));
         plan.setCreatedBy(request.createdBy());
@@ -203,6 +205,14 @@ public class SlottingPlanService {
         if (!Set.of("DRAFT", "PENDING_APPROVAL").contains(plan.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot approve plan in status " + plan.getStatus());
         }
+        if ("HEURISTIC_FALLBACK_V1".equals(plan.getAlgorithm())
+                || (plan.getSolverStatus() != null
+                    && Set.of("INFEASIBLE", "UNAVAILABLE", "ABNORMAL", "NOT_SOLVED", "FALLBACK")
+                            .contains(plan.getSolverStatus()))) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Cannot approve a solver fallback plan; resolve the optimization failure and generate a feasible plan");
+        }
 
         List<SlottingPlanLineEntity> lines = lineRepository.findByPlanIdOrderByMaterialCodeAsc(planId);
         UUID warehouseId = plan.getWarehouseId();
@@ -260,7 +270,8 @@ public class SlottingPlanService {
         Map<UUID, MaterialIssueStatsRollupEntity> rollupByMaterial = rollups.stream()
                 .collect(Collectors.toMap(MaterialIssueStatsRollupEntity::getMaterialId, r -> r, (a, b) -> a));
 
-        List<MaterialEntity> materials = materialRepository.findAll().stream()
+        List<MaterialEntity> materials = materialRepository.findByDataQualityTierIn(
+                        List.of("GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
                 .filter(m -> isSlottingType(m.getMaterialType()))
                 .toList();
 
@@ -307,13 +318,32 @@ public class SlottingPlanService {
                     incumbent,
                     lockedMaterialIds,
                     demandProfiles);
-            slottingPlanClient.optimize(pyReq).ifPresent(pyRes -> {
-                allOptimized.clear();
-                allOptimized.addAll(slottingPlanClient.mergePythonAssignments(javaBaseline, pyRes));
-                plan.setAlgorithm(pyRes.algorithm != null ? pyRes.algorithm : "HEURISTIC_MILP_V1");
-            });
+            Optional<SlottingPlanClient.PlanOptimizeResponse> response = slottingPlanClient.optimize(pyReq);
+            if (response.isPresent()) {
+                SlottingPlanClient.PlanOptimizeResponse pyRes = response.get();
+                plan.setSolverStatus(pyRes.solver_status != null ? pyRes.solver_status : "UNKNOWN");
+                plan.setObjectiveValue(pyRes.objective_value != null
+                        ? BigDecimal.valueOf(pyRes.objective_value) : null);
+                plan.setInfeasibleReason(pyRes.infeasible_reason);
+                plan.setConstraintEvidence(pyRes.constraints_used != null
+                        ? String.join(",", pyRes.constraints_used) : null);
+                boolean solved = Set.of("OPTIMAL", "FEASIBLE").contains(plan.getSolverStatus())
+                        && pyRes.assignments != null && !pyRes.assignments.isEmpty();
+                if (solved) {
+                    allOptimized.clear();
+                    allOptimized.addAll(slottingPlanClient.mergePythonAssignments(javaBaseline, pyRes));
+                    plan.setAlgorithm(pyRes.algorithm != null ? pyRes.algorithm : "ORTOOLS_MILP_V2");
+                } else {
+                    plan.setAlgorithm("HEURISTIC_FALLBACK_V1");
+                }
+            } else {
+                plan.setAlgorithm("HEURISTIC_FALLBACK_V1");
+                plan.setSolverStatus("FALLBACK");
+                plan.setInfeasibleReason("Slotting service timed out or returned no usable solver result");
+            }
         } else if (!useMilpAClass) {
             plan.setAlgorithm("HEURISTIC_V1");
+            plan.setSolverStatus("NOT_REQUESTED");
         }
 
         persistOptimizedLines(plan, allOptimized, lockedMaterialIds, existingLines, demandProfiles);
@@ -425,7 +455,13 @@ public class SlottingPlanService {
                 m.getWeightKg(),
                 m.getVolumeCm3(),
                 m.getPalletSpaces(),
-                m.getMaxPalletWeightKg());
+                m.getUnitsPerPallet(),
+                m.getMaxPalletWeightKg(),
+                null,
+                Boolean.TRUE.equals(m.getTemperatureControlled()),
+                Boolean.TRUE.equals(m.getHazardous()),
+                Boolean.TRUE.equals(m.getFragile()),
+                !Boolean.FALSE.equals(m.getStackable()));
     }
 
     private Map<UUID, String> loadIncumbentPrimary(UUID warehouseId) {

@@ -44,6 +44,7 @@ public class ForecastSpaceOptimizationController {
                 readiness.palletSpecCoveragePct(),
                 readiness.missingMoqCount(),
                 readiness.missingLeadTimeCount(),
+                readiness.unapprovedForecastMaterialsCount(),
                 readiness.ready(),
                 readiness.blockers());
     }
@@ -77,6 +78,11 @@ public class ForecastSpaceOptimizationController {
         return policyService.getLines(runId).stream().map(this::toPolicyLine).toList();
     }
 
+    @GetMapping("/policy-runs/{runId}/simulation-evidence")
+    public List<PolicySimulationEvidenceDto> getPolicySimulationEvidence(@PathVariable UUID runId) {
+        return policyService.getSimulationEvidence(runId).stream().map(this::toSimulationEvidence).toList();
+    }
+
     @GetMapping("/policy-lines/{lineId}/scenarios")
     public List<ScenarioDto> getPolicyLineScenarios(@PathVariable UUID lineId) {
         return policyService.getScenariosForPolicyLine(lineId).stream().map(this::toScenario).toList();
@@ -85,6 +91,11 @@ public class ForecastSpaceOptimizationController {
     @PostMapping("/policy-runs/{runId}/approve")
     public PolicyRunDto approvePolicyRun(@PathVariable UUID runId, @RequestBody ApproveRunDto body) {
         return toPolicyRun(policyService.approveRun(runId, body.approvedBy()));
+    }
+
+    @PostMapping("/policy-runs/{runId}/rollback")
+    public PolicyRunDto rollbackPolicyRun(@PathVariable UUID runId, @RequestBody RollbackRunDto body) {
+        return toPolicyRun(policyService.rollbackRun(runId, body.rolledBackBy()));
     }
 
     @PostMapping("/space-runs")
@@ -154,6 +165,9 @@ public class ForecastSpaceOptimizationController {
                 dbl(line.getCurrentMinStock()),
                 dbl(line.getCurrentMaxStock()),
                 dbl(line.getCurrentReorderPoint()),
+                dbl(line.getCurrentBufferStock()),
+                dbl(line.getCurrentOrderQty()),
+                dbl(line.getCurrentPalletRequirement()),
                 dbl(line.getForecastP10()),
                 dbl(line.getForecastP50()),
                 dbl(line.getForecastP90()),
@@ -161,6 +175,7 @@ public class ForecastSpaceOptimizationController {
                 dbl(line.getLeadTimeStdDays()),
                 dbl(line.getMoq()),
                 dbl(line.getOrderMultiple()),
+                dbl(line.getUnitsPerHandlingUnit()),
                 dbl(line.getUnitCost()),
                 dbl(line.getExpiryLimitedMaxStock()),
                 dbl(line.getProposedMinStock()),
@@ -177,6 +192,7 @@ public class ForecastSpaceOptimizationController {
                 line.getRecommendationStatus(),
                 line.getRationale(),
                 line.getConstraintSnapshot(),
+                line.getApprovalSnapshot(),
                 line.getManagerOverride(),
                 line.getOverrideReason());
     }
@@ -189,6 +205,10 @@ public class ForecastSpaceOptimizationController {
                 run.getHorizonMonths(),
                 run.getStatus(),
                 run.getAlgorithm(),
+                run.getOptimizerMetadata(),
+                dbl(run.getRelocationCapPct()),
+                run.getRelocationCapSkus(),
+                dbl(run.getObjectiveValue()),
                 run.getCreatedBy(),
                 run.getApprovedBy(),
                 run.getApprovedAt() != null ? run.getApprovedAt().toString() : null,
@@ -241,6 +261,24 @@ public class ForecastSpaceOptimizationController {
                 scenario.getExplanation());
     }
 
+    private PolicySimulationEvidenceDto toSimulationEvidence(InventoryPolicySimulationEvidenceEntity evidence) {
+        return new PolicySimulationEvidenceDto(
+                str(evidence.getId()),
+                str(evidence.getPolicyRunId()),
+                str(evidence.getMaterialId()),
+                dbl(evidence.getServiceLevelTarget()),
+                dbl(evidence.getSimulatedFillRate()),
+                dbl(evidence.getCurrentExpectedCost()),
+                dbl(evidence.getProposedExpectedCost()),
+                dbl(evidence.getExpectedCostDelta()),
+                evidence.getStockoutDaysCurrent(),
+                evidence.getStockoutDaysProposed(),
+                evidence.getCapacityFeasible(),
+                evidence.getSimulationMethod(),
+                evidence.getSourceLineage(),
+                evidence.getCreatedAt() != null ? evidence.getCreatedAt().toString() : null);
+    }
+
     private String str(UUID id) {
         return id != null ? id.toString() : null;
     }
@@ -260,6 +298,7 @@ public class ForecastSpaceOptimizationController {
 
     public record CreateSpaceRunDto(String policyRunId, String createdBy, String notes) {}
     public record ApproveRunDto(String approvedBy) {}
+    public record RollbackRunDto(String rolledBackBy) {}
 
     public record ReadinessDto(
             String warehouseId,
@@ -274,6 +313,7 @@ public class ForecastSpaceOptimizationController {
             Integer palletSpecCoveragePct,
             Integer missingMoqCount,
             Integer missingLeadTimeCount,
+            Integer unapprovedForecastMaterialsCount,
             Boolean ready,
             List<String> blockers) {}
 
@@ -306,6 +346,9 @@ public class ForecastSpaceOptimizationController {
             Double currentMinStock,
             Double currentMaxStock,
             Double currentReorderPoint,
+            Double currentBufferStock,
+            Double currentOrderQty,
+            Double currentPalletRequirement,
             Double forecastP10,
             Double forecastP50,
             Double forecastP90,
@@ -313,6 +356,7 @@ public class ForecastSpaceOptimizationController {
             Double leadTimeStdDays,
             Double moq,
             Double orderMultiple,
+            Double unitsPerHandlingUnit,
             Double unitCost,
             Double expiryLimitedMaxStock,
             Double proposedMinStock,
@@ -329,6 +373,7 @@ public class ForecastSpaceOptimizationController {
             String recommendationStatus,
             String rationale,
             String constraintSnapshot,
+            String approvalSnapshot,
             Boolean managerOverride,
             String overrideReason) {}
 
@@ -339,6 +384,10 @@ public class ForecastSpaceOptimizationController {
             Integer horizonMonths,
             String status,
             String algorithm,
+            String optimizerMetadata,
+            Double relocationCapPct,
+            Integer relocationCapSkus,
+            Double objectiveValue,
             String createdBy,
             String approvedBy,
             String approvedAt,
@@ -385,4 +434,20 @@ public class ForecastSpaceOptimizationController {
             Double expiryExcessUnits,
             Double spaceShortfallPalletPositions,
             String explanation) {}
+
+    public record PolicySimulationEvidenceDto(
+            String id,
+            String policyRunId,
+            String materialId,
+            Double serviceLevelTarget,
+            Double simulatedFillRate,
+            Double currentExpectedCost,
+            Double proposedExpectedCost,
+            Double expectedCostDelta,
+            Integer stockoutDaysCurrent,
+            Integer stockoutDaysProposed,
+            Boolean capacityFeasible,
+            String simulationMethod,
+            String sourceLineage,
+            String createdAt) {}
 }

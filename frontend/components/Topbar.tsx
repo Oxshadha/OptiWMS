@@ -229,9 +229,9 @@ export function Topbar() {
   ];
 
   return (
-    <header className="relative flex items-center justify-between gap-4 px-6 py-4 bg-base-100 border-b border-base-200">
+    <header className="relative flex items-center justify-between gap-2 px-3 py-4 sm:gap-4 sm:px-6 bg-base-100 border-b border-base-200">
       {/* Search Bar - Left Aligned */}
-      <div className="relative max-w-xl search-dropdown">
+      <div className="relative min-w-0 flex-1 max-w-xl search-dropdown">
         <label className="input input-bordered flex items-center gap-2 w-full">
           <span className="material-symbols-outlined text-base-content/60">
             search
@@ -289,7 +289,7 @@ export function Topbar() {
       </div>
 
       {/* Icons - Right Aligned */}
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-3">
         {/* AI Services Status - Only show if user has access to any AI service */}
         <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-base-200/50">
           <span className="text-xs text-base-content/60">AI:</span>
@@ -403,7 +403,7 @@ export function Topbar() {
         </div>
 
         {/* Calendar */}
-        <div className="relative calendar-dropdown">
+        <div className="relative hidden sm:block calendar-dropdown">
           <button
             className="btn btn-ghost btn-circle"
             title="Calendar"
@@ -500,7 +500,7 @@ export function Topbar() {
 
         {mounted && (
           <button
-            className="btn btn-primary btn-circle"
+            className="btn btn-primary btn-circle hidden sm:inline-flex"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
             onClick={toggleTheme}
           >
@@ -510,13 +510,13 @@ export function Topbar() {
           </button>
         )}
 
-        <WarehouseAssistant
-          userRole="manager"
-        />
+        <div className="hidden md:block">
+          <WarehouseAssistant userRole="manager" />
+        </div>
 
         <div className="relative profile-dropdown">
           <button
-            className="flex items-center gap-2 px-3 py-1 rounded-full bg-base-200"
+            className="flex items-center gap-2 px-2 py-1 sm:px-3 rounded-full bg-base-200"
             onClick={() => {
               setOpenProfile((v) => !v);
               setOpenCalendar(false);
@@ -535,7 +535,7 @@ export function Topbar() {
                 HK
               </div>
             )}
-            <div className="flex flex-col items-start leading-tight">
+            <div className="hidden lg:flex flex-col items-start leading-tight">
               <span className="text-sm font-medium">{displayName}</span>
               <span className="text-xs text-base-content/60">
                 {displayRole}

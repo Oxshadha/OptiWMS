@@ -170,7 +170,7 @@ public class AnalyticsService {
 
         // Orders
         List<OrderEntity> orders = warehouseId != null
-                ? orderRepository.findByWarehouseId(warehouseId)
+                ? orderRepository.findOperationalByWarehouseId(warehouseId)
                 : orderRepository.findAll();
         long totalOrders = orders.size();
         List<OrderEntity> periodOrders = orders.stream()
@@ -182,13 +182,10 @@ public class AnalyticsService {
                 .count();
 
         // Inventory
-        List<InventoryItemEntity> inventory = warehouseId != null
-                ? inventoryRepository.findByWarehouseId(warehouseId)
-                : inventoryRepository.findAll();
-        long totalItems = inventory.size();
-        long lowStockItems = inventory.stream()
-                .filter(i -> "low_stock".equals(i.getStatus()))
-                .count();
+        InventoryItemRepository.InventoryOperationalSummary inventorySummary =
+                inventoryRepository.summarizeOperational(warehouseId, null);
+        long totalItems = inventorySummary.getTotalItems();
+        long lowStockItems = inventorySummary.getLowStockItems();
 
         // Keep these fields for backward compatibility with existing UI keys.
         long totalTasks = ordersThisPeriod;
@@ -210,7 +207,7 @@ public class AnalyticsService {
     public List<OrderChartData> getOrdersChart(String period, UUID warehouseId) {
         LocalDateTime startDate = getStartDateForPeriod(period);
         List<OrderEntity> orders = warehouseId != null
-                ? orderRepository.findByWarehouseId(warehouseId)
+                ? orderRepository.findOperationalByWarehouseId(warehouseId)
                 : orderRepository.findAll();
 
         Map<LocalDate, Integer> orderCounts = new HashMap<>();
@@ -230,7 +227,7 @@ public class AnalyticsService {
     public List<TopProduct> getTopProducts(Integer limit, UUID warehouseId, String period) {
         LocalDateTime startDate = getStartDateForPeriod(period);
         List<OrderEntity> outboundOrders = (warehouseId != null
-                ? orderRepository.findByWarehouseId(warehouseId).stream()
+                ? orderRepository.findOperationalByWarehouseId(warehouseId).stream()
                 .filter(o -> "outbound".equalsIgnoreCase(o.getOrderType()))
                 .collect(Collectors.toList())
                 : orderRepository.findByOrderType("outbound")).stream()
@@ -277,26 +274,14 @@ public class AnalyticsService {
 
     // Inventory Overview
     public InventoryOverview getInventoryOverview(UUID warehouseId) {
-        List<InventoryItemEntity> inventory = warehouseId != null
-                ? inventoryRepository.findByWarehouseId(warehouseId)
-                : inventoryRepository.findAll();
-
-        long totalItems = inventory.size();
-        long activeItems = inventory.stream()
-                .filter(i -> "active".equals(i.getStatus()))
-                .count();
-        long lowStockItems = inventory.stream()
-                .filter(i -> "low_stock".equals(i.getStatus()))
-                .count();
-        long outOfStockItems = inventory.stream()
-                .filter(i -> "out_of_stock".equals(i.getStatus()))
-                .count();
+        InventoryItemRepository.InventoryOperationalSummary summary =
+                inventoryRepository.summarizeOperational(warehouseId, null);
 
         return new InventoryOverview(
-                totalItems,
-                activeItems,
-                lowStockItems,
-                outOfStockItems
+                summary.getTotalItems(),
+                summary.getInStockItems(),
+                summary.getLowStockItems(),
+                summary.getOutOfStockItems()
         );
     }
 

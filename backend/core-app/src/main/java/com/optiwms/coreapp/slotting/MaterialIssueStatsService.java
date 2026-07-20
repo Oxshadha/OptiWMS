@@ -14,12 +14,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.Duration;
 import java.time.YearMonth;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class MaterialIssueStatsService {
+
+    private static final List<String> OPERATIONAL_TIERS = List.of(
+            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
 
     private static final Set<String> ISSUE_OPS = Set.of(
             "PICK", "PICKED", "PICKING", "ISSUE", "ISSUED", "SHIP", "SHIPPED", "TRANSFER_OUT");
@@ -85,7 +89,7 @@ public class MaterialIssueStatsService {
             acc[1] += entry.getValue()[1];
         }
 
-        List<MaterialEntity> materials = materialRepository.findAll().stream()
+        List<MaterialEntity> materials = materialRepository.findByDataQualityTierIn(OPERATIONAL_TIERS).stream()
                 .filter(m -> isSlottingMaterialType(m.getMaterialType()))
                 .toList();
 
@@ -118,6 +122,31 @@ public class MaterialIssueStatsService {
         }
 
         return refreshedAt;
+    }
+
+    public OffsetDateTime refreshIfStale(UUID warehouseId, Duration maxAge) {
+        Set<UUID> operationalMaterialIds = materialRepository.findByDataQualityTierIn(OPERATIONAL_TIERS).stream()
+                .filter(m -> isSlottingMaterialType(m.getMaterialType()))
+                .map(MaterialEntity::getId)
+                .collect(Collectors.toSet());
+        List<MaterialIssueStatsRollupEntity> existing = rollupRepository.findByWarehouseId(warehouseId).stream()
+                .filter(row -> operationalMaterialIds.contains(row.getMaterialId()))
+                .toList();
+        OffsetDateTime latest = existing.stream()
+                .map(MaterialIssueStatsRollupEntity::getLastRefreshedAt)
+                .filter(Objects::nonNull)
+                .max(Comparator.naturalOrder())
+                .orElse(null);
+        long coveredMaterials = existing.stream()
+                .map(MaterialIssueStatsRollupEntity::getMaterialId)
+                .distinct()
+                .count();
+        if (latest != null
+                && latest.isAfter(OffsetDateTime.now().minus(maxAge))
+                && coveredMaterials >= operationalMaterialIds.size()) {
+            return latest;
+        }
+        return refreshForWarehouse(warehouseId);
     }
 
     public List<MaterialIssueStatsRollupEntity> getRollupForWarehouse(UUID warehouseId) {

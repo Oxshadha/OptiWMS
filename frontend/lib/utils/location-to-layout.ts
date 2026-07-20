@@ -18,6 +18,14 @@ import { applyOccupancyToBin } from '@/lib/utils/bin-occupancy';
 import { locationsApi, type BinOccupancy, type RackSummary } from '@/lib/api/locations';
 import { slottingIntelligenceApi } from '@/lib/api/slotting-intelligence';
 
+const OPERATIONAL_STORAGE_ZONES = new Set(['STORAGE', 'PICK_FACE', 'RESERVE']);
+const OPERATIONAL_STORAGE_TYPES = new Set(['STORAGE', 'PICKING', 'BULK']);
+
+function isOperationalStorage(location: Pick<Location, 'zoneType' | 'locationType'>): boolean {
+  return OPERATIONAL_STORAGE_ZONES.has((location.zoneType || '').toUpperCase())
+    || OPERATIONAL_STORAGE_TYPES.has((location.locationType || '').toUpperCase());
+}
+
 /**
  * Convert a single location to a LocationBin
  */
@@ -85,7 +93,7 @@ function locationsToRacks(
   pendingMovesByRack: Map<string, number> = new Map()
 ): RackUnit[] {
   // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
-  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = locations.filter(isOperationalStorage);
   
   const rackMap = groupLocationsByRack(storageLocations);
   const racks: RackUnit[] = [];
@@ -171,30 +179,31 @@ function rackStatusFromSummary(value?: string | null): RackUnit["status"] {
 function buildWarehouseLayout(
   warehouseId: string,
   warehouseName: string,
-  racks: RackUnit[]
+  racks: RackUnit[],
+  stations: WarehouseLayout['stations'] = []
 ): WarehouseLayout {
-  const sectionPadding = 50;
-  const rackHeight = 160;
-  const rackSpacing = 30;
-  const totalRows = Math.ceil(racks.length / 12);
-  const totalHeight = sectionPadding + totalRows * (rackHeight + rackSpacing) - rackSpacing + sectionPadding;
-  const maxX = Math.max(2500, ...racks.map((r) => r.x + r.width));
-  const maxY = Math.max(600, totalHeight, ...racks.map((r) => r.y + r.height));
+  const maxX = Math.max(800, ...racks.map((r) => r.x + r.width));
+  const maxY = Math.max(620, ...racks.map((r) => r.y + r.height));
 
   return {
     id: warehouseId,
     name: warehouseName,
     warehouseId,
-    width: maxX + 100,
-    height: maxY + 100,
+    width: maxX + 70,
+    height: maxY + 70,
     racks,
+    stations,
     aisles: [],
   };
 }
 
 function summaryToBins(summary: RackSummary): LocationBin[] {
-  const binCount = Math.min(Math.max(summary.binCount || 0, 10), 10);
-  const maxLevels = Math.max(Math.ceil(binCount / 2), 5);
+  const maxLevels = Math.max(summary.maxLevels || 1, 1);
+  const positionsPerLevel = Math.max(summary.positionsPerLevel || 1, 1);
+  const binCount = Math.min(
+    Math.max(summary.binCount || maxLevels * positionsPerLevel, 1),
+    maxLevels * positionsPerLevel
+  );
   const occupiedBins = Math.min(summary.occupiedBins || 0, binCount);
   const palletCapacityPerBin = Math.max(Math.ceil((summary.palletCapacity || binCount) / binCount), 1);
   const avgPalletsPerOccupiedBin = occupiedBins > 0 ? Math.max(Math.ceil((summary.palletCount || occupiedBins) / occupiedBins), 1) : 0;
@@ -202,8 +211,8 @@ function summaryToBins(summary: RackSummary): LocationBin[] {
   const avgQtyPerOccupiedBin = occupiedBins > 0 ? Math.ceil((summary.totalQuantity || 0) / occupiedBins) : 0;
 
   return Array.from({ length: binCount }, (_, idx) => {
-    const level = Math.floor(idx / 2) + 1;
-    const position = idx % 2 === 0 ? "A" : "B";
+    const level = Math.floor(idx / positionsPerLevel) + 1;
+    const position = String.fromCharCode(65 + (idx % positionsPerLevel));
     const occupied = idx < occupiedBins;
     return {
       id: `${summary.rackId}-${level}-${position}`,
@@ -252,15 +261,29 @@ export async function convertRackSummariesToLayout(
   warehouseName: string
 ): Promise<WarehouseLayout> {
   const pendingMovesMap = await loadPendingMovesMap(warehouseId);
-  const rackWidth = 90;
-  const rackHeight = 160;
-  const rackSpacing = 30;
+  const rackWidth = 190;
+  const rackHeight = 95;
   const sectionPadding = 50;
-  const racksPerRow = 12;
+  const zoneHeaderHeight = 40;
+  const horizontalAisle = 40;
+  const verticalAisle = 50;
+  const positioned = summaries.filter(
+    (summary) => summary.coordinateX != null && summary.coordinateY != null
+      && Number.isFinite(Number(summary.coordinateX)) && Number.isFinite(Number(summary.coordinateY))
+  );
+  // Rotate the metric plan for the desktop canvas: bays run left-to-right and
+  // physical zones run top-to-bottom. Swapping axes preserves every distance.
+  const coordinateXs = [...new Set(positioned.map((summary) => Number(summary.coordinateY)))].sort((a, b) => a - b);
+  const coordinateYs = [...new Set(positioned.map((summary) => Number(summary.coordinateX)))].sort((a, b) => a - b);
+  const xIndex = new Map(coordinateXs.map((value, index) => [value, index]));
+  const yIndex = new Map(coordinateYs.map((value, index) => [value, index]));
+  const fallbackColumns = 5;
 
   const racks = summaries.map((summary, rackIndex) => {
-    const rowInGrid = Math.floor(rackIndex / racksPerRow);
-    const colInGrid = rackIndex % racksPerRow;
+    const hasCoordinates = summary.coordinateX != null && summary.coordinateY != null
+      && Number.isFinite(Number(summary.coordinateX)) && Number.isFinite(Number(summary.coordinateY));
+    const rowInGrid = Math.floor(rackIndex / fallbackColumns);
+    const colInGrid = rackIndex % fallbackColumns;
     const bins = summaryToBins(summary);
     const rowNumber = parseInt(normalizeRow(summary.rowNumber), 10);
     const bay = parseInt(normalizeBay(summary.bayNumber), 10);
@@ -268,10 +291,14 @@ export async function convertRackSummariesToLayout(
     return {
       id: summary.rackId,
       zone: normalizeArea(summary.area),
-      aisle: Number.isFinite(rowNumber) ? rowNumber : Math.floor(rackIndex / racksPerRow) + 1,
+      aisle: Number.isFinite(rowNumber) ? rowNumber : Math.floor(rackIndex / fallbackColumns) + 1,
       bay: Number.isFinite(bay) ? bay : 1,
-      x: sectionPadding + colInGrid * (rackWidth + rackSpacing),
-      y: sectionPadding + rowInGrid * (rackHeight + rackSpacing),
+      x: hasCoordinates
+        ? sectionPadding + (xIndex.get(Number(summary.coordinateY)) ?? 0) * (rackWidth + horizontalAisle)
+        : sectionPadding + colInGrid * (rackWidth + horizontalAisle),
+      y: hasCoordinates
+        ? sectionPadding + zoneHeaderHeight + (yIndex.get(Number(summary.coordinateX)) ?? 0) * (rackHeight + verticalAisle)
+        : sectionPadding + zoneHeaderHeight + rowInGrid * (rackHeight + verticalAisle),
       width: rackWidth,
       height: rackHeight,
       bins,
@@ -284,8 +311,9 @@ export async function convertRackSummariesToLayout(
       pendingMoveCount: pendingMovesMap.get(summary.rackId) ?? 0,
     } satisfies RackUnit;
   });
-
-  return buildWarehouseLayout(warehouseId, warehouseName, racks);
+  // Operational stations belong to route planning. The detailed rack view is kept
+  // spatially stable so rack labels and all L1-L5 segments remain inspectable.
+  return buildWarehouseLayout(warehouseId, warehouseName, racks, []);
 }
 
 async function loadPendingMovesMap(warehouseId: string): Promise<Map<string, number>> {
@@ -330,7 +358,7 @@ export async function convertLocationHierarchyToLayout(
   });
   
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = allLocations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = allLocations.filter(isOperationalStorage);
   
   // Load inventory for this warehouse - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
@@ -416,6 +444,7 @@ export async function convertLocationHierarchyToLayout(
     width: maxX + 100,
     height: maxY + 100,
     racks,
+    stations: [],
     aisles,
   };
 }
@@ -429,7 +458,7 @@ export async function convertLocationsToLayout(
   warehouseName: string
 ): Promise<WarehouseLayout> {
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = locations.filter(isOperationalStorage);
   
   // Load inventory - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
@@ -492,6 +521,7 @@ export async function convertLocationsToLayout(
     width: maxX + 100,
     height: maxY + 100,
     racks,
+    stations: [],
     aisles: [],
   };
 }

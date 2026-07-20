@@ -65,17 +65,26 @@ public class BomMasterController {
     public ResponseEntity<List<BomHeaderDto>> listHeaders(
             @RequestParam(required = false) UUID parentMaterialId,
             @RequestParam(required = false) UUID warehouseId,
-            @RequestParam(required = false) String status
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "false") boolean includeLegacy
     ) {
         List<BomHeaderEntity> headers;
-        if (parentMaterialId != null) {
+        if (includeLegacy && parentMaterialId != null) {
             headers = bomHeaderRepository.findByParentMaterialId(parentMaterialId);
-        } else if (warehouseId != null) {
+        } else if (includeLegacy && warehouseId != null) {
             headers = bomHeaderRepository.findByWarehouseId(warehouseId);
-        } else if (status != null && !status.isBlank()) {
+        } else if (includeLegacy && status != null && !status.isBlank()) {
             headers = bomHeaderRepository.findByStatus(status.trim().toLowerCase());
-        } else {
+        } else if (includeLegacy) {
             headers = bomHeaderRepository.findAll();
+        } else if (parentMaterialId != null) {
+            headers = bomHeaderRepository.findOperationalByParentMaterialId(parentMaterialId);
+        } else if (warehouseId != null) {
+            headers = bomHeaderRepository.findOperationalByWarehouseId(warehouseId);
+        } else if (status != null && !status.isBlank()) {
+            headers = bomHeaderRepository.findOperationalByStatus(status.trim().toLowerCase());
+        } else {
+            headers = bomHeaderRepository.findOperational();
         }
 
         List<BomHeaderDto> response = headers.stream()

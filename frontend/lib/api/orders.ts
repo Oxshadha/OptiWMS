@@ -23,6 +23,24 @@ export interface PagedOrdersResponse {
   totalPages: number;
 }
 
+export interface CanonicalOrderRepairItem {
+  orderId: string;
+  oldOrderNumber?: string;
+  newOrderNumber: string;
+  orderType: string;
+  orderDate?: string;
+  aliasStatus: "alias_created" | "alias_exists" | string;
+}
+
+export interface CanonicalOrderRepairResult {
+  dryRun: boolean;
+  candidates: number;
+  repaired: number;
+  aliasesCreated: number;
+  aliasesAlreadyPresent: number;
+  items: CanonicalOrderRepairItem[];
+}
+
 export const ordersApi = {
   getAll: async (orderType?: string, status?: string): Promise<Order[]> => {
     const params = new URLSearchParams();
@@ -82,6 +100,10 @@ export const ordersApi = {
 
   create: async (order: Omit<Order, 'id' | 'orderNumber'> & { orderNumber?: string }): Promise<Order> => {
     return apiClient.post<Order>('/orders', order);
+  },
+
+  repairCanonicalNumbers: async (dryRun = true): Promise<CanonicalOrderRepairResult> => {
+    return apiClient.post<CanonicalOrderRepairResult>('/orders/repair/canonical-numbers', { dryRun });
   },
 
   createTasksByOrderId: async (id: string): Promise<{ success: boolean; message: string; tasksCreated: number }> => {

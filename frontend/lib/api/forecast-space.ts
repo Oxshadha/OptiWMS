@@ -39,6 +39,9 @@ export interface PolicyRecommendationLine {
   currentMinStock?: number | null;
   currentMaxStock?: number | null;
   currentReorderPoint?: number | null;
+  currentBufferStock?: number | null;
+  currentOrderQty?: number | null;
+  currentPalletRequirement?: number | null;
   forecastP10?: number | null;
   forecastP50?: number | null;
   forecastP90?: number | null;
@@ -46,6 +49,7 @@ export interface PolicyRecommendationLine {
   leadTimeStdDays?: number | null;
   moq?: number | null;
   orderMultiple?: number | null;
+  unitsPerHandlingUnit?: number | null;
   unitCost?: number | null;
   expiryLimitedMaxStock?: number | null;
   proposedMinStock?: number | null;
@@ -62,6 +66,7 @@ export interface PolicyRecommendationLine {
   recommendationStatus: RecommendationStatus;
   rationale?: string | null;
   constraintSnapshot?: string | null;
+  approvalSnapshot?: string | null;
   managerOverride?: boolean;
   overrideReason?: string | null;
 }
@@ -73,6 +78,10 @@ export interface SpaceOptimizationRun {
   horizonMonths: number;
   status: string;
   algorithm: string;
+  optimizerMetadata?: string | null;
+  relocationCapPct?: number | null;
+  relocationCapSkus?: number | null;
+  objectiveValue?: number | null;
   createdBy?: string | null;
   approvedBy?: string | null;
   approvedAt?: string | null;
@@ -123,6 +132,23 @@ export interface ScenarioResult {
   explanation?: string | null;
 }
 
+export interface PolicySimulationEvidence {
+  id: string;
+  policyRunId: string;
+  materialId: string;
+  serviceLevelTarget: number;
+  simulatedFillRate: number;
+  currentExpectedCost: number;
+  proposedExpectedCost: number;
+  expectedCostDelta: number;
+  stockoutDaysCurrent: number;
+  stockoutDaysProposed: number;
+  capacityFeasible: boolean;
+  simulationMethod: string;
+  sourceLineage: string;
+  createdAt?: string | null;
+}
+
 export interface ForecastSpaceReadiness {
   warehouseId: string;
   horizonMonths: number;
@@ -136,6 +162,7 @@ export interface ForecastSpaceReadiness {
   palletSpecCoveragePct: number;
   missingMoqCount: number;
   missingLeadTimeCount: number;
+  unapprovedForecastMaterialsCount: number;
   ready: boolean;
   blockers: string[];
 }
@@ -171,8 +198,14 @@ export const forecastSpaceApi = {
   getPolicyRunLines: (runId: string): Promise<PolicyRecommendationLine[]> =>
     apiClient.get<PolicyRecommendationLine[]>(`/v1/forecast-space/policy-runs/${runId}/lines`),
 
+  getPolicySimulationEvidence: (runId: string): Promise<PolicySimulationEvidence[]> =>
+    apiClient.get<PolicySimulationEvidence[]>(`/v1/forecast-space/policy-runs/${runId}/simulation-evidence`),
+
   approvePolicyRun: (runId: string, body: { approvedBy: string }): Promise<PolicyRecommendationRun> =>
     apiClient.post<PolicyRecommendationRun>(`/v1/forecast-space/policy-runs/${runId}/approve`, body),
+
+  rollbackPolicyRun: (runId: string, body: { rolledBackBy: string }): Promise<PolicyRecommendationRun> =>
+    apiClient.post<PolicyRecommendationRun>(`/v1/forecast-space/policy-runs/${runId}/rollback`, body),
 
   getPolicyLineScenarios: (lineId: string): Promise<ScenarioResult[]> =>
     apiClient.get<ScenarioResult[]>(`/v1/forecast-space/policy-lines/${lineId}/scenarios`),

@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class MaterialService {
+    private static final List<String> OPERATIONAL_TIERS = List.of(
+            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
     private static final List<String> ALLOWED_STORAGE_TYPES = List.of("pallet", "bulk", "loose", "rack", "cold");
     private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs",
             "unit");
@@ -92,6 +94,18 @@ public class MaterialService {
                 .collect(Collectors.toList());
     }
 
+    public List<Material> listOperational() {
+        return repository.findByDataQualityTierIn(OPERATIONAL_TIERS).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    public List<Material> findOperationalByMaterialType(String materialType) {
+        return repository.findByMaterialTypeAndDataQualityTierIn(materialType, OPERATIONAL_TIERS).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Material findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)
@@ -115,6 +129,10 @@ public class MaterialService {
     }
 
     public Page<Material> findPaged(String materialType, String query, Pageable pageable) {
+        return findPaged(materialType, query, true, pageable);
+    }
+
+    public Page<Material> findPaged(String materialType, String query, boolean includeLegacy, Pageable pageable) {
         Set<UUID> materialIdsForLocationQuery = Collections.emptySet();
         String normalizedQuery = null;
         if (query != null && !query.isBlank()) {
@@ -130,6 +148,11 @@ public class MaterialService {
         final String finalNormalizedQuery = normalizedQuery;
         Specification<MaterialEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            if (!includeLegacy) {
+                predicates.add(root.get("dataQualityTier").in(
+                        "GENERATED_OPERATIONAL_BASELINE",
+                        "OPERATIONAL_ENTRY"));
+            }
             if (materialType != null && !materialType.isBlank()) {
                 predicates.add(cb.equal(root.get("materialType"), materialType));
             }
@@ -212,6 +235,7 @@ public class MaterialService {
         entity.setWeightKg(material.getWeightKg());
         entity.setVolumeCm3(material.getVolumeCm3());
         entity.setPalletSpaces(material.getPalletSpaces());
+        entity.setUnitsPerPallet(material.getUnitsPerPallet());
         entity.setMaxPalletWeightKg(material.getMaxPalletWeightKg());
         entity.setMinOrderQuantity(material.getMinOrderQuantity());
         entity.setHandlingUnitType(normalizeUnitType(material.getHandlingUnitType() != null ? material.getHandlingUnitType() : material.getUnitType()));
@@ -422,6 +446,7 @@ public class MaterialService {
         m.setWeightKg(entity.getWeightKg());
         m.setVolumeCm3(entity.getVolumeCm3());
         m.setPalletSpaces(entity.getPalletSpaces());
+        m.setUnitsPerPallet(entity.getUnitsPerPallet());
         m.setStackable(entity.getStackable());
         m.setMaxStackHeight(entity.getMaxStackHeight());
         m.setTemperatureControlled(entity.getTemperatureControlled());

@@ -46,6 +46,7 @@ const validateMaterialForm = (formData: {
   weightKg: string;
   volumeCm3: string;
   palletSpaces: string;
+  unitsPerPallet: string;
   maxPalletWeightKg: string;
   minOrderQuantity: string;
   unitsPerHandlingUnit: string;
@@ -70,6 +71,7 @@ const validateMaterialForm = (formData: {
   if (isInvalidPositiveInput(formData.volumeCm3)) return "Carton volume (cm3) must be greater than 0";
   if (isInvalidPositiveInput(formData.minOrderQuantity)) return "Minimum order quantity must be greater than 0";
   if (isInvalidPositiveInput(formData.unitsPerHandlingUnit)) return "Units per handling unit must be greater than 0";
+  if (isInvalidPositiveInput(formData.unitsPerPallet)) return "Units per pallet must be greater than 0";
   if (isInvalidPositiveInput(formData.orderMultiple)) return "Order multiple must be greater than 0";
   const hasCompleteDims = lengthCm !== undefined && widthCm !== undefined && heightCm !== undefined;
   if (volumeCm3 === undefined && !hasCompleteDims) {
@@ -77,14 +79,15 @@ const validateMaterialForm = (formData: {
   }
 
   if (formData.storageType === "pallet") {
-    const unitsPerPallet = parsePositive(formData.palletSpaces);
-    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per carton must be greater than 0";
-    if (unitsPerPallet === undefined) return "Units per carton is required for pallet storage";
+    const unitsPerPallet = parsePositive(formData.unitsPerPallet);
+    if (unitsPerPallet === undefined) return "Units per pallet is required for pallet storage";
+    if (parsePositive(formData.unitsPerHandlingUnit) === undefined) return "Units per handling unit is required";
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Pallet footprint spaces must be greater than 0";
     const maxPalletWeightKg = parsePositive(formData.maxPalletWeightKg);
     if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max carton weight must be greater than 0";
     if (maxPalletWeightKg === undefined) return "Max carton weight is required for pallet storage";
   } else {
-    if (isInvalidPositiveInput(formData.palletSpaces)) return "Units per carton must be greater than 0";
+    if (isInvalidPositiveInput(formData.palletSpaces)) return "Pallet footprint spaces must be greater than 0";
     if (isInvalidPositiveInput(formData.maxPalletWeightKg)) return "Max carton weight must be greater than 0";
   }
 
@@ -114,6 +117,7 @@ export function CreateMaterialModal({
     weightKg: "",
     volumeCm3: "",
     palletSpaces: "",
+    unitsPerPallet: "",
     maxPalletWeightKg: "",
     minOrderQuantity: "",
     unitsPerHandlingUnit: "",
@@ -148,12 +152,13 @@ export function CreateMaterialModal({
       heightCm,
       weightKg: parsePositive(formData.weightKg),
       volumeCm3,
-      palletSpaces: parsePositive(formData.palletSpaces),
+      palletSpaces: parsePositive(formData.palletSpaces) ?? 1,
+      unitsPerPallet: parsePositive(formData.unitsPerPallet),
       maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
       minOrderQuantity: parsePositive(formData.minOrderQuantity),
       handlingUnitType: formData.unitType || undefined,
-      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit) ?? parsePositive(formData.palletSpaces),
-      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.palletSpaces),
+      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit),
+      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.unitsPerHandlingUnit),
     });
   };
 
@@ -260,8 +265,23 @@ export function CreateMaterialModal({
               min="0"
               className="input input-bordered"
               placeholder="e.g., 50"
-              value={formData.palletSpaces}
-              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              value={formData.unitsPerHandlingUnit}
+              onChange={(e) => setFormData({ ...formData, unitsPerHandlingUnit: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="1"
+              className="input input-bordered"
+              placeholder="e.g., 1200"
+              value={formData.unitsPerPallet}
+              onChange={(e) => setFormData({ ...formData, unitsPerPallet: e.target.value })}
               disabled={isLoading}
             />
           </div>
@@ -435,6 +455,7 @@ export function EditMaterialModal({
     weightKg: material.weightKg != null ? String(material.weightKg) : "",
     volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
     palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+    unitsPerPallet: material.unitsPerPallet != null ? String(material.unitsPerPallet) : "",
     maxPalletWeightKg:
       material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
     minOrderQuantity: material.minOrderQuantity != null ? String(material.minOrderQuantity) : "",
@@ -455,6 +476,7 @@ export function EditMaterialModal({
       weightKg: material.weightKg != null ? String(material.weightKg) : "",
       volumeCm3: material.volumeCm3 != null ? String(material.volumeCm3) : "",
       palletSpaces: material.palletSpaces != null ? String(material.palletSpaces) : "",
+      unitsPerPallet: material.unitsPerPallet != null ? String(material.unitsPerPallet) : "",
       maxPalletWeightKg:
         material.maxPalletWeightKg != null ? String(material.maxPalletWeightKg) : "",
       minOrderQuantity: material.minOrderQuantity != null ? String(material.minOrderQuantity) : "",
@@ -491,12 +513,13 @@ export function EditMaterialModal({
       heightCm,
       weightKg: parsePositive(formData.weightKg),
       volumeCm3,
-      palletSpaces: parsePositive(formData.palletSpaces),
+      palletSpaces: parsePositive(formData.palletSpaces) ?? 1,
+      unitsPerPallet: parsePositive(formData.unitsPerPallet),
       maxPalletWeightKg: parsePositive(formData.maxPalletWeightKg),
       minOrderQuantity: parsePositive(formData.minOrderQuantity),
       handlingUnitType: formData.unitType || undefined,
-      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit) ?? parsePositive(formData.palletSpaces),
-      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.palletSpaces),
+      unitsPerHandlingUnit: parsePositive(formData.unitsPerHandlingUnit),
+      orderMultiple: parsePositive(formData.orderMultiple) ?? parsePositive(formData.unitsPerHandlingUnit),
     });
   };
 
@@ -601,8 +624,22 @@ export function EditMaterialModal({
               step="0.01"
               min="0"
               className="input input-bordered"
-              value={formData.palletSpaces}
-              onChange={(e) => setFormData({ ...formData, palletSpaces: e.target.value })}
+              value={formData.unitsPerHandlingUnit}
+              onChange={(e) => setFormData({ ...formData, unitsPerHandlingUnit: e.target.value })}
+              disabled={isLoading}
+            />
+          </div>
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <input
+              type="number"
+              step="1"
+              min="1"
+              className="input input-bordered"
+              value={formData.unitsPerPallet}
+              onChange={(e) => setFormData({ ...formData, unitsPerPallet: e.target.value })}
               disabled={isLoading}
             />
           </div>

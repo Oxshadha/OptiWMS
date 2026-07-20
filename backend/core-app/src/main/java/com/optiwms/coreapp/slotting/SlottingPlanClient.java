@@ -120,6 +120,7 @@ public class SlottingPlanClient {
         req.relocation_budget_pct = relocationBudgetPct != null
                 ? relocationBudgetPct.doubleValue() : 30.0;
         req.use_milp_a_class = useMilpAClass;
+        req.solver_engine = useMilpAClass ? "ortools" : "heuristic";
         req.locked_material_ids = lockedMaterialIds.stream().map(UUID::toString).toList();
 
         req.materials = new ArrayList<>();
@@ -136,12 +137,29 @@ public class SlottingPlanClient {
             p.weight_kg = m.weightKg() != null ? m.weightKg().doubleValue() : null;
             p.volume_cm3 = m.volumeCm3() != null ? m.volumeCm3().doubleValue() : null;
             p.pallet_spaces = m.palletSpaces() != null ? m.palletSpaces().doubleValue() : null;
+            BigDecimal palletUnits = BigDecimal.valueOf(
+                    m.unitsPerPallet() != null ? Math.max(1, m.unitsPerPallet()) : 1);
+            BigDecimal palletWeight = m.maxPalletWeightKg() != null
+                    ? m.maxPalletWeightKg()
+                    : (m.weightKg() != null ? m.weightKg().multiply(palletUnits) : null);
+            BigDecimal palletVolume = m.volumeCm3() != null
+                    ? m.volumeCm3().multiply(palletUnits) : null;
+            p.pallet_weight_kg = palletWeight != null ? palletWeight.doubleValue() : null;
+            p.pallet_volume_cm3 = palletVolume != null ? palletVolume.doubleValue() : null;
+            p.unit_cost = m.unitCost() != null ? m.unitCost().doubleValue() : null;
+            p.temperature_controlled = m.temperatureControlled();
+            p.hazardous = m.hazardous();
+            p.fragile = m.fragile();
+            p.stackable = m.stackable();
             p.incumbent_primary_location_code = incumbentPrimary.get(m.materialId());
             p.locked = lockedMaterialIds.contains(m.materialId());
             DemandSpacePlanningService.DemandProfile profile = profiles.get(m.materialId());
             if (profile != null) {
                 p.required_pallets = profile.requiredPalletPositions();
                 p.demand_trend = profile.demandTrend().name();
+                p.forecast_demand = profile.forecastP50Units() != null
+                        ? profile.forecastP50Units().doubleValue() : null;
+                p.stockout_cost_weight = Math.max(0.1, profile.stockoutRiskScore());
                 p.min_stock_units = profile.minStockUnits() != null
                         ? profile.minStockUnits().doubleValue() : null;
             }
@@ -155,6 +173,8 @@ public class SlottingPlanClient {
             l.location_code = loc.getLocationCode();
             l.amalgamated_class = loc.getAmalgamatedClass();
             l.area = loc.getArea();
+            l.location_type = loc.getLocationType();
+            l.zone_type = loc.getZoneType();
             l.level_number = loc.getLevelNumber() != null ? loc.getLevelNumber() : 1;
             l.accessibility_rating = loc.getAccessibilityRating() != null ? loc.getAccessibilityRating() : 3;
             l.coordinate_x = loc.getCoordinateX() != null ? loc.getCoordinateX().doubleValue() : 0;
@@ -163,6 +183,9 @@ public class SlottingPlanClient {
             l.max_volume_cm3 = loc.getMaxVolumeCm3() != null ? loc.getMaxVolumeCm3().doubleValue() : null;
             l.capacity = loc.getCapacity() != null ? loc.getCapacity().doubleValue() : null;
             l.max_pallet_capacity = loc.getMaxPalletCapacity();
+            l.current_pallet_count = loc.getCurrentPalletCount() != null ? loc.getCurrentPalletCount() : 0;
+            l.temperature_zone = loc.getTemperatureZone();
+            l.hazard_allowed = Boolean.TRUE.equals(loc.getHazardAllowed());
             l.is_active = Boolean.TRUE.equals(loc.getIsActive());
             req.locations.add(l);
         }
@@ -182,7 +205,9 @@ public class SlottingPlanClient {
         List<SlottingPlanOptimizer.OptimizedLine> merged = new ArrayList<>();
         for (SlottingPlanOptimizer.OptimizedLine line : javaLines) {
             PlanAssignmentPayload py = byMaterialId.get(line.material().materialId().toString());
-            if (py == null || !"A".equals(line.material().abcClass())) {
+            boolean fullMilp = pythonResponse.algorithm != null
+                    && pythonResponse.algorithm.toUpperCase(Locale.ROOT).startsWith("ORTOOLS_MILP_V");
+            if (py == null || (!fullMilp && !"A".equals(line.material().abcClass()))) {
                 merged.add(line);
                 continue;
             }
@@ -198,7 +223,7 @@ public class SlottingPlanClient {
 
             String reason = py.move_reason != null ? py.move_reason : line.moveReason();
             if (pythonResponse.algorithm != null && pythonResponse.algorithm.contains("MILP")) {
-                reason = reason + " (A-class MILP via slotting-service)";
+                reason = reason + (fullMilp ? " (OR-Tools MILP via slotting-service)" : " (A-class MILP via slotting-service)");
             }
 
             merged.add(new SlottingPlanOptimizer.OptimizedLine(
@@ -245,6 +270,7 @@ public class SlottingPlanClient {
         public List<PlanLocationPayload> locations = List.of();
         public List<String> locked_material_ids = List.of();
         public boolean use_milp_a_class = true;
+        public String solver_engine = "heuristic";
     }
 
     public static class PlanMaterialPayload {
@@ -264,6 +290,15 @@ public class SlottingPlanClient {
         public Integer required_pallets;
         public String demand_trend;
         public Double min_stock_units;
+        public Double pallet_weight_kg;
+        public Double pallet_volume_cm3;
+        public boolean temperature_controlled;
+        public boolean hazardous;
+        public boolean fragile;
+        public boolean stackable = true;
+        public Double forecast_demand;
+        public Double unit_cost;
+        public double stockout_cost_weight = 1.0;
     }
 
     public static class PlanLocationPayload {
@@ -271,6 +306,8 @@ public class SlottingPlanClient {
         public String location_code;
         public String amalgamated_class;
         public String area;
+        public String location_type;
+        public String zone_type;
         public int level_number;
         public int accessibility_rating;
         public double coordinate_x;
@@ -279,6 +316,11 @@ public class SlottingPlanClient {
         public Double max_volume_cm3;
         public Double capacity;
         public Integer max_pallet_capacity;
+        public int current_pallet_count;
+        public String temperature_zone;
+        public boolean hazard_allowed;
+        public boolean fragile_allowed = true;
+        public boolean stackable_allowed = true;
         public boolean is_active;
     }
 
@@ -288,6 +330,12 @@ public class SlottingPlanClient {
         public List<PlanAssignmentPayload> assignments = List.of();
         public int total_moves_proposed;
         public int relocation_moves_applied;
+        public String solver_status;
+        public Double objective_value;
+        public String infeasible_reason;
+        public List<String> constraints_used = List.of();
+        public int relocation_cap_used;
+        public Map<String, Double> assignment_confidence_inputs = Map.of();
     }
 
     public static class PlanAssignmentPayload {

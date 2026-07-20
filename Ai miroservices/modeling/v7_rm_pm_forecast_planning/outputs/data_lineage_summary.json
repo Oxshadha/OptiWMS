@@ -1,0 +1,146 @@
+{
+  "config": {
+    "database_url": "postgresql://optiwms:optiwms@localhost:5434/optiwms",
+    "schema": "public",
+    "warehouse_code": "WH-001",
+    "model_name": "V7_RM_PM_DIRECT",
+    "history_min_months": 18,
+    "backtest_months": 6,
+    "forecast_horizon_months": 12,
+    "material_types": [
+      "raw_material",
+      "packaging_material",
+      "packaging"
+    ],
+    "output_dir": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v7_rm_pm_forecast_planning/outputs",
+    "service_level_z": 1.65,
+    "default_lead_time_days": 14,
+    "default_lead_time_std_days": 0.0,
+    "default_supplier_otif": 0.95,
+    "intermittent_nonzero_threshold": 0.55,
+    "abc_a_cutoff": 0.8,
+    "abc_b_cutoff": 0.95
+  },
+  "all_material_type_counts": {
+    "product": 78,
+    "raw_material": 291
+  },
+  "material_counts": {
+    "raw_material": 291
+  },
+  "inventory_rows": 6697,
+  "demand_rows": 10368,
+  "demand_materials": 288,
+  "demand_min_month": "2023-02-01",
+  "demand_max_month": "2026-01-01",
+  "demand_sources": {
+    "canonical_v6": 10368
+  },
+  "forecast_rows": 6102,
+  "forecast_materials": 288,
+  "forecast_coverage": [
+    {
+      "model_name": "CANONICAL_BASELINE_V6",
+      "material_type": "raw_material",
+      "rows": 642,
+      "materials": 107,
+      "min_period": "2026-07-01",
+      "max_period": "2026-12-01"
+    },
+    {
+      "model_name": "RM_GROSS_REQ_V6",
+      "material_type": "raw_material",
+      "rows": 2004,
+      "materials": 167,
+      "min_period": "2025-08-01",
+      "max_period": "2026-12-01"
+    },
+    {
+      "model_name": "V7_RM_PM_DIRECT",
+      "material_type": "raw_material",
+      "rows": 3456,
+      "materials": 288,
+      "min_period": "2026-02-01",
+      "max_period": "2027-01-01"
+    }
+  ],
+  "bom_headers": 3,
+  "bom_component_rows": 2,
+  "bom_parent_materials": 3,
+  "bom_product_parent_materials": 0,
+  "bom_product_parent_coverage_pct": 0.0,
+  "lineage_position": "Direct RM/PM forecasting is primary. BOM explosion is blocked until BOM parent/product coverage is validated.",
+  "v7_forecast_rows": 3456,
+  "v7_policy_rows": 288,
+  "v7_slotting_rows": 288,
+  "selected_model": "lightgbm_global_rm_pm",
+  "model_leaderboard": [
+    {
+      "model": "lightgbm_global_rm_pm",
+      "rows": 1728,
+      "materials": 288,
+      "WAPE": 0.25089219589297024,
+      "MAE": 433.2421829057567,
+      "RMSE": 2421.5939277953225,
+      "Bias": 0.015784222600859966,
+      "under_forecast_rate": 0.5063657407407407
+    },
+    {
+      "model": "croston_sba",
+      "rows": 1728,
+      "materials": 288,
+      "WAPE": 0.25837686894152306,
+      "MAE": 446.16676223892273,
+      "RMSE": 2401.3673687706455,
+      "Bias": 0.031149820750744652,
+      "under_forecast_rate": 0.43460648148148145
+    },
+    {
+      "model": "moving_avg_6",
+      "rows": 1728,
+      "materials": 288,
+      "WAPE": 0.28285450586660976,
+      "MAE": 488.4348958333333,
+      "RMSE": 2752.240618563315,
+      "Bias": 0.08232294577057056,
+      "under_forecast_rate": 0.39525462962962965
+    },
+    {
+      "model": "moving_avg_3",
+      "rows": 1728,
+      "materials": 288,
+      "WAPE": 0.28984312922493594,
+      "MAE": 500.50289351851853,
+      "RMSE": 2724.7664060717007,
+      "Bias": 0.06531640750542658,
+      "under_forecast_rate": 0.40046296296296297
+    },
+    {
+      "model": "seasonal_naive",
+      "rows": 1728,
+      "materials": 288,
+      "WAPE": 0.34824581481882394,
+      "MAE": 601.3530092592592,
+      "RMSE": 3386.662683348762,
+      "Bias": 0.07530695350178507,
+      "under_forecast_rate": 0.3744212962962963
+    }
+  ],
+  "evidence_artifacts": {
+    "data_dictionary": "data_dictionary.csv",
+    "table_relationships": "table_relationships.csv",
+    "data_quality_report": "data_quality_report.csv",
+    "outlier_report": "outlier_report.csv",
+    "feature_matrix_profile": "feature_matrix_profile.csv",
+    "rolling_origin_splits": "rolling_origin_splits.csv",
+    "backtest_residuals": "backtest_residuals.csv",
+    "per_material_metrics": "per_material_metrics.csv",
+    "interval_calibration": "interval_calibration.csv",
+    "statistical_comparison": "statistical_comparison.csv",
+    "model_feature_importance": "model_feature_importance.csv"
+  },
+  "publication": {
+    "published_rows": 3456,
+    "model_name": "V7_RM_PM_DIRECT"
+  }
+}

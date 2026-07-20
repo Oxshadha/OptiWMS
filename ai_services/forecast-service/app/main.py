@@ -10,9 +10,11 @@ from app.api.v1.routes.model_registry import router as model_registry_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.raw_materials import router as raw_materials_router
 from app.api.v1.routes.gateway import router as gateway_router
+from app.api.v1.routes.canonical import router as canonical_router
 from app.core.config import settings
 from app.core.security import verify_service_auth
-from app.db.database import Base, engine
+from sqlalchemy import text
+from app.db.database import Base, engine, SessionLocal
 from app.services.health_monitor_service import OperationalHealthWorker
 from app.services.governance_service import governance_worker
 from app.services.run_publish_service import PublishQueueWorker
@@ -29,6 +31,7 @@ app.include_router(model_registry_router, dependencies=[Depends(verify_service_a
 app.include_router(dashboard_router, dependencies=[Depends(verify_service_auth)])
 app.include_router(raw_materials_router, dependencies=[Depends(verify_service_auth)])
 app.include_router(gateway_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(canonical_router, dependencies=[Depends(verify_service_auth)])
 publish_queue_worker = PublishQueueWorker()
 operational_health_worker = OperationalHealthWorker()
 
@@ -36,6 +39,20 @@ operational_health_worker = OperationalHealthWorker()
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    
+    # Auto-migrate publish_jobs for progress tracking
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE publish_jobs ADD COLUMN progress_percent FLOAT;"))
+    except Exception:
+        pass
+        
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE publish_jobs ADD COLUMN progress_message TEXT;"))
+    except Exception:
+        pass
+    
     assert_runtime_contract_on_startup()
     publish_queue_worker.start()
     operational_health_worker.start()

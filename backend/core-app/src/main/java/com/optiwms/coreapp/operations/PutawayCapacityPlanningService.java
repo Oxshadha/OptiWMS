@@ -49,7 +49,8 @@ public class PutawayCapacityPlanningService {
         }
 
         Material inboundMaterial = materialService.findById(materialId);
-        BigDecimal unitsPerPalletEarly = inboundMaterial.getPalletSpaces();
+        BigDecimal unitsPerPalletEarly = inboundMaterial.getUnitsPerPallet() != null
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
         if (unitsPerPalletEarly != null && unitsPerPalletEarly.compareTo(BigDecimal.ZERO) > 0) {
             StockPlacementPlanner.PlacementPlan placementPlan = stockPlacementPlanner.planPlacement(
                     warehouseId,
@@ -95,7 +96,8 @@ public class PutawayCapacityPlanningService {
         List<String> notes = new ArrayList<>();
         Integer requiredPalletSlots = null;
         Integer availablePalletSlots = null;
-        BigDecimal unitsPerPallet = inboundMaterial.getPalletSpaces();
+        BigDecimal unitsPerPallet = inboundMaterial.getUnitsPerPallet() != null
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet()) : null;
         if (unitsPerPallet != null && unitsPerPallet.compareTo(BigDecimal.ZERO) > 0) {
             requiredPalletSlots = toPositiveIntCeil(
                     BigDecimal.valueOf(totalQuantity).divide(unitsPerPallet, 8, RoundingMode.CEILING));
@@ -162,6 +164,43 @@ public class PutawayCapacityPlanningService {
                 toString(unitsPerPallet),
                 planLines,
                 notes);
+    }
+
+    public BatchSplitPlanResult suggestBatchSplitPlan(UUID warehouseId, List<SplitPlanRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return new BatchSplitPlanResult(List.of(), List.of("No inbound items were provided for capacity review."));
+        }
+        List<BatchSplitPlanLine> results = new ArrayList<>();
+        List<String> notes = new ArrayList<>();
+        int index = 0;
+        for (SplitPlanRequest request : requests) {
+            int itemIndex = request.itemIndex() != null ? request.itemIndex() : index;
+            try {
+                if (request.materialId() == null) {
+                    throw new RuntimeException("Material is required");
+                }
+                SplitPlanResult plan = suggestSplitPlan(
+                        warehouseId,
+                        request.materialId(),
+                        request.quantity(),
+                        request.preferredLocationCode());
+                results.add(new BatchSplitPlanLine(itemIndex, true, null, plan));
+            } catch (RuntimeException ex) {
+                SplitPlanResult failed = new SplitPlanResult(
+                        false,
+                        request.quantity() != null ? request.quantity() : 0,
+                        0,
+                        request.quantity() != null ? request.quantity() : 0,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        List.of(ex.getMessage()));
+                results.add(new BatchSplitPlanLine(itemIndex, false, ex.getMessage(), failed));
+            }
+            index++;
+        }
+        return new BatchSplitPlanResult(results, notes);
     }
 
     public ValidationResult validateSingleLocation(
@@ -576,6 +615,25 @@ public class PutawayCapacityPlanningService {
             int allocatedQuantity,
             String reason,
             CapacitySnapshot projectedAfter) {
+    }
+
+    public record SplitPlanRequest(
+            Integer itemIndex,
+            UUID materialId,
+            Integer quantity,
+            String preferredLocationCode) {
+    }
+
+    public record BatchSplitPlanResult(
+            List<BatchSplitPlanLine> items,
+            List<String> notes) {
+    }
+
+    public record BatchSplitPlanLine(
+            int itemIndex,
+            boolean success,
+            String error,
+            SplitPlanResult plan) {
     }
 
     public record ValidationResult(

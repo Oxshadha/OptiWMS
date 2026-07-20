@@ -15,14 +15,15 @@ public class SlottingGaController {
         this.gaProxyService = gaProxyService;
     }
 
-    @PostMapping("/optimize")
-    public Map<String, Object> optimize(@RequestBody GaOptimizeDto body) {
-        return gaProxyService.optimize(new SlottingGaProxyService.GaOptimizeRequest(
-                body.warehouseId(),
-                body.populationSize(),
-                body.generations(),
-                body.mutationRate()));
-    }
+    // this is not use anymore commnet
+    // @PostMapping("/optimize")
+    // public Map<String, Object> optimize(@RequestBody GaOptimizeDto body) {
+    //     return gaProxyService.optimize(new SlottingGaProxyService.GaOptimizeRequest(
+    //             body.warehouseId(),
+    //             body.populationSize(),
+    //             body.generations(),
+    //             body.mutationRate()));
+    // }
 
     public record GaOptimizeDto(
             String warehouseId,
