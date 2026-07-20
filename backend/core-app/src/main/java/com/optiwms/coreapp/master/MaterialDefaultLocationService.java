@@ -39,9 +39,8 @@ public class MaterialDefaultLocationService {
     }
 
     /**
-     * Assign default location to a material in a warehouse
-     * Also updates inventory location_code if inventory exists for this
-     * material+warehouse
+     * Assign a putaway/slotting preference. This never moves physical stock;
+     * stock locations change only through an executed transfer or putaway task.
      */
     @Transactional
     public MaterialDefaultLocation assignDefaultLocation(
@@ -50,7 +49,7 @@ public class MaterialDefaultLocationService {
             String locationCode,
             Integer priority,
             String materialType) {
-        return assignDefaultLocation(materialId, warehouseId, locationCode, priority, materialType, true);
+        return assignDefaultLocation(materialId, warehouseId, locationCode, priority, materialType, false);
     }
 
     @Transactional
@@ -75,8 +74,7 @@ public class MaterialDefaultLocationService {
         }
 
         // Only allow storage locations (exclude staging, receiving, shipment, packing)
-        if (!"storage".equals(location.getLocationType()) &&
-                !"STORAGE".equals(location.getZoneType())) {
+        if (!isOperationalStorageLocation(location.getLocationType(), location.getZoneType())) {
             throw new RuntimeException("Only storage locations can be assigned to materials. Location type: "
                     + location.getLocationType());
         }
@@ -121,10 +119,12 @@ public class MaterialDefaultLocationService {
         MaterialDefaultLocationEntity saved = repository.save(entity);
 
         if (updateInventoryLocation) {
-            // Bulk catalog assignment updates actual inventory; slotting approve defers moves to transfers.
+            // Legacy compatibility is deliberately limited to unlocated stock. Rewriting
+            // valid locations would collapse multi-bin inventory into one catalog default.
             List<InventoryItem> existingInventory = inventoryService.findByMaterialAndWarehouse(materialId, warehouseId);
             for (InventoryItem inv : existingInventory) {
-                if (inv.getQuantity() != null && inv.getQuantity() > 0) {
+                if (inv.getQuantity() != null && inv.getQuantity() > 0
+                        && (inv.getLocationCode() == null || inv.getLocationCode().isBlank())) {
                     inv.setLocationCode(locationCode);
                     inventoryService.createOrUpdate(inv);
                 }
@@ -132,6 +132,13 @@ public class MaterialDefaultLocationService {
         }
 
         return toDomain(saved);
+    }
+
+    static boolean isOperationalStorageLocation(String locationType, String zoneType) {
+        String type = locationType == null ? "" : locationType.trim().toUpperCase(java.util.Locale.ROOT);
+        String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(java.util.Locale.ROOT);
+        return java.util.Set.of("STORAGE", "PICKING").contains(type)
+                || java.util.Set.of("STORAGE", "PICK_FACE", "RESERVE").contains(zone);
     }
 
     private void validateMaterialStorageCompatibility(Material material, String locationCode, String locationTypeRaw) {
@@ -210,7 +217,7 @@ public class MaterialDefaultLocationService {
     /**
      * Assign default locations to all materials in a warehouse (bulk assignment)
      * Uses ABC/FMS preferred zone when available, otherwise defaults to Zone C
-     * Also updates inventory location_code for existing inventory
+     * Creates planning defaults only. Existing stock remains at its scanned locations.
      */
     @Transactional
     public BulkAssignResult assignDefaultLocationsToAllMaterials(UUID warehouseId) {
@@ -274,17 +281,9 @@ public class MaterialDefaultLocationService {
                         warehouseId,
                         location.getLocationCode(),
                         1,
-                        material.getMaterialType());
+                        material.getMaterialType(),
+                        false);
                 assignedCount++;
-
-                // Count inventory updates
-                List<InventoryItem> inventory = inventoryService.findByMaterialAndWarehouse(material.getId(),
-                        warehouseId);
-                for (InventoryItem inv : inventory) {
-                    if (inv.getQuantity() != null && inv.getQuantity() > 0) {
-                        inventoryUpdatedCount++;
-                    }
-                }
             }
         }
 
@@ -292,8 +291,8 @@ public class MaterialDefaultLocationService {
     }
 
     /**
-     * Sync inventory location_code from existing material default locations.
-     * Useful when default locations exist but inventory wasn't updated.
+     * Fill only genuinely unlocated inventory from the primary default. Existing
+     * scanned locations are never overwritten.
      */
     @Transactional
     public BulkAssignResult syncInventoryLocationsFromDefaults(UUID warehouseId) {
@@ -303,7 +302,9 @@ public class MaterialDefaultLocationService {
         // Get all existing default locations for this warehouse
         List<MaterialDefaultLocationEntity> defaultLocations = repository.findByWarehouseId(warehouseId);
 
-        for (MaterialDefaultLocationEntity defaultLoc : defaultLocations) {
+        for (MaterialDefaultLocationEntity defaultLoc : defaultLocations.stream()
+                .filter(loc -> Integer.valueOf(1).equals(loc.getPriority()))
+                .toList()) {
             materialsProcessed++;
 
             // Get inventory items for this material in this warehouse
@@ -311,14 +312,11 @@ public class MaterialDefaultLocationService {
                     defaultLoc.getMaterialId(), warehouseId);
 
             for (InventoryItem inv : inventoryItems) {
-                // Update location_code if inventory has quantity and location is different
+                // Defaults may initialize missing data, but are not stock-transfer commands.
                 if (inv.getQuantity() != null && inv.getQuantity() > 0) {
                     String currentLocation = inv.getLocationCode();
                     String defaultLocation = defaultLoc.getLocationCode();
-
-                    // Only update if location is null, empty, or different
-                    if (currentLocation == null || currentLocation.isEmpty() ||
-                            !currentLocation.equals(defaultLocation)) {
+                    if (currentLocation == null || currentLocation.isBlank()) {
                         inv.setLocationCode(defaultLocation);
                         inventoryService.createOrUpdate(inv);
                         inventoryUpdatedCount++;

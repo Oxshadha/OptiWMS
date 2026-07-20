@@ -52,7 +52,7 @@ def _assert_publish_completeness(db, run: ForecastRun, path_used: str) -> None:
         )
 
 
-def execute_publish_for_run(db, run: ForecastRun, mode_norm: str) -> dict:
+def execute_publish_for_run(db, run: ForecastRun, mode_norm: str, job_id: int | None = None) -> dict:
     online_result: dict | None = None
     snapshot_result: dict | None = None
     path_used = "snapshot"
@@ -60,7 +60,7 @@ def execute_publish_for_run(db, run: ForecastRun, mode_norm: str) -> dict:
 
     if mode_norm in {"auto", "online"}:
         try:
-            online_result = publish_online(db, run)
+            online_result = publish_online(db, run, job_id=job_id)
             if int(online_result.get("predictions", 0) or 0) > 0:
                 path_used = "online"
             elif mode_norm == "online":
@@ -73,7 +73,7 @@ def execute_publish_for_run(db, run: ForecastRun, mode_norm: str) -> dict:
             warnings.append(f"online publish failed; falling back to snapshot: {ex}")
 
     if path_used != "online":
-        snapshot_result = ingest_snapshot(db, run)
+        snapshot_result = ingest_snapshot(db, run, job_id=job_id)
         path_used = "snapshot"
     elif bool(settings.publish_require_test_metrics):
         # Online path may not generate evaluation metrics; backfill test metrics from report package.
@@ -149,7 +149,7 @@ class PublishQueueWorker:
             db.commit()
 
             try:
-                execute_publish_for_run(db, run, (job.mode or "auto").strip().lower())
+                execute_publish_for_run(db, run, mode_norm=(job.mode or "auto").strip().lower(), job_id=job.id)
                 job.status = "succeeded"
                 job.error = None
                 job.finished_at = datetime.utcnow()

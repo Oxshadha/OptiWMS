@@ -165,57 +165,74 @@ export default function WorkerLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-200">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex flex-col items-center justify-center relative bg-base-100 overflow-hidden">
+      
+      {/* Top Header Shape with Worker Image */}
+      <div className="absolute top-0 left-0 w-full h-[40vh] sm:h-[45vh] z-0 rounded-b-[3rem] sm:rounded-b-[4rem] overflow-hidden shadow-md">
+        <Image
+          src="/assets/logos/wroker app image.png"
+          alt="Warehouse Worker"
+          fill
+          className="object-cover object-top"
+          priority
+        />
+        {/* Shading overlay (no blur) */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/40 to-black/80"></div>
+      </div>
+
+      <div className="w-full max-w-[520px] relative z-10 flex flex-col justify-center px-6 pb-20">
         {/* Logo and System Name */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-16 h-16 rounded-lg mb-4 flex items-center justify-center overflow-hidden"
-            style={{ backgroundColor: "#EEEEEE" }}
-          >
+        <div className="flex flex-col items-center mb-10 space-y-4">
+          <div className="bg-neutral w-36 h-36 rounded-[2rem] shadow-xl flex items-center justify-center transition-all">
             <Image
-              src="/assets/logos/OptiWMS Logo.JPG"
+              src="/assets/logos/OptiWMS Logo.png?v=5"
               alt="OptiWMS Logo"
-              width={64}
-              height={64}
-              className="object-contain"
+              width={220}
+              height={110}
+              className="object-contain w-[85%] h-auto drop-shadow-md"
+              priority
             />
           </div>
-          <h1 className="text-3xl font-bold text-base-content">OptiWMS</h1>
-          <p className="text-sm text-base-content/60 mt-2">Worker Portal</p>
+          <h2 className="text-3xl font-bold text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] tracking-wide">Worker Login</h2>
         </div>
 
         {/* Login Form */}
-        <div className="card w-full shadow-lg bg-base-100 p-8 space-y-6">
-          <h2 className="text-2xl font-semibold text-center text-base-content">
-            Worker Login
-          </h2>
+        <div className="card w-full shadow-2xl border border-base-200/60 bg-base-100 p-10 sm:p-12 space-y-8 rounded-[2rem] relative z-20">
           {error && (
-            <div className="alert alert-error">
+            <div className="alert alert-error py-3 text-base rounded-lg shadow-sm">
               <span>{error}</span>
             </div>
           )}
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Employee ID</span>
-              </label>
-              <input
-                className="input input-bordered w-full"
-                placeholder="Enter your Employee ID"
-                value={employeeId}
-                onChange={(e) => setEmployeeId(e.target.value)}
-                disabled={isLoading}
-                required
-              />
-            </div>
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text font-medium">Password</span>
+              <label className="label pb-2">
+                <span className="label-text font-medium text-base text-base-content/80">Employee ID</span>
               </label>
               <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-base-content/40">
+                  <span className="material-symbols-outlined text-[22px]">badge</span>
+                </div>
                 <input
-                  className="input input-bordered w-full pr-12"
+                  className="input input-bordered w-full pl-14 h-16 text-lg hover:border-primary focus:border-primary transition-colors bg-base-100"
+                  placeholder="Enter your Employee ID"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="form-control">
+              <label className="label pb-2">
+                <span className="label-text font-medium text-base text-base-content/80">Password</span>
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-base-content/40">
+                  <span className="material-symbols-outlined text-[22px]">lock</span>
+                </div>
+                <input
+                  className="input input-bordered w-full pl-14 pr-14 h-16 text-lg hover:border-primary focus:border-primary transition-colors bg-base-100"
                   placeholder="Enter your password"
                   type={showPassword ? "text" : "password"}
                   value={password}
@@ -225,13 +242,13 @@ export default function WorkerLoginPage() {
                 />
                 <button
                   type="button"
-                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+                  className="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content/70"
                   onClick={() => setShowPassword((prev) => !prev)}
                   disabled={isLoading}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   title={showPassword ? "Hide password" : "Show password"}
                 >
-                  <span className="material-symbols-outlined text-base">
+                  <span className="material-symbols-outlined text-[18px]">
                     {showPassword ? "visibility_off" : "visibility"}
                   </span>
                 </button>
@@ -239,7 +256,7 @@ export default function WorkerLoginPage() {
             </div>
 
             <button
-              className="btn btn-primary w-full"
+              className="btn btn-primary w-full mt-4 text-base font-semibold shadow-md shadow-primary/20 hover:shadow-primary/40 rounded-xl transition-all"
               type="submit"
               disabled={isLoading}
             >
@@ -254,6 +271,17 @@ export default function WorkerLoginPage() {
             </button>
           </form>
         </div>
+      </div>
+
+      {/* Footer Art Image */}
+      <div className="absolute bottom-0 w-full z-0 pointer-events-none opacity-[0.25]">
+         <Image
+           src="/assets/logos/admin login page art.png"
+           alt="Login Art"
+           width={800}
+           height={300}
+           className="w-full h-auto object-contain object-bottom"
+         />
       </div>
     </div>
   );

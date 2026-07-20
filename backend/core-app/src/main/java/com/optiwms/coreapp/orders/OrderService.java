@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -137,6 +138,14 @@ public class OrderService {
     }
 
     private String generateOrderNumber(String orderType, LocalDate orderDate) {
+        Set<String> reservedNumbers = repository.findAll().stream()
+                .map(OrderEntity::getOrderNumber)
+                .filter(number -> number != null && !number.isBlank())
+                .collect(Collectors.toCollection(HashSet::new));
+        return generateOrderNumber(orderType, orderDate, reservedNumbers);
+    }
+
+    private String generateOrderNumber(String orderType, LocalDate orderDate, Set<String> reservedNumbers) {
         String normalizedType = orderType == null ? "" : orderType.toLowerCase().trim();
         String prefix = switch (normalizedType) {
             case "inbound" -> "PO";
@@ -150,18 +159,20 @@ public class OrderService {
         do {
             candidate = stem + String.format("%06d", next);
             next += 1;
-        } while (repository.findByOrderNumber(candidate).isPresent());
+        } while (reservedNumbers.contains(candidate));
+        reservedNumbers.add(candidate);
         return candidate;
     }
 
-    private void saveAlias(java.util.UUID orderId, String alias) {
+    private boolean saveAlias(java.util.UUID orderId, String alias) {
         if (aliasRepository.existsByAliasOrderNumber(alias)) {
-            return;
+            return false;
         }
         OrderNumberAliasEntity entity = new OrderNumberAliasEntity();
         entity.setOrderId(orderId);
         entity.setAliasOrderNumber(alias);
         aliasRepository.save(entity);
+        return true;
     }
 
     private String normalizeBlank(String value) {
@@ -169,6 +180,78 @@ public class OrderService {
             return null;
         }
         return value.trim();
+    }
+
+    @Transactional
+    public CanonicalOrderRepairResult repairCanonicalOrderNumbers(boolean dryRun) {
+        List<OrderEntity> candidates = repository.findAll().stream()
+                .filter(this::needsCanonicalRepair)
+                .sorted(Comparator
+                        .comparing((OrderEntity order) -> order.getOrderDate() != null ? order.getOrderDate() : LocalDate.now())
+                        .thenComparing(OrderEntity::getId))
+                .toList();
+
+        Set<String> reservedNumbers = repository.findAll().stream()
+                .map(OrderEntity::getOrderNumber)
+                .filter(number -> number != null && !number.isBlank())
+                .filter(this::isCanonicalOrderNumber)
+                .collect(Collectors.toCollection(HashSet::new));
+
+        List<CanonicalOrderRepairItem> repaired = new ArrayList<>();
+        int aliasesCreated = 0;
+        int aliasesAlreadyPresent = 0;
+
+        for (OrderEntity entity : candidates) {
+            String oldNumber = normalizeBlank(entity.getOrderNumber());
+            String newNumber = generateOrderNumber(entity.getOrderType(), entity.getOrderDate(), reservedNumbers);
+            boolean aliasAlreadyExists = oldNumber != null && aliasRepository.existsByAliasOrderNumber(oldNumber);
+
+            repaired.add(new CanonicalOrderRepairItem(
+                    entity.getId(),
+                    oldNumber,
+                    newNumber,
+                    entity.getOrderType(),
+                    entity.getOrderDate(),
+                    oldNumber == null ? "no_alias" : aliasAlreadyExists ? "alias_exists" : "alias_created"
+            ));
+
+            if (aliasAlreadyExists) {
+                aliasesAlreadyPresent++;
+            } else if (oldNumber != null) {
+                aliasesCreated++;
+            }
+
+            if (!dryRun) {
+                entity.setOrderNumber(newNumber);
+                repository.save(entity);
+                if (oldNumber != null && !oldNumber.equals(newNumber)) {
+                    saveAlias(entity.getId(), oldNumber);
+                }
+            }
+        }
+
+        return new CanonicalOrderRepairResult(
+                dryRun,
+                candidates.size(),
+                dryRun ? 0 : candidates.size(),
+                aliasesCreated,
+                aliasesAlreadyPresent,
+                repaired
+        );
+    }
+
+    private boolean needsCanonicalRepair(OrderEntity order) {
+        String orderType = order.getOrderType() != null ? order.getOrderType().toLowerCase().trim() : "";
+        if (!"inbound".equals(orderType) && !"outbound".equals(orderType)) {
+            return false;
+        }
+        return !isCanonicalOrderNumber(order.getOrderNumber());
+    }
+
+    private boolean isCanonicalOrderNumber(String orderNumber) {
+        return orderNumber != null
+                && (orderNumber.matches("^PO-\\d{8}-\\d{6}$")
+                || orderNumber.matches("^SO-\\d{8}-\\d{6}$"));
     }
 
     @Transactional
@@ -322,4 +405,22 @@ public class OrderService {
         }
         return allowed.contains(nextStatus);
     }
+
+    public record CanonicalOrderRepairResult(
+            boolean dryRun,
+            int candidates,
+            int repaired,
+            int aliasesCreated,
+            int aliasesAlreadyPresent,
+            List<CanonicalOrderRepairItem> items
+    ) {}
+
+    public record CanonicalOrderRepairItem(
+            java.util.UUID orderId,
+            String oldOrderNumber,
+            String newOrderNumber,
+            String orderType,
+            LocalDate orderDate,
+            String aliasStatus
+    ) {}
 }

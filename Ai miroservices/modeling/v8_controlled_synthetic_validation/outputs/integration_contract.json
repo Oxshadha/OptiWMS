@@ -1,0 +1,40 @@
+{
+  "contract_version": "1.0",
+  "mode": "SIMULATION_ONLY",
+  "model_id": "V8_CONTROLLED_EXTRA_TREES_CAUSAL",
+  "canonical_business_store": "Spring PostgreSQL forecast_results",
+  "publish_allowed": false,
+  "required_forecast_fields": [
+    "material_id",
+    "warehouse_id",
+    "forecast_period",
+    "horizon",
+    "forecast_p10",
+    "forecast_p50",
+    "forecast_p90",
+    "model_name",
+    "training_source",
+    "data_quality_tier",
+    "synthetic_ratio",
+    "decision_eligible",
+    "source_lineage"
+  ],
+  "downstream_gate": {
+    "inventory_policy": "simulation workspace only when decision_eligible=false",
+    "milp_knapsack": "sandbox run only; no approval/apply action",
+    "slotting": "simulation recommendation only",
+    "frontend": "show SIMULATION badge and evidence source on every chart"
+  },
+  "recalculate_contract": {
+    "required_steps": [
+      "create immutable run",
+      "validate model and dataset binding",
+      "publish progress events",
+      "generate forecasts",
+      "persist evaluation and lineage",
+      "publish canonical rows atomically",
+      "refresh policy and optional optimizer readiness"
+    ],
+    "current_v8_status": "not registered in forecast-service; intentionally blocked from production recalculate"
+  }
+}

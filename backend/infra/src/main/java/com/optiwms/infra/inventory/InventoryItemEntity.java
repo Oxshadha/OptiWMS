@@ -7,6 +7,7 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import com.optiwms.infra.master.MaterialEntity;
 
 @Entity
 @Table(name = "inventory")
@@ -20,6 +21,10 @@ public class InventoryItemEntity {
 
     @Column(name = "material_id", columnDefinition = "UUID")
     private UUID materialId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "material_id", insertable = false, updatable = false)
+    private MaterialEntity material;
 
     @Column(name = "warehouse_id", columnDefinition = "UUID")
     private UUID warehouseId;
@@ -82,6 +87,9 @@ public class InventoryItemEntity {
     @Column(name = "material_type", length = 20)
     private String materialType;
 
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier;
+
     // Additional planning fields from CSV (V20 migration)
     @Column(name = "buffer_days")
     private Integer bufferDays;
@@ -122,6 +130,9 @@ public class InventoryItemEntity {
         updatedAt = LocalDateTime.now();
         if (status == null) {
             status = "active";
+        }
+        if (dataQualityTier == null || dataQualityTier.isBlank()) {
+            dataQualityTier = "OPERATIONAL_ENTRY";
         }
     }
 
@@ -307,6 +318,14 @@ public class InventoryItemEntity {
         this.materialType = materialType;
     }
 
+    public String getDataQualityTier() {
+        return dataQualityTier;
+    }
+
+    public void setDataQualityTier(String dataQualityTier) {
+        this.dataQualityTier = dataQualityTier;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -396,4 +415,3 @@ public class InventoryItemEntity {
         this.palletRequirement = palletRequirement;
     }
 }
-

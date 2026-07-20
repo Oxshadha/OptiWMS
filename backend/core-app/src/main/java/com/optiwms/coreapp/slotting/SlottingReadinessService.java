@@ -14,6 +14,9 @@ import java.util.UUID;
 @Service
 public class SlottingReadinessService {
 
+    private static final List<String> OPERATIONAL_TIERS = List.of(
+            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
+
     private static final double MATERIAL_THRESHOLD_PCT = 80.0;
     private static final double LOCATION_THRESHOLD_PCT = 90.0;
 
@@ -28,7 +31,7 @@ public class SlottingReadinessService {
     }
 
     public ReadinessReport assess(UUID warehouseId) {
-        List<MaterialEntity> materials = materialRepository.findAll().stream()
+        List<MaterialEntity> materials = materialRepository.findByDataQualityTierIn(OPERATIONAL_TIERS).stream()
                 .filter(m -> isSlottingMaterial(m.getMaterialType()))
                 .toList();
 

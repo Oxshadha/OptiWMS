@@ -41,6 +41,12 @@ public class InventoryPolicyRecommendationLineEntity {
     private BigDecimal currentMaxStock;
     @Column(name = "current_reorder_point")
     private BigDecimal currentReorderPoint;
+    @Column(name = "current_buffer_stock")
+    private BigDecimal currentBufferStock;
+    @Column(name = "current_order_qty")
+    private BigDecimal currentOrderQty;
+    @Column(name = "current_pallet_requirement")
+    private BigDecimal currentPalletRequirement;
     @Column(name = "forecast_p10")
     private BigDecimal forecastP10;
     @Column(name = "forecast_p50")
@@ -55,6 +61,8 @@ public class InventoryPolicyRecommendationLineEntity {
     private BigDecimal moq;
     @Column(name = "order_multiple")
     private BigDecimal orderMultiple;
+    @Column(name = "units_per_handling_unit")
+    private BigDecimal unitsPerHandlingUnit;
     @Column(name = "unit_cost")
     private BigDecimal unitCost;
     @Column(name = "expiry_limited_max_stock")
@@ -88,6 +96,9 @@ public class InventoryPolicyRecommendationLineEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "constraint_snapshot", columnDefinition = "jsonb")
     private String constraintSnapshot;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "approval_snapshot", columnDefinition = "jsonb")
+    private String approvalSnapshot;
     @Column(name = "manager_override", nullable = false)
     private Boolean managerOverride;
     @Column(name = "override_reason", columnDefinition = "TEXT")
@@ -139,6 +150,12 @@ public class InventoryPolicyRecommendationLineEntity {
     public void setCurrentMaxStock(BigDecimal currentMaxStock) { this.currentMaxStock = currentMaxStock; }
     public BigDecimal getCurrentReorderPoint() { return currentReorderPoint; }
     public void setCurrentReorderPoint(BigDecimal currentReorderPoint) { this.currentReorderPoint = currentReorderPoint; }
+    public BigDecimal getCurrentBufferStock() { return currentBufferStock; }
+    public void setCurrentBufferStock(BigDecimal currentBufferStock) { this.currentBufferStock = currentBufferStock; }
+    public BigDecimal getCurrentOrderQty() { return currentOrderQty; }
+    public void setCurrentOrderQty(BigDecimal currentOrderQty) { this.currentOrderQty = currentOrderQty; }
+    public BigDecimal getCurrentPalletRequirement() { return currentPalletRequirement; }
+    public void setCurrentPalletRequirement(BigDecimal currentPalletRequirement) { this.currentPalletRequirement = currentPalletRequirement; }
     public BigDecimal getForecastP10() { return forecastP10; }
     public void setForecastP10(BigDecimal forecastP10) { this.forecastP10 = forecastP10; }
     public BigDecimal getForecastP50() { return forecastP50; }
@@ -153,6 +170,8 @@ public class InventoryPolicyRecommendationLineEntity {
     public void setMoq(BigDecimal moq) { this.moq = moq; }
     public BigDecimal getOrderMultiple() { return orderMultiple; }
     public void setOrderMultiple(BigDecimal orderMultiple) { this.orderMultiple = orderMultiple; }
+    public BigDecimal getUnitsPerHandlingUnit() { return unitsPerHandlingUnit; }
+    public void setUnitsPerHandlingUnit(BigDecimal unitsPerHandlingUnit) { this.unitsPerHandlingUnit = unitsPerHandlingUnit; }
     public BigDecimal getUnitCost() { return unitCost; }
     public void setUnitCost(BigDecimal unitCost) { this.unitCost = unitCost; }
     public BigDecimal getExpiryLimitedMaxStock() { return expiryLimitedMaxStock; }
@@ -185,6 +204,8 @@ public class InventoryPolicyRecommendationLineEntity {
     public void setRationale(String rationale) { this.rationale = rationale; }
     public String getConstraintSnapshot() { return constraintSnapshot; }
     public void setConstraintSnapshot(String constraintSnapshot) { this.constraintSnapshot = constraintSnapshot; }
+    public String getApprovalSnapshot() { return approvalSnapshot; }
+    public void setApprovalSnapshot(String approvalSnapshot) { this.approvalSnapshot = approvalSnapshot; }
     public Boolean getManagerOverride() { return managerOverride; }
     public void setManagerOverride(Boolean managerOverride) { this.managerOverride = managerOverride; }
     public String getOverrideReason() { return overrideReason; }

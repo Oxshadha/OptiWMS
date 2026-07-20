@@ -43,7 +43,8 @@ public class InventoryService {
     }
 
     public List<InventoryItem> listAll() {
-        return repository.findAll().stream()
+        return repository.findAll((root, cq, cb) -> root.get("dataQualityTier").in(
+                        "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -113,7 +114,21 @@ public class InventoryService {
             UUID warehouseId,
             String materialType,
             String status,
+            String stockState,
             String query,
+            Pageable pageable
+    ) {
+        return findPaged(materialId, warehouseId, materialType, status, stockState, query, true, pageable);
+    }
+
+    public Page<InventoryItem> findPaged(
+            UUID materialId,
+            UUID warehouseId,
+            String materialType,
+            String status,
+            String stockState,
+            String query,
+            boolean includeLegacy,
             Pageable pageable
     ) {
         Set<UUID> materialIdsForQuery = Collections.emptySet();
@@ -132,6 +147,12 @@ public class InventoryService {
         Specification<InventoryItemEntity> spec = (root, cq, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
+            if (!includeLegacy) {
+                predicates.add(root.get("dataQualityTier").in(
+                        "GENERATED_OPERATIONAL_BASELINE",
+                        "OPERATIONAL_ENTRY"));
+            }
+
             if (materialId != null) {
                 predicates.add(cb.equal(root.get("materialId"), materialId));
             }
@@ -143,6 +164,24 @@ public class InventoryService {
             }
             if (status != null && !status.isBlank()) {
                 predicates.add(cb.equal(root.get("status"), status));
+            }
+            if (stockState != null && !stockState.isBlank() && !"all".equalsIgnoreCase(stockState)) {
+                var quantity = root.<Integer>get("quantity");
+                var available = root.<Integer>get("availableQuantity");
+                var quantityDecimal = quantity.as(java.math.BigDecimal.class);
+                Predicate low = cb.and(
+                        cb.greaterThan(quantity, 0),
+                        cb.or(
+                                cb.lessThan(available, 10),
+                                cb.lessThan(quantity, 10),
+                                cb.and(cb.isNotNull(root.get("reorderPoint")), cb.lessThanOrEqualTo(quantityDecimal, root.get("reorderPoint"))),
+                                cb.and(cb.isNotNull(root.get("bufferStock")), cb.lessThanOrEqualTo(quantityDecimal, root.get("bufferStock")))
+                        ));
+                if ("low".equalsIgnoreCase(stockState)) {
+                    predicates.add(low);
+                } else if ("available".equalsIgnoreCase(stockState)) {
+                    predicates.add(cb.and(cb.greaterThan(quantity, 0), cb.greaterThan(available, 0), cb.not(low)));
+                }
             }
             if (query != null && !query.isBlank()) {
                 String pattern = "%" + query.toLowerCase() + "%";
@@ -177,6 +216,26 @@ public class InventoryService {
         };
 
         return repository.findAll(spec, pageable).map(this::toDomain);
+    }
+
+    public InventorySummary summarize(UUID warehouseId, String materialType) {
+        var summary = repository.summarizeOperational(warehouseId, materialType);
+        return new InventorySummary(
+                value(summary.getTotalItems()),
+                value(summary.getInStockItems()),
+                value(summary.getLowStockItems()),
+                value(summary.getOutOfStockItems()));
+    }
+
+    private long value(Long value) {
+        return value == null ? 0L : value;
+    }
+
+    public record InventorySummary(
+            long totalItems,
+            long inStockItems,
+            long lowStockItems,
+            long outOfStockItems) {
     }
 
     private String normalizeForSearch(String value) {

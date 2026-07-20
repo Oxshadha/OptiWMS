@@ -233,6 +233,14 @@ public class OrderController {
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
     }
 
+    @PostMapping("/repair/canonical-numbers")
+    public ResponseEntity<OrderService.CanonicalOrderRepairResult> repairCanonicalOrderNumbers(
+            @RequestBody(required = false) CanonicalOrderRepairRequest request
+    ) {
+        boolean dryRun = request == null || request.dryRun();
+        return ResponseEntity.ok(orderService.repairCanonicalOrderNumbers(dryRun));
+    }
+
     @PutMapping("/{id}/status")
     public ResponseEntity<OrderDto> updateStatus(
             @PathVariable UUID id,
@@ -388,6 +396,8 @@ public class OrderController {
     ) {}
 
     public record UpdateStatusRequest(String status) {}
+
+    public record CanonicalOrderRepairRequest(boolean dryRun) {}
 
     public record UpdateOrderRequest(
             String expectedDate,

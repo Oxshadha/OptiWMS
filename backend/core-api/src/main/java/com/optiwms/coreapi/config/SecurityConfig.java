@@ -100,7 +100,7 @@ public class SecurityConfig {
                         // Other master data operations require admin/manager roles
                         .requestMatchers("/api/master/**")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "INBOUND_COORDINATOR")
-                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/api/ai/forecasts").permitAll().requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .authenticationProvider(authenticationProvider())
                 // Order matters: Security Headers → Rate Limiting → JWT Auth

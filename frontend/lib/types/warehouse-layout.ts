@@ -53,6 +53,15 @@ export interface WarehouseLayout {
   width: number; // Total warehouse width in SVG units
   height: number; // Total warehouse height in SVG units
   racks: RackUnit[];
+  stations: {
+    id: string;
+    label: string;
+    kind: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
   aisles: {
     id: string;
     x: number;

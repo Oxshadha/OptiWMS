@@ -19,12 +19,12 @@ export function WarehouseLegend() {
           <span className="w-3 h-3 rounded border border-slate-900 inline-block" style={{ backgroundColor: "#1E293B" }}></span>
           High Fill
         </span>
-        <span className="badge badge-ghost gap-2 px-3 py-3 border border-sky-700">
-          <span className="w-3 h-3 rounded inline-block" style={{ backgroundColor: "#E0F2FE", border: "1px solid #0284C7" }}></span>
+        <span className="badge badge-ghost gap-2 px-3 py-3 border border-blue-200">
+          <span className="w-3 h-3 rounded inline-block" style={{ backgroundColor: "#EFF6FF", border: "1px solid #3B82F6" }}></span>
           Reserved
         </span>
-        <span className="badge badge-ghost gap-2 px-3 py-3 border border-orange-500 text-orange-700">
-          <span className="w-3 h-3 rounded inline-block" style={{ backgroundColor: "#FFEDD5", border: "1px solid #F97316" }}></span>
+        <span className="badge badge-ghost gap-2 px-3 py-3 border" style={{ borderColor: "oklch(55% 0.135 66.442)", color: "oklch(45% 0.135 66.442)" }}>
+          <span className="w-3 h-3 rounded inline-block" style={{ backgroundColor: "oklch(96% 0.05 66.442)", border: "1px solid oklch(55% 0.135 66.442)" }}></span>
           Maintenance
         </span>
         <span className="badge badge-ghost gap-2 px-3 py-3 border border-red-600 text-red-700">

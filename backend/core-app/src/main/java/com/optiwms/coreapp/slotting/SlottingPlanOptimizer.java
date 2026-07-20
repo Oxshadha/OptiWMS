@@ -91,8 +91,8 @@ public class SlottingPlanOptimizer {
                         : input.incumbentPrimary().get(material.materialId());
                 if (placementPlanner != null && input.warehouseId() != null) {
                     Set<String> exclude = new HashSet<>(assignedPrimary);
-                    int unitsPerPallet = material.palletSpaces() != null
-                            ? material.palletSpaces().setScale(0, RoundingMode.CEILING).intValue()
+                    int unitsPerPallet = material.unitsPerPallet() != null
+                            ? Math.max(1, material.unitsPerPallet())
                             : 1;
                     int reserveQty = Math.max(reservePp * Math.max(unitsPerPallet, 1), reservePp);
                     StockPlacementPlanner.PlacementPlan placementPlan = placementPlanner.planPlacement(
@@ -361,10 +361,17 @@ public class SlottingPlanOptimizer {
             return true;
         }
         String area = loc.getArea() != null ? loc.getArea().toUpperCase() : "";
+        boolean explicitRmArea = RM_AREAS.stream().anyMatch(area::contains) || area.startsWith("R");
+        boolean explicitPmArea = PM_AREAS.stream().anyMatch(area::contains) || area.contains("P");
+        boolean explicitFgArea = FG_AREAS.stream().anyMatch(a -> area.contains(a) || area.equals(a));
+        if (!explicitRmArea && !explicitPmArea && !explicitFgArea) {
+            // A/B/C... are physical blocks shared by compatible materials, not material-type namespaces.
+            return true;
+        }
         return switch (materialTypeFilter) {
-            case "raw_material" -> RM_AREAS.stream().anyMatch(area::contains) || area.startsWith("R");
-            case "packaging_material" -> PM_AREAS.stream().anyMatch(area::contains) || area.contains("P");
-            case "product" -> FG_AREAS.stream().anyMatch(a -> area.contains(a) || area.equals(a));
+            case "raw_material" -> explicitRmArea;
+            case "packaging_material" -> explicitPmArea;
+            case "product" -> explicitFgArea;
             default -> true;
         };
     }
@@ -411,9 +418,9 @@ public class SlottingPlanOptimizer {
             return material.maxPalletWeightKg();
         }
         if (material.weightKg() != null
-                && material.palletSpaces() != null
-                && material.palletSpaces().compareTo(BigDecimal.ZERO) > 0) {
-            return material.weightKg().multiply(material.palletSpaces());
+                && material.unitsPerPallet() != null
+                && material.unitsPerPallet() > 0) {
+            return material.weightKg().multiply(BigDecimal.valueOf(material.unitsPerPallet()));
         }
         return material.weightKg();
     }
@@ -422,9 +429,8 @@ public class SlottingPlanOptimizer {
         if (material.volumeCm3() == null || loc.getMaxVolumeCm3() == null) {
             return true;
         }
-        BigDecimal unitsPerPallet = material.palletSpaces() != null
-                && material.palletSpaces().compareTo(BigDecimal.ZERO) > 0
-                ? material.palletSpaces()
+        BigDecimal unitsPerPallet = material.unitsPerPallet() != null && material.unitsPerPallet() > 0
+                ? BigDecimal.valueOf(material.unitsPerPallet())
                 : BigDecimal.ONE;
         BigDecimal palletVolume = material.volumeCm3().multiply(unitsPerPallet);
         return palletVolume.doubleValue() <= loc.getMaxVolumeCm3().doubleValue();
@@ -494,8 +500,8 @@ public class SlottingPlanOptimizer {
     }
 
     private int computePalletPositions(double units, MaterialCandidate m) {
-        double unitsPerPallet = m.palletSpaces() != null && m.palletSpaces().compareTo(BigDecimal.ZERO) > 0
-                ? m.palletSpaces().doubleValue()
+        double unitsPerPallet = m.unitsPerPallet() != null && m.unitsPerPallet() > 0
+                ? m.unitsPerPallet().doubleValue()
                 : 1.0;
         return (int) Math.max(1, Math.ceil(units / Math.max(1.0, unitsPerPallet)));
     }
@@ -594,7 +600,13 @@ public class SlottingPlanOptimizer {
             BigDecimal weightKg,
             BigDecimal volumeCm3,
             BigDecimal palletSpaces,
-            BigDecimal maxPalletWeightKg) {}
+            Integer unitsPerPallet,
+            BigDecimal maxPalletWeightKg,
+            BigDecimal unitCost,
+            boolean temperatureControlled,
+            boolean hazardous,
+            boolean fragile,
+            boolean stackable) {}
 
     public record ReserveSlot(String locationCode, int palletPositions, String zoneHint) {}
 

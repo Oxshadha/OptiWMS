@@ -48,12 +48,17 @@ public class MaterialController {
     public ResponseEntity<List<MaterialDto>> list(
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @NonNull WebRequest webRequest) {
         var materials = supplierId != null
                 ? supplierMaterialService.getMaterialsForSupplier(supplierId, materialType)
-                : (materialType != null
-                        ? materialService.findByMaterialType(materialType)
-                        : materialService.listAll());
+                : (includeLegacy
+                        ? (materialType != null
+                                ? materialService.findByMaterialType(materialType)
+                                : materialService.listAll())
+                        : (materialType != null
+                                ? materialService.findOperationalByMaterialType(materialType)
+                                : materialService.listOperational()));
         var data = materials.stream().map(this::toMaterialDto).toList();
         return ReferenceDataCacheSupport.ok(
                 webRequest,
@@ -61,6 +66,7 @@ public class MaterialController {
                 "materials",
                 materialType,
                 supplierId,
+                includeLegacy,
                 data);
     }
 
@@ -68,10 +74,11 @@ public class MaterialController {
     public ResponseEntity<PagedMaterialResponse> listPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(defaultValue = "materialCode") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) UUID supplierId,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 200);
@@ -103,6 +110,7 @@ public class MaterialController {
             materialPage = materialService.findPaged(
                     materialType,
                     q,
+                    includeLegacy,
                     PageRequest.of(safePage, safeSize, Sort.by(direction, safeSortBy).and(Sort.by(direction, "id"))));
         }
 
@@ -114,6 +122,23 @@ public class MaterialController {
                 materialPage.getSize(),
                 materialPage.getTotalElements(),
                 materialPage.getTotalPages()));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<MaterialSummaryResponse> summary() {
+        var materials = materialService.listOperational();
+        long dimensioned = materials.stream().filter(this::hasCompleteDimensions).count();
+        long rawMaterials = materials.stream()
+                .filter(material -> "raw_material".equals(material.getMaterialType()))
+                .count();
+        long products = materials.stream()
+                .filter(material -> "product".equals(material.getMaterialType()))
+                .count();
+        long packaging = materials.stream()
+                .filter(material -> "packaging_material".equals(material.getMaterialType()))
+                .count();
+        return ResponseEntity.ok(new MaterialSummaryResponse(
+                materials.size(), dimensioned, rawMaterials, products, packaging));
     }
 
     @GetMapping("/{id}")
@@ -360,6 +385,8 @@ public class MaterialController {
             java.math.BigDecimal weightKg,
             java.math.BigDecimal volumeCm3,
             java.math.BigDecimal palletSpaces,
+            Integer unitsPerPallet,
+            Integer maxStackHeight,
             java.math.BigDecimal maxPalletWeightKg,
             java.math.BigDecimal minOrderQuantity,
             String handlingUnitType,
@@ -392,6 +419,14 @@ public class MaterialController {
             int size,
             long totalElements,
             int totalPages) {
+    }
+
+    public record MaterialSummaryResponse(
+            long total,
+            long dimensioned,
+            long rawMaterials,
+            long products,
+            long packaging) {
     }
 
     public record CreateMaterialRequest(
@@ -446,11 +481,26 @@ public class MaterialController {
                 material.getWeightKg(),
                 material.getVolumeCm3(),
                 material.getPalletSpaces(),
+                material.getUnitsPerPallet(),
+                material.getMaxStackHeight(),
                 material.getMaxPalletWeightKg(),
                 material.getMinOrderQuantity(),
                 material.getHandlingUnitType(),
                 material.getUnitsPerHandlingUnit(),
                 material.getOrderMultiple());
+    }
+
+    private boolean hasCompleteDimensions(com.optiwms.domain.master.Material material) {
+        return isPositive(material.getLengthCm())
+                && isPositive(material.getWidthCm())
+                && isPositive(material.getHeightCm())
+                && isPositive(material.getWeightKg())
+                && isPositive(material.getVolumeCm3())
+                && isPositive(material.getPalletSpaces());
+    }
+
+    private boolean isPositive(BigDecimal value) {
+        return value != null && value.compareTo(BigDecimal.ZERO) > 0;
     }
 
     private BigDecimal firstPositive(BigDecimal... values) {

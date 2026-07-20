@@ -6,6 +6,7 @@ import com.optiwms.coreapp.operations.PutawayCapacityPlanningService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -110,6 +111,38 @@ public class PutawayController {
                 }
         }
 
+        @PostMapping("/split-plan/batch")
+        public ResponseEntity<?> splitPlanBatch(@RequestBody BatchSplitPlanRequest request) {
+                try {
+                        if (request == null
+                                        || request.warehouseId() == null || request.warehouseId().isBlank()) {
+                                throw new IllegalArgumentException("warehouseId is required");
+                        }
+                        List<PutawayCapacityPlanningService.SplitPlanRequest> items = request.items() != null
+                                        ? request.items().stream()
+                                                        .map(item -> new PutawayCapacityPlanningService.SplitPlanRequest(
+                                                                        item.itemIndex(),
+                                                                        item.materialId() != null && !item.materialId().isBlank()
+                                                                                        ? UUID.fromString(item.materialId())
+                                                                                        : null,
+                                                                        item.quantity(),
+                                                                        item.preferredLocationCode()))
+                                                        .toList()
+                                        : List.of();
+                        var result = putawayCapacityPlanningService.suggestBatchSplitPlan(
+                                        UUID.fromString(request.warehouseId()),
+                                        items);
+                        return ResponseEntity.ok(result);
+                } catch (IllegalArgumentException e) {
+                        return ResponseEntity.badRequest().body(new PutawayResponse(false, e.getMessage(), null));
+                } catch (RuntimeException e) {
+                        return ResponseEntity.badRequest().body(new PutawayResponse(false, e.getMessage(), null));
+                } catch (Exception e) {
+                        return ResponseEntity.badRequest().body(new PutawayResponse(false,
+                                        "Batch capacity planning failed: " + e.getMessage(), null));
+                }
+        }
+
         public record CompletePutawayRequest(
                         String locationCode,
                         String lpn,
@@ -133,6 +166,18 @@ public class PutawayController {
 
         public record SplitPlanRequest(
                         String warehouseId,
+                        String materialId,
+                        Integer quantity,
+                        String preferredLocationCode) {
+        }
+
+        public record BatchSplitPlanRequest(
+                        String warehouseId,
+                        List<BatchSplitPlanItemRequest> items) {
+        }
+
+        public record BatchSplitPlanItemRequest(
+                        Integer itemIndex,
                         String materialId,
                         Integer quantity,
                         String preferredLocationCode) {

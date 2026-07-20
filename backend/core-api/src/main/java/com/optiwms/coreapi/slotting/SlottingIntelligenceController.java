@@ -59,6 +59,7 @@ public class SlottingIntelligenceController {
                 profile.stockoutRiskScore(),
                 profile.reclaimablePositions(),
                 profile.confidencePct(),
+                profile.evidenceStatus(),
                 profile.rationale());
     }
 
@@ -87,5 +88,6 @@ public class SlottingIntelligenceController {
             double stockoutRisk,
             int reclaimableBins,
             int confidencePct,
+            String evidenceStatus,
             String rationale) {}
 }

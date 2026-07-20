@@ -367,7 +367,7 @@ export default function TaskDetailPage() {
           <button className="btn btn-ghost">Back to Tasks</button>
         </Link>
         {canReassign && (
-          <button className="btn btn-primary" onClick={() => setShowAssignModal(true)}>
+          <button className="btn btn-outline" onClick={() => setShowAssignModal(true)}>
             <span className="material-symbols-outlined">person_add</span>
             Reassign Worker
           </button>

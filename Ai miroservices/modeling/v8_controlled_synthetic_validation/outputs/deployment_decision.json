@@ -1,0 +1,11 @@
+{
+  "decision": "DO_NOT_PROMOTE_TO_PRODUCTION",
+  "simulation_ready": true,
+  "python_microservice_ready": false,
+  "spring_canonical_publish_ready": false,
+  "frontend_production_ready": false,
+  "policy_simulation_ready": true,
+  "milp_knapsack_simulation_ready": true,
+  "reason": "Model and features are fitted to generated material identities, BOMs, production plans and history.",
+  "next_gate": "replace generated identities and history with validated operational data, retrain, shadow-test and approve"
+}

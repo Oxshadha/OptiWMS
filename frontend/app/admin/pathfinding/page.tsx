@@ -395,8 +395,6 @@ export default function AdminPathfindingPage() {
     SCENARIOS.find((item) => item.id === scenarioId) ?? SCENARIOS[0];
 
   const simulation = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _trigger = runCounter; // depend on run button clicks
     const first = routeForWorker(scenario.workers[0], algorithm, new Set());
     const firstRouteKeys = new Set(first.cells.map(keyOf));
 

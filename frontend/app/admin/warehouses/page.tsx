@@ -379,12 +379,7 @@ export default function WarehousesPage() {
       )}
 
       <WarehouseStatsCards stats={stats} />
-      {layoutLimitNotice && (
-        <div className="alert alert-info">
-          <span className="material-symbols-outlined">info</span>
-          <span>{layoutLimitNotice}</span>
-        </div>
-      )}
+
       <DataIntegrityPanel warehouseId={selectedWarehouseId} />
 
       {layoutHasRealData ? (
@@ -532,6 +527,7 @@ function createEmptyLayout(warehouseId: string, warehouseName: string): Warehous
     width: 1200,
     height: 600,
     racks: [],
+    stations: [],
     aisles: [],
   };
 }

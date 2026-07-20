@@ -15,6 +15,7 @@ public interface ForecastResultRepository extends JpaRepository<ForecastResultEn
     @Query("""
             SELECT f FROM ForecastResultEntity f
             WHERE f.materialId = :materialId
+              AND f.decisionEligible = TRUE
               AND (:warehouseId IS NULL OR f.warehouseId IS NULL OR f.warehouseId = :warehouseId)
               AND f.forecastPeriod >= :fromPeriod
               AND f.forecastPeriod < :toPeriod
@@ -29,12 +30,27 @@ public interface ForecastResultRepository extends JpaRepository<ForecastResultEn
     @Query("""
             SELECT f FROM ForecastResultEntity f
             WHERE (:warehouseId IS NULL OR f.warehouseId IS NULL OR f.warehouseId = :warehouseId)
+              AND f.decisionEligible = TRUE
               AND f.forecastPeriod >= :fromPeriod
               AND f.forecastPeriod < :toPeriod
             ORDER BY f.materialId, f.forecastPeriod ASC, f.createdAt DESC
             """)
     List<ForecastResultEntity> findForecastsForWarehouse(
             @Param("warehouseId") UUID warehouseId,
+            @Param("fromPeriod") LocalDate fromPeriod,
+            @Param("toPeriod") LocalDate toPeriod);
+
+    @Query("""
+            SELECT COUNT(DISTINCT f.materialId) FROM ForecastResultEntity f
+            WHERE f.warehouseId = :warehouseId
+              AND f.materialId IN :materialIds
+              AND f.decisionEligible = FALSE
+              AND f.forecastPeriod >= :fromPeriod
+              AND f.forecastPeriod < :toPeriod
+            """)
+    long countUnapprovedForecastMaterials(
+            @Param("warehouseId") UUID warehouseId,
+            @Param("materialIds") java.util.Collection<UUID> materialIds,
             @Param("fromPeriod") LocalDate fromPeriod,
             @Param("toPeriod") LocalDate toPeriod);
 }
