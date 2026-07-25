@@ -39,3 +39,17 @@ PYTHONPATH=. \
 - `00_Controlled_Data_Generation.ipynb` through `05_Statistical_Conclusion.ipynb`.
 - `06_Final_Enterprise_Model_Decision_And_E2E.ipynb`: final research-guideline and integration decision.
 - `07_Synthetic_Data_Generation_Methods_And_Proof.ipynb`: standalone evaluator proof of the generator equations, distributions, causal structure, plots, integrity gates, reproducibility hash and WMS workflow mapping.
+
+## Shared Neural Evaluator Replication
+
+The canonical operational-baseline package owns the complete evaluator leaderboard.
+v8 also runs an independent replication of the shared 24-month/H1-H12
+Conv1D-attention contract against seasonal naive:
+
+```bash
+../../../.venv-evaluator/bin/python run_evaluator_upgrade.py
+```
+
+Outputs are written to `outputs/evaluator/` and are surfaced in
+`02A_Conv1D_Attention_Challenger.ipynb`. This replication validates controlled
+pipeline behavior only; it is not production or external-population evidence.

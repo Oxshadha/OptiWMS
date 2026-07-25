@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from textwrap import dedent
 
@@ -35,14 +36,18 @@ if ROOT.name != "v8_controlled_synthetic_validation":
 OUT = ROOT / "outputs"
 DATA = OUT / "data"
 PLOTS = OUT / "plots"
+EVAL = OUT / "evaluator"
 summary = json.loads((OUT / "run_summary.json").read_text())
 """
 
 
 def _write(name: str, cells: list[dict]) -> None:
+    for index, cell in enumerate(cells):
+        source = "".join(cell["source"])
+        cell["id"] = hashlib.sha1(f"{name}:{index}:{source}".encode()).hexdigest()[:12]
     notebook = {
         "cells": cells,
-        "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python", "version": "3.10"}},
+        "metadata": {"kernelspec": {"display_name": "OptiWMS Evaluator (Python 3.12)", "language": "python", "name": "optiwms-evaluator"}, "language_info": {"name": "python", "version": "3.12"}},
         "nbformat": 4,
         "nbformat_minor": 5,
     }
@@ -105,6 +110,14 @@ def build() -> list[str]:
             eda
             """),
             code("display(Image(filename=str(PLOTS / '01_generated_demand_vs_bom_plan.png')))"),
+            code("""
+            evaluator_rows = pd.read_csv(EVAL / "backtest_rows.csv.gz", parse_dates=["forecast_month"])
+            evaluator_summary = json.loads((EVAL / "evaluator_run_summary.json").read_text())
+            display(pd.DataFrame([evaluator_summary]).T)
+            """),
+            md("""
+            The shared evaluator uses annual and semiannual sine/cosine calendar features and computes Fourier summaries from each historical input window only. This prevents full-series frequency information from leaking into earlier forecast origins.
+            """),
         ],
         "02_Features_Models_And_Tuning.ipynb": [
             md("""
@@ -127,6 +140,33 @@ def build() -> list[str]:
             Candidate families include seasonal naive, moving average, Croston/SBA, damped Holt/ETS, deterministic BOM-plan, Ridge, Elastic Net, Random Forest, Extra Trees, direct LightGBM, causal LightGBM and Tweedie LightGBM.
             """),
         ],
+        "02A_Conv1D_Attention_Challenger.ipynb": [
+            md("""
+            # Global Conv1D Attention Challenger
+
+            This notebook independently applies the shared 24-month/H1-H12 Conv1D-attention contract to the v8 controlled panel. The canonical operational-baseline notebooks remain the source of truth for the full challenger leaderboard.
+
+            The neural model uses causal 3- and 6-month convolutions, two residual self-attention blocks, origin-safe known-future and spectral branches, ordered quantiles and five deterministic seeds. Attention weights are descriptive and are not causal effects.
+            """),
+            code(SETUP),
+            code("""
+            evaluator_summary=json.loads((EVAL/'evaluator_run_summary.json').read_text())
+            evaluator_board=pd.read_csv(EVAL/'model_leaderboard.csv')
+            seed=pd.read_csv(EVAL/'neural_seed_stability.csv')
+            display(pd.DataFrame([evaluator_summary]).T)
+            display(evaluator_board)
+            display(seed.groupby('split')[['WAPE','RMSE','epochs']].agg(['mean','std','min','max']))
+            """),
+            code("""
+            attention=pd.read_csv(EVAL/'attention_weights.csv')
+            occlusion=pd.read_csv(EVAL/'lag_occlusion_sensitivity.csv')
+            permutation=pd.read_csv(EVAL/'heldout_group_permutation.csv')
+            display(attention)
+            display(occlusion.sort_values('WAPE_increase',ascending=False).head(12))
+            display(permutation.sort_values('WAPE_increase',ascending=False))
+            """),
+            md("A neural win on generated data validates only this controlled experiment. External population validity remains `UNVERIFIED`."),
+        ],
         "03_Untouched_Test_And_Hypothesis_Tests.ipynb": [
             md("""
             # Untouched Test And Paired Hypothesis Tests
@@ -145,6 +185,11 @@ def build() -> list[str]:
             """),
             code("display(Image(filename=str(PLOTS / '04_high_volume_comparison.png')))"),
             code("display(Image(filename=str(PLOTS / '06_shock_robustness.png')))"),
+            code("""
+            evaluator_board=pd.read_csv(EVAL/'model_leaderboard.csv')
+            display(evaluator_board)
+            print('The shared neural comparison is H1-H12 direct; the original v8 table above remains its one-step controlled benchmark.')
+            """),
         ],
         "04_Residuals_Intervals_And_Policy.ipynb": [
             md("""
@@ -171,6 +216,11 @@ def build() -> list[str]:
             display(gain.head(15))
             display(permutation.head(15))
             """),
+            code("""
+            evaluator_rows=pd.read_csv(EVAL/'backtest_rows.csv.gz')
+            evaluator_rows['residual']=evaluator_rows.y_true-evaluator_rows.prediction
+            display(evaluator_rows.groupby(['split','model_name']).residual.agg(['mean','std','count']))
+            """),
         ],
         "05_Statistical_Conclusion.ipynb": [
             md("""
@@ -180,6 +230,10 @@ def build() -> list[str]:
             """),
             code(SETUP),
             code("summary"),
+            code("""
+            evaluator_summary=json.loads((EVAL/'evaluator_run_summary.json').read_text())
+            display(pd.DataFrame([evaluator_summary]).T)
+            """),
             md("""
             ## Supported Conclusions
 
