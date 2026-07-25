@@ -138,6 +138,7 @@ __pycache__/
 .Python
 *.egg-info/
 venv/
+.venv-evaluator/
 env/
 ENV/
 
@@ -199,6 +200,10 @@ VIVA_FOLDER_MAP_AND_GRADLE.md
 # Keep markdown and shell scripts trackable; ignore only specific local notes.
 
 *.csv
+
+# Evaluator-grade evidence is a versioned notebook/artifact contract.
+!Ai miroservices/modeling/project_operational_baseline/outputs/evaluator/*.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/evaluator/*.csv
 
 # AI microservices modeling run artifacts
 Ai miroservices/modeling/**/catboost_info/
