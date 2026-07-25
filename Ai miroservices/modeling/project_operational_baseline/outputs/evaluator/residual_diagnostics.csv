@@ -1,0 +1,6 @@
+test,statistic,p_value,null_hypothesis,status
+HAC mean residual equals zero,-2.34107342513453,0.019228385128915417,mean residual is zero,REJECTED
+Ljung-Box monthly residual lag 4,8.745407825556624,0.06778782929657425,no residual autocorrelation,SUPPORTED
+Jarque-Bera normality,1899561.0703102828,0.0,residuals are normally distributed,NOT_REQUIRED
+Breusch-Pagan constant variance,47.15268150671008,6.5666752346489485e-12,residual variance is constant,REJECTED
+Spearman absolute residual versus fitted,0.8559345360617795,1.1755280451350693e-276,error scale is unrelated to fitted scale,REJECTED
