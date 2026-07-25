@@ -16,3 +16,35 @@ cd "Ai miroservices/modeling/project_operational_baseline"
 ```
 
 Use `--small` only for contract tests. Canonical runs write compressed CSV artifacts and `outputs/manifest.json`.
+
+## Evaluator-Grade Time-Series Evidence
+
+The evaluator upgrade is deliberately isolated from the runtime forecast contract. It
+adds leakage-safe 24-month input windows, direct H1-H12 forecasts, time/frequency
+features, a global Conv1D/self-attention challenger, ordered quantiles, rolling-origin
+model comparison, residual/interval tests and inventory-cost sensitivity.
+
+Create the clean Python 3.12 environment from the repository root:
+
+```bash
+/opt/homebrew/bin/python3.12 -m venv .venv-evaluator
+./.venv-evaluator/bin/pip install -r "Ai miroservices/modeling/requirements-evaluator-lock.txt"
+./.venv-evaluator/bin/python -m ipykernel install --prefix .venv-evaluator \
+  --name optiwms-evaluator --display-name "OptiWMS Evaluator (Python 3.12)"
+```
+
+Run the complete five-seed evidence pipeline:
+
+```bash
+cd "Ai miroservices/modeling/project_operational_baseline"
+../../../.venv-evaluator/bin/python run_evaluator_upgrade.py
+```
+
+`--quick` is a one-seed developer check and is not evaluator evidence. Stable results
+are written to `outputs/evaluator/`, including the leaderboard, spectral evidence,
+assumption registry, dependence-aware hypothesis tests, seed stability, ablations,
+calibration, decision-cost sensitivity and explanation artifacts. All results remain
+generated-data evidence with external population validity marked `UNVERIFIED`.
+
+After both evaluator runners finish, regenerate the notebook definitions and execute
+them with `./.venv-evaluator/bin/python tools/execute_evaluator_notebooks.py`.
