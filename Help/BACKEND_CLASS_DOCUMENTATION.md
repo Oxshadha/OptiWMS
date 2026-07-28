@@ -67,26 +67,6 @@ Scope:
 - Attributes (20): `id`, `partnerCode`, `companyName`, `contactPerson`, `email`, `phone`, `address`, `city`, `country`, `countryCode`, `currencyCode`, `carrierType`, `serviceAreas`, `rating`, `costPerDelivery`, `status`, `totalShipments`, `onTimeDeliveryRate`, `createdAt`, `updatedAt`
 - Outgoing FK relations: none
 
-## `DockAppointmentEntity`
-- Package: `com.optiwms.infra.dock`
-- File: `backend/infra/src/main/java/com/optiwms/infra/dock/DockAppointmentEntity.java`
-- Table: `dock_appointments`
-- Attributes (18): `id`, `appointmentNumber`, `dockDoorId`, `warehouseId`, `appointmentType`, `scheduledStart`, `scheduledEnd`, `actualStart`, `actualEnd`, `inboundOrderId`, `outboundOrderId`, `supplierId`, `carrierName`, `trailerNumber`, `status`, `notes`, `createdAt`, `updatedAt`
-- Outgoing FK relations:
-  - `dock_door_id  -> dock_doors.id`
-  - `warehouse_id  -> warehouses.id`
-  - `inbound_order_id  -> orders.id`
-  - `outbound_order_id  -> orders.id`
-  - `supplier_id  -> suppliers.id`
-
-## `DockDoorEntity`
-- Package: `com.optiwms.infra.dock`
-- File: `backend/infra/src/main/java/com/optiwms/infra/dock/DockDoorEntity.java`
-- Table: `dock_doors`
-- Attributes (8): `id`, `doorNumber`, `warehouseId`, `location`, `status`, `currentAppointmentId`, `createdAt`, `updatedAt`
-- Outgoing FK relations:
-  - `warehouse_id  -> warehouses.id`
-
 ## `GrnEntity`
 - Package: `com.optiwms.infra.operations`
 - File: `backend/infra/src/main/java/com/optiwms/infra/operations/GrnEntity.java`
@@ -342,17 +322,6 @@ Scope:
 - Attributes (5): `id`, `workerId`, `achievementType`, `earnedAt`, `metadata`
 - Outgoing FK relations:
   - `worker_id  -> users.id`
-
-## `YardTrailerEntity`
-- Package: `com.optiwms.infra.dock`
-- File: `backend/infra/src/main/java/com/optiwms/infra/dock/YardTrailerEntity.java`
-- Table: `yard_trailers`
-- Attributes (12): `id`, `trailerNumber`, `warehouseId`, `carrierName`, `inboundOrderId`, `supplierId`, `arrivedAt`, `waitTimeMinutes`, `status`, `assignedDockDoorId`, `createdAt`, `updatedAt`
-- Outgoing FK relations:
-  - `warehouse_id  -> warehouses.id`
-  - `inbound_order_id  -> orders.id`
-  - `supplier_id  -> suppliers.id`
-  - `assigned_dock_door_id  -> dock_doors.id`
 
 ## `CsvImportService`
 - Package: `com.optiwms.coreapp.imports`

@@ -255,28 +255,6 @@ Source of truth used: `backend/infra/src/main/resources/db/migration` (`V1` to `
   - `warehouse_id -> warehouses.id`
   - `received_by -> users.id`
 
-### `dock_doors`
-- Attributes: `id`, `door_number`, `warehouse_id`, `location`, `status`, `current_appointment_id`, `created_at`, `updated_at`
-- FK relations:
-  - `warehouse_id -> warehouses.id`
-
-### `dock_appointments`
-- Attributes: `id`, `appointment_number`, `dock_door_id`, `warehouse_id`, `appointment_type`, `scheduled_start`, `scheduled_end`, `actual_start`, `actual_end`, `inbound_order_id`, `outbound_order_id`, `supplier_id`, `carrier_name`, `trailer_number`, `status`, `notes`, `created_at`, `updated_at`
-- FK relations:
-  - `dock_door_id -> dock_doors.id`
-  - `warehouse_id -> warehouses.id`
-  - `inbound_order_id -> orders.id`
-  - `outbound_order_id -> orders.id`
-  - `supplier_id -> suppliers.id`
-
-### `yard_trailers`
-- Attributes: `id`, `trailer_number`, `warehouse_id`, `carrier_name`, `inbound_order_id`, `supplier_id`, `arrived_at`, `wait_time_minutes`, `status`, `assigned_dock_door_id`, `created_at`, `updated_at`
-- FK relations:
-  - `warehouse_id -> warehouses.id`
-  - `inbound_order_id -> orders.id`
-  - `supplier_id -> suppliers.id`
-  - `assigned_dock_door_id -> dock_doors.id`
-
 ### `reports`
 - Attributes: `id`, `report_name`, `report_type`, `description`, `report_config`, `generated_at`, `file_size_bytes`, `file_path`, `created_by`, `created_at`
 - FK relations:
@@ -319,8 +297,6 @@ Source of truth used: `backend/infra/src/main/resources/db/migration` (`V1` to `
 - `stock_transfer_lines.dest_location_code`
 - `ai_slotting_recommendations.recommended_location_code` (parallel to constrained `recommended_location_id`)
 - `grns.po_id`
-- `dock_doors.current_appointment_id`
-
 ## Notes
 
 - This report is built from migration SQL definitions and constraints.
