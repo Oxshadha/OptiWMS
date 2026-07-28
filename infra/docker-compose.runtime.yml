@@ -5,3 +5,9 @@ services:
       dockerfile: Dockerfile.runtime
       args:
         RUNTIME_BASE: ${OPTIWMS_RUNTIME_BASE:-eclipse-temurin:21-jre-alpine}
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_BASE: ${OPTIWMS_FRONTEND_RUNTIME_BASE:-node:20-alpine}
