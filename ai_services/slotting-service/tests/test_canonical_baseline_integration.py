@@ -99,7 +99,7 @@ def test_canonical_baseline_has_a_physically_feasible_target_state():
     ))
 
     assert result.solver_status in {"OPTIMAL", "FEASIBLE"}, result.infeasible_reason
-    assert len(result.assignments) == len(material_inputs) == 866
+    assert len(result.assignments) == len(material_inputs) == len(materials) == 96
     assert result.relocation_moves_applied <= result.relocation_cap_used
 
     material_by_id = {row.material_id: row for row in material_inputs}
