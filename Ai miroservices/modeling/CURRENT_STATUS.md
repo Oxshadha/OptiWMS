@@ -106,6 +106,11 @@ core-WMS/PWA audit and authoritative web/literature review:
 - Correction verification passed: all 23 Spring tests, frontend
   `npx tsc --noEmit`, frontend production build, root README/report local link
   and anchor validation, and `git diff --check`.
+- GitHub Actions forecast inference gate corrected on 2026-07-28: CI now uses
+  Python 3.12, matching the forecast-service package constraint and container
+  image. A clean temporary Python 3.12 installation succeeded; the exact CI
+  subset passed 10/10 tests and the complete forecast-service suite passed
+  13/13 tests.
 
 ## 2026-07-28 Worker PWA And Conflict-Aware Routing Completion
 

@@ -178,6 +178,10 @@ to the aisle. The deployed STG-01 start node is routable.
 - Verified the correction with the complete 23-test Spring suite, TypeScript,
   the Next.js production build, root report/README link and anchor checks, and
   `git diff --check`.
+- Corrected the forecast inference GitHub Actions environment from Python 3.11
+  to Python 3.12 so it matches `pyproject.toml` and the service image. The exact
+  CI test subset passes 10/10 and the complete forecast-service suite passes
+  13/13 in a clean Python 3.12 environment.
 
 ## Evaluator Evidence
 
