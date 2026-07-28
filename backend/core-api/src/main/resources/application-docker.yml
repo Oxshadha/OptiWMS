@@ -35,6 +35,12 @@ logging:
     root: INFO
     org.springframework.security: INFO
 
+optiwms:
+  features:
+    # Deliberately masked from the deployed project surface.
+    dock-management:
+      enabled: ${OPTIWMS_DOCK_MANAGEMENT_ENABLED:false}
+
 ai:
   http:
     connect-timeout-seconds: 3

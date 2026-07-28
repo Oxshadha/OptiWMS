@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 public class MaterialIssueStatsService {
 
     private static final List<String> OPERATIONAL_TIERS = List.of(
-            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
+            "PROJECT_OPERATIONAL_SIMULATION", "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
 
     private static final Set<String> ISSUE_OPS = Set.of(
             "PICK", "PICKED", "PICKING", "ISSUE", "ISSUED", "SHIP", "SHIPPED", "TRANSFER_OUT");

@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
 @Service
 public class MaterialService {
     private static final List<String> OPERATIONAL_TIERS = List.of(
-            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
+            "PROJECT_OPERATIONAL_SIMULATION", "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
     private static final List<String> ALLOWED_STORAGE_TYPES = List.of("pallet", "bulk", "loose", "rack", "cold");
     private static final List<String> ALLOWED_UNIT_TYPES = List.of("bag", "drum", "reel", "bucket", "pallet", "pcs",
             "unit");
@@ -150,6 +150,7 @@ public class MaterialService {
             List<Predicate> predicates = new ArrayList<>();
             if (!includeLegacy) {
                 predicates.add(root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
                         "GENERATED_OPERATIONAL_BASELINE",
                         "OPERATIONAL_ENTRY"));
             }

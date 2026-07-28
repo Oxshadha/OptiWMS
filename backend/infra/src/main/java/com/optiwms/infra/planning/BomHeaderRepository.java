@@ -10,7 +10,7 @@ import java.util.UUID;
 
 public interface BomHeaderRepository extends JpaRepository<BomHeaderEntity, UUID> {
 
-    String OPERATIONAL_SCOPE = "('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')";
+    String OPERATIONAL_SCOPE = "('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')";
 
     @Query("select h from BomHeaderEntity h where h.dataQualityTier in " + OPERATIONAL_SCOPE + " order by h.parentMaterialId, h.version")
     List<BomHeaderEntity> findOperational();
