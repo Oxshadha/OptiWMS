@@ -71,7 +71,7 @@ def _write_executive_summary(summary: dict) -> None:
 
 ## Experimental Position
 
-This benchmark tests whether the forecasting pipeline can recover a known causal RM/PM demand-generating process. It does not claim production accuracy because every row is controlled synthetic ground truth.
+This benchmark tests whether the forecasting pipeline can recover the declared project-operational synthetic RM/PM demand-generating process. Its rows may drive OptiWMS project decisions with explicit provenance; they do not establish accuracy for an external real-world population.
 
 ## Protocol
 
@@ -181,13 +181,21 @@ def run() -> dict:
         "test_champion_metrics": champion_metrics,
         "test_leaderboard": test_leaderboard.to_dict(orient="records"),
         "interval_calibration": interval_summary.iloc[0].to_dict(),
-        "claim_limit": "Synthetic recovery validates the pipeline and experimental method, not real-world production accuracy or exclusive data causation.",
+        "claim_limit": "Decision-eligible for the declared OptiWMS synthetic project population; external real-world population validity remains UNVERIFIED.",
     }
     (OUTPUT / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
     _write_executive_summary(summary)
+    from pipeline.operational_forecast import build_operational_forecast
+    from pipeline.physical_layout import build_physical_population
+
+    summary["operational_serving"] = build_operational_forecast(OUTPUT)
+    summary["physical_population"] = build_physical_population(OUTPUT)
+    (OUTPUT / "run_summary.json").write_text(
+        json.dumps(summary, indent=2, default=str),
+        encoding="utf-8",
+    )
     return summary
 
 
 if __name__ == "__main__":
     print(json.dumps(run(), indent=2, default=str))
-

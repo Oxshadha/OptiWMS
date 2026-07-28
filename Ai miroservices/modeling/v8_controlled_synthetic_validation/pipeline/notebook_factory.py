@@ -62,7 +62,7 @@ def build() -> list[str]:
 
             This notebook documents a reproducible data-generating process with known ground truth. It contains 24 finished goods, 120 RM/PM materials, complete BOM mappings, yield, scrap, MOQ, order multiples, lead times, production plans, actual production, shocks and structural changes.
 
-            **Claim boundary:** controlled synthetic recovery validates pipeline behavior. It does not prove production accuracy or that all real-data error is caused by data quality.
+            **Claim boundary:** controlled synthetic recovery is decision evidence for the declared OptiWMS project population. It does not prove accuracy for an external real-world population or that all real-data error is caused by data quality.
             """),
             code(SETUP),
             code("""
@@ -248,12 +248,12 @@ def build() -> list[str]:
 
             - Synthetic success does not prove real production accuracy.
             - Synthetic success does not prove that every v7 error is exclusively a data problem.
-            - A complete synthetic BOM cannot be represented as a real validated Hemas BOM.
-            - Hyperparameter search cannot replace real material-issue and production-order history.
+            - The complete synthetic BOM is the project-operational BOM, but cannot be represented as externally observed Hemas evidence.
+            - Hyperparameter search cannot replace real material-issue and production-order history when making external-population claims.
 
             ## Operational Decision
 
-            Keep v8 as the controlled validation harness and explicit project-operational simulation seed. Its rows may drive the integrated demonstration only while their synthetic provenance and decision scope remain visible. They are not evidence of external production accuracy.
+            Use v8 as the controlled validation harness and project-operational source of truth. Its rows may drive integrated forecasting, inventory, MILP, storage and WMS workflows while their synthetic provenance and decision scope remain visible. They are not evidence of external production accuracy.
             """),
         ],
         "07_Synthetic_Data_Generation_Methods_And_Proof.ipynb": [
@@ -262,7 +262,7 @@ def build() -> list[str]:
 
             This standalone notebook provides evaluator-facing proof of how the project-operational dataset was generated. It documents the technologies, equations, stochastic distributions, causal relationships, validation checks, plots, reproducibility controls and WMS table mapping.
 
-            **Claim boundary:** this is a seeded controlled simulation with known ground truth. It validates software integration and whether forecasting methods can recover a known process. It does not prove accuracy on an external warehouse and must not be described as observed customer history.
+            **Claim boundary:** this is the seeded synthetic project-operational population with known ground truth. It validates software integration and whether forecasting methods can recover the declared project process. It does not prove accuracy on an external warehouse and must not be described as observed customer history.
             """),
             code("""
             from pathlib import Path
@@ -505,7 +505,7 @@ def build() -> list[str]:
             | Slotting/MILP | Demand velocity, ABC/FMS inputs and stock quantities | Space/ranking/solver integration | Physical dimensions and travel observations need site calibration |
             | Supplier planning | Lead time and purchasing constraints | API and procurement-rule validation | Supplier reliability is simplified |
 
-            This dataset is appropriate as the project's operational simulation seed and as a controlled scientific benchmark. It is not appropriate for claiming customer savings, real fill rate, real stockout risk, or deployment accuracy.
+            This dataset is appropriate as the project's operational source of truth and as a controlled scientific benchmark. It is not appropriate for claiming externally measured customer savings, fill rate, stockout risk, or deployment accuracy.
             """),
             code("""
             suitability_checks = pd.DataFrame([
@@ -523,7 +523,7 @@ def build() -> list[str]:
 
             The generator is statistically reasonable for **controlled recovery and end-to-end WMS testing** because it contains temporal dependence, annual seasonality, causal BOM structure, policy constraints, regime changes, rare shocks, skewed positive variables and scale-dependent error. The resulting benchmark is harder and more realistic than independent Gaussian random rows.
 
-            The evidence does **not** establish external validity. The next scientific step is to replace each assumed distribution with an empirical or fitted distribution when actual issue, production, supplier and BOM data become available, while retaining the same leakage-safe rolling-origin protocol. Until then, OptiWMS should display `Project operational simulation` provenance and treat model metrics as controlled-test evidence.
+            The evidence does **not** establish external validity. Within OptiWMS it is decision-eligible for the declared project population and must display `Project synthetic operational baseline` provenance. If external issue, production, supplier and BOM data later become available, the same leakage-safe rolling-origin protocol remains the separate promotion gate.
             """),
         ],
     }
