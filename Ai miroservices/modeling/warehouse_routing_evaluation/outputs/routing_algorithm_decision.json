@@ -1,0 +1,22 @@
+{
+  "dataset": "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/physical_layout.csv.gz",
+  "seed": 20260728,
+  "graph": {
+    "nodes": 956,
+    "directed_edges": 1980,
+    "rack_bays": 280,
+    "mapped_locations": 4200
+  },
+  "selection": {
+    "single_agent_shortest_path": "astar",
+    "multi_agent_control": "reservation_astar",
+    "reason": "A* preserves Dijkstra-optimal distance while reducing search; time-aware reservations eliminate tested node/edge-time conflicts."
+  },
+  "acceptance": {
+    "all_static_distances_match": true,
+    "zero_reserved_conflicts": true,
+    "tested_max_workers": 50,
+    "external_population_validity": "UNVERIFIED",
+    "safety_certification": "NOT_CLAIMED"
+  }
+}
