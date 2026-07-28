@@ -74,6 +74,8 @@ function WorkerServiceWorkerRegistrar() {
       "/worker/tasks",
       "/worker/picking",
       "/worker/putaway",
+      "/worker/receiving",
+      "/worker/packing",
       "/worker/cycle-count",
     ];
 

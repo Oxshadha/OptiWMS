@@ -21,7 +21,7 @@ const allNavItems = [
     icon: "warehouse",
     subItems: [
       { href: "/admin/warehouses", label: "Warehouse Layout" },
-      { href: "/admin/pathfinding", label: "Pathfinding Lab" },
+      { href: "/admin/pathfinding", label: "Live Route Control" },
     ],
   },
   {

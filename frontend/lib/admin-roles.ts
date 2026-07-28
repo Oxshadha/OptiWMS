@@ -96,7 +96,8 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SOPS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
-    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    // Deliberately masked: dock/yard management is outside the active project scope.
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]),
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.DATA_QUALITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -177,7 +178,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.HELP]: new Set(['view']),
     [ADMIN_ROUTES.SOPS]: new Set(['view']), // View only
     [ADMIN_ROUTES.NOTIFICATIONS]: new Set(['view', 'edit']), // View and mark as read/unread
-    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set(['view', 'create', 'edit']), // Primary access for inbound coordinator
+    [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]), // Feature is outside the active project scope
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
     [ADMIN_ROUTES.DATA_QUALITY]: new Set([]), // Admin-only repair workflow
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view']), // View only
