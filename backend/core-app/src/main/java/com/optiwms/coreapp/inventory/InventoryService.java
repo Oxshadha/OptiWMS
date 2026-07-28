@@ -44,6 +44,7 @@ public class InventoryService {
 
     public List<InventoryItem> listAll() {
         return repository.findAll((root, cq, cb) -> root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
                         "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
@@ -149,6 +150,7 @@ public class InventoryService {
 
             if (!includeLegacy) {
                 predicates.add(root.get("dataQualityTier").in(
+                        "PROJECT_OPERATIONAL_SIMULATION",
                         "GENERATED_OPERATIONAL_BASELINE",
                         "OPERATIONAL_ENTRY"));
             }

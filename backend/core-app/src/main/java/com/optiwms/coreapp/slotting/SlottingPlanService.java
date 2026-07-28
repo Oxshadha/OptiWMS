@@ -271,7 +271,8 @@ public class SlottingPlanService {
                 .collect(Collectors.toMap(MaterialIssueStatsRollupEntity::getMaterialId, r -> r, (a, b) -> a));
 
         List<MaterialEntity> materials = materialRepository.findByDataQualityTierIn(
-                        List.of("GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
+                        List.of("PROJECT_OPERATIONAL_SIMULATION",
+                                "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY")).stream()
                 .filter(m -> isSlottingType(m.getMaterialType()))
                 .toList();
 

@@ -162,7 +162,7 @@ public class LocationController {
                         ON i.location_code = l.location_code
                        AND i.warehouse_id = l.warehouse_id
                        AND i.quantity > 0
-                       AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                       AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     LEFT JOIN materials m ON m.id = i.material_id
                     WHERE l.warehouse_id = ?
                       AND l.dataset_version = COALESCE(
@@ -270,7 +270,7 @@ public class LocationController {
                         ON i.location_code = l.location_code
                        AND i.warehouse_id = l.warehouse_id
                        AND i.quantity > 0
-                       AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                       AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     LEFT JOIN materials m ON m.id = i.material_id
                     WHERE l.warehouse_id = ?
                       AND l.dataset_version = COALESCE(
@@ -333,7 +333,7 @@ public class LocationController {
                 WITH material_counts AS (
                     SELECT COUNT(*)::int AS total_materials
                     FROM materials
-                    WHERE data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                    WHERE data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 defaults AS (
                     SELECT
@@ -346,7 +346,7 @@ public class LocationController {
                                   JOIN materials m2 ON m2.id = mdl2.material_id
                                   WHERE mdl2.warehouse_id = ?
                                     AND mdl2.priority = 1
-                                    AND m2.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                                    AND m2.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                                   GROUP BY mdl2.location_code
                                   HAVING COUNT(*) > 1
                               )
@@ -354,7 +354,7 @@ public class LocationController {
                     FROM material_default_locations mdl
                     JOIN materials m ON m.id = mdl.material_id
                     WHERE mdl.warehouse_id = ?
-                      AND m.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                      AND m.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 invalid_defaults AS (
                     SELECT COUNT(*)::int AS defaults_to_inactive_or_blocked
@@ -362,7 +362,7 @@ public class LocationController {
                     JOIN materials m ON m.id = mdl.material_id
                     LEFT JOIN locations l ON l.location_code = mdl.location_code
                     WHERE mdl.warehouse_id = ?
-                      AND m.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                      AND m.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                       AND (
                           l.location_code IS NULL
                           OR COALESCE(l.is_active, true) = false
@@ -394,7 +394,7 @@ public class LocationController {
                     LEFT JOIN materials m ON m.id = i.material_id
                     LEFT JOIN locations l ON l.location_code = i.location_code
                     WHERE i.warehouse_id = ?
-                      AND i.data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                      AND i.data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                 ),
                 material_stock AS (
                     SELECT
@@ -404,7 +404,7 @@ public class LocationController {
                         MAX(COALESCE(buffer_stock, 0)) AS buffer_stock
                     FROM inventory
                     WHERE warehouse_id = ?
-                      AND data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+                      AND data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
                     GROUP BY material_id
                 ),
                 stock_health AS (
