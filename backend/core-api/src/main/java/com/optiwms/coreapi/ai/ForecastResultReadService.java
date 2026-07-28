@@ -19,10 +19,11 @@ public class ForecastResultReadService {
      * the WMS demo. It is explicitly labelled in every response; it must never
      * be presented as externally observed production history.
      */
-    private static final String CANONICAL_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM";
-    private static final String CANONICAL_MODEL = "EXTRA_TREES_RESPONSIVE";
-    private static final String CANONICAL_QUALITY_TIER = "GENERATED_OPERATIONAL_BASELINE";
-    private static final String CANONICAL_TRAINING_SOURCE = "PROJECT_OPERATIONAL_BASELINE_V3";
+    private static final String CANONICAL_DATASET = "PROJECT_OPS_RM_PM";
+    private static final String CANONICAL_MODEL = "PROJECT_OPS_EXTRA_TREES_CAUSAL";
+    private static final String CANONICAL_QUALITY_TIER = "PROJECT_OPERATIONAL_SIMULATION";
+    private static final String CANONICAL_TRAINING_SOURCE = "project_ops_v8";
+    private static final String CANONICAL_VERSION = "PROJECT_OPERATIONAL_SIMULATION_V8";
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -47,7 +48,7 @@ public class ForecastResultReadService {
                 .map(row -> Map.<String, Object>of(
                         "name", String.valueOf(row.get("name")),
                         "dataset", CANONICAL_DATASET,
-                        "version", "PROJECT_OPERATIONAL_BASELINE_V3",
+                        "version", CANONICAL_VERSION,
                         "is_champion", Boolean.TRUE.equals(row.get("is_champion")),
                         "source", "wms_forecast_results",
                         "data_quality_tier", CANONICAL_QUALITY_TIER,
@@ -68,7 +69,7 @@ public class ForecastResultReadService {
                 WHERE dataset = :dataset AND version = :version
                   AND LOWER(model_name) = LOWER(:model) AND promotion_eligible = TRUE
                 """).setParameter("approvedBy", approvedBy).setParameter("dataset", CANONICAL_DATASET)
-                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("version", CANONICAL_VERSION)
                 .setParameter("model", model).executeUpdate();
         if (registryUpdated == 0) {
             return ResponseEntity.badRequest().body(Map.of(
@@ -79,7 +80,7 @@ public class ForecastResultReadService {
                 WHERE dataset = :dataset AND version = :version
                   AND LOWER(model_name) <> LOWER(:model) AND status = 'PROMOTED'
                 """).setParameter("dataset", CANONICAL_DATASET)
-                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("version", CANONICAL_VERSION)
                 .setParameter("model", model).executeUpdate();
         int forecastRows = entityManager.createNativeQuery("""
                 UPDATE forecast_results SET decision_eligible = TRUE
@@ -178,7 +179,7 @@ public class ForecastResultReadService {
             String split, Integer horizon, String dataset, String model, String warehouseId
     ) {
         String selectedModel = resolveModel(model, warehouseId);
-        String requestedSplit = split == null || split.isBlank() ? "untouched_test" : split;
+        String requestedSplit = split == null || split.isBlank() ? "test" : split;
         StringBuilder sql = new StringBuilder("""
                 SELECT split, horizon, wape, mae, rmse, bias, under_forecast_rate,
                        interval_nominal_coverage, interval_empirical_coverage,
@@ -421,7 +422,7 @@ public class ForecastResultReadService {
                 SELECT dataset_version, dataset_hash, status, row_counts, validation, started_at, finished_at
                 FROM project_dataset_load_audit WHERE dataset_version = :version
                 ORDER BY started_at DESC LIMIT 1
-                """).setParameter("version", CANONICAL_TRAINING_SOURCE).getResultList();
+                """).setParameter("version", CANONICAL_VERSION).getResultList();
         if (rows.isEmpty()) return ResponseEntity.ok(Map.of("item", Map.of(), "source", "project_dataset_load_audit"));
         Object[] row = rows.get(0);
         Map<String, Object> item = new LinkedHashMap<>();
@@ -506,7 +507,7 @@ public class ForecastResultReadService {
                 ORDER BY CASE status WHEN 'PROMOTED' THEN 0 WHEN 'PENDING_MANAGER_APPROVAL' THEN 1 ELSE 2 END,
                          promotion_eligible DESC, updated_at DESC LIMIT 1
                 """).setParameter("dataset", CANONICAL_DATASET)
-                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("version", CANONICAL_VERSION)
                 .getResultList();
         if (!registry.isEmpty() && hasModelRows(registry.get(0), warehouseId)) return registry.get(0);
         return normalized.isBlank() ? CANONICAL_MODEL : normalized;
@@ -518,7 +519,7 @@ public class ForecastResultReadService {
                 FROM forecast_model_evidence
                 WHERE dataset = :dataset
                   AND LOWER(model_name) = LOWER(:model)
-                  AND split = 'untouched_test'
+                  AND split = 'test'
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
         sql.append(" ORDER BY created_at DESC LIMIT 1");
@@ -731,7 +732,7 @@ public class ForecastResultReadService {
                   AND LOWER(model_name) = LOWER(:model)
                 ORDER BY updated_at DESC LIMIT 1
                 """).setParameter("dataset", CANONICAL_DATASET)
-                .setParameter("version", CANONICAL_TRAINING_SOURCE)
+                .setParameter("version", CANONICAL_VERSION)
                 .setParameter("model", model).getResultList();
         return rows.isEmpty() ? "UNREGISTERED" : rows.get(0);
     }

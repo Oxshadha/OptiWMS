@@ -1,9 +1,9 @@
 {
-  "contract_version": "1.0",
-  "mode": "SIMULATION_ONLY",
+  "contract_version": "2.1",
+  "mode": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE",
   "model_id": "V8_CONTROLLED_EXTRA_TREES_CAUSAL",
   "canonical_business_store": "Spring PostgreSQL forecast_results",
-  "publish_allowed": false,
+  "publish_allowed": true,
   "required_forecast_fields": [
     "material_id",
     "warehouse_id",
@@ -20,10 +20,10 @@
     "source_lineage"
   ],
   "downstream_gate": {
-    "inventory_policy": "simulation workspace only when decision_eligible=false",
-    "milp_knapsack": "sandbox run only; no approval/apply action",
-    "slotting": "simulation recommendation only",
-    "frontend": "show SIMULATION badge and evidence source on every chart"
+    "inventory_policy": "allowed for the project population when decision_eligible=true",
+    "milp_knapsack": "quantity optimization allowed using the same forecast and inventory dataset hash",
+    "slotting": "allowed for the project population using the validated v8 physical layout and assignments",
+    "frontend": "show PROJECT SYNTHETIC BASELINE provenance on every evidence view"
   },
   "recalculate_contract": {
     "required_steps": [
@@ -35,6 +35,6 @@
       "publish canonical rows atomically",
       "refresh policy and optional optimizer readiness"
     ],
-    "current_v8_status": "not registered in forecast-service; intentionally blocked from production recalculate"
+    "current_v8_status": "wired to /v8/recalculate and the v8 snapshot forecast provider"
   }
 }

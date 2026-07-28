@@ -18,8 +18,12 @@ Design:
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+import pandas as pd
 
 from app.api.v1.schemas.forecast_response import ForecastPoint, ForecastResponse, ModelInfo
 from app.core.config import settings
@@ -269,6 +273,104 @@ class BoostingForecastProvider:
         )
 
 
+class V8SnapshotForecastProvider:
+    """Serve the locked v8 recursive H1-H12 operational forecast snapshot.
+
+    v8 is a global RM/PM model with known-future causal inputs. It is therefore
+    recalculated as a governed batch and served from the exact persisted
+    snapshot used by inventory and optimizer consumers.
+    """
+
+    MODEL_NAME = "PROJECT_OPS_EXTRA_TREES_CAUSAL"
+
+    def __init__(self, root: str | None = None) -> None:
+        self._root = Path(root or settings.v8_forecast_root)
+        self._forecast_path = self._root / "outputs" / "operational_forecasts.csv"
+        self._metadata_path = (
+            self._root / "outputs" / "serving_bundle" / "production" / "metadata.json"
+        )
+
+    def predict(
+        self,
+        skus: list[str] | None,
+        horizons: list[int],
+        warehouse_id: str | None,
+    ) -> ForecastResponse:
+        if not self._forecast_path.exists():
+            return ForecastResponse(
+                status="error",
+                model=self.model_info(),
+                warehouse_id=warehouse_id,
+                forecasts=[],
+                total_count=0,
+                errors=[{"error": f"Missing v8 snapshot: {self._forecast_path}"}],
+                message="The v8 operational snapshot must be recalculated before serving.",
+            )
+        frame = pd.read_csv(self._forecast_path)
+        if skus:
+            wanted = {str(s).strip().upper() for s in skus}
+            frame = frame[
+                frame["material_code"].astype(str).str.upper().isin(wanted)
+            ]
+        frame = frame[frame["horizon"].astype(int).isin({int(h) for h in horizons})]
+        points = [
+            ForecastPoint(
+                sku=str(row.material_code),
+                category=str(row.material_type),
+                horizon=int(row.horizon),
+                period=str(row.forecast_period),
+                p10=round(float(row.p10), 2),
+                p50=round(float(row.p50), 2),
+                p90=round(float(row.p90), 2),
+            )
+            for row in frame.sort_values(["material_code", "horizon"]).itertuples(index=False)
+        ]
+        return ForecastResponse(
+            status="success",
+            model=self.model_info(),
+            warehouse_id=warehouse_id,
+            forecasts=points,
+            total_count=len(points),
+            message=(
+                f"Served {len(points)} v8 project-operational RM/PM forecast points "
+                "from the governed recursive snapshot."
+            ),
+        )
+
+    def model_info(self) -> ModelInfo:
+        version = "v8"
+        if self._metadata_path.exists():
+            try:
+                metadata = json.loads(self._metadata_path.read_text(encoding="utf-8"))
+                version = str(metadata.get("model_id") or version)
+            except (OSError, ValueError):
+                pass
+        return ModelInfo(
+            name=self.MODEL_NAME.lower(),
+            version=version,
+            is_champion=True,
+            fallback_used=False,
+            fallback_method=None,
+        )
+
+    def health_check(self) -> dict[str, Any]:
+        ready = self._forecast_path.exists() and self._metadata_path.exists()
+        rows = 0
+        if self._forecast_path.exists():
+            try:
+                rows = sum(1 for _ in self._forecast_path.open(encoding="utf-8")) - 1
+            except OSError:
+                rows = 0
+        return {
+            "provider": "v8_snapshot",
+            "dataset": "PROJECT_OPS_RM_PM",
+            "champion_model": self.MODEL_NAME,
+            "total_artifacts": 1 if self._metadata_path.exists() else 0,
+            "forecast_rows": max(rows, 0),
+            "status": "ok" if ready and rows > 0 else "degraded",
+        }
+
+
 # ---------------------------------------------------------------------------
 # Factory — the gateway router calls this to get the active provider
 # ---------------------------------------------------------------------------
@@ -279,13 +381,19 @@ _active_provider: ForecastProvider | None = None
 def get_active_provider() -> ForecastProvider:
     """Return the active forecast provider (singleton).
 
-    Currently always returns :class:`BoostingForecastProvider`.
-    In the future, this function can read a config flag to return
-    a different provider (e.g. ``NeuralForecastProvider``).
+    The project-operational default serves the locked v8 batch snapshot.
+    Set ``FORECAST_PROVIDER_TYPE=artifact`` to use the legacy online artifact
+    inference provider.
     """
     global _active_provider
     if _active_provider is None:
-        _active_provider = BoostingForecastProvider()
+        provider_type = (settings.forecast_provider_type or "v8_snapshot").strip().lower()
+        if provider_type == "v8_snapshot":
+            _active_provider = V8SnapshotForecastProvider()
+        elif provider_type == "artifact":
+            _active_provider = BoostingForecastProvider()
+        else:
+            raise ValueError(f"Unsupported FORECAST_PROVIDER_TYPE={provider_type!r}")
     return _active_provider
 
 

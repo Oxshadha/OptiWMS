@@ -201,6 +201,7 @@ export function PutawayOrderWorkflow({
             )}
             <WorkerRouteGuide
               warehouseId={warehouseId}
+              orderId={selectedOrder.id}
               targetLocationCode={scannedLocation || currentItem.suggestedLocation}
               targetLocationCodes={putawayItems
                 .filter((item) => !putawayProgress.get(item.itemId))

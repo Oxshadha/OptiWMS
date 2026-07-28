@@ -46,6 +46,12 @@ logging:
 optiwms:
   seed:
     racks: false
+  features:
+    # Dock/yard management is outside the active OptiWMS project scope.
+    # Retain the dormant implementation for recoverability, but do not expose
+    # its controller unless an explicit future scope decision enables it.
+    dock-management:
+      enabled: false
 
 # -----------------------------------------------------------------------------
 # DEVELOPMENT DEFAULTS

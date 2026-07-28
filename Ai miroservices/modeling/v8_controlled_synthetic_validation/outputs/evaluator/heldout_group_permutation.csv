@@ -1,0 +1,5 @@
+feature_group,baseline_WAPE,permuted_WAPE,WAPE_increase,note
+past_exogenous,0.11341103911399841,0.1139339879155159,0.0005229488015174866,"Held-out group permutation; association, not causation."
+known_future,0.11341103911399841,0.16016773879528046,0.04675669968128204,"Held-out group permutation; association, not causation."
+spectral_summary,0.11341103911399841,0.11505534499883652,0.0016443058848381042,"Held-out group permutation; association, not causation."
+static_features,0.11341103911399841,0.11366039514541626,0.0002493560314178467,"Held-out group permutation; association, not causation."

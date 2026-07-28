@@ -1,19 +1,229 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-07-19
-> Scope: generated operational baseline, forecast evidence, inventory policy, warehouse geometry, ABC/FMS, multi-bin slotting, runtime alignment, and frontend evidence.
+> Last updated: 2026-07-28
+> Scope: v8 project-operational synthetic population, evaluator-grade forecasting, inventory policy, physical warehouse geometry, PostgreSQL publication, ABC/FMS, multi-bin slotting, Docker runtime, and application evidence.
 
 ## Executive Status
 
-The current operational baseline supersedes the earlier v6/v7 demo paths described later in this historical log. Repository implementation and the running Docker state are reported separately below.
+`PROJECT_OPERATIONAL_SIMULATION_V8` is now the active project-operational source of truth for the OptiWMS demonstration. The older baseline and v6/v7 entries below are retained as an audit history, not as the current runtime claim.
 
-- PostgreSQL is the business authority for forecasts, policy, slotting, transfers, and evidence. Python SQLite is not an operational source.
-- `PROJECT_OPERATIONAL_BASELINE_V3` is the deterministic generated warehouse baseline, seed `20260715`, current artifact hash `ba12a1d46e221a5feefa890e10976ef0df76493dab75e1de7eeffd327b38aa22`.
-- The selected champion method is **Extra Trees Responsive**, chosen over LightGBM and statistical baselines using `WAPE + 0.5 * |bias|` on expanding-window selection origins and an untouched final 12-month test; promotion remains manager-controlled.
-- Current untouched-test evidence is WAPE `12.76%`, MAE `128.81`, RMSE `488.24`, bias `-1.74%`, under-forecast rate `48.44%`, empirical 90% interval coverage `89.15%`, and critical-class WAPE `11.39%`.
-- The forward artifact contains `1,152` H1-H12 rows for all `96` FG/RM/PM SKUs. Spring/PostgreSQL remains the canonical publication target.
-- Inventory policy is a forecast-informed stochastic `(s,S)` workflow with simulation and manager approval. Slotting is `ORTOOLS_MILP_FLOW_V3`: MILP for pick-face/move decisions plus integer min-cost flow for complete multi-bin reserve allocation. It is not relabelled as a separate knapsack algorithm.
-- The current project proves reproducible system behavior on generated data. It does not prove accuracy on an external customer distribution.
+- PostgreSQL is the business authority for material, BOM, demand, forecast, inventory, location, slotting and evidence rows. The Python forecast-service database is an inference/service cache, not the WMS system of record.
+- The active forecasting dataset/model binding is `PROJECT_OPS_RM_PM` / `PROJECT_OPS_EXTRA_TREES_CAUSAL`; the live forecast service reports the v8 champion with no fallback.
+- The served recursive H1-H12 test has WAPE `8.7452%`, MAE `772.95`, RMSE `1,559.64`, bias `-0.4877%`, and under-forecast rate `47.71%`.
+- The Conv1D-attention challenger has WAPE `9.8996%`. Extra Trees is retained with an `11.66%` relative WAPE advantage, circular block-bootstrap monthly absolute-error CI `[-178.72, -16.07]`, and HAC/Holm `p=0.0197`.
+- The v8 business population contains `144` active materials: `90` RM, `30` PM and `24` FG. It contains `24` BOM headers, `211` effective component rows, `10,368` monthly RM/PM/FG demand rows, `1,440` forward H1-H12 RM/PM forecasts, `15` model-evidence rows, `120` supplier-material links and `144` ABC/FMS rollups.
+- Location-level inventory contains `2,921` occupied rows for all `144` materials and `2,426,780` rounded database units. There are no aggregate/null-location v8 inventory rows.
+- The committed dataset hash is `558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`.
+- Synthetic provenance is mandatory on the project evidence. External forecast population validity and confirmation by a physical warehouse survey remain `UNVERIFIED`; that boundary does not block using the internally consistent v8 population as the declared project dataset.
+
+## 2026-07-28 Final Report And README Handoff
+
+The repository now has a root `report.md` aligned to the supplied final-report
+and viva structure: Abstract, Chapters 1-8, References, a complete test
+catalogue and an evidence/notebook appendix. The root `README.md` has been
+rewritten to describe v8 as the current project-operational source rather than
+the superseded V3 runtime. The modeling workspace README now also identifies
+v8 as current and separates V3 regression evidence from v1-v7 research history.
+
+The handoff indexes all authoritative v8, shared evaluator and routing
+notebooks; forecast, statistical, physical-layout and routing evidence
+artifacts; implementation files; runtime commands; and the exact isolated test
+commands. All local Markdown file links resolve.
+All code cells in the indexed v8, shared evaluator and routing notebooks have
+non-null execution counts.
+
+The final README/report were then rebalanced to present the full solution,
+rather than over-emphasizing forecasting and routing:
+
+- inventory min/max now has a dedicated policy section covering 120 RM/PM
+  rows, reorder point, safety stock, proposed min/max, MOQ/order-multiple
+  rounding, 1,000-trial simulation, approval, draft purchase suggestions and
+  rollback;
+- OR-Tools MILP/flow slotting now has a dedicated section covering all 144
+  materials, 3,257 required positions, 14/14 validation, the `OPTIMAL` result
+  and objective `109468.4609`;
+- the worker/admin warehouse assistant is documented as a sixth solution
+  pillar, including its eight SOP documents, Chroma/MiniLM/Gemini RAG,
+  read-only SQL analytics, tables/charts, frontend surfaces, startup and API
+  links.
+
+The assistant is correctly labelled as an optional advisory controlled-demo
+service. It is not part of the forecast, policy, MILP or routing decision
+engine, and production exposure remains gated on Spring JWT, role/warehouse
+scoping, SQL/audit/rate controls and automated agent tests.
+
+Documentation verification also reconfirmed:
+
+- Spring: `22` JUnit methods, full Gradle suite successful;
+- forecast service: `13 passed`;
+- slotting service: `6 passed`;
+- v8 forecast/physical contracts: `4 passed`;
+- V3 regression/notebook contract: `14 passed`, `156 subtests passed`;
+- shared time-series/neural evaluator: `8 passed`;
+- routing evaluator: `5 passed`;
+- frontend TypeScript and production build: passed;
+- live routing acceptance and Docker/browser evidence: passed as recorded
+  below.
+
+The report explicitly states two coverage boundaries: there is no checked-in
+automated Playwright/Cypress suite yet, and the old `scripts/smoke_test.sh`
+checks legacy v1/MLflow artifacts rather than the v8 acceptance path.
+
+The final documentation was subsequently expanded through a repository-wide
+core-WMS/PWA audit and authoritative web/literature review:
+
+- `README.md` now contains the complete feature/maturity map for authentication,
+  masters, BOM, inbound, receiving/GRN, quality/quarantine,
+  putaway, inventory/LPN, cycle count, min/max, slotting, transfer, outbound,
+  picking, packing, shipping, returns, tasks, SOP/assistant, analytics,
+  reports, notifications and anomalies.
+- All eight worker PWA operations and their actual offline boundaries are
+  documented. Returns intake and new shipment creation are identified as
+  online-only; cached route display is not described as offline routing
+  authority.
+- The report now contains an overall architecture and separate Mermaid flows
+  for inbound, inventory/cycle/replenishment/transfer, outbound/returns,
+  forecast-to-policy-to-MILP, concurrent routing, PWA synchronization and the
+  assistant.
+- Chapter 2 now compares OptiWMS feature-by-feature with current official SAP
+  EWM, Oracle WMS Cloud, Manhattan Active WM, Blue Yonder WMS and Microsoft
+  Dynamics 365 Warehouse Management documentation, supported by warehouse
+  operations/Industry 4.0 research.
+- The comparison explicitly rejects commercial-enterprise parity claims.
+  Missing HA/DR, SSO/MFA, multi-company isolation, wave/labor/TMS/
+  EDI/MHE depth, localization, real-site validation and vendor operations are
+  recorded.
+- Appendix A now separates the 73 passing top-level controlled-project tests
+  from a required non-AI/PWA regression backlog. Inbound-to-putaway,
+  cycle-count adjustment, transfer, allocation-to-delivery, returns,
+  service-worker replay and full role/warehouse authorization do not
+  yet have dedicated automated end-to-end suites.
+- Forecast and optimization governance was re-expanded in the root README and
+  final report: controlled generation/lineage, data quality, leakage guards,
+  sin/cos and spectral evidence, residual diagnostics, hypothesis tests,
+  calibration, cost sensitivity and MILP physical acceptance are all linked
+  to their current notebooks and persisted artifacts.
+- Correction verification passed: all 23 Spring tests, frontend
+  `npx tsc --noEmit`, frontend production build, root README/report local link
+  and anchor validation, and `git diff --check`.
+- GitHub Actions forecast inference gate corrected on 2026-07-28: CI now uses
+  Python 3.12, matching the forecast-service package constraint and container
+  image. A clean temporary Python 3.12 installation succeeded; the exact CI
+  subset passed 10/10 tests and the complete forecast-service suite passed
+  13/13 tests.
+
+## 2026-07-28 Worker PWA And Conflict-Aware Routing Completion
+
+The v8 physical population is now wired to a single server-authoritative
+worker-routing control plane for inbound putaway and outbound picking.
+
+- Flyway schema version `79` persists versioned route graphs, nodes, edges,
+  location access faces, worker sessions, ordered stops, node/edge time
+  reservations and events.
+- The active `PROJECT_OPERATIONAL_SIMULATION_V8` route graph contains `956`
+  nodes, `1,980` directed edges, `280` rack-bay obstacles and mappings for all
+  `4,200` storage positions. It is generated only from the active warehouse
+  dataset version.
+- Every rack is treated as a physical obstacle. Storage locations map to
+  explicit WEST/EAST rack-face nodes; paths follow aisle/cross-aisle edges and
+  display 90-degree arrow segments rather than crossing racks.
+- Spring owns multi-stop ordering, A* route geometry, 3-second edge/node
+  headway, opposite-direction edge serialization, leases, heartbeats,
+  idempotent client events, stale-version rejection and stop-triggered
+  replanning.
+- Worker putaway/picking pages use the authoritative graph and route session.
+  The map provides focused/overview modes, stations/parking, current position,
+  ordered stops, planned wait and dimmed released segments. No new
+  conflict-safe reservation is issued while offline.
+- Admin warehouse and `/admin/pathfinding` screens display the same live
+  sessions through authenticated SSE plus recovery polling. The former fake
+  browser-only grid is no longer the operational screen.
+- The operational warehouse endpoint now returns active v8 `WH-001` first
+  instead of being hard-coded to the V3 baseline. Authenticated browser
+  verification selected `WH-001` and rendered all `280` rack footprints with
+  graph totals of `956` nodes and `1,980` edges and no page-level error.
+- Access is scoped: workers can access only their own sessions and assigned
+  warehouse; fleet views, stats, graph rebuild and event streaming require
+  warehouse manager/admin authority.
+- The installable worker PWA uses `/worker` as its app identity/start URL and
+  caches task, receiving, putaway, picking, packing and cycle-count shells.
+
+Evaluator evidence is in
+`Ai miroservices/modeling/warehouse_routing_evaluation/`. Across `160` paired
+routes, A* matched Dijkstra distance in `100%` of cases, reduced mean expansions
+by `265.23` (bootstrap 95% CI `[237.31, 293.92]`) and reduced mean runtime by
+`0.0959 ms` (bootstrap 95% CI `[0.0737, 0.1189]`, paired Wilcoxon
+`p=1.76e-15`). Eight replicates at each of `1/5/10/25/50` workers found
+independent A* conflicts from five workers onward, while reservation A* had
+zero tested conflicts through 50 workers. The executed notebook has `10/10`
+code cells with visible tables/plots, assumption registry and claim–evidence
+matrix.
+
+Live acceptance passed: first competing route wait `0`, second wait about
+`21.1 s`, database reservation overlaps `0`, stop completion incremented route
+version `1 → 2`, stale progress returned `409`, and graph rebuild with active
+routes returned `409`. The repeatable check is
+`scripts/test_worker_routing_runtime.sh`; it cancels its temporary sessions.
+Full Spring tests, frontend TypeScript, frontend production build, five routing
+evaluator tests and clean notebook execution pass.
+PostgreSQL, the Spring backend and the frontend Docker services are healthy.
+The frontend is packaged from verified Next standalone output; its health
+probe uses `127.0.0.1` to match the runtime's IPv4 bind.
+
+This completes the controlled synthetic project workflow, not external
+forklift safety certification. Aisle widths, rack/vehicle envelopes, one-way
+rules, RTLS accuracy, actual travel speeds, long-running fairness, shadow-mode
+performance and site safety approval remain `UNVERIFIED`. The existing
+Next.js `14.2.5` dependency also emits a published security warning during
+Docker build and requires a separate framework upgrade/test cycle.
+
+## 2026-07-28 v8 Physical Storage And Slotting Completion
+
+The former statement that v8 physical storage/slotting was gated is superseded. The missing physical population has been generated, loaded and validated.
+
+### Physical material and layout population
+
+- `physical_materials.csv` defines positive L/W/H, unit weight/volume, handling-unit type, units per handling unit, units per pallet, pallet footprint, pallet weight, stackability, maximum stack height, temperature, hazard, fragility and shelf-life fields for `144/144` materials.
+- Existing material codes inherit compatible deterministic physical templates from the canonical generated baseline. Additional v8 codes use deterministic same-type template matching under seed `20260711`; provenance is `PROJECT_OPERATIONAL_SYNTHETIC_TEMPLATE_MATCH`.
+- The existing Colombo A-E metric-aisle footprint is preserved and expanded under layout version `CMB_METRIC_AISLE_V8_EXPANSION`.
+- The active layout has `4,206` rows: `4,200` storage positions plus receiving, staging, door, packing, dispatch and quarantine stations.
+- The expansion was necessary because the 600-position V3 layout could not honestly hold the simultaneous v8 current/max physical load. It was expanded rather than falsely reducing forecast-derived stock or overloading bins.
+- The original 600 storage positions retain their level-specific beam limits. Expansion positions are engineered for one pallet, up to `1,200 kg` and `1,800,000 cm3`, with explicit ambient/controlled and hazard-compatible bands.
+- `190,726` stale pre-v8 null-lineage locations were archived as `ARCHIVED_PRE_V8_LAYOUT`; they were not deleted. Exactly `4,206` v8 locations are now active in `WH-001`.
+
+### Assignment and solver evidence
+
+- `3,257` unique policy-capacity assignments cover all `144` materials: one unique pick face per material plus all required reserve positions.
+- `2,921` location inventory rows represent current occupancy; assignment capacity uses the larger of current on-hand and proposed maximum stock.
+- All `14/14` artifact checks pass: dimensions, layout continuity, capacity margin, assignment completeness, unique bins, one pick face, weight, volume, ABC compatibility, temperature, hazard and inventory-total reconciliation.
+- Minimum observed assignment headroom is `19.968 kg` by weight and `340,740 cm3` by volume.
+- Independent `ORTOOLS_MILP_FLOW_V3` evaluation returned `OPTIMAL` for `144` materials and all `3,257` pallet positions. The verified objective was `109468.4609`.
+- Spring live readiness returns `ready=true`, `materialsReadyPct=100.0` (`144/144`), `locationsReadyPct=100.0` (`4,206/4,206`) and no blockers.
+- Spring warehouse integrity returns `144` total materials, `144` assigned defaults, zero missing defaults, `2,921` inventory rows, zero null locations, zero inactive/blocked defaults, zero duplicate primary locations and zero storage-type mismatches.
+
+### PostgreSQL and application alignment
+
+- `scripts/load_project_operational_simulation.py` now atomically publishes physical material attributes, the active layout, FG demand, location inventory, primary/reserve assignments and artifact-backed ABC/FMS evidence.
+- PostgreSQL post-load validation is `passed=true`: `144` materials, `4,206` locations, `3,257` assignments, `2,921` inventory rows, zero missing physical attributes, zero inventory capacity violations and zero assignment-class violations.
+- Spring operational filters now include `PROJECT_OPERATIONAL_SIMULATION` for material catalogue, inventory, BOM, location analytics, slotting readiness, issue statistics and plan optimization.
+- Spring forecast reads now bind to `PROJECT_OPS_RM_PM`, `PROJECT_OPS_EXTRA_TREES_CAUSAL`, `project_ops_v8` and `PROJECT_OPERATIONAL_SIMULATION_V8`.
+- The PostgreSQL model registry now records this evidence-gated v8 release as `PROMOTED`; both Spring and the Python gateway report `is_champion=true`.
+- `deployment_decision.json` now records `storage_slotting_population_ready=true`; the integration contract allows project slotting against the validated v8 layout.
+
+### Live Docker state and verification
+
+- Running healthy containers: PostgreSQL `5434`, Spring backend `8080`, forecast service `8091`, orchestrator `8092`, and slotting service `8093`.
+- Spring `/actuator/health` is `UP`; the forecast gateway reports the v8 champion without fallback; orchestrator and slotting health endpoints report `ok`.
+- The Spring backend was rebuilt from the verified host boot JAR and Flyway reports schema version `78`.
+- Python 3.12 evaluator: v8 tests `4 passed`; the final enterprise notebook executes top-to-bottom and visibly includes storage/slotting evidence.
+- Slotting service: `6 passed`, including canonical V3 and full v8 OR-Tools integration tests.
+- Forecast service: `13 passed`.
+- Canonical operational-baseline regression: `14 passed`, including `156` notebook subtests.
+- Full Spring `./gradlew test --no-daemon`: `BUILD SUCCESSFUL`.
+
+### Remaining boundary
+
+There is no remaining synthetic-project storage/slotting population blocker. A site survey is still required before claiming that generated coordinates, rack capacities or travel distances describe an external physical warehouse. Manager approval and transfer execution remain required before any slotting plan physically moves stock.
 
 ## 2026-07-19 V3 Operational Baseline Verification
 

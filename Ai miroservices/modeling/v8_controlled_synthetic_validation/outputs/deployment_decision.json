@@ -1,11 +1,29 @@
 {
-  "decision": "DO_NOT_PROMOTE_TO_PRODUCTION",
+  "decision": "PROMOTE_TO_PROJECT_OPERATIONAL_BASELINE",
   "simulation_ready": true,
-  "python_microservice_ready": false,
-  "spring_canonical_publish_ready": false,
-  "frontend_production_ready": false,
+  "python_microservice_ready": true,
+  "spring_canonical_publish_ready": true,
+  "frontend_project_operational_ready": true,
   "policy_simulation_ready": true,
   "milp_knapsack_simulation_ready": true,
-  "reason": "Model and features are fitted to generated material identities, BOMs, production plans and history.",
-  "next_gate": "replace generated identities and history with validated operational data, retrain, shadow-test and approve"
+  "storage_slotting_population_ready": true,
+  "storage_slotting_validation": {
+    "status": "PASSED",
+    "seed": 20260711,
+    "layout_version": "CMB_METRIC_AISLE_V8_EXPANSION",
+    "materials": 144,
+    "storage_locations": 4200,
+    "layout_rows": 4206,
+    "assignment_rows": 3257,
+    "inventory_rows": 2921,
+    "required_capacity_positions": 3257,
+    "unused_storage_positions": 943,
+    "checks_passed": 14,
+    "checks_total": 14,
+    "external_physical_survey": "UNVERIFIED",
+    "decision_scope": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE"
+  },
+  "reason": "The generated v8 population is the declared project-operational source of truth; forecasting, physical storage and OR-Tools slotting pass their project acceptance evidence.",
+  "external_population_validity": "UNVERIFIED",
+  "next_gate": "Use scheduled POST /v8/recalculate refreshes. A physical survey remains the separate gate before claiming the generated coordinates represent an external warehouse."
 }

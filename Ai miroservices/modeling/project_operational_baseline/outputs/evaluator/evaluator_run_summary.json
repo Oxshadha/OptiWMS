@@ -1,0 +1,53 @@
+{
+  "data_tier": "GENERATED_OPERATIONAL_BASELINE",
+  "history_months": 24,
+  "forecast_horizon_months": 12,
+  "series_total": 96,
+  "rm_pm_series": 80,
+  "finished_good_series": 16,
+  "selection_origins": [
+    "2023-07-01",
+    "2023-08-01",
+    "2023-09-01",
+    "2023-10-01",
+    "2023-11-01",
+    "2023-12-01",
+    "2024-01-01"
+  ],
+  "untouched_test_window": [
+    "2025-01-01",
+    "2025-12-01"
+  ],
+  "neural_seeds": [
+    17,
+    42,
+    101,
+    303,
+    707
+  ],
+  "baseline_champion": "EXTRA_TREES",
+  "locked_champion": "EXTRA_TREES",
+  "neural_promoted": false,
+  "promotion_reason": "Neural challenger did not rank first on locked pre-test selection score.",
+  "neural_selection_coverage_p10_p90": 0.7790178571428571,
+  "neural_selection_calibration_gate": true,
+  "neural_selection_decision_cost_gate": false,
+  "test_metrics": {
+    "split": "untouched_test",
+    "model_name": "EXTRA_TREES",
+    "rows": 960,
+    "series": 80,
+    "WAPE": 0.12525363164573086,
+    "MAE": 121.32057119285304,
+    "RMSE": 515.9228945091266,
+    "Bias": -0.027837205358380836,
+    "under_forecast_rate": 0.48020833333333335,
+    "selection_score": 0.1391722343249213,
+    "population": "RM_PM_PRIMARY"
+  },
+  "external_population_validity": "UNVERIFIED",
+  "production_decision_eligible": false,
+  "claim_boundary": "Generated-data evidence validates the implementation and experimental method, not real warehouse population performance.",
+  "primary_decision_population": "RM_PM_PRIMARY",
+  "secondary_reporting_population": "FG_SECONDARY"
+}

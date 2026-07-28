@@ -738,6 +738,7 @@ export default function PickingPage() {
 
           <WorkerRouteGuide
             warehouseId={effectiveWarehouseId || undefined}
+            orderId={selectedOrder?.id}
             targetLocationCode={currentPick.location}
             targetLocationCodes={picks
               .filter((pick) => pick.status !== "completed" && !pick.skipReason)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from textwrap import dedent
 
@@ -35,14 +36,18 @@ if ROOT.name != "v8_controlled_synthetic_validation":
 OUT = ROOT / "outputs"
 DATA = OUT / "data"
 PLOTS = OUT / "plots"
+EVAL = OUT / "evaluator"
 summary = json.loads((OUT / "run_summary.json").read_text())
 """
 
 
 def _write(name: str, cells: list[dict]) -> None:
+    for index, cell in enumerate(cells):
+        source = "".join(cell["source"])
+        cell["id"] = hashlib.sha1(f"{name}:{index}:{source}".encode()).hexdigest()[:12]
     notebook = {
         "cells": cells,
-        "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}, "language_info": {"name": "python", "version": "3.10"}},
+        "metadata": {"kernelspec": {"display_name": "OptiWMS Evaluator (Python 3.12)", "language": "python", "name": "optiwms-evaluator"}, "language_info": {"name": "python", "version": "3.12"}},
         "nbformat": 4,
         "nbformat_minor": 5,
     }
@@ -57,7 +62,7 @@ def build() -> list[str]:
 
             This notebook documents a reproducible data-generating process with known ground truth. It contains 24 finished goods, 120 RM/PM materials, complete BOM mappings, yield, scrap, MOQ, order multiples, lead times, production plans, actual production, shocks and structural changes.
 
-            **Claim boundary:** controlled synthetic recovery validates pipeline behavior. It does not prove production accuracy or that all real-data error is caused by data quality.
+            **Claim boundary:** controlled synthetic recovery is decision evidence for the declared OptiWMS project population. It does not prove accuracy for an external real-world population or that all real-data error is caused by data quality.
             """),
             code(SETUP),
             code("""
@@ -105,6 +110,14 @@ def build() -> list[str]:
             eda
             """),
             code("display(Image(filename=str(PLOTS / '01_generated_demand_vs_bom_plan.png')))"),
+            code("""
+            evaluator_rows = pd.read_csv(EVAL / "backtest_rows.csv.gz", parse_dates=["forecast_month"])
+            evaluator_summary = json.loads((EVAL / "evaluator_run_summary.json").read_text())
+            display(pd.DataFrame([evaluator_summary]).T)
+            """),
+            md("""
+            The shared evaluator uses annual and semiannual sine/cosine calendar features and computes Fourier summaries from each historical input window only. This prevents full-series frequency information from leaking into earlier forecast origins.
+            """),
         ],
         "02_Features_Models_And_Tuning.ipynb": [
             md("""
@@ -127,6 +140,33 @@ def build() -> list[str]:
             Candidate families include seasonal naive, moving average, Croston/SBA, damped Holt/ETS, deterministic BOM-plan, Ridge, Elastic Net, Random Forest, Extra Trees, direct LightGBM, causal LightGBM and Tweedie LightGBM.
             """),
         ],
+        "02A_Conv1D_Attention_Challenger.ipynb": [
+            md("""
+            # Global Conv1D Attention Challenger
+
+            This notebook independently applies the shared 24-month/H1-H12 Conv1D-attention contract to the v8 controlled panel. The canonical operational-baseline notebooks remain the source of truth for the full challenger leaderboard.
+
+            The neural model uses causal 3- and 6-month convolutions, two residual self-attention blocks, origin-safe known-future and spectral branches, ordered quantiles and five deterministic seeds. Attention weights are descriptive and are not causal effects.
+            """),
+            code(SETUP),
+            code("""
+            evaluator_summary=json.loads((EVAL/'evaluator_run_summary.json').read_text())
+            evaluator_board=pd.read_csv(EVAL/'model_leaderboard.csv')
+            seed=pd.read_csv(EVAL/'neural_seed_stability.csv')
+            display(pd.DataFrame([evaluator_summary]).T)
+            display(evaluator_board)
+            display(seed.groupby('split')[['WAPE','RMSE','epochs']].agg(['mean','std','min','max']))
+            """),
+            code("""
+            attention=pd.read_csv(EVAL/'attention_weights.csv')
+            occlusion=pd.read_csv(EVAL/'lag_occlusion_sensitivity.csv')
+            permutation=pd.read_csv(EVAL/'heldout_group_permutation.csv')
+            display(attention)
+            display(occlusion.sort_values('WAPE_increase',ascending=False).head(12))
+            display(permutation.sort_values('WAPE_increase',ascending=False))
+            """),
+            md("A neural win on generated data validates only this controlled experiment. External population validity remains `UNVERIFIED`."),
+        ],
         "03_Untouched_Test_And_Hypothesis_Tests.ipynb": [
             md("""
             # Untouched Test And Paired Hypothesis Tests
@@ -145,6 +185,11 @@ def build() -> list[str]:
             """),
             code("display(Image(filename=str(PLOTS / '04_high_volume_comparison.png')))"),
             code("display(Image(filename=str(PLOTS / '06_shock_robustness.png')))"),
+            code("""
+            evaluator_board=pd.read_csv(EVAL/'model_leaderboard.csv')
+            display(evaluator_board)
+            print('The shared neural comparison is H1-H12 direct; the original v8 table above remains its one-step controlled benchmark.')
+            """),
         ],
         "04_Residuals_Intervals_And_Policy.ipynb": [
             md("""
@@ -171,6 +216,11 @@ def build() -> list[str]:
             display(gain.head(15))
             display(permutation.head(15))
             """),
+            code("""
+            evaluator_rows=pd.read_csv(EVAL/'backtest_rows.csv.gz')
+            evaluator_rows['residual']=evaluator_rows.y_true-evaluator_rows.prediction
+            display(evaluator_rows.groupby(['split','model_name']).residual.agg(['mean','std','count']))
+            """),
         ],
         "05_Statistical_Conclusion.ipynb": [
             md("""
@@ -180,6 +230,10 @@ def build() -> list[str]:
             """),
             code(SETUP),
             code("summary"),
+            code("""
+            evaluator_summary=json.loads((EVAL/'evaluator_run_summary.json').read_text())
+            display(pd.DataFrame([evaluator_summary]).T)
+            """),
             md("""
             ## Supported Conclusions
 
@@ -194,12 +248,12 @@ def build() -> list[str]:
 
             - Synthetic success does not prove real production accuracy.
             - Synthetic success does not prove that every v7 error is exclusively a data problem.
-            - A complete synthetic BOM cannot be represented as a real validated Hemas BOM.
-            - Hyperparameter search cannot replace real material-issue and production-order history.
+            - The complete synthetic BOM is the project-operational BOM, but cannot be represented as externally observed Hemas evidence.
+            - Hyperparameter search cannot replace real material-issue and production-order history when making external-population claims.
 
             ## Operational Decision
 
-            Keep v8 as the controlled validation harness and explicit project-operational simulation seed. Its rows may drive the integrated demonstration only while their synthetic provenance and decision scope remain visible. They are not evidence of external production accuracy.
+            Use v8 as the controlled validation harness and project-operational source of truth. Its rows may drive integrated forecasting, inventory, MILP, storage and WMS workflows while their synthetic provenance and decision scope remain visible. They are not evidence of external production accuracy.
             """),
         ],
         "07_Synthetic_Data_Generation_Methods_And_Proof.ipynb": [
@@ -208,7 +262,7 @@ def build() -> list[str]:
 
             This standalone notebook provides evaluator-facing proof of how the project-operational dataset was generated. It documents the technologies, equations, stochastic distributions, causal relationships, validation checks, plots, reproducibility controls and WMS table mapping.
 
-            **Claim boundary:** this is a seeded controlled simulation with known ground truth. It validates software integration and whether forecasting methods can recover a known process. It does not prove accuracy on an external warehouse and must not be described as observed customer history.
+            **Claim boundary:** this is the seeded synthetic project-operational population with known ground truth. It validates software integration and whether forecasting methods can recover the declared project process. It does not prove accuracy on an external warehouse and must not be described as observed customer history.
             """),
             code("""
             from pathlib import Path
@@ -451,7 +505,7 @@ def build() -> list[str]:
             | Slotting/MILP | Demand velocity, ABC/FMS inputs and stock quantities | Space/ranking/solver integration | Physical dimensions and travel observations need site calibration |
             | Supplier planning | Lead time and purchasing constraints | API and procurement-rule validation | Supplier reliability is simplified |
 
-            This dataset is appropriate as the project's operational simulation seed and as a controlled scientific benchmark. It is not appropriate for claiming customer savings, real fill rate, real stockout risk, or deployment accuracy.
+            This dataset is appropriate as the project's operational source of truth and as a controlled scientific benchmark. It is not appropriate for claiming externally measured customer savings, fill rate, stockout risk, or deployment accuracy.
             """),
             code("""
             suitability_checks = pd.DataFrame([
@@ -469,7 +523,7 @@ def build() -> list[str]:
 
             The generator is statistically reasonable for **controlled recovery and end-to-end WMS testing** because it contains temporal dependence, annual seasonality, causal BOM structure, policy constraints, regime changes, rare shocks, skewed positive variables and scale-dependent error. The resulting benchmark is harder and more realistic than independent Gaussian random rows.
 
-            The evidence does **not** establish external validity. The next scientific step is to replace each assumed distribution with an empirical or fitted distribution when actual issue, production, supplier and BOM data become available, while retaining the same leakage-safe rolling-origin protocol. Until then, OptiWMS should display `Project operational simulation` provenance and treat model metrics as controlled-test evidence.
+            The evidence does **not** establish external validity. Within OptiWMS it is decision-eligible for the declared project population and must display `Project synthetic operational baseline` provenance. If external issue, production, supplier and BOM data later become available, the same leakage-safe rolling-origin protocol remains the separate promotion gate.
             """),
         ],
     }

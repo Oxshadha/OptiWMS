@@ -419,7 +419,7 @@ export default function WarehousesPage() {
           ) : layoutViewMode === "simple" ? (
             <SimpleSlottingView layout={layout} />
           ) : (
-            <WarehouseRouteControlPanel />
+            <WarehouseRouteControlPanel warehouseId={selectedWarehouseId!} />
           )}
         </>
       ) : (
