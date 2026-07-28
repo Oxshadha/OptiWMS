@@ -11,6 +11,7 @@ from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.raw_materials import router as raw_materials_router
 from app.api.v1.routes.gateway import router as gateway_router
 from app.api.v1.routes.canonical import router as canonical_router
+from app.api.v1.routes.v8_operational import router as v8_operational_router
 from app.core.config import settings
 from app.core.security import verify_service_auth
 from sqlalchemy import text
@@ -32,6 +33,7 @@ app.include_router(dashboard_router, dependencies=[Depends(verify_service_auth)]
 app.include_router(raw_materials_router, dependencies=[Depends(verify_service_auth)])
 app.include_router(gateway_router, dependencies=[Depends(verify_service_auth)])
 app.include_router(canonical_router, dependencies=[Depends(verify_service_auth)])
+app.include_router(v8_operational_router, dependencies=[Depends(verify_service_auth)])
 publish_queue_worker = PublishQueueWorker()
 operational_health_worker = OperationalHealthWorker()
 
