@@ -1,0 +1,16 @@
+ARG RUNTIME_BASE=node:20-alpine
+FROM ${RUNTIME_BASE}
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+# The verified host build is produced with Next's standalone output. Packaging
+# it avoids resolving npm dependencies again inside Docker.
+COPY .next/standalone ./
+COPY .next/static ./.next/static
+COPY public ./public
+
+EXPOSE 3000
+CMD ["node", "server.js"]
