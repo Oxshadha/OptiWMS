@@ -49,6 +49,10 @@ services:
       - GOVERNANCE_AUTO_ROLLBACK=${GOVERNANCE_AUTO_ROLLBACK:-true}
       - GOVERNANCE_ROLLBACK_MODEL_NAME=${GOVERNANCE_ROLLBACK_MODEL_NAME:-ARIMA}
       - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
+      - FORECAST_PROVIDER_TYPE=${FORECAST_PROVIDER_TYPE:-v8_snapshot}
+      - V8_FORECAST_ROOT=${V8_FORECAST_ROOT:-/v8_operational}
+      - DEFAULT_FORECAST_DATASET=${DEFAULT_FORECAST_DATASET:-PROJECT_OPS_RM_PM}
+      - CHAMPION_MODELS_JSON=${CHAMPION_MODELS_JSON:-{"PROJECT_OPS_RM_PM":{"default":"PROJECT_OPS_EXTRA_TREES_CAUSAL"}}}
       - CANONICAL_FORECAST_ROOT=/project_operational_baseline
       - OPTIWMS_REPOSITORY_ROOT=/optiwms
     ports:
@@ -64,6 +68,7 @@ services:
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
       - ../Ai miroservices/modeling/v6_academic_final:/v6_academic_final:ro
       - ../Ai miroservices/modeling/project_operational_baseline:/project_operational_baseline
+      - ../Ai miroservices/modeling/v8_controlled_synthetic_validation:/v8_operational
       - ..:/optiwms:ro
       - forecast-service-data:/data
 

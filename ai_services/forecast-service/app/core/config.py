@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"
     inference_audit_log_file: str = "/tmp/forecast-service/inference_audit.jsonl"
-    champion_models_json: str = '{"P": {"default": "LIGHTGBM"}}'
+    champion_models_json: str = '{"PROJECT_OPS_RM_PM": {"default": "PROJECT_OPS_EXTRA_TREES_CAUSAL"}}'
     fallback_classical_model: str = "ARIMA"
     publish_queue_poll_interval_seconds: float = 1.0
     publish_min_prediction_rows: int = 1
@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     ops_alert_include_details: bool = True
     governance_enabled: bool = False
     governance_interval_seconds: float = 180.0
-    governance_dataset: str = "P"
-    governance_model_name: str = "LIGHTGBM"
+    governance_dataset: str = "PROJECT_OPS_RM_PM"
+    governance_model_name: str = "PROJECT_OPS_EXTRA_TREES_CAUSAL"
     governance_split: str = "test"
     governance_inference_window: int = 200
     governance_soak_hours: int = 24
@@ -67,7 +67,9 @@ class Settings(BaseSettings):
     governance_enforce_gate_on_autopromote: bool = True
 
     # --- Gateway API settings ---
-    default_forecast_dataset: str = "P"  # Internal dataset code, never exposed to API consumers
+    forecast_provider_type: str = "v8_snapshot"  # v8_snapshot | artifact
+    v8_forecast_root: str = "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/v8_controlled_synthetic_validation"
+    default_forecast_dataset: str = "PROJECT_OPS_RM_PM"  # Internal dataset code, never exposed to API consumers
     gateway_sync_max_skus: int = 100  # Requests with more SKUs → async mode
     gateway_async_poll_interval_seconds: float = 2.0
     gateway_default_horizons: str = "1,3,6,12"  # Default horizons if caller doesn't specify

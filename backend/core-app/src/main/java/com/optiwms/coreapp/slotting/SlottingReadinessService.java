@@ -15,7 +15,7 @@ import java.util.UUID;
 public class SlottingReadinessService {
 
     private static final List<String> OPERATIONAL_TIERS = List.of(
-            "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
+            "PROJECT_OPERATIONAL_SIMULATION", "GENERATED_OPERATIONAL_BASELINE", "OPERATIONAL_ENTRY");
 
     private static final double MATERIAL_THRESHOLD_PCT = 80.0;
     private static final double LOCATION_THRESHOLD_PCT = 90.0;

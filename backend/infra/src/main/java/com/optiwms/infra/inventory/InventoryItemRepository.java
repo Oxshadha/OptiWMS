@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @Repository
 public interface InventoryItemRepository extends JpaRepository<InventoryItemEntity, UUID>, JpaSpecificationExecutor<InventoryItemEntity> {
-    String OPERATIONAL_SCOPE = "i.dataQualityTier in ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')";
+    String OPERATIONAL_SCOPE = "i.dataQualityTier in ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')";
 
     @Query("select i from InventoryItemEntity i where i.materialId = :materialId and " + OPERATIONAL_SCOPE)
     List<InventoryItemEntity> findByMaterialId(@Param("materialId") UUID materialId);
@@ -73,7 +73,7 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
             FROM inventory
             WHERE warehouse_id = :warehouseId
               AND material_id IS NOT NULL
-              AND data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+              AND data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
             GROUP BY material_id
             """, nativeQuery = true)
     List<InventoryMaterialSummary> summarizeByWarehouseId(@Param("warehouseId") UUID warehouseId);
@@ -93,7 +93,7 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItemEnti
                 ) AS "lowStockItems",
                 COUNT(*) FILTER (WHERE quantity <= 0 OR available_quantity <= 0) AS "outOfStockItems"
             FROM inventory
-            WHERE data_quality_tier IN ('GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
+            WHERE data_quality_tier IN ('PROJECT_OPERATIONAL_SIMULATION', 'GENERATED_OPERATIONAL_BASELINE', 'OPERATIONAL_ENTRY')
               AND (CAST(:warehouseId AS uuid) IS NULL OR warehouse_id = CAST(:warehouseId AS uuid))
               AND (CAST(:materialType AS text) IS NULL OR material_type = CAST(:materialType AS text))
             """, nativeQuery = true)

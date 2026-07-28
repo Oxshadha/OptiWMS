@@ -131,6 +131,78 @@ class OperationalBaselineContractTest(unittest.TestCase):
         self.assertIn("selection window only", summary["interval_calibration_method"])
         self.assertTrue(all(summary["promotion_gate"].values()))
 
+    def test_evaluator_upgrade_artifact_contract(self):
+        evaluator = OUT / "evaluator"
+        summary_path = evaluator / "evaluator_run_summary.json"
+        if not summary_path.exists():
+            self.skipTest("Evaluator pipeline has not been run in this checkout")
+        required = [
+            "model_leaderboard.csv",
+            "neural_seed_stability.csv",
+            "feature_group_ablations.csv",
+            "spectral_evidence.csv",
+            "assumption_registry.csv",
+            "model_hypothesis_tests.csv",
+            "residual_diagnostics.csv",
+            "interval_calibration.csv",
+            "decision_cost_sensitivity.csv",
+            "claim_evidence_matrix.csv",
+            "neural_training_history.csv",
+            "attention_weights.csv",
+            "lag_occlusion_sensitivity.csv",
+            "heldout_group_permutation.csv",
+            "slice_metrics.csv",
+        ]
+        for filename in required:
+            with self.subTest(filename=filename):
+                path = evaluator / filename
+                self.assertTrue(path.exists())
+                self.assertGreater(len(pd.read_csv(path)), 0)
+        summary = json.loads(summary_path.read_text())
+        self.assertEqual(summary["untouched_test_window"], ["2025-01-01", "2025-12-01"])
+        self.assertFalse(summary["production_decision_eligible"])
+        self.assertEqual(summary["external_population_validity"], "UNVERIFIED")
+        assumptions = pd.read_csv(evaluator / "assumption_registry.csv")
+        external = assumptions[assumptions.assumption.str.contains("operational population")]
+        self.assertEqual(external.iloc[0].status, "UNVERIFIED")
+        leaderboard = pd.read_csv(evaluator / "model_leaderboard.csv")
+        self.assertEqual(
+            set(leaderboard.population),
+            {"RM_PM_PRIMARY", "FG_SECONDARY", "ALL_GLOBAL_SERIES"},
+        )
+        self.assertTrue(leaderboard.rows.gt(0).all())
+        primary = leaderboard[leaderboard.population.eq("RM_PM_PRIMARY")]
+        self.assertEqual(primary.groupby("split").model_name.nunique().to_dict(), {
+            "selection": 9,
+            "untouched_test": 9,
+        })
+        calibration = pd.read_csv(evaluator / "interval_calibration.csv")
+        champion_calibration = calibration[
+            calibration.model_name.eq(summary["locked_champion"])
+        ].iloc[0]
+        self.assertLessEqual(champion_calibration.coverage_ci_low, 0.80)
+        self.assertGreaterEqual(champion_calibration.coverage_ci_high, 0.80)
+
+    def test_evaluator_models_share_identical_origins(self):
+        path = OUT / "evaluator" / "selection_backtest_rows.csv.gz"
+        if not path.exists():
+            self.skipTest("Evaluator pipeline has not been run in this checkout")
+        rows = pd.read_csv(path, low_memory=False)
+        origins = rows.groupby("model_name").origin_month.apply(lambda values: tuple(sorted(values.unique())))
+        self.assertEqual(origins.nunique(), 1)
+
+    def test_evaluator_untouched_test_follows_all_selection_targets(self):
+        evaluator = OUT / "evaluator"
+        selection_path = evaluator / "selection_backtest_rows.csv.gz"
+        test_path = evaluator / "test_backtest_rows.csv.gz"
+        if not selection_path.exists() or not test_path.exists():
+            self.skipTest("Evaluator pipeline has not been run in this checkout")
+        selection = pd.read_csv(selection_path, usecols=["forecast_month"], parse_dates=["forecast_month"])
+        test = pd.read_csv(test_path, usecols=["forecast_month"], parse_dates=["forecast_month"])
+        self.assertLess(selection.forecast_month.max(), test.forecast_month.min())
+        self.assertEqual(test.forecast_month.min(), pd.Timestamp("2025-01-01"))
+        self.assertEqual(test.forecast_month.max(), pd.Timestamp("2025-12-01"))
+
 
 if __name__ == "__main__":
     unittest.main()

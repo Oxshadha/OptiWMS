@@ -1,0 +1,15 @@
+check,passed,observed,expected
+physical_material_count,True,144.0,144
+physical_dimensions_complete,True,144.0,144
+canonical_layout_rows_preserved,True,4206.0,>=606
+storage_capacity_margin,True,4200.0,3257
+assignment_position_count,True,3257.0,3257
+all_materials_assigned,True,144.0,144
+unique_location_assignment,True,3257.0,3257
+one_pick_face_per_material,True,144.0,144
+pallet_weight_within_location,True,19.968000000000075,>=0 kg margin
+pallet_volume_within_location,True,340740.0,>=0 cm3 margin
+abc_location_compatible,True,3257.0,3257
+temperature_compatible,True,3257.0,3257
+hazard_compatible,True,3257.0,3257
+inventory_totals_match_source,True,2426781.607,2426781.608

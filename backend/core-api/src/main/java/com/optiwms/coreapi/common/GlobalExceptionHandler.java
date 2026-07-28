@@ -9,6 +9,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -44,6 +45,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleResourceAccess(ResourceAccessException ex, HttpServletRequest request) {
         String message = ex.getMessage() != null ? ex.getMessage() : "Upstream service timeout";
         return build(HttpStatus.GATEWAY_TIMEOUT, message, request);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(
+            ResponseStatusException ex,
+            HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
+        String message = ex.getReason() != null
+                ? ex.getReason()
+                : status.getReasonPhrase();
+        return build(status, message, request);
     }
 
     @ExceptionHandler(RuntimeException.class)

@@ -1,8 +1,12 @@
 {
-  "name": "OptiWMS",
+  "id": "/worker",
+  "name": "OptiWMS Worker",
   "short_name": "OptiWMS",
-  "start_url": "/",
+  "description": "Offline-capable OptiWMS worker tasks and live aisle guidance",
+  "start_url": "/worker",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#FFFFFF",
   "theme_color": "#CF0F47",
   "icons": [
@@ -18,5 +22,4 @@
     }
   ]
 }
-
 
