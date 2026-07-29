@@ -1116,3 +1116,60 @@ The evidence supports controlled generated-baseline validity only. It does not e
 - Operational baseline contract suite: `6 passed`.
 
 An authenticated browser refresh is still required to replace any stale React Query/browser cache visible in an already-open tab. The backend serving the corrected defaults is live; no final authenticated screenshot was captured after the last BOM-only redeploy.
+
+## 2026-07-29 Docker Container Recovery
+
+All OptiWMS containers and locally built images were accidentally removed, but
+the named data volumes survived. Recovery was completed without regenerating or
+replacing the project dataset.
+
+### Persistence Evidence
+
+- `infra_db_data` was inspected read-only before startup. It contained a valid
+  PostgreSQL 16 cluster, used approximately 2.7 GB, and retained its control,
+  base and WAL files.
+- PostgreSQL started with the existing cluster and explicitly skipped
+  initialization. The container is healthy on port `5434`.
+- The recovered database contains 92 public tables. All 79 Flyway migrations
+  are successful and the current schema version is V79.
+- Representative recovered row counts are: 1,235 materials, 64,972 orders,
+  244,828 order items, 160,488 inventory rows, 185,000 stock movements,
+  125,184 tasks, 83,088 demand-history rows, 20,238 forecast results, 2,571
+  inventory-policy recommendation lines, 5,131 slotting plan lines, 956 route
+  nodes and 1,980 route edges.
+- The active `ai_services_forecast-service-data` volume retained its 56 MB
+  SQLite database. SQLite integrity is `ok`; it contains 337,850 predictions,
+  1,946 inventory recommendations, 273 metric rows, 21 forecast runs and one
+  model-registry entry. The older AI volume was preserved unchanged.
+
+### Rebuilt Runtime
+
+- The Spring Boot JAR was rebuilt successfully from the current source and
+  packaged into `infra-backend`.
+- The backend is healthy on port `8080`; `/actuator/health` reports `UP`.
+  Startup validated all 79 migrations and applied no migration.
+- The Next.js production build completed successfully and generated all 68
+  routes. Its Docker image was recreated and is healthy.
+- Host port `3000` was already owned by an unrelated local project. The
+  Compose frontend host port is now configurable through
+  `FRONTEND_HOST_PORT`; this recovered instance is running on port `3001`
+  without interrupting the other project.
+- Forecast, orchestration and slotting images were rebuilt. Their services are
+  healthy on ports `8091`, `8092` and `8093`. The forecast runtime contract
+  reports `wms_db`, `validated`, with no missing tables or columns.
+- The optional pgAdmin container was restored on port `5050` with its surviving
+  `infra_pgadmin_data` settings volume.
+- No data-generation or database-loader command was run during recovery.
+
+### Recovery Backups
+
+Validated local recovery copies were created under the ignored
+`recovery_backups/` directory:
+
+- `optiwms-2026-07-29.dump`: 95 MB PostgreSQL custom-format dump;
+  SHA-256 `cdca54048f00aa81aa1c9338f8c8c06d382cec6531ee9f656b6015a5718da6a4`.
+- `forecast-service-2026-07-29.db`: 56 MB consistent SQLite backup;
+  SHA-256 `0deb79346e2de7db2aa64def1bf13a6dc2514b84b0d14ba1edf25c9a6b74bf04`.
+
+Do not run `docker compose down -v`, `docker volume prune`, or another command
+that removes named volumes unless a verified external backup exists.

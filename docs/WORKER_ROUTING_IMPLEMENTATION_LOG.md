@@ -273,3 +273,21 @@ but it is not a real-site forklift safety certification.
   dependency is outdated and has a published security warning. Framework
   upgrade/testing is a separate hardening task and is not hidden by this routing
   completion.
+
+## 2026-07-29 Runtime Recovery
+
+- Recreated PostgreSQL, Spring, Next.js, forecast, orchestration and slotting
+  containers after the containers and locally built images were accidentally
+  removed.
+- Preserved and reused the existing PostgreSQL and AI-service named volumes;
+  no dataset generator or loader was run.
+- Verified PostgreSQL health, 92 public tables, all 79 migrations and the
+  routing graph with 956 nodes and 1,980 edges.
+- Rebuilt the backend JAR and frontend production bundle from current source.
+- Verified the recovered application and AI services as healthy. The core
+  runtime is on ports `5434`, `8080` and `3001`; AI services are on
+  `8091`-`8093`, and the optional database console is on `5050`.
+- Added configurable `FRONTEND_HOST_PORT` support because port `3000` was in
+  use by an unrelated project; no unrelated process was stopped.
+- Created validated PostgreSQL and SQLite recovery copies in the ignored
+  `recovery_backups/` directory.
