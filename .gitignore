@@ -201,6 +201,9 @@ VIVA_FOLDER_MAP_AND_GRADLE.md
 
 *.csv
 
+# Local disaster-recovery exports
+recovery_backups/
+
 # Evaluator-grade evidence is a versioned notebook/artifact contract.
 !Ai miroservices/modeling/project_operational_baseline/outputs/evaluator/*.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/evaluator/*.csv
