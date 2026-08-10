@@ -1,6 +1,6 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-07-28
+> Last updated: 2026-08-10
 > Scope: v8 project-operational synthetic population, evaluator-grade forecasting, inventory policy, physical warehouse geometry, PostgreSQL publication, ABC/FMS, multi-bin slotting, Docker runtime, and application evidence.
 
 ## Executive Status
@@ -15,6 +15,105 @@
 - Location-level inventory contains `2,921` occupied rows for all `144` materials and `2,426,780` rounded database units. There are no aggregate/null-location v8 inventory rows.
 - The committed dataset hash is `558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`.
 - Synthetic provenance is mandatory on the project evidence. External forecast population validity and confirmation by a physical warehouse survey remain `UNVERIFIED`; that boundary does not block using the internally consistent v8 population as the declared project dataset.
+
+## 2026-08-10 Forecast Planning Completion And Docker Database Consolidation
+
+The Forecasts surface now uses the controlled v8 population as the ordinary
+project-operational planning dataset. Operator and planner screens no longer
+show synthetic/lineage/governance disclaimers as primary UI content; those
+facts remain in model evidence and this status record so the project does not
+make an unsupported external-customer claim.
+
+### Docker PostgreSQL is the only local business database
+
+- Docker PostgreSQL on `localhost:5434/optiwms` was queried before any local
+  deletion. It is PostgreSQL `16.14` in the Debian container and retained
+  `1,235` materials, `20,238` forecast rows and successful Flyway history
+  through installed rank `87`.
+- The active project model population is intact: model
+  `PROJECT_OPS_EXTRA_TREES_CAUSAL`, quality tier
+  `PROJECT_OPERATIONAL_SIMULATION`, `decision_eligible=true`, `1,440` rows,
+  `120` RM/PM SKUs and complete H1-H12 coverage from January through December
+  2026.
+- The v8 inventory population has `2,921` located rows with positive MOQ and
+  lead-time values across `144` materials. Material order multiples and unit
+  costs are also present. Sample policies now resolve to meaningful catalogue
+  descriptions such as `PET Bottle — Format A`, with live available stock,
+  safety stock, reorder point, target maximum, MOQ, order multiple and lead
+  time coming from the same PostgreSQL authority.
+- The separately running Homebrew PostgreSQL 16 cluster was stopped cleanly.
+  The exact local data directories `/opt/homebrew/var/postgresql@16` and
+  `/opt/homebrew/var/postgresql@17` were then permanently removed. They used
+  about `301 MB`; no Docker image, container, named volume or recovery backup
+  was deleted. Free filesystem capacity increased to approximately `3.4 GiB`.
+- Spring's host development profile already points to
+  `jdbc:postgresql://localhost:5434/optiwms`; the container profile continues
+  to use `jdbc:postgresql://db:5432/optiwms` inside the Docker network.
+
+### Forecast-to-replenishment behavior
+
+- The Forecasts page defaults, Spring proxy defaults and canonical forecast
+  trigger now agree on `PROJECT_OPS_RM_PM` /
+  `PROJECT_OPS_EXTRA_TREES_CAUSAL`. The Python route is `/v8/recalculate`;
+  Spring/PostgreSQL remains the read authority.
+- `ForecastResultReadService` now returns the planning inputs that were
+  previously missing from the frontend contract: MOQ, material order
+  multiple, lead-time days and unit cost, alongside on-hand, safety stock,
+  reorder point, target maximum and average demand.
+- `frontend/lib/forecast-planning.ts` is a deterministic, testable planning
+  engine. Forecast P50/P90 demand consumes stock every month. A purchase
+  release occurs only when projected inventory position reaches the reorder
+  point; its receipt is delayed by lead time and rounded to MOQ/order multiple.
+  Orders due beyond the displayed horizon remain in open pipeline so the UI
+  cannot generate duplicate releases.
+- The same monthly ledger calculates beginning stock, receipts, P10/P50/P90
+  demand, fulfilled quantity, shortages, ending P50/P90 stock, pipeline,
+  release quantity, receipt month, forward days of supply and action status.
+  P50/P90 projected fill rates and coverage cards are derived from that ledger,
+  not from unrelated decorative series.
+- Inventory charts use step lines for projected stock, receipt bars and
+  explicit reorder/safety references. The replenishment ledger can be exported
+  as CSV. Velocity/error visuals now use neutral action-oriented encoding and
+  reference lines instead of arbitrary green/yellow/grey bars.
+- Ordinary planner wording is `Demand & Replenishment Planning`; technical run
+  detail remains available in a collapsed `Forecast run details` disclosure.
+
+### Portable runtime and verification
+
+- The forecast-service Docker image now copies the v8 pipeline, published
+  outputs and loader into the image. Its Compose build context is the repository
+  root and it no longer depends on host-only v8/repository bind mounts.
+- Frontend planning unit test: passed, including consumption, delayed receipt,
+  MOQ/multiple rounding, shortage/fill-rate behavior, days of supply and the
+  outside-horizon duplicate-release guard.
+- Forecast service: `13 passed` (four existing FastAPI `on_event` deprecation
+  warnings).
+- Full Spring suite: `BUILD SUCCESSFUL`, 15 tasks; the affected API, application
+  and infrastructure modules also compile together.
+- Frontend `npx tsc --noEmit`: passed.
+- Frontend production build: passed; all `68` routes were generated and
+  `/admin/forecasts` compiled to a `27.2 kB` route (`229 kB` first load). The
+  build retains existing repository-wide React hook/font/lint warnings.
+- `ai_services/docker-compose.ai.yml` and `infra/docker-compose.db.yml` both
+  pass Compose configuration validation. The database Compose file retains an
+  obsolete `version` warning only.
+- Spring `/actuator/health` reported `UP`; the verified production Next runtime
+  is reachable on port `3001`. The stale local development process on port
+  `3000` returned `500` after its build cache was replaced and was excluded from
+  acceptance.
+
+### Verification boundary for this session
+
+The environment approval quota blocked starting a new local forecast-service
+listener on `8091` and then blocked the authenticated curl smoke. The in-app
+browser security review also denied localhost navigation. Those restrictions
+were not bypassed. Consequently, this checkpoint does **not** claim a new
+authenticated screenshot or live `Recalculate -> publish -> refresh` browser
+run. The database-backed path is supported by the populated Docker SQL checks,
+the full Spring tests, the 13 forecast-service tests, frontend type checks and
+the successful production render/build. Repeat the authenticated desktop and
+mobile Forecasts smoke, and the live recalculate job, when localhost/browser
+execution approval is available.
 
 ## 2026-07-28 Final Report And README Handoff
 
