@@ -10,6 +10,8 @@ import pandas as pd
 import psycopg2
 from psycopg2.extras import Json, execute_values
 
+from project_ops_catalog import apply_catalog_names
+
 
 DATASET_VERSION = "PROJECT_OPERATIONAL_SIMULATION_V8"
 QUALITY_TIER = "PROJECT_OPERATIONAL_SIMULATION"
@@ -17,6 +19,15 @@ FORECAST_MODEL = "PROJECT_OPS_EXTRA_TREES_CAUSAL"
 FORECAST_DATASET = "PROJECT_OPS_RM_PM"
 DEMAND_SOURCE = "project_ops_v8"
 BOM_VERSION = "PROJECT_OPS_V8"
+
+OPERATIONAL_APRON_COORDINATES = {
+    "QTN-01": (-31.0, -12.0),
+    "RCV-01": (-7.0, -12.0),
+    "STG-01": (17.0, -12.0),
+    "PACK-01": (41.0, -12.0),
+    "DSP-01": (65.0, -12.0),
+    "DOOR-01": (17.0, -24.0),
+}
 
 
 def root() -> Path:
@@ -62,6 +73,61 @@ def resolve_warehouse(cur, warehouse_code: str) -> str:
     return cur.fetchone()[0]
 
 
+def align_operational_apron(locations: pd.DataFrame) -> pd.DataFrame:
+    """Normalize operational points into a readable, realistic apron."""
+    aligned = locations.copy()
+    for location_code, (coordinate_x, coordinate_y) in OPERATIONAL_APRON_COORDINATES.items():
+        location_mask = aligned["location_code"].eq(location_code)
+        aligned.loc[location_mask, ["coordinate_x", "coordinate_y"]] = (
+            coordinate_x,
+            coordinate_y,
+        )
+    return aligned
+
+
+def align_velocity_zones_to_doors(locations: pd.DataFrame) -> pd.DataFrame:
+    """Normalize physical rack F/M/S suffixes by nearest-door travel depth."""
+    aligned = locations.copy()
+    storage_mask = aligned["zone_type"].isin(["PICK_FACE", "RESERVE"])
+    storage = aligned.loc[storage_mask].copy()
+    doors = aligned.loc[aligned["zone_type"].eq("DOOR"), ["coordinate_x", "coordinate_y"]]
+    if storage.empty or doors.empty:
+        return aligned
+
+    rack_keys = ["area", "row_number", "bay_number"]
+    racks = (
+        storage.groupby(rack_keys, as_index=False)
+        .agg(coordinate_x=("coordinate_x", "mean"), coordinate_y=("coordinate_y", "mean"))
+    )
+    door_points = doors[["coordinate_x", "coordinate_y"]].to_numpy(dtype=float)
+    rack_points = racks[["coordinate_x", "coordinate_y"]].to_numpy(dtype=float)
+    racks["door_distance"] = abs(
+        rack_points[:, None, :] - door_points[None, :, :]
+    ).sum(axis=2).min(axis=1)
+    racks = racks.sort_values(["door_distance", *rack_keys]).reset_index(drop=True)
+    fast_max = racks.iloc[(len(racks) - 1) // 3]["door_distance"]
+    medium_max = racks.iloc[(len(racks) * 2 - 1) // 3]["door_distance"]
+    racks["velocity_class"] = [
+        "F" if distance <= fast_max else "M" if distance <= medium_max else "S"
+        for distance in racks["door_distance"]
+    ]
+    velocity_by_rack = racks.set_index(rack_keys)["velocity_class"]
+    storage_index = pd.MultiIndex.from_frame(aligned.loc[storage_mask, rack_keys])
+    suffixes = velocity_by_rack.reindex(storage_index).to_numpy()
+    prefixes = aligned.loc[storage_mask, "physical_class"].astype("string").str[0].str.upper()
+    valid_prefix = prefixes.isin(["A", "B", "C"])
+    aligned.loc[storage_mask, "physical_class"] = [
+        prefix + suffix if valid else original
+        for prefix, suffix, valid, original in zip(
+            prefixes.fillna("C"),
+            suffixes,
+            valid_prefix,
+            aligned.loc[storage_mask, "physical_class"],
+        )
+    ]
+    return aligned
+
+
 def load_materials(cur, physical: pd.DataFrame, digest: str) -> dict[str, str]:
     current_codes = physical["material_code"].tolist()
     cur.execute("""
@@ -92,7 +158,10 @@ def load_materials(cur, physical: pd.DataFrame, digest: str) -> dict[str, str]:
             int(row.max_stack_height), bool(row.temperature_controlled),
             bool(row.hazardous), bool(row.fragile), int(row.shelf_life_days),
             float(row.unit_cost),
-            True, QUALITY_TIER, 1.0, True, Json(lineage("materials", digest)),
+            True, QUALITY_TIER, 1.0, True, Json({
+                **lineage("materials", digest),
+                "display_catalog": "PROJECT_OPS_HOUSEHOLD_CARE_V2",
+            }),
         ))
     execute_values(
         cur,
@@ -148,6 +217,8 @@ def load_materials(cur, physical: pd.DataFrame, digest: str) -> dict[str, str]:
 
 
 def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str) -> int:
+    locations = align_operational_apron(locations)
+    locations = align_velocity_zones_to_doors(locations)
     rows = [(
         row.location_id, warehouse_id, row.location_code, row.area,
         str(row.row_number).zfill(2), str(row.bay_number).zfill(2),
@@ -157,7 +228,11 @@ def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str)
         int(row.max_pallet_capacity), 0, float(row.max_weight_kg),
         float(row.max_volume_cm3), row.temperature_zone, bool(row.hazard_allowed),
         None if pd.isna(row.physical_class) else row.physical_class,
-        DATASET_VERSION, Json(lineage("physical_layout", digest)),
+        DATASET_VERSION, Json({
+            **lineage("physical_layout", digest),
+            "operational_apron_method": "separated_function_lanes_v1",
+            "velocity_zone_method": "nearest_door_manhattan_tercile_v1",
+        }),
     ) for row in locations.itertuples(index=False)]
     execute_values(cur, """
         INSERT INTO locations(
@@ -439,6 +514,54 @@ def load_forecasts(cur, forecasts: pd.DataFrame, material_ids: dict[str, str], w
     return len(rows)
 
 
+def load_backtests(cur, backtests: pd.DataFrame, material_ids: dict[str, str], warehouse_id: str, digest: str) -> int:
+    """Publish the promoted model's untouched test rows for dashboard evidence."""
+    champion = backtests.loc[backtests["model"].eq("extra_trees_causal")].copy()
+    if champion.empty:
+        raise RuntimeError("Champion test backtest rows are missing")
+    champion["origin_month"] = pd.to_datetime(champion["origin_month"])
+    first_test_month = champion["origin_month"].min()
+    champion["horizon"] = (
+        (champion["origin_month"].dt.year - first_test_month.year) * 12
+        + champion["origin_month"].dt.month
+        - first_test_month.month
+        + 1
+    )
+    if champion["horizon"].min() != 1 or champion["horizon"].max() != 12:
+        raise RuntimeError("Champion test evidence must span horizons 1-12")
+
+    cur.execute(
+        "DELETE FROM forecast_backtest_rows "
+        "WHERE dataset=%s AND model_name=%s AND warehouse_id=%s AND split='test'",
+        (FORECAST_DATASET, FORECAST_MODEL, warehouse_id),
+    )
+    rows = [(
+        FORECAST_DATASET,
+        FORECAST_MODEL,
+        "test",
+        warehouse_id,
+        material_ids[row.material_code],
+        str(first_test_month.date()),
+        int(row.horizon),
+        float(row.actual),
+        float(row.p05),
+        float(row.prediction),
+        float(row.p95),
+        float(row.error),
+        float(row.abs_error),
+        bool(row.covered),
+        Json(lineage("forecast_backtest_rows_test", digest)),
+    ) for row in champion.itertuples(index=False)]
+    execute_values(cur, """
+        INSERT INTO forecast_backtest_rows(
+            dataset, model_name, split, warehouse_id, material_id, origin_month,
+            horizon, y_true, forecast_p05, forecast_p50, forecast_p95,
+            residual, absolute_error, interval_covered, source_lineage
+        ) VALUES %s
+    """, rows, page_size=2000)
+    return len(rows)
+
+
 def load_model_evidence(cur, digest: str, warehouse_id: str) -> int:
     """Load locked selection, rolling test, and served-recursive test evidence."""
     summary = json.loads((source_dir() / "run_summary.json").read_text())
@@ -583,6 +706,8 @@ def validate(cur, warehouse_id: str) -> dict:
           (SELECT COUNT(*) FROM bom_components bc JOIN bom_headers bh ON bh.id=bc.bom_header_id WHERE bh.warehouse_id=%s AND bh.version=%s),
           (SELECT COUNT(*) FROM demand_history WHERE warehouse_id=%s AND source=%s),
           (SELECT COUNT(*) FROM forecast_results WHERE warehouse_id=%s AND model_name=%s),
+          (SELECT COUNT(*) FROM forecast_backtest_rows WHERE warehouse_id=%s AND dataset=%s
+             AND model_name=%s AND split='test'),
           (SELECT COUNT(*) FROM forecast_model_evidence WHERE warehouse_id=%s AND dataset=%s AND model_name=%s AND decision_eligible=TRUE),
           (SELECT COUNT(*) FROM forecast_model_registry WHERE dataset=%s AND model_name=%s
              AND version=%s AND status='PROMOTED' AND promotion_eligible=TRUE),
@@ -605,7 +730,9 @@ def validate(cur, warehouse_id: str) -> dict:
         warehouse_id, QUALITY_TIER, warehouse_id, QUALITY_TIER,
         QUALITY_TIER, warehouse_id, BOM_VERSION,
         warehouse_id, BOM_VERSION, warehouse_id, DEMAND_SOURCE,
-        warehouse_id, FORECAST_MODEL, warehouse_id, FORECAST_DATASET, FORECAST_MODEL,
+        warehouse_id, FORECAST_MODEL,
+        warehouse_id, FORECAST_DATASET, FORECAST_MODEL,
+        warehouse_id, FORECAST_DATASET, FORECAST_MODEL,
         FORECAST_DATASET, FORECAST_MODEL, DATASET_VERSION,
         QUALITY_TIER, warehouse_id, QUALITY_TIER,
         warehouse_id, QUALITY_TIER, warehouse_id, QUALITY_TIER,
@@ -613,7 +740,7 @@ def validate(cur, warehouse_id: str) -> dict:
     keys = [
         "materials", "inventory", "locations", "location_assignments",
         "assigned_materials", "materials_missing_physical_attributes",
-        "bom_headers", "bom_components", "demand_rows", "forecast_rows",
+        "bom_headers", "bom_components", "demand_rows", "forecast_rows", "backtest_rows",
         "model_evidence_rows", "promoted_model_rows", "supplier_links", "issue_rollups",
         "inventory_capacity_violations", "assignment_class_violations",
     ]
@@ -628,6 +755,7 @@ def validate(cur, warehouse_id: str) -> dict:
         and results["assignment_class_violations"] == 0
         and results["demand_rows"] == 10368
         and results["forecast_rows"] == 1440
+        and results["backtest_rows"] == 1440
         and results["promoted_model_rows"] == 1
         and results["issue_rollups"] == 144
     )
@@ -645,6 +773,7 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         "initial": out / "data/initial_inventory.csv",
         "policy": out / "inventory_policy_simulation.csv",
         "forecasts": out / "operational_forecasts.csv",
+        "backtests": out / "champion_prediction_intervals.csv",
         "operational_metrics": out / "operational_backtest_metrics.csv",
         "physical": out / "physical_materials.csv",
         "classifications": out / "physical_classifications.csv",
@@ -658,6 +787,9 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         raise RuntimeError(f"missing v8 artifacts: {missing}")
     digest = dataset_hash(list(files.values()))
     frames = {name: pd.read_csv(path) for name, path in files.items()}
+    # Keep display names stable even when loading older statistical artifacts
+    # whose immutable codes still carry the original synthetic descriptions.
+    frames["physical"] = apply_catalog_names(frames["physical"])
     conn = psycopg2.connect(db_url)
     try:
         conn.autocommit = False
@@ -686,6 +818,7 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
                     cur, frames["assignments"], material_ids, warehouse_id,
                 ),
                 "forecast_rows": load_forecasts(cur, frames["forecasts"], material_ids, warehouse_id, digest),
+                "backtest_rows": load_backtests(cur, frames["backtests"], material_ids, warehouse_id, digest),
                 "model_evidence_rows": load_model_evidence(cur, digest, warehouse_id),
                 "issue_stats": refresh_issue_stats(
                     cur, warehouse_id, frames["classifications"], material_ids,
@@ -718,13 +851,67 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         conn.close()
 
 
+def run_evidence_only(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
+    """Refresh only promoted forecast evidence without rebuilding WMS operations."""
+    evidence_files = [
+        source_dir() / "champion_prediction_intervals.csv",
+        source_dir() / "operational_backtest_metrics.csv",
+        source_dir() / "run_summary.json",
+    ]
+    missing = [str(path) for path in evidence_files if not path.exists()]
+    if missing:
+        raise RuntimeError(f"missing v8 evidence artifacts: {missing}")
+    digest = dataset_hash(evidence_files)
+    backtests = pd.read_csv(evidence_files[0])
+
+    conn = psycopg2.connect(db_url)
+    try:
+        conn.autocommit = False
+        with conn.cursor() as cur:
+            warehouse_id = resolve_warehouse(cur, warehouse_code)
+            codes = sorted(backtests.loc[backtests["model"].eq("extra_trees_causal"), "material_code"].unique())
+            cur.execute(
+                "SELECT material_code, id::text FROM materials WHERE material_code=ANY(%s)",
+                (codes,),
+            )
+            material_ids = dict(cur.fetchall())
+            missing_codes = sorted(set(codes) - set(material_ids))
+            if missing_codes:
+                raise RuntimeError(f"forecast evidence materials are missing: {missing_codes[:10]}")
+            counts = {
+                "backtest_rows": load_backtests(cur, backtests, material_ids, warehouse_id, digest),
+                "model_evidence_rows": load_model_evidence(cur, digest, warehouse_id),
+            }
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+        return {
+            "status": "dry_run" if dry_run else "ok",
+            "dataset_version": DATASET_VERSION,
+            "warehouse_code": warehouse_code,
+            "counts": counts,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Load the coherent project-operational simulation into OptiWMS PostgreSQL.")
     parser.add_argument("--db-url", default="postgresql://optiwms:optiwms@localhost:5434/optiwms")
     parser.add_argument("--warehouse-code", default="WH-001")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--evidence-only",
+        action="store_true",
+        help="Refresh promoted model metrics/backtests without rebuilding operational data",
+    )
     args = parser.parse_args()
-    print(json.dumps(run(args.db_url, args.warehouse_code, args.dry_run), indent=2, default=str))
+    action = run_evidence_only if args.evidence_only else run
+    print(json.dumps(action(args.db_url, args.warehouse_code, args.dry_run), indent=2, default=str))
     return 0
 
 
