@@ -66,11 +66,15 @@ public class PutawayService {
         Integer actualQuantity = quantity;
         UUID orderIdForStatusUpdate = null;
         Integer requiredQuantityForTask = null;
+        String receivedBatchNumber = null;
+        boolean requiresReceivedInventoryMove = false;
 
         if (task.getReferenceId() != null && "order_item".equals(task.getReferenceType())) {
             OrderItemEntity orderItem = orderItemRepository.findById(task.getReferenceId())
                     .orElseThrow(() -> new RuntimeException("Order item not found for putaway task"));
             orderIdForStatusUpdate = orderItem.getOrderId();
+            receivedBatchNumber = orderItem.getBatchNumber();
+            requiresReceivedInventoryMove = true;
             var order = orderService.findById(orderIdForStatusUpdate);
             if (!"quality_approved".equals(order.getStatus())
                     && !"putaway_in_progress".equals(order.getStatus())
@@ -128,6 +132,20 @@ public class PutawayService {
         final UUID finalWarehouseId = task.getWarehouseId();
         final String finalLocationCode = locationCode;
 
+        List<InventoryItem> receivedInventory = requiresReceivedInventoryMove
+                ? findUnlocatedReceivedInventory(finalMaterialId, finalWarehouseId, receivedBatchNumber)
+                : List.of();
+        if (requiresReceivedInventoryMove) {
+            int receivedUnits = receivedInventory.stream()
+                    .mapToInt(item -> item.getQuantity() != null ? item.getQuantity() : 0)
+                    .sum();
+            if (receivedUnits < finalQuantity) {
+                throw new RuntimeException(
+                        "Insufficient unlocated received inventory for putaway. Available: " + receivedUnits
+                                + ", requested: " + finalQuantity);
+            }
+        }
+
         // Assign material to location using MaterialLocationAssignmentService
         InventoryItem inventoryItem = materialLocationService.assignMaterialToLocation(
                 finalMaterialId,
@@ -135,8 +153,14 @@ public class PutawayService {
                 finalQuantity,
                 finalLocationCode
         );
-        
-        inventoryService.createOrUpdate(inventoryItem);
+        if (requiresReceivedInventoryMove) {
+            consumeUnlocatedReceivedInventory(receivedInventory, finalQuantity);
+            if (receivedBatchNumber != null && !receivedBatchNumber.isBlank()
+                    && (inventoryItem.getBatchNumber() == null || inventoryItem.getBatchNumber().isBlank())) {
+                inventoryItem.setBatchNumber(receivedBatchNumber);
+                inventoryService.update(inventoryItem.getId(), inventoryItem);
+            }
+        }
 
         Integer newCompletedQuantity = completedQuantity + actualQuantity;
         if (newCompletedQuantity < requiredQuantity) {
@@ -319,6 +343,41 @@ public class PutawayService {
     }
 
     public record PutawayResult(boolean success, String message, UUID taskId) {}
+
+    private List<InventoryItem> findUnlocatedReceivedInventory(
+            UUID materialId,
+            UUID warehouseId,
+            String batchNumber) {
+        return inventoryService.findByMaterialAndWarehouse(materialId, warehouseId).stream()
+                .filter(item -> item.getLocationCode() == null || item.getLocationCode().isBlank())
+                .filter(item -> item.getQuantity() != null && item.getQuantity() > 0)
+                .filter(item -> batchNumber == null || batchNumber.isBlank()
+                        || batchNumber.equals(item.getBatchNumber()))
+                .sorted(java.util.Comparator.comparing(
+                        InventoryItem::getCreatedAt,
+                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+                .toList();
+    }
+
+    private void consumeUnlocatedReceivedInventory(List<InventoryItem> sourceInventory, int quantity) {
+        int remaining = quantity;
+        for (InventoryItem source : sourceInventory) {
+            if (remaining <= 0) break;
+            int sourceQuantity = source.getQuantity() != null ? source.getQuantity() : 0;
+            int moved = Math.min(sourceQuantity, remaining);
+            source.setQuantity(sourceQuantity - moved);
+            int sourceAvailable = source.getAvailableQuantity() != null ? source.getAvailableQuantity() : sourceQuantity;
+            source.setAvailableQuantity(Math.max(sourceAvailable - moved, 0));
+            if (source.getQuantity() == 0) {
+                source.setStatus("depleted");
+            }
+            inventoryService.update(source.getId(), source);
+            remaining -= moved;
+        }
+        if (remaining > 0) {
+            throw new RuntimeException("Failed to move the complete received quantity into storage");
+        }
+    }
 
     private Integer extractCompletedQuantity(String notes) {
         if (notes == null || notes.isBlank()) {

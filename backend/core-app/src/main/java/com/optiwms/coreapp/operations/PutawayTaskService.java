@@ -9,6 +9,7 @@ import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,7 +52,6 @@ public class PutawayTaskService {
      * Create putaway tasks for received items in an inbound order.
      * Called automatically after receiving is completed.
      */
-    @Transactional
     public void createPutawayTasksForReceivedOrder(UUID orderId, UUID warehouseId) {
         Order order = orderService.findById(orderId);
         
@@ -91,33 +91,29 @@ public class PutawayTaskService {
             }
 
             // Get material details
-            Material material;
-            try {
-                material = materialService.findById(item.getMaterialId());
-            } catch (Exception e) {
-                // Material not found - skip this item
-                continue;
-            }
+            Material material = materialService.findById(item.getMaterialId());
 
-            // Suggest optimal location (with AI support if available)
-            String suggestedLocation = null;
-            try {
-                com.optiwms.coreapp.operations.LocationSuggestionService.LocationSuggestion suggestion = 
+            // Honor the capacity-checked destination selected on the inbound line.
+            // Only calculate a new suggestion when the order was created without one.
+            String suggestedLocation = item.getLocationCode();
+            if (suggestedLocation == null || suggestedLocation.isBlank()) {
+                LocationSuggestionService.LocationSuggestion suggestion =
                         locationSuggestionService.suggestPutawayLocation(
                                 warehouseId,
                                 item.getMaterialId(),
                                 receivedQty,
                                 material.getMaterialType() != null ? material.getMaterialType() : "product"
                         );
-                suggestedLocation = suggestion.getLocationCode();
-            } catch (Exception e) {
-                // Location suggestion failed - create task without suggested location
-                // Worker will need to select location manually
+                suggestedLocation = suggestion != null ? suggestion.getLocationCode() : null;
+                if (suggestedLocation == null || suggestedLocation.isBlank()) {
+                    throw new IllegalStateException(
+                            "No capacity-valid putaway destination for order item " + item.getId());
+                }
             }
 
             // Create putaway task
             Task putawayTask = new Task();
-            putawayTask.setTaskNumber(generateTaskNumber("PUT", order.getOrderNumber()));
+            putawayTask.setTaskNumber("PUT-" + item.getId());
             putawayTask.setTaskType("putaway");
             putawayTask.setWarehouseId(warehouseId);
             putawayTask.setAssignedTo(null); // Unassigned - first come first serve
@@ -138,7 +134,18 @@ public class PutawayTaskService {
                 putawayTask.setDueDate(LocalDateTime.now().plusDays(1));
             }
 
-            taskService.create(putawayTask);
+            try {
+                taskService.create(putawayTask);
+            } catch (DataIntegrityViolationException duplicateOrConstraintFailure) {
+                // A concurrent worker/retry may have inserted the same idempotent
+                // task. Only suppress the exception when that task now exists.
+                boolean createdByAnotherWorker = !taskService
+                        .findByTaskTypeAndReference("putaway", "order_item", item.getId())
+                        .isEmpty();
+                if (!createdByAnotherWorker) {
+                    throw duplicateOrConstraintFailure;
+                }
+            }
         }
     }
 
