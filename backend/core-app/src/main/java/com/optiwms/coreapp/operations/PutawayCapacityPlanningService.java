@@ -90,7 +90,11 @@ public class PutawayCapacityPlanningService {
         List<Location> candidateLocations = locationService.findAvailableByWarehouse(warehouseId).stream()
                 .filter(loc -> loc.getLocationCode() != null && !loc.getLocationCode().isBlank())
                 .filter(this::isStorageLocation)
-                .sorted(locationComparator(preferredLocationCode, materialId, inventoryByLocation))
+                .sorted(locationComparator(
+                        preferredLocationCode,
+                        materialId,
+                        inboundMaterial.getFmsClass(),
+                        inventoryByLocation))
                 .toList();
 
         List<String> notes = new ArrayList<>();
@@ -275,8 +279,10 @@ public class PutawayCapacityPlanningService {
     private Comparator<Location> locationComparator(
             String preferredLocationCode,
             UUID materialId,
+            String materialFmsClass,
             Map<String, List<InventoryItem>> inventoryByLocation) {
         String preferred = preferredLocationCode != null ? preferredLocationCode.trim().toUpperCase(Locale.ROOT) : null;
+        String requiredVelocity = normalizeFmsClass(materialFmsClass);
         return Comparator
                 .comparing((Location loc) -> !sameLocationCode(loc.getLocationCode(), preferred))
                 .thenComparing((Location loc) -> {
@@ -284,6 +290,7 @@ public class PutawayCapacityPlanningService {
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
                     return !hasMaterial;
                 })
+                .thenComparing((Location loc) -> !locationMatchesVelocity(loc, requiredVelocity))
                 .thenComparing((Location loc) -> {
                     List<InventoryItem> inv = inventoryByLocation.getOrDefault(loc.getLocationCode(), List.of());
                     boolean hasMaterial = inv.stream().anyMatch(item -> materialId.equals(item.getMaterialId()));
@@ -293,6 +300,26 @@ public class PutawayCapacityPlanningService {
                     return hasMaterial ? level : -level;
                 })
                 .thenComparing(Location::getLocationCode);
+    }
+
+    private boolean locationMatchesVelocity(Location location, String requiredVelocity) {
+        if (requiredVelocity == null) {
+            return true;
+        }
+        String rackClass = location.getAmalgamatedClass();
+        if (rackClass == null || rackClass.isBlank()) {
+            return false;
+        }
+        String normalized = rackClass.trim().toUpperCase(Locale.ROOT);
+        return normalized.endsWith(requiredVelocity);
+    }
+
+    private String normalizeFmsClass(String fmsClass) {
+        if (fmsClass == null || fmsClass.isBlank()) {
+            return null;
+        }
+        String normalized = fmsClass.trim().toUpperCase(Locale.ROOT);
+        return Set.of("F", "M", "S").contains(normalized) ? normalized : null;
     }
 
     private String allocationReason(
@@ -339,7 +366,17 @@ public class PutawayCapacityPlanningService {
         boolean missingWeightMetric = false;
         boolean missingVolumeMetric = false;
 
-        if (location.getCapacity() != null && location.getCapacity().intValue() > 0) {
+        BigDecimal unitsPerPallet = inboundMaterial.getUnitsPerPallet() != null
+                && inboundMaterial.getUnitsPerPallet() > 0
+                ? BigDecimal.valueOf(inboundMaterial.getUnitsPerPallet())
+                : null;
+        boolean palletCapacityModel = unitsPerPallet != null
+                && location.getMaxPalletCapacity() != null
+                && location.getMaxPalletCapacity() > 0;
+
+        // In the versioned rack layout, capacity=1 means one pallet position,
+        // not one sellable unit. Do not clamp a palletized SKU to one unit.
+        if (!palletCapacityModel && location.getCapacity() != null && location.getCapacity().intValue() > 0) {
             int unitsHeadroom = Math.max(location.getCapacity().intValue() - currentQty, 0);
             allocatable = Math.min(allocatable, unitsHeadroom);
             blockedByUnits = unitsHeadroom <= 0;
@@ -414,13 +451,11 @@ public class PutawayCapacityPlanningService {
             }
         }
 
-        if (location.getMaxPalletCapacity() != null && location.getMaxPalletCapacity() > 0
-                && inboundMaterial.getPalletSpaces() != null
-                && inboundMaterial.getPalletSpaces().compareTo(BigDecimal.ZERO) > 0) {
+        if (palletCapacityModel) {
             int currentPalletCount = location.getCurrentPalletCount() != null ? location.getCurrentPalletCount() : 0;
             int slotHeadroom = Math.max(location.getMaxPalletCapacity() - currentPalletCount, 0);
             int byPalletSlots = toPositiveIntFloor(
-                    BigDecimal.valueOf(slotHeadroom).multiply(inboundMaterial.getPalletSpaces()));
+                    BigDecimal.valueOf(slotHeadroom).multiply(unitsPerPallet));
             allocatable = Math.min(allocatable, byPalletSlots);
             if (byPalletSlots <= 0) {
                 allocatable = 0;
@@ -428,7 +463,7 @@ public class PutawayCapacityPlanningService {
             }
         }
 
-        if (allocatable < desired && !blockedByUnits && location.getCapacity() != null
+        if (allocatable < desired && !palletCapacityModel && !blockedByUnits && location.getCapacity() != null
                 && location.getCapacity().intValue() > 0) {
             blockedByUnits = true;
         }
@@ -472,10 +507,11 @@ public class PutawayCapacityPlanningService {
             projectedLpn = Math.min(projectedLpn + 1, Integer.MAX_VALUE);
         }
 
+        Integer effectiveUnitCapacity = effectiveUnitCapacity(location, inboundMaterial);
         return new CapacitySnapshot(
                 projectedQty,
-                location.getCapacity() != null ? location.getCapacity().intValue() : null,
-                fillPercent(projectedQty, location.getCapacity() != null ? location.getCapacity().intValue() : null),
+                effectiveUnitCapacity,
+                fillPercent(projectedQty, effectiveUnitCapacity),
                 toString(projectedWeight),
                 toString(location.getMaxWeightKg()),
                 fillPercent(projectedWeight, location.getMaxWeightKg()),
@@ -485,6 +521,15 @@ public class PutawayCapacityPlanningService {
                 projectedLpn,
                 location.getMaxLpnCount(),
                 fillPercent(projectedLpn, location.getMaxLpnCount()));
+    }
+
+    private Integer effectiveUnitCapacity(Location location, Material material) {
+        if (material.getUnitsPerPallet() != null && material.getUnitsPerPallet() > 0
+                && location.getMaxPalletCapacity() != null && location.getMaxPalletCapacity() > 0) {
+            long capacity = (long) material.getUnitsPerPallet() * location.getMaxPalletCapacity();
+            return capacity > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) capacity;
+        }
+        return location.getCapacity() != null ? location.getCapacity().intValue() : null;
     }
 
     private String normalizeRackStatus(String rackStatus) {
