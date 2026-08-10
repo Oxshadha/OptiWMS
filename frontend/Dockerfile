@@ -20,19 +20,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy built files
-COPY --from=builder /app/.next ./.next
+# The standalone build already contains the minimal production dependencies.
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/next.config.mjs ./
-
-# Install production dependencies only
-RUN npm ci --omit=dev --no-audit --no-fund
 
 # Expose port
 EXPOSE 3000
 
-# Development: use npm run dev
-# Production: use npm start
 ENV NODE_ENV=production
-CMD ["npm", "run", "start"]
+ENV HOSTNAME=0.0.0.0
+CMD ["node", "server.js"]
