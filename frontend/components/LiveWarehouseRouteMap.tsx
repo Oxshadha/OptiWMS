@@ -19,6 +19,8 @@ import {
   Route as RouteIcon,
 } from "lucide-react";
 import {
+  RoutingGraphNode,
+  RoutingRack,
   WarehouseRoutingGraph,
   WorkerRouteSession,
 } from "@/lib/api/routing";
@@ -35,6 +37,19 @@ interface ViewBounds {
   minY: number;
   width: number;
   height: number;
+}
+
+interface ViewportSize {
+  width: number;
+  height: number;
+}
+
+interface RouteVisual {
+  route: WorkerRouteSession;
+  color: string;
+  activeLegs: WorkerRouteSession["route"];
+  futureLegs: WorkerRouteSession["route"];
+  releasedLegs: WorkerRouteSession["route"];
 }
 
 const routeColors = [
@@ -63,6 +78,10 @@ export function LiveWarehouseRouteMap({
     view: ViewBounds;
   } | null>(null);
   const [viewportAspect, setViewportAspect] = useState(16 / 9);
+  const [viewportSize, setViewportSize] = useState<ViewportSize>({
+    width: 1280,
+    height: 720,
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [viewPreset, setViewPreset] = useState<
     "route" | "warehouse" | "custom"
@@ -74,7 +93,26 @@ export function LiveWarehouseRouteMap({
   );
   const primaryRoute =
     routes.find((route) => route.id === primaryRouteId) || routes[0] || null;
-  const hasRoute = Boolean(primaryRoute?.route.length);
+  const visibleRoutes = useMemo(
+    () => (detail === "worker" && primaryRoute ? [primaryRoute] : routes),
+    [detail, primaryRoute, routes]
+  );
+  const routeVisuals = useMemo<RouteVisual[]>(
+    () =>
+      visibleRoutes.map((route, index) => ({
+        route,
+        color: routeColors[index % routeColors.length],
+        ...splitRouteLegs(route),
+      })),
+    [visibleRoutes]
+  );
+  const primaryVisual =
+    routeVisuals.find((visual) => visual.route.id === primaryRoute?.id) ||
+    routeVisuals[0] ||
+    null;
+  const hasRoute = routeVisuals.some(
+    (visual) => visual.activeLegs.length > 0 || visual.futureLegs.length > 0
+  );
 
   const warehouseBounds = useMemo(() => {
     const xs = graph.nodes.map((node) => node.x);
@@ -83,7 +121,11 @@ export function LiveWarehouseRouteMap({
   }, [graph.nodes]);
 
   const routeBounds = useMemo(() => {
-    const points = (primaryRoute?.route || []).flatMap((leg) => [
+    const focusLegs =
+      detail === "worker" && primaryVisual?.activeLegs.length
+        ? primaryVisual.activeLegs
+        : primaryRoute?.route || [];
+    const points = focusLegs.flatMap((leg) => [
       leg.from,
       leg.to,
     ]);
@@ -93,7 +135,7 @@ export function LiveWarehouseRouteMap({
       points.map((point) => point.y),
       6
     );
-  }, [primaryRoute?.route]);
+  }, [detail, primaryRoute?.route, primaryVisual?.activeLegs]);
 
   const fitWarehouseBounds = useMemo(
     () => fitBoundsToAspect(warehouseBounds, viewportAspect),
@@ -115,6 +157,7 @@ export function LiveWarehouseRouteMap({
       const rect = element.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         setViewportAspect(rect.width / rect.height);
+        setViewportSize({ width: rect.width, height: rect.height });
       }
     };
     updateAspect();
@@ -153,22 +196,22 @@ export function LiveWarehouseRouteMap({
   const completedFaces = useMemo(
     () =>
       new Set(
-        routes.flatMap((route) =>
+        visibleRoutes.flatMap((route) =>
           route.stops
             .filter((stop) => stop.status === "COMPLETED")
             .map((stop) => stop.accessNodeId)
         )
       ),
-    [routes]
+    [visibleRoutes]
   );
   const plannedFaces = useMemo(
     () =>
       new Set(
-        routes.flatMap((route) =>
+        visibleRoutes.flatMap((route) =>
           route.stops.map((stop) => stop.accessNodeId)
         )
       ),
-    [routes]
+    [visibleRoutes]
   );
 
   const zoom = Math.max(
@@ -176,6 +219,25 @@ export function LiveWarehouseRouteMap({
     Math.min(MAX_ZOOM, fitWarehouseBounds.width / view.width)
   );
   const showRackLabels = zoom >= 3;
+  const operationalNodes = useMemo(() => {
+    const facilityNodes = graph.nodes.filter((node) =>
+      ["STATION", "PARKING", "DOOR"].includes(node.type)
+    );
+    if (detail === "admin" || !primaryRoute) return facilityNodes;
+    const relevantIds = new Set(
+      [primaryRoute.startNodeId, primaryRoute.currentNodeId, primaryRoute.endNodeId].filter(
+        (value): value is string => Boolean(value)
+      )
+    );
+    return facilityNodes.filter((node) => relevantIds.has(node.id));
+  }, [detail, graph.nodes, primaryRoute]);
+  const operationalCallouts = useMemo(
+    () => buildOperationalCallouts(operationalNodes, view, viewportSize),
+    [operationalNodes, view, viewportSize]
+  );
+  const screenUnit = view.width / Math.max(viewportSize.width, 1);
+  const showOperationalLabels = detail === "worker" || zoom >= 1.6 || hasRoute;
+  const currentStop = primaryRoute?.stops.find((stop) => stop.status === "CURRENT");
 
   const focusWarehouse = useCallback(() => {
     setView(fitWarehouseBounds);
@@ -272,31 +334,41 @@ export function LiveWarehouseRouteMap({
       className="overflow-hidden rounded-xl border border-base-300 bg-base-100 shadow-sm"
       aria-label="Live warehouse route map"
     >
-      <div className="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 border-b border-base-300 px-3 py-3 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-sm font-bold">Live aisle map</h3>
+            <h3 className="text-sm font-bold">
+              {detail === "worker" ? "Route to next stop" : "Live aisle map"}
+            </h3>
             <span
               className={`badge badge-sm ${
                 hasRoute ? "badge-primary" : "badge-ghost"
               }`}
             >
               {hasRoute
-                ? `${routes.length} active ${routes.length === 1 ? "route" : "routes"}`
+                ? detail === "worker" && currentStop
+                  ? `Next · ${currentStop.locationCode}`
+                  : `${visibleRoutes.length} active ${visibleRoutes.length === 1 ? "route" : "routes"}`
                 : "No active route"}
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] text-base-content/60">
-            {graph.rackFootprintCount} rack bays · {graph.nodes.length} nodes ·
-            graph {graph.graphHash.slice(0, 10)}
-          </p>
+          {detail === "worker" ? (
+            <p className="mt-0.5 text-[11px] text-base-content/60">
+              Follow the dark dashed line. The grey line is later.
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[11px] text-base-content/60">
+              {graph.rackFootprintCount} rack bays · {graph.nodes.length} nodes ·
+              graph {graph.graphHash.slice(0, 10)}
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="join" aria-label="Map focus">
             <button
               type="button"
-              className={`btn btn-xs join-item ${
+              className={`btn btn-sm min-h-11 join-item ${
                 viewPreset === "route" ? "btn-primary" : "btn-ghost"
               }`}
               onClick={focusRoute}
@@ -312,7 +384,7 @@ export function LiveWarehouseRouteMap({
             </button>
             <button
               type="button"
-              className={`btn btn-xs join-item ${
+              className={`btn btn-sm min-h-11 join-item ${
                 viewPreset === "warehouse" ? "btn-primary" : "btn-ghost"
               }`}
               onClick={focusWarehouse}
@@ -322,7 +394,7 @@ export function LiveWarehouseRouteMap({
               Fit warehouse
             </button>
           </div>
-          <span className="min-w-[52px] text-right text-xs font-semibold tabular-nums text-base-content/60">
+          <span className="hidden min-w-[52px] text-right text-xs font-semibold tabular-nums text-base-content/60 sm:inline">
             {Math.round(zoom * 100)}%
           </span>
         </div>
@@ -330,7 +402,11 @@ export function LiveWarehouseRouteMap({
 
       <div
         ref={viewportRef}
-        className={`relative h-[520px] touch-none overflow-hidden bg-slate-100 outline-none lg:h-[640px] ${
+        className={`relative touch-none overflow-hidden bg-slate-100 outline-none ${
+          detail === "worker"
+            ? "h-[360px] sm:h-[440px] lg:h-[520px]"
+            : "h-[520px] lg:h-[640px]"
+        } ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
         }`}
         onWheel={handleWheel}
@@ -351,7 +427,7 @@ export function LiveWarehouseRouteMap({
           role="img"
           aria-label={
             hasRoute
-              ? `Warehouse map showing ${routes.length} active routes`
+              ? `Warehouse map showing ${visibleRoutes.length} active routes`
               : "Warehouse map with no active routes"
           }
           viewBox={`${view.minX} ${view.minY} ${view.width} ${view.height}`}
@@ -373,20 +449,20 @@ export function LiveWarehouseRouteMap({
                 vectorEffect="non-scaling-stroke"
               />
             </pattern>
-            {routes.map((route, index) => (
+            {routeVisuals.map(({ route, color }) => (
               <marker
                 key={route.id}
                 id={`route-arrow-${safeId(route.id)}`}
                 viewBox="0 0 10 10"
-                refX="8"
+                refX="9"
                 refY="5"
-                markerWidth="5"
-                markerHeight="5"
-                orient="auto-start-reverse"
+                markerWidth="4"
+                markerHeight="4"
+                orient="auto"
               >
                 <path
                   d="M 0 0 L 10 5 L 0 10 z"
-                  fill={routeColors[index % routeColors.length]}
+                  fill={color}
                 />
               </marker>
             ))}
@@ -429,6 +505,10 @@ export function LiveWarehouseRouteMap({
             const planned = rack.accessNodeIds.some((id) =>
               plannedFaces.has(id)
             );
+            const palette =
+              detail === "worker"
+                ? workerRackPalette(planned)
+                : rackPalette(rack);
             return (
               <g key={rack.rackId} opacity={completed ? 0.28 : 1}>
                 <rect
@@ -437,107 +517,169 @@ export function LiveWarehouseRouteMap({
                   width={rack.widthM}
                   height={rack.depthM}
                   rx="0.28"
-                  fill={planned ? "#bae6fd" : "#dbeafe"}
-                  stroke={planned ? "#075985" : "#64748b"}
+                  fill={palette.fill}
+                  stroke={planned ? "#075985" : palette.stroke}
                   strokeWidth={planned ? "1.75" : "1"}
+                  vectorEffect="non-scaling-stroke"
+                />
+                {zoom >= 4.5 && palette.code ? (
+                  <text
+                    x={rack.centerX}
+                    y={rack.centerY + 3.5 * screenUnit}
+                    textAnchor="middle"
+                    fontSize={10 * screenUnit}
+                    fontWeight="900"
+                    fill={palette.text}
+                    pointerEvents="none"
+                  >
+                    {palette.code}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+
+          {operationalCallouts.map((callout) => {
+            const node = callout.node;
+            const color = operationalNodeColor(node);
+            const nodeRadius = operationalNodeRadius(node, screenUnit);
+            return (
+              <g key={node.id}>
+                {showOperationalLabels ? (
+                  <>
+                    <line
+                      x1={node.x}
+                      y1={node.y}
+                      x2={callout.anchorX}
+                      y2={callout.anchorY}
+                      stroke={color}
+                      strokeWidth="1.25"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <rect
+                      x={callout.labelX}
+                      y={callout.labelY}
+                      width={callout.labelWidth}
+                      height={callout.labelHeight}
+                      rx={4 * screenUnit}
+                      fill="rgba(255,255,255,0.94)"
+                      stroke={color}
+                      strokeWidth="1"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <text
+                      x={callout.labelX + 8 * screenUnit}
+                      y={callout.labelY + 14 * screenUnit}
+                      fontSize={12 * screenUnit}
+                      fontWeight="800"
+                      fill="#0f172a"
+                      pointerEvents="none"
+                    >
+                      {callout.label}
+                    </text>
+                  </>
+                ) : null}
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={nodeRadius + 4 * screenUnit}
+                  fill={color}
+                  opacity="0.14"
+                  pointerEvents="none"
+                />
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={nodeRadius}
+                  fill={color}
+                  stroke="#fff"
+                  strokeWidth="2"
                   vectorEffect="non-scaling-stroke"
                 />
               </g>
             );
           })}
 
-          {graph.nodes
-            .filter((node) =>
-              ["STATION", "PARKING", "DOOR"].includes(node.type)
-            )
-            .map((node) => (
-              <g key={node.id}>
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r="1.25"
-                  fill={
-                    node.type === "PARKING"
-                      ? "#7c3aed"
-                      : node.type === "DOOR"
-                        ? "#334155"
-                        : "#f59e0b"
-                  }
-                  stroke="#fff"
-                  strokeWidth="2"
-                  vectorEffect="non-scaling-stroke"
-                />
-                {(zoom >= 1.8 || hasRoute) && (
-                  <text
-                    x={node.x + 1.7}
-                    y={node.y + 0.5}
-                    fontSize="1.55"
-                    fontWeight="700"
-                    fill="#0f172a"
-                    paintOrder="stroke"
-                    stroke="#f8fafc"
-                    strokeWidth="0.65"
-                  >
-                    {node.label}
-                  </text>
-                )}
-              </g>
-            ))}
-
-          {routes.flatMap((route, routeIndex) =>
-            route.route.map((leg) => {
-              const color = routeColors[routeIndex % routeColors.length];
-              const isPrimary = route.id === primaryRoute?.id;
-              return (
-                <g key={`${route.id}-${leg.sequence}`}>
-                  <line
-                    x1={leg.from.x}
-                    y1={leg.from.y}
-                    x2={leg.to.x}
-                    y2={leg.to.y}
-                    stroke="#fff"
-                    strokeWidth={isPrimary ? "8" : "6"}
-                    strokeLinecap="round"
-                    opacity={leg.status === "RELEASED" ? 0.18 : 0.96}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                  <line
-                    x1={leg.from.x}
-                    y1={leg.from.y}
-                    x2={leg.to.x}
-                    y2={leg.to.y}
+          {routeVisuals.map(({ route, color, activeLegs, futureLegs, releasedLegs }) => {
+            const isPrimary = route.id === primaryRoute?.id;
+            const activePath = pathFromLegs(activeLegs);
+            const futurePath = pathFromLegs(futureLegs);
+            const releasedPath = pathFromLegs(releasedLegs);
+            return (
+              <g key={`route-${route.id}`}>
+                {detail === "admin" && releasedPath ? (
+                  <path
+                    d={releasedPath}
+                    fill="none"
                     stroke={color}
-                    strokeWidth={isPrimary ? "4" : "3"}
+                    strokeWidth="2"
                     strokeLinecap="round"
-                    markerEnd={`url(#route-arrow-${safeId(route.id)})`}
-                    opacity={leg.status === "RELEASED" ? 0.28 : 0.96}
-                    strokeDasharray={leg.waitSeconds > 0 ? "7 5" : undefined}
+                    strokeDasharray="2 6"
+                    opacity="0.16"
                     vectorEffect="non-scaling-stroke"
                   />
-                </g>
-              );
-            })
-          )}
+                ) : null}
+                {futurePath ? (
+                  <path
+                    d={futurePath}
+                    fill="none"
+                    stroke={detail === "worker" ? "#64748b" : color}
+                    strokeWidth={isPrimary ? "3" : "2.5"}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray="3 7"
+                    opacity={detail === "worker" ? "0.34" : "0.2"}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ) : null}
+                {activePath ? (
+                  <>
+                    <path
+                      d={activePath}
+                      fill="none"
+                      stroke="#fff"
+                      strokeWidth={isPrimary ? "9" : "7"}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity="0.96"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <path
+                      d={activePath}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={isPrimary ? "5" : "4"}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeDasharray="10 7"
+                      markerEnd={`url(#route-arrow-${safeId(route.id)})`}
+                      opacity={route.status === "WAITING" ? "0.7" : "1"}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </>
+                ) : null}
+              </g>
+            );
+          })}
 
-          {routes.map((route, index) => {
+          {routeVisuals.map(({ route, color }) => {
             const node = nodeById.get(route.currentNodeId);
             if (!node) return null;
-            const color = routeColors[index % routeColors.length];
             return (
               <g key={`worker-${route.id}`}>
                 <circle
                   cx={node.x}
                   cy={node.y}
-                  r={detail === "worker" ? "1.8" : "1.55"}
+                  r={(detail === "worker" ? 9 : 8) * screenUnit}
                   fill={color}
                   stroke="#fff"
                   strokeWidth="3"
                   vectorEffect="non-scaling-stroke"
                 />
                 <text
-                  x={node.x + 2}
-                  y={node.y + 0.55}
-                  fontSize="1.5"
+                  x={node.x + 11 * screenUnit}
+                  y={node.y + 4 * screenUnit}
+                  fontSize={12 * screenUnit}
                   fontWeight="800"
                   fill={color}
                   paintOrder="stroke"
@@ -550,54 +692,82 @@ export function LiveWarehouseRouteMap({
             );
           })}
 
-          {primaryRoute?.stops.map((stop) => {
-            const node = nodeById.get(stop.accessNodeId);
-            if (!node) return null;
-            return (
-              <g key={stop.id} opacity={stop.status === "COMPLETED" ? 0.3 : 1}>
-                <circle
-                  cx={node.x}
-                  cy={node.y}
-                  r="1.4"
-                  fill={stop.status === "CURRENT" ? "#cf0f47" : "#2563eb"}
-                  stroke="#fff"
-                  strokeWidth="3"
-                  vectorEffect="non-scaling-stroke"
-                />
-                <text
-                  x={node.x}
-                  y={node.y + 0.5}
-                  textAnchor="middle"
-                  fontSize="1.25"
-                  fontWeight="800"
-                  fill="#fff"
-                >
-                  {stop.sequence}
-                </text>
-                {showRackLabels ? (
-                  <text
-                    x={node.x + 2.2}
-                    y={node.y + 0.5}
-                    fontSize="1.25"
-                    fontWeight="800"
-                    fill="#0f172a"
-                    paintOrder="stroke"
-                    stroke="#fff"
-                    strokeWidth="0.75"
+          {(detail === "admin" ? routeVisuals : primaryVisual ? [primaryVisual] : []).flatMap(
+            ({ route, color }) =>
+              route.stops.map((stop) => {
+                const node = nodeById.get(stop.accessNodeId);
+                if (!node || (detail === "worker" && stop.status === "COMPLETED")) return null;
+                const isCurrent = stop.status === "CURRENT";
+                return (
+                  <g
+                    key={`${route.id}-${stop.id}`}
+                    opacity={stop.status === "COMPLETED" ? 0.22 : isCurrent ? 1 : 0.5}
                   >
-                    {stop.locationCode}
-                  </text>
-                ) : null}
-              </g>
-            );
-          })}
+                    <circle
+                      cx={node.x}
+                      cy={node.y}
+                      r={(isCurrent ? 10 : 7) * screenUnit}
+                      fill={isCurrent ? color : "#64748b"}
+                      stroke="#fff"
+                      strokeWidth="3"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    <text
+                      x={node.x}
+                      y={node.y + 3.5 * screenUnit}
+                      textAnchor="middle"
+                      fontSize={(isCurrent ? 10 : 9) * screenUnit}
+                      fontWeight="900"
+                      fill="#fff"
+                    >
+                      {stop.sequence}
+                    </text>
+                    {isCurrent || showRackLabels ? (
+                      <text
+                        x={node.x + 13 * screenUnit}
+                        y={node.y + 4 * screenUnit}
+                        fontSize={(isCurrent ? 12 : 10) * screenUnit}
+                        fontWeight="900"
+                        fill="#0f172a"
+                        paintOrder="stroke"
+                        stroke="#fff"
+                        strokeWidth="0.9"
+                      >
+                        {isCurrent ? `NEXT · ${stop.locationCode}` : stop.locationCode}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })
+          )}
         </svg>
 
-        <div className="absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
-          <Move className="h-4 w-4 text-base-content/60" />
-          <span className="hidden sm:inline">Drag to pan · Scroll to zoom</span>
-          <span className="sm:hidden">Drag · Use zoom controls</span>
-        </div>
+        {detail === "admin" ? (
+          <>
+            <div className="absolute left-3 top-3 flex items-center gap-2 rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
+              <Move className="h-4 w-4 text-base-content/60" />
+              <span>Drag to pan · Scroll to zoom</span>
+            </div>
+            <div className="pointer-events-none absolute left-3 top-14 rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-[11px] shadow-sm backdrop-blur">
+              <div className="mb-1 font-bold text-base-content/70">Rack velocity zones</div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <VelocityKey code="F" label="Fast · near door" color="#059669" />
+                <VelocityKey code="M" label="Medium" color="#d97706" />
+                <VelocityKey code="S" label="Slow · deep" color="#4f46e5" />
+              </div>
+            </div>
+          </>
+        ) : currentStop ? (
+          <div className="pointer-events-none absolute left-3 top-3 max-w-[calc(100%-5rem)] rounded-xl border border-primary/30 bg-base-100/95 px-3 py-2 shadow-md backdrop-blur">
+            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary">
+              Next stop · {currentStop.sequence} of {primaryRoute?.stops.length || 1}
+            </div>
+            <div className="mt-0.5 font-mono text-base font-black text-base-content">
+              {currentStop.locationCode}
+            </div>
+            <div className="text-[11px] text-base-content/60">Follow the dark dashed line</div>
+          </div>
+        ) : null}
 
         {!hasRoute ? (
           <div className="pointer-events-none absolute inset-x-3 bottom-3 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-base-300 bg-base-100/95 p-3 shadow-lg backdrop-blur">
@@ -613,13 +783,13 @@ export function LiveWarehouseRouteMap({
             </div>
           </div>
         ) : (
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
+          <div className="pointer-events-none absolute bottom-3 left-3 max-w-[calc(100%-5rem)] rounded-lg border border-base-300 bg-base-100/95 px-3 py-2 text-xs shadow-sm backdrop-blur">
             <div className="flex items-center gap-2">
-              <span className="h-1 w-7 rounded-full bg-primary" />
-              <span className="font-semibold">Reserved route</span>
-              <span className="text-base-content/50">•</span>
-              <span className="h-3 w-3 rounded-sm border border-slate-500 bg-blue-100" />
-              <span className="font-semibold">Rack bay</span>
+              <span className="w-8 border-t-[3px] border-dashed border-primary" />
+              <span className="font-semibold">Go now</span>
+              <span className="text-base-content/40">·</span>
+              <span className="w-7 border-t-2 border-dotted border-slate-500 opacity-60" />
+              <span className="font-semibold">Later</span>
             </div>
           </div>
         )}
@@ -630,7 +800,7 @@ export function LiveWarehouseRouteMap({
         >
           <button
             type="button"
-            className="btn btn-sm join-item bg-base-100"
+            className="btn btn-square min-h-11 min-w-11 join-item bg-base-100"
             onClick={() => zoomAt(0.8)}
             aria-label="Zoom in"
             title="Zoom in"
@@ -639,7 +809,7 @@ export function LiveWarehouseRouteMap({
           </button>
           <button
             type="button"
-            className="btn btn-sm join-item bg-base-100"
+            className="btn btn-square min-h-11 min-w-11 join-item bg-base-100"
             onClick={() => zoomAt(1.25)}
             aria-label="Zoom out"
             title="Zoom out"
@@ -648,7 +818,7 @@ export function LiveWarehouseRouteMap({
           </button>
           <button
             type="button"
-            className="btn btn-sm join-item bg-base-100"
+            className="btn btn-square min-h-11 min-w-11 join-item bg-base-100"
             onClick={hasRoute ? focusRoute : focusWarehouse}
             aria-label={hasRoute ? "Focus active route" : "Fit warehouse"}
             title={hasRoute ? "Focus active route" : "Fit warehouse"}
@@ -661,22 +831,202 @@ export function LiveWarehouseRouteMap({
           </button>
         </div>
 
-        <MiniMap
-          warehouseBounds={warehouseBounds}
-          view={view}
-          graph={graph}
-          routes={routes}
-          onReset={focusWarehouse}
-        />
+        {detail === "admin" ? (
+          <MiniMap
+            warehouseBounds={warehouseBounds}
+            view={view}
+            graph={graph}
+            routes={visibleRoutes}
+            onReset={focusWarehouse}
+          />
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-base-300 bg-base-100 px-4 py-2 text-[11px] text-base-content/55">
         <span>
-          Showing {showRackLabels ? "rack-level detail" : "operational overview"}
+          {detail === "worker"
+            ? "Receiving side ↑ · same warehouse orientation as admin"
+            : `Showing ${showRackLabels ? "rack-level detail" : "operational overview"}`}
         </span>
-        <span>Keyboard: + / − to zoom · 0 to reset</span>
+        <span className="hidden sm:inline">Keyboard: + / − to zoom · 0 to reset</span>
       </div>
     </section>
+  );
+}
+
+interface OperationalCallout {
+  node: RoutingGraphNode;
+  label: string;
+  labelX: number;
+  labelY: number;
+  labelWidth: number;
+  labelHeight: number;
+  anchorX: number;
+  anchorY: number;
+}
+
+function buildOperationalCallouts(
+  nodes: RoutingGraphNode[],
+  view: ViewBounds,
+  viewport: ViewportSize
+): OperationalCallout[] {
+  const widthPx = Math.max(viewport.width, 1);
+  const heightPx = Math.max(viewport.height, 1);
+  const unitX = view.width / widthPx;
+  const unitY = view.height / heightPx;
+  const placed: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+  return [...nodes]
+    .sort((a, b) => a.y - b.y || a.x - b.x || a.label.localeCompare(b.label))
+    .map((node) => {
+      const label = operationalNodeLabel(node);
+      const pointX = ((node.x - view.minX) / view.width) * widthPx;
+      const pointY = ((node.y - view.minY) / view.height) * heightPx;
+      const labelWidthPx = Math.max(82, Math.min(210, label.length * 7.2 + 18));
+      const labelHeightPx = 22;
+      let labelX = pointX + 20;
+      if (labelX + labelWidthPx > widthPx - 12) {
+        labelX = pointX - labelWidthPx - 20;
+      }
+      labelX = Math.max(12, Math.min(labelX, widthPx - labelWidthPx - 12));
+      let labelY = Math.max(12, pointY - labelHeightPx / 2);
+
+      for (let attempts = 0; attempts < nodes.length * 2; attempts += 1) {
+        const collision = placed.find(
+          (other) =>
+            labelX < other.x + other.width + 6 &&
+            labelX + labelWidthPx + 6 > other.x &&
+            labelY < other.y + other.height + 5 &&
+            labelY + labelHeightPx + 5 > other.y
+        );
+        if (!collision) break;
+        labelY = collision.y + collision.height + 5;
+      }
+      labelY = Math.min(labelY, heightPx - labelHeightPx - 12);
+      placed.push({ x: labelX, y: labelY, width: labelWidthPx, height: labelHeightPx });
+
+      const labelIsRight = labelX >= pointX;
+      const anchorPxX = labelIsRight ? labelX : labelX + labelWidthPx;
+      const anchorPxY = labelY + labelHeightPx / 2;
+      return {
+        node,
+        label,
+        labelX: view.minX + labelX * unitX,
+        labelY: view.minY + labelY * unitY,
+        labelWidth: labelWidthPx * unitX,
+        labelHeight: labelHeightPx * unitY,
+        anchorX: view.minX + anchorPxX * unitX,
+        anchorY: view.minY + anchorPxY * unitY,
+      };
+    });
+}
+
+function operationalNodeLabel(node: RoutingGraphNode) {
+  const labels: Record<string, string> = {
+    "DOOR-01": "Receiving Door",
+    "QTN-01": "Quarantine",
+    "RCV-01": "Receiving",
+    "STG-01": "Inbound Staging",
+    "PACK-01": "Packing",
+    "DSP-01": "Dispatch",
+  };
+  return labels[node.label.toUpperCase()] || node.label;
+}
+
+function operationalNodeColor(_node: RoutingGraphNode) {
+  // A single operational blue separates facilities from the F/M/S rack
+  // palette and avoids asking operators to learn another color taxonomy.
+  return "#0369a1";
+}
+
+function operationalNodeRadius(node: RoutingGraphNode, screenUnit: number) {
+  const physicalRadius = node.type === "PARKING" ? 1.1 : node.type === "DOOR" ? 1 : 0.9;
+  return Math.max(7 * screenUnit, physicalRadius);
+}
+
+function splitRouteLegs(route: WorkerRouteSession) {
+  const releasedLegs = route.route.filter((leg) => leg.status === "RELEASED");
+  const remainingLegs = route.route.filter((leg) => leg.status !== "RELEASED");
+  const currentStop = route.stops.find((stop) => stop.status === "CURRENT");
+
+  if (remainingLegs.length === 0) {
+    return { activeLegs: [], futureLegs: [], releasedLegs };
+  }
+
+  if (!currentStop) {
+    return { activeLegs: remainingLegs, futureLegs: [], releasedLegs };
+  }
+
+  const currentStopLegIndex = remainingLegs.findIndex(
+    (leg) => leg.toNodeId === currentStop.accessNodeId
+  );
+  const activeEnd = currentStopLegIndex >= 0 ? currentStopLegIndex + 1 : 1;
+  return {
+    activeLegs: remainingLegs.slice(0, activeEnd),
+    futureLegs: remainingLegs.slice(activeEnd),
+    releasedLegs,
+  };
+}
+
+function pathFromLegs(legs: WorkerRouteSession["route"]): string {
+  if (legs.length === 0) return "";
+  let path = "";
+  legs.forEach((leg, index) => {
+    const previous = index > 0 ? legs[index - 1] : null;
+    if (!previous || previous.toNodeId !== leg.fromNodeId) {
+      path += `M ${leg.from.x} ${leg.from.y} `;
+    }
+    path += `L ${leg.to.x} ${leg.to.y} `;
+  });
+  return path.trim();
+}
+
+function rackVelocity(rack: RoutingRack): "F" | "M" | "S" | "" {
+  if (rack.velocityClass === "F" || rack.velocityClass === "M" || rack.velocityClass === "S") {
+    return rack.velocityClass;
+  }
+  const suffix = rack.amalgamatedClass?.slice(-1).toUpperCase();
+  return suffix === "F" || suffix === "M" || suffix === "S" ? suffix : "";
+}
+
+function rackPalette(rack: RoutingRack) {
+  switch (rackVelocity(rack)) {
+    case "F":
+      return { code: "F", fill: "#d1fae5", stroke: "#059669", text: "#065f46" };
+    case "M":
+      return { code: "M", fill: "#fef3c7", stroke: "#d97706", text: "#92400e" };
+    case "S":
+      return { code: "S", fill: "#e0e7ff", stroke: "#4f46e5", text: "#3730a3" };
+    default:
+      return { code: "", fill: "#e2e8f0", stroke: "#64748b", text: "#334155" };
+  }
+}
+
+function workerRackPalette(isPlanned: boolean) {
+  return isPlanned
+    ? { code: "", fill: "#e0f2fe", stroke: "#0284c7", text: "#075985" }
+    : { code: "", fill: "#f8fafc", stroke: "#cbd5e1", text: "#475569" };
+}
+
+function VelocityKey({
+  code,
+  label,
+  color,
+}: {
+  code: string;
+  label: string;
+  color: string;
+}) {
+  return (
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <span
+        className="grid h-4 w-4 place-items-center rounded-sm text-[9px] font-black text-white"
+        style={{ backgroundColor: color }}
+      >
+        {code}
+      </span>
+      <span>{label}</span>
+    </span>
   );
 }
 
@@ -715,7 +1065,7 @@ function MiniMap({
             y={rack.centerY - rack.depthM / 2}
             width={rack.widthM}
             height={rack.depthM}
-            fill="#bfdbfe"
+            fill={rackPalette(rack).fill}
           />
         ))}
         {routes.flatMap((route, routeIndex) =>

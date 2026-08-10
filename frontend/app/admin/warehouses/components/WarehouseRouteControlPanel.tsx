@@ -28,8 +28,11 @@ export function WarehouseRouteControlPanel({
 
   const refresh = useCallback(async () => {
     try {
-      const [nextGraph, nextRoutes, nextStats] = await Promise.all([
-        routingApi.getGraph(warehouseId, true),
+      // Graph creation is authoritative and may happen on the first request
+      // after a layout migration. Load it before dependent graph statistics so
+      // the UI never reports a false failure while generation is in flight.
+      const nextGraph = await routingApi.getGraph(warehouseId, true);
+      const [nextRoutes, nextStats] = await Promise.all([
         routingApi.getActive(warehouseId),
         routingApi.getStats(warehouseId),
       ]);

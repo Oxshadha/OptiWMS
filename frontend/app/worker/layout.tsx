@@ -565,17 +565,25 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
       <header className="bg-base-100 text-base-content border-b border-base-300 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
-          <div className="flex items-center gap-3">
-            <Image
-              src="/assets/logos/OptiWMS Logo.png?v=5"
-              alt="OptiWMS Logo"
-              width={140}
-              height={48}
-              className="object-contain h-10 w-auto"
-              priority
-            />
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 shadow-sm ring-1 ring-slate-800">
+              <Image
+                src="/assets/logos/OptiWMS Logo.png?v=6"
+                alt="OptiWMS"
+                width={44}
+                height={44}
+                className="h-11 w-11 scale-[1.7] object-contain"
+                priority
+              />
+            </div>
             <div>
-              <p className="text-xs font-bold text-base-content/70">Worker App</p>
+              <div className="text-sm font-black leading-none tracking-tight">
+                <span className="text-slate-900">Opti</span>
+                <span className="text-primary">WMS</span>
+              </div>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/55">
+                Worker app
+              </p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div
                   className={`w-2 h-2 rounded-full ${
@@ -603,7 +611,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               }}
               className="flex items-center gap-3 px-2 py-1 rounded-lg hover:bg-base-200 transition-colors"
             >
-              <div className="text-right">
+              <div className="hidden text-right sm:block">
                 <h2 className="text-sm font-semibold text-base-content">
                   {displayWorker.name}
                 </h2>

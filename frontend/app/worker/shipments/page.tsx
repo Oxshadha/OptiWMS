@@ -58,13 +58,19 @@ export default function ShipmentsPage() {
 
     try {
       setLoading(true);
-      // Fetch orders that are ready_to_ship for worker's warehouse
-      const readyToShipOrders = await ordersApi.getAll("outbound", "ready_to_ship");
-      
-      // Filter by worker's warehouse when available; otherwise allow list so work can proceed.
-      const warehouseOrders = effectiveWarehouseId
-        ? readyToShipOrders.filter((order) => order.warehouseId === effectiveWarehouseId)
-        : readyToShipOrders;
+      // Keep the mobile queue bounded. The legacy unpaged endpoint can contain tens
+      // of thousands of historical outbound orders and must not fan out one shipment
+      // request per order on a worker device.
+      const readyToShipPage = await ordersApi.getPaged({
+        page: 0,
+        size: 50,
+        orderType: "outbound",
+        status: "ready_to_ship",
+        warehouseId: effectiveWarehouseId || undefined,
+        sortBy: "createdAt",
+        sortDir: "desc",
+      });
+      const warehouseOrders = readyToShipPage.data;
 
       // Fetch shipments for these orders
       const shipmentsData = await Promise.all(

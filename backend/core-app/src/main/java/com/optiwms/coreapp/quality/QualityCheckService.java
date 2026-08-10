@@ -1,6 +1,6 @@
 package com.optiwms.coreapp.quality;
 
-import com.optiwms.coreapp.operations.PutawayTaskService;
+import com.optiwms.coreapp.operations.PutawayPlanningJobQueue;
 import com.optiwms.coreapp.operations.ReturnService;
 import com.optiwms.coreapp.operations.GrnService;
 import com.optiwms.coreapp.operations.OperationEventService;
@@ -24,7 +24,7 @@ public class QualityCheckService {
 
     private final QualityCheckRepository repository;
     private final OrderService orderService;
-    private final PutawayTaskService putawayTaskService;
+    private final PutawayPlanningJobQueue putawayPlanningJobQueue;
     private final ReturnService returnService;
     private final GrnService grnService;
     private final OperationEventService operationEventService;
@@ -32,13 +32,13 @@ public class QualityCheckService {
     public QualityCheckService(
             QualityCheckRepository repository,
             OrderService orderService,
-            PutawayTaskService putawayTaskService,
+            PutawayPlanningJobQueue putawayPlanningJobQueue,
             ReturnService returnService,
             GrnService grnService,
             OperationEventService operationEventService) {
         this.repository = repository;
         this.orderService = orderService;
-        this.putawayTaskService = putawayTaskService;
+        this.putawayPlanningJobQueue = putawayPlanningJobQueue;
         this.returnService = returnService;
         this.grnService = grnService;
         this.operationEventService = operationEventService;
@@ -126,8 +126,10 @@ public class QualityCheckService {
                 }
                 var order = orderService.findById(orderId);
                 orderService.updateStatus(orderId, "quality_approved");
-                putawayTaskService.createPutawayTasksForReceivedOrder(orderId, order.getWarehouseId());
                 grnService.updateStatus(grnId, "COMPLETED");
+                // Durable hand-off in this transaction. The scheduler cannot see
+                // the row until approval commits and performs planning afterwards.
+                putawayPlanningJobQueue.enqueue(orderId, order.getWarehouseId());
             }
         }
 

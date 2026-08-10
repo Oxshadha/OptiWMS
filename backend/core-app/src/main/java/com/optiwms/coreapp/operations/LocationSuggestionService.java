@@ -137,88 +137,24 @@ public class LocationSuggestionService {
             UUID materialId,
             Integer quantity,
             String materialType) {
-        
-        // Rule 1: Check if material already exists - consolidate if possible
-        List<InventoryItem> existingInventory = inventoryService.findByWarehouse(warehouseId)
-            .stream()
-            .filter(item -> item.getMaterialId().equals(materialId))
-            .filter(item -> item.getLocationCode() != null && !item.getLocationCode().isEmpty())
-            .collect(Collectors.toList());
-        
-        if (!existingInventory.isEmpty()) {
-            // Find location with same material that has capacity
-            for (InventoryItem item : existingInventory) {
-                try {
-                    Location location = locationService.findByLocationCode(item.getLocationCode());
-                    if (location != null
-                        && warehouseId.equals(location.getWarehouseId())
-                        && Boolean.TRUE.equals(location.getIsActive())
-                        && isRackStatusPutawayAllowed(location.getRackStatus())
-                        && hasCapacity(location, quantity, materialId)) {
-                        return new LocationSuggestion(
-                            location.getLocationCode(),
-                            "Same material consolidation - existing location",
-                            false
-                        );
-                    }
-                } catch (Exception e) {
-                    logger.warn("Error finding location {}: {}", item.getLocationCode(), e.getMessage());
-                }
-            }
+        // One capacity-planning pass loads warehouse inventory, material data and
+        // eligible bins in batches. The old fallback called validation once per
+        // rack, repeatedly reloading the whole warehouse and exhausting the pool.
+        PutawayCapacityPlanningService.SplitPlanResult plan =
+                putawayCapacityPlanningService.suggestSplitPlan(
+                        warehouseId,
+                        materialId,
+                        quantity != null ? quantity : 1,
+                        null);
+        if (plan.allocations().isEmpty()) {
+            throw new RuntimeException("No capacity-valid location found for putaway");
         }
-        
-        // Rule 2: Zone-based assignment (fast-moving items near entrance)
-        Material material = materialService.findById(materialId);
-        boolean isFastMoving = isFastMovingMaterial(material);
-        
-        // Only show storage locations (exclude staging, receiving, shipment, packing areas)
-        List<Location> availableLocations = locationService.findByWarehouse(warehouseId)
-            .stream()
-            .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
-            .filter(loc -> {
-                // Only storage locations - exclude staging, receiving, shipment, packing
-                String locType = loc.getLocationType();
-                String zoneType = loc.getZoneType();
-                return "storage".equals(locType) || "STORAGE".equals(zoneType);
-            })
-            .filter(loc -> isLocationAvailable(loc))
-            .filter(loc -> hasCapacity(loc, quantity, materialId))
-            .sorted(Comparator
-                .comparing((Location loc) -> isFastMoving ? getAccessibilityScore(loc) : 0)
-                .reversed()
-                .thenComparing((Location loc) -> isFastMoving
-                        ? (loc.getLevelNumber() != null ? loc.getLevelNumber() : Integer.MAX_VALUE)
-                        : -(loc.getLevelNumber() != null ? loc.getLevelNumber() : 0))
-                .thenComparing(Location::getLocationCode))
-            .collect(Collectors.toList());
-        
-        if (!availableLocations.isEmpty()) {
-            Location selected = availableLocations.get(0);
-            String reason = isFastMoving 
-                ? "Fast-moving item - assigned to high-accessibility location"
-                : "First available location based on capacity";
-            
-            return new LocationSuggestion(selected.getLocationCode(), reason, false);
-        }
-        
-        // Rule 3: If no perfect match, find any available location
-        List<Location> allLocations = locationService.findByWarehouse(warehouseId)
-            .stream()
-            .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
-            .filter(loc -> isLocationAvailable(loc))
-            .sorted(Comparator.comparing(Location::getLocationCode))
-            .collect(Collectors.toList());
-        
-        if (!allLocations.isEmpty()) {
-            return new LocationSuggestion(
-                allLocations.get(0).getLocationCode(),
-                "First available location (fallback)",
-                false
-            );
-        }
-        
-        // No location found
-        throw new RuntimeException("No available location found for putaway");
+
+        PutawayCapacityPlanningService.SplitPlanLine first = plan.allocations().get(0);
+        return new LocationSuggestion(
+                first.locationCode(),
+                first.reason(),
+                false);
     }
 
     /**

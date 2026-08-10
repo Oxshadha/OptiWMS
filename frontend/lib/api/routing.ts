@@ -26,6 +26,8 @@ export interface RoutingRack {
   area: string;
   row: string;
   bay: string;
+  amalgamatedClass?: string;
+  velocityClass?: "F" | "M" | "S" | "";
   centerX: number;
   centerY: number;
   widthM: number;
@@ -225,4 +227,3 @@ export function subscribeRoutingEvents(
   void start();
   return () => controller.abort();
 }
-

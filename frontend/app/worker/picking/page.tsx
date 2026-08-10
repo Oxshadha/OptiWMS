@@ -736,19 +736,6 @@ export default function PickingPage() {
             <div className="text-xs text-info">Task has no fixed location. Confirm actual bin before picking.</div>
           )}
 
-          <WorkerRouteGuide
-            warehouseId={effectiveWarehouseId || undefined}
-            orderId={selectedOrder?.id}
-            targetLocationCode={currentPick.location}
-            targetLocationCodes={picks
-              .filter((pick) => pick.status !== "completed" && !pick.skipReason)
-              .map((pick) => pick.location)}
-            completedLocationCodes={picks
-              .filter((pick) => pick.status === "completed")
-              .map((pick) => pick.location)}
-            operationType="picking"
-          />
-
           <div>
             <label className="label">
               <span className="label-text">Picked Quantity</span>
@@ -820,6 +807,21 @@ export default function PickingPage() {
       ) : (
         <div className="alert alert-success">All pick tasks for this order are done.</div>
       )}
+
+      {!isLoadingPicks && picks.length > 0 ? (
+        <WorkerRouteGuide
+          warehouseId={effectiveWarehouseId || undefined}
+          orderId={selectedOrder?.id}
+          targetLocationCode={currentPick?.location}
+          targetLocationCodes={picks
+            .filter((pick) => pick.status !== "completed" && !pick.skipReason)
+            .map((pick) => pick.location)}
+          completedLocationCodes={picks
+            .filter((pick) => pick.status === "completed")
+            .map((pick) => pick.location)}
+          operationType="picking"
+        />
+      ) : null}
 
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
         <div className="font-semibold mb-3">Pick Task List</div>

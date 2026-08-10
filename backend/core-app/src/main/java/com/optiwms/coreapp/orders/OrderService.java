@@ -97,6 +97,12 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    public List<Order> findByTypeAndStatus(String orderType, String status) {
+        return repository.findByOrderTypeAndStatus(orderType, status).stream()
+                .map(this::toDomain)
+                .collect(Collectors.toList());
+    }
+
     public Order findById(java.util.UUID id) {
         return repository.findById(id)
                 .map(this::toDomain)

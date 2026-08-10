@@ -156,10 +156,7 @@ public class PackingService {
 
         PackingRecordEntity saved = repository.save(entity);
         if (saved.getOrderId() != null && ("in_progress".equals(saved.getStatus()) || "pending".equals(saved.getStatus()))) {
-            try {
-                orderService.updateStatus(saved.getOrderId(), "packing");
-            } catch (RuntimeException ignored) {
-            }
+            advanceOrderToPackingIfNeeded(saved.getOrderId());
         }
         return toDomain(saved);
     }
@@ -183,18 +180,7 @@ public class PackingService {
                 .orElseThrow(() -> new RuntimeException("Packing record not found: " + id));
         String normalizedStatus = normalizePackingStatus(status);
         entity.setStatus(normalizedStatus);
-        if ("packed".equals(normalizedStatus) && entity.getCompletedAt() == null) {
-            entity.setCompletedAt(LocalDateTime.now());
-            
-            // Update order status to "ready_to_ship" when packing is completed
-            if (entity.getOrderId() != null) {
-                try {
-                    orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
-                } catch (RuntimeException e) {
-                    // Log but don't fail packing update
-                }
-            }
-        }
+        handlePackedSideEffects(entity);
         PackingRecordEntity saved = repository.save(entity);
         return toDomain(saved);
     }
@@ -333,16 +319,10 @@ public class PackingService {
         }
 
         if (entity.getOrderId() != null) {
-            try {
-                orderService.updateStatus(entity.getOrderId(), "ready_to_ship");
-            } catch (RuntimeException ignored) {
-            }
+            advanceOrderToReadyToShipIfNeeded(entity.getOrderId());
 
             if (entity.getPackerId() != null) {
-                try {
-                    orderService.updateWorkerRecord(entity.getOrderId(), entity.getPackerId(), "packed");
-                } catch (RuntimeException ignored) {
-                }
+                orderService.updateWorkerRecord(entity.getOrderId(), entity.getPackerId(), "packed");
             }
 
             completePackingTasks(entity.getOrderId(), entity.getPackerId(), entity.getCompletedAt());
@@ -363,6 +343,29 @@ public class PackingService {
                     null
             ));
         }
+    }
+
+    private void advanceOrderToPackingIfNeeded(UUID orderId) {
+        Order order = orderService.findById(orderId);
+        String status = normalizeOrderStatus(order.getStatus());
+        if ("picked".equals(status)) {
+            orderService.updateStatus(orderId, "packing");
+        }
+    }
+
+    private void advanceOrderToReadyToShipIfNeeded(UUID orderId) {
+        Order order = orderService.findById(orderId);
+        String status = normalizeOrderStatus(order.getStatus());
+        if ("picked".equals(status)) {
+            orderService.updateStatus(orderId, "packing");
+            orderService.updateStatus(orderId, "ready_to_ship");
+        } else if ("packing".equals(status)) {
+            orderService.updateStatus(orderId, "ready_to_ship");
+        }
+    }
+
+    private String normalizeOrderStatus(String status) {
+        return status == null ? "" : status.trim().toLowerCase();
     }
 
     private void completePackingTasks(UUID orderId, UUID workerId, LocalDateTime completedAt) {

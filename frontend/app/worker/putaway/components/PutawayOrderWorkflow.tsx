@@ -199,16 +199,20 @@ export function PutawayOrderWorkflow({
                 Use Suggested: {currentItem.suggestedLocation}
               </button>
             )}
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-slate-700">
+              <div className="font-bold text-slate-900">Current handling unit only</div>
+              <div className="mt-0.5">
+                Later order items stay queued. Their route activates after this load is confirmed or a shared handling-unit scan authorizes grouping.
+              </div>
+            </div>
             <WorkerRouteGuide
               warehouseId={warehouseId}
               orderId={selectedOrder.id}
               targetLocationCode={scannedLocation || currentItem.suggestedLocation}
-              targetLocationCodes={putawayItems
-                .filter((item) => !putawayProgress.get(item.itemId))
-                .map((item) => item.itemId === currentItem.itemId ? scannedLocation || item.suggestedLocation : item.suggestedLocation)}
-              completedLocationCodes={putawayItems
-                .filter((item) => putawayProgress.get(item.itemId))
-                .map((item) => item.suggestedLocation)}
+              targetLocationCodes={[
+                scannedLocation || currentItem.suggestedLocation,
+              ]}
+              completedLocationCodes={[]}
               operationType="putaway"
             />
           </div>

@@ -953,7 +953,14 @@ export function CreateOutboundOrderModal({
               type="date"
               className="input input-bordered w-full"
               value={formData.requiredDeliveryDate}
-              onChange={(e) => setFormData({ ...formData, requiredDeliveryDate: e.target.value })}
+              onInput={(e) => {
+                const value = (e.currentTarget as HTMLInputElement).value;
+                setFormData((current) => ({ ...current, requiredDeliveryDate: value }));
+              }}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData((current) => ({ ...current, requiredDeliveryDate: value }));
+              }}
               required
             />
           </div>

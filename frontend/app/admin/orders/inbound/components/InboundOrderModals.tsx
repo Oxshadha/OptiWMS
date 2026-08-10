@@ -233,6 +233,16 @@ export function CreateInboundOrderModal({
   const [materialSearch, setMaterialSearch] = useState("");
 
   const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
+  const availableWarehouseLocations = useMemo(
+    () => warehouseLocations.filter((location) => {
+      if (!location.isActive) return false;
+      if (["reserved", "maintenance", "out_of_service"].includes((location.rackStatus || "").toLowerCase())) return false;
+      const maximum = location.maxPalletCapacity;
+      const current = location.currentPalletCount || 0;
+      return maximum == null || maximum <= 0 || current < maximum;
+    }),
+    [warehouseLocations]
+  );
   const materialProfileKey = useMemo(
     () => Array.from(new Set(formData.items.map((item) => item.productId).filter(Boolean))).sort().join("|"),
     [formData.items]
@@ -415,21 +425,23 @@ export function CreateInboundOrderModal({
   }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements, materialById]);
 
   function updateItem(index: number, patch: Partial<InboundItemForm>) {
-    const next = [...formData.items];
-    const merged = { ...next[index], ...patch };
-    const profile = profilesByMaterialId.get(merged.productId);
-    if (patch.productId) {
-      const material = materialById.get(patch.productId);
-      merged.weightKg = material?.weightKg || 0;
-      merged.lengthCm = material?.lengthCm || 0;
-      merged.widthCm = material?.widthCm || 0;
-      merged.heightCm = material?.heightCm || 0;
-    }
-    if (patch.requestedQuantity !== undefined || patch.handlingUnitCount !== undefined || patch.quantityMode !== undefined || patch.productId) {
-      merged.quantityOrdered = roundInboundQuantity(merged, profile);
-    }
-    next[index] = merged;
-    setFormData({ ...formData, items: next });
+    setFormData((current) => {
+      const next = [...current.items];
+      const merged = { ...next[index], ...patch };
+      const profile = profilesByMaterialId.get(merged.productId);
+      if (patch.productId) {
+        const material = materialById.get(patch.productId);
+        merged.weightKg = material?.weightKg || 0;
+        merged.lengthCm = material?.lengthCm || 0;
+        merged.widthCm = material?.widthCm || 0;
+        merged.heightCm = material?.heightCm || 0;
+      }
+      if (patch.requestedQuantity !== undefined || patch.handlingUnitCount !== undefined || patch.quantityMode !== undefined || patch.productId) {
+        merged.quantityOrdered = roundInboundQuantity(merged, profile);
+      }
+      next[index] = merged;
+      return { ...current, items: next };
+    });
   }
 
   async function runCapacityCheck() {
@@ -510,6 +522,19 @@ export function CreateInboundOrderModal({
     return null;
   }
 
+  function advanceFromOrderDetails() {
+    if (!formData.supplierId || !formData.warehouseId || !formData.expectedDeliveryDate) {
+      setError("Select a supplier, warehouse, and expected delivery date before continuing.");
+      return;
+    }
+    if (new Date(formData.expectedDeliveryDate) < new Date(formData.orderDate)) {
+      setError("Expected delivery date cannot be before order date.");
+      return;
+    }
+    setError(null);
+    setStep(2);
+  }
+
   async function submitInboundOrder(itemsOverride: InboundItemForm[] = formData.items) {
     const validationError = validateBeforeSubmit(itemsOverride);
     if (validationError) {
@@ -583,21 +608,22 @@ export function CreateInboundOrderModal({
         {step === 1 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content">Order Details</h3>
-            <SelectControl label="Supplier *" value={formData.supplierId} onChange={(value) => setFormData({ ...formData, supplierId: value, items: [] })}>
+            <SelectControl label="Supplier *" value={formData.supplierId} onChange={(value) => setFormData((current) => ({ ...current, supplierId: value, items: [] }))}>
               <option value="">Select supplier</option>
               {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
             </SelectControl>
-            <SelectControl label="Warehouse *" value={formData.warehouseId} onChange={(value) => setFormData({ ...formData, warehouseId: value, items: formData.items.map((item) => ({ ...item, locationCode: "" })) })}>
+            <SelectControl label="Warehouse *" value={formData.warehouseId} onChange={(value) => setFormData((current) => ({ ...current, warehouseId: value, items: current.items.map((item) => ({ ...item, locationCode: "" })) }))}>
               <option value="">Select warehouse</option>
               {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
             </SelectControl>
-            <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData({ ...formData, orderDate: value })} />
-            <DateControl label="Expected Delivery Date *" value={formData.expectedDeliveryDate} min={formData.orderDate || undefined} onChange={(value) => setFormData({ ...formData, expectedDeliveryDate: value })} />
+            <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData((current) => ({ ...current, orderDate: value }))} />
+            <DateControl label="Expected Delivery Date *" value={formData.expectedDeliveryDate} min={formData.orderDate || undefined} onChange={(value) => setFormData((current) => ({ ...current, expectedDeliveryDate: value }))} />
             <label className="form-control">
               <span className="label-text font-medium mb-1">Notes</span>
-              <textarea className="textarea textarea-bordered w-full" rows={3} value={formData.notes} onChange={(e) => setFormData({ ...formData, notes: e.target.value })} />
+              <textarea className="textarea textarea-bordered w-full" rows={3} value={formData.notes} onChange={(e) => setFormData((current) => ({ ...current, notes: e.target.value }))} />
             </label>
-            <ModalActions onBack={onClose} backLabel="Cancel" onNext={() => setStep(2)} />
+            {error && <div className="alert alert-error"><span>{error}</span></div>}
+            <ModalActions onBack={onClose} backLabel="Cancel" onNext={advanceFromOrderDetails} />
           </div>
         )}
 
@@ -619,7 +645,7 @@ export function CreateInboundOrderModal({
                   <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg">
                     <div className="flex justify-between items-start mb-3">
                       <span className="font-semibold">Item {idx + 1}</span>
-                      <button className="btn btn-ghost btn-xs" onClick={() => setFormData({ ...formData, items: formData.items.filter((_, i) => i !== idx) })}>
+                      <button className="btn btn-ghost btn-xs" onClick={() => setFormData((current) => ({ ...current, items: current.items.filter((_, i) => i !== idx) }))}>
                         <span className="material-symbols-outlined text-sm">close</span>
                       </button>
                     </div>
@@ -658,7 +684,7 @@ export function CreateInboundOrderModal({
                   </div>
                 );
               })}
-              <button className="btn btn-outline btn-sm w-full" disabled={!formData.supplierId || materials.length === 0} onClick={() => setFormData({ ...formData, items: [...formData.items, emptyInboundItem()] })}>
+              <button className="btn btn-outline btn-sm w-full" disabled={!formData.supplierId || materials.length === 0} onClick={() => setFormData((current) => ({ ...current, items: [...current.items, emptyInboundItem()] }))}>
                 <span className="material-symbols-outlined">add</span>
                 Add Item
               </button>
@@ -750,7 +776,7 @@ export function CreateInboundOrderModal({
                     <SelectControl label="Final Location" value={selectedCode} onChange={(value) => updateItem(idx, { locationCode: value })}>
                       <option value="">Use recommendation / assign during putaway</option>
                       {recommendation && <option value={recommendation.recommended_location_code}>{recommendation.recommended_location_code} - recommended</option>}
-                      {warehouseLocations.map((location) => <option key={location.id} value={location.locationCode}>{location.locationCode}</option>)}
+                      {availableWarehouseLocations.map((location) => <option key={location.id} value={location.locationCode}>{location.locationCode}</option>)}
                     </SelectControl>
                   </div>
                 );
@@ -836,7 +862,15 @@ function DateControl({ label, value, onChange, min, max }: { label: string; valu
   return (
     <label className="form-control">
       <span className="label-text font-medium mb-1">{label}</span>
-      <input type="date" className="input input-bordered w-full" value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} />
+      <input
+        type="date"
+        className="input input-bordered w-full"
+        value={value}
+        min={min}
+        max={max}
+        onInput={(e) => onChange(e.currentTarget.value)}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </label>
   );
 }
