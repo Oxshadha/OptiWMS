@@ -6,6 +6,7 @@ export interface ForecastPoint {
   model: string;
   warehouse_id?: string | null;
   sku: string;
+  description?: string | null;
   category?: string | null;
   month: string;
   horizon: number;
@@ -45,6 +46,7 @@ export interface InventoryRecommendation {
   model: string;
   warehouse_id?: string | null;
   sku: string;
+  description?: string | null;
   category?: string | null;
   abc_class?: string | null;
   fms_class?: string | null;
@@ -54,6 +56,14 @@ export interface InventoryRecommendation {
   target_max: number;
   on_hand_inventory?: number | null;
   suggested_order_qty: number;
+  average_monthly_demand?: number | null;
+  sku_wape?: number | null;
+  moq?: number | null;
+  order_multiple?: number | null;
+  lead_time_days?: number | null;
+  unit_cost?: number | null;
+  stock_source?: string | null;
+  demand_source?: string | null;
 }
 
 export interface RawMaterialRequirement {
@@ -457,8 +467,8 @@ export const aiForecastApi = {
     criticalOverride?: boolean;
   } = {}) {
     const query = buildQuery({
-      dataset: params.dataset ?? 'PROJECT_OPERATIONAL_BASELINE_RM_PM',
-      modelName: params.modelName ?? 'EXTRA_TREES_RESPONSIVE',
+      dataset: params.dataset ?? 'PROJECT_OPS_RM_PM',
+      modelName: params.modelName ?? 'PROJECT_OPS_EXTRA_TREES_CAUSAL',
       mode: params.mode ?? 'snapshot',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
