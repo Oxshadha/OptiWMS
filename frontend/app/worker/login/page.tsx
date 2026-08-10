@@ -134,6 +134,7 @@ export default function WorkerLoginPage() {
         workerId: employeeId,
         name: loginResponse.name || userInfo.name || "Worker",
         warehouse: warehouseName,
+        warehouseId: loginResponse.warehouseId || userInfo.warehouseId,
         role: normalizedRole,
         avatar: "/assets/avatars/Jhon Doe.jpg",
         email: loginResponse.email || userInfo.email || "",

@@ -295,8 +295,16 @@ public class OutboundOrderWorkflowService {
         
         // Check if all items are picked
         if (areAllOrderItemsPicked(orderId) && areAllPickingTasksCompleted(orderId)) {
-            if (!"picked".equals(currentStatus) && !"packing".equals(currentStatus) && 
-                !"ready_to_ship".equals(currentStatus) && !"shipped".equals(currentStatus)) {
+            if ("pending".equals(currentStatus)
+                    || "allocated".equals(currentStatus)
+                    || "partially_allocated".equals(currentStatus)) {
+                // A picker may start a task through the mobile task endpoint, which assigns
+                // the task without advancing the order. Preserve the canonical outbound
+                // state machine instead of attempting the invalid allocated -> picked jump.
+                orderService.updateStatus(orderId, "picking");
+                currentStatus = "picking";
+            }
+            if ("picking".equals(currentStatus)) {
                 orderService.updateStatus(orderId, "picked");
             }
         } else if ("pending".equals(currentStatus)

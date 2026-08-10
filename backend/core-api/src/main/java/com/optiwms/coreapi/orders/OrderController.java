@@ -50,7 +50,9 @@ public class OrderController {
             @RequestParam(required = false) String status
     ) {
         List<Order> orders;
-        if (orderType != null) {
+        if (orderType != null && status != null) {
+            orders = orderService.findByTypeAndStatus(orderType, status);
+        } else if (orderType != null) {
             orders = orderService.findByType(orderType);
         } else if (status != null) {
             orders = orderService.findByStatus(status);

@@ -214,11 +214,29 @@ export default function PackingPage() {
 
       try {
         setLoading(true);
-        const [pickedOrders, packingOrders, packingRecords] = await Promise.all([
-          ordersApi.getAll("outbound", "picked"),
-          ordersApi.getAll("outbound", "packing"),
+        const [pickedPage, packingPage, packingRecords] = await Promise.all([
+          ordersApi.getPaged({
+            page: 0,
+            size: 50,
+            orderType: "outbound",
+            status: "picked",
+            warehouseId: effectiveWarehouseId,
+            sortBy: "createdAt",
+            sortDir: "desc",
+          }),
+          ordersApi.getPaged({
+            page: 0,
+            size: 50,
+            orderType: "outbound",
+            status: "packing",
+            warehouseId: effectiveWarehouseId,
+            sortBy: "createdAt",
+            sortDir: "desc",
+          }),
           packingApi.getAll(),
         ]);
+        const pickedOrders = pickedPage.data;
+        const packingOrders = packingPage.data;
         const allOutboundOrders = [...pickedOrders, ...packingOrders];
         const uniqueOrders = Array.from(new Map(allOutboundOrders.map((order) => [order.id, order])).values());
         const packedOrderIds = new Set(
@@ -571,7 +589,13 @@ export default function PackingPage() {
         packingSaveFailed = true;
         packingSaveErrorMessage =
           packingError instanceof Error ? packingError.message : "Unknown packing persistence error";
-        logger.error("Packing record save failed, will continue with order status transition:", packingError);
+        logger.error("Packing record save failed:", packingError);
+      }
+
+      if (packingSaveFailed) {
+        showToast.error(`Packing record was not saved: ${packingSaveErrorMessage}. Retry before shipment.`);
+        setSavingPacking(false);
+        return;
       }
 
       try {
@@ -618,9 +642,6 @@ export default function PackingPage() {
         logger.warn("Packing completed but task status update failed:", taskError);
       }
 
-      if (packingSaveFailed) {
-        logger.warn("Packed and moved to shipment, but packing record save failed:", packingSaveErrorMessage);
-      }
     } else {
       await saveScanRecord({
         taskId: selectedOrder.id,
