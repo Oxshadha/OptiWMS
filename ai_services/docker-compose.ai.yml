@@ -116,7 +116,7 @@ services:
     networks:
       - optiwms-network
 
-ai-agent:
+  ai-agent:
     build:
       context: ./ai-agent
     env_file:
