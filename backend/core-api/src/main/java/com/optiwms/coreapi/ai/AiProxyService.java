@@ -20,7 +20,7 @@ import java.util.Map;
 @Service
 public class AiProxyService {
 
-    private static final String CANONICAL_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM";
+    private static final String CANONICAL_DATASET = "PROJECT_OPS_RM_PM";
 
     private final RestTemplate restTemplate;
     private final UserRepository userRepository;
@@ -185,7 +185,7 @@ public class AiProxyService {
         try {
             HttpEntity<String> request = new HttpEntity<>(headers());
             ResponseEntity<Map> response = restTemplate.exchange(
-                    forecastBaseUrl + "/canonical/recalculate",
+                    forecastBaseUrl + "/v8/recalculate",
                     HttpMethod.POST,
                     request,
                     Map.class

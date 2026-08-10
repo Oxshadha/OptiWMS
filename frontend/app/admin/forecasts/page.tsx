@@ -39,10 +39,12 @@ import {
   Brush,
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
+import { buildInventoryPlan } from "@/lib/forecast-planning";
 
-const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPERATIONAL_BASELINE_RM_PM";
-const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "EXTRA_TREES_RESPONSIVE";
-const EVAL_SPLIT = "untouched_test";
+const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPS_RM_PM";
+const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "PROJECT_OPS_EXTRA_TREES_CAUSAL";
+// Promoted V8 evidence contract: the locked, untouched holdout is published as "test".
+const EVAL_SPLIT = "test";
 const RUN_MODE: "online" = "online";
 
 // ── Design Color Palette ──────────────────────────────────────────
@@ -261,8 +263,8 @@ const displayModelName = (model?: string) => {
   if (normalized === "EXTRA_TREES_RESPONSIVE") return "Extra Trees Responsive";
   if (normalized === "EXTRA_TREES_DAMPED_TREND") return "Extra Trees with Damped Trend";
   if (normalized === "EXTRA_TREES") return "Extra Trees";
-  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "RM/PM Causal Demand Forecast";
-  if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "RM/PM Demand Forecast";
+  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "Promoted Warehouse Demand Model";
+  if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "Warehouse Demand Model";
   return model || "Forecast model";
 };
 
@@ -336,15 +338,8 @@ export default function ForecastsPage() {
     if (!admin) {
       return undefined;
     }
-    if (admin.warehouseName) {
-      return admin.warehouseName;
-    }
-    if (!admin.warehouseId) {
-      return undefined;
-    }
-    const matched = warehouseMasterOptions.find((w) => w.id === admin.warehouseId);
-    return matched?.value ?? admin.warehouseId;
-  }, [admin, warehouseMasterOptions]);
+    return admin.warehouseId || undefined;
+  }, [admin]);
 
   const effectiveWarehouseId = isAdmin
     ? filters.warehouseId || undefined
@@ -458,12 +453,14 @@ export default function ForecastsPage() {
         }),
       ]);
 
+      let nextSkuCatalog: ForecastSkuItem[] = [];
       try {
         const skuResult = await aiForecastApi.getForecastSkus({
           model: binding.model,
           warehouseId: effectiveWarehouseId,
         });
-        setForecastSkuCatalog(skuResult.items ?? []);
+        nextSkuCatalog = skuResult.items ?? [];
+        setForecastSkuCatalog(nextSkuCatalog);
       } catch (skuError) {
         logger.warn("[ForecastsPage] Forecast SKU catalog unavailable:", skuError);
       }
@@ -472,8 +469,51 @@ export default function ForecastsPage() {
       let nextMetrics = metricResult.status === "fulfilled" ? metricResult.value.items ?? [] : [];
       let nextRecommendations = recoResult.status === "fulfilled" ? recoResult.value.items ?? [] : [];
       let nextRmReqs = rmResult.status === "fulfilled" ? rmResult.value.items ?? [] : [];
-      const nextHistory = historyResult.status === "fulfilled" ? historyResult.value.items ?? [] : [];
-      const nextBacktests = backtestResult.status === "fulfilled" ? backtestResult.value.items ?? [] : [];
+      let nextHistory = historyResult.status === "fulfilled" ? historyResult.value.items ?? [] : [];
+      let nextBacktests = backtestResult.status === "fulfilled" ? backtestResult.value.items ?? [] : [];
+
+      // Load one complete 12-month item series during the same transaction as
+      // the dashboard data. This prevents the first paged aggregate response
+      // from racing and overwriting the selected item's full horizon.
+      const focusedSku = filters.sku || selectedSku || nextSkuCatalog
+        .map((item) => item.sku)
+        .sort((a, b) => a.localeCompare(b))[0];
+      if (focusedSku) {
+        const [focusedForecast, focusedHistory, focusedBacktest] = await Promise.allSettled([
+          aiForecastApi.getForecasts({
+            dataset: binding.dataset,
+            model: binding.model,
+            sku: focusedSku,
+            warehouseId: effectiveWarehouseId,
+            size: 24,
+          }),
+          aiForecastApi.getDemandHistory({ sku: focusedSku, warehouseId: effectiveWarehouseId, size: 100 }),
+          aiForecastApi.getForecastBacktests({
+            sku: focusedSku,
+            model: binding.model,
+            warehouseId: effectiveWarehouseId,
+            size: 200,
+          }),
+        ]);
+        if (focusedForecast.status === "fulfilled") {
+          nextForecasts = [
+            ...nextForecasts.filter((row) => row.sku !== focusedSku),
+            ...(focusedForecast.value.items ?? []),
+          ];
+        }
+        if (focusedHistory.status === "fulfilled") {
+          nextHistory = [
+            ...nextHistory.filter((row) => row.sku !== focusedSku),
+            ...(focusedHistory.value.items ?? []),
+          ];
+        }
+        if (focusedBacktest.status === "fulfilled") {
+          nextBacktests = [
+            ...nextBacktests.filter((row) => row.sku !== focusedSku),
+            ...(focusedBacktest.value.items ?? []),
+          ];
+        }
+      }
 
       if (metricResult.status === "rejected") {
         logger.warn("[ForecastsPage] Metrics endpoint unavailable; continuing with forecast rows:", metricResult.reason);
@@ -714,7 +754,7 @@ export default function ForecastsPage() {
         const options = (warehouses ?? [])
           .map((w) => ({
             id: String(w.id),
-            value: (w.name && String(w.name).trim()) || String(w.id),
+            value: String(w.id),
             label: w.name ? `${w.name}${w.code ? ` (${w.code})` : ""}` : String(w.id),
           }))
           .sort((a, b) => a.label.localeCompare(b.label));
@@ -771,7 +811,7 @@ export default function ForecastsPage() {
   }, [selectedSku]);
 
   useEffect(() => {
-    if (!selectedSku || !filters.model) {
+    if (loading || !selectedSku || !filters.model) {
       return;
     }
     let cancelled = false;
@@ -813,7 +853,7 @@ export default function ForecastsPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveWarehouseId, filters.dataset, filters.model, selectedSku]);
+  }, [effectiveWarehouseId, filters.dataset, filters.model, loading, selectedSku]);
 
   const deferredSkuQuery = useDeferredValue(skuSearchInput);
   const skuSearchResults = useMemo(() => {
@@ -944,20 +984,13 @@ export default function ForecastsPage() {
   }, [avgActualDemand, avgRmse]);
 
   const reorderNowCount = useMemo(() => {
-    const fgCount = recommendations.filter(
+    return recommendations.filter(
       (row) =>
         row.on_hand_inventory !== null &&
         row.on_hand_inventory !== undefined &&
         row.on_hand_inventory < row.reorder_point
     ).length;
-    const rmCount = rawMaterialReqs.filter(
-      (row) =>
-        row.on_hand_inventory !== null &&
-        row.on_hand_inventory !== undefined &&
-        row.on_hand_inventory < row.reorder_point
-    ).length;
-    return fgCount + rmCount;
-  }, [recommendations, rawMaterialReqs]);
+  }, [recommendations]);
 
   const overstockCount = useMemo(
     () =>
@@ -991,6 +1024,11 @@ export default function ForecastsPage() {
   const selectedSkuRecommendation = useMemo(
     () => recommendations.find((row) => row.sku === selectedSku) ?? null,
     [recommendations, selectedSku]
+  );
+
+  const selectedSkuCatalogItem = useMemo(
+    () => forecastSkuCatalog.find((row) => row.sku === selectedSku) ?? null,
+    [forecastSkuCatalog, selectedSku]
   );
 
   const filteredRecommendations = useMemo(() => {
@@ -1097,18 +1135,20 @@ export default function ForecastsPage() {
 
   // 1. Overview & Forecasts Live Grouping
   const aggregatedForecastData = useMemo(() => {
-    let filtered = selectedSku 
+    let futureRows = selectedSku
       ? latestForecasts.filter(f => f.sku === selectedSku)
       : latestForecasts;
-      
-    // Apply Horizon filter for projected data (historical actuals are preserved)
-    const maxHorizon = filters.horizon || 12;
-    filtered = filtered.filter(f => {
-      if (f.y_true !== null && f.y_true !== undefined) return true;
-      return f.horizon <= maxHorizon;
-    });
 
-    if (!filtered.length) return [];
+    const maxHorizon = filters.horizon || 12;
+    futureRows = futureRows.filter(f => f.horizon <= maxHorizon);
+    const historicalRows = (selectedSku
+      ? backtests.filter((row) => row.sku === selectedSku)
+      : backtests
+    )
+      .sort((a, b) => compareMonthLabels(a.month, b.month))
+      .slice(-12);
+
+    if (!futureRows.length && !historicalRows.length) return [];
 
     const dateGroups: Record<string, {
       date: string;
@@ -1120,7 +1160,21 @@ export default function ForecastsPage() {
       count: number;
     }> = {};
     
-    filtered.forEach(f => {
+    historicalRows.forEach((row) => {
+      const dateStr = row.month;
+      if (!dateStr) return;
+      dateGroups[dateStr] = {
+        date: dateStr,
+        actualSum: Number(row.y_true),
+        actualCount: 1,
+        forecastSum: Number(row.p50),
+        lowerSum: Number(row.p10 ?? row.p50),
+        upperSum: Number(row.p90 ?? row.p50),
+        count: 1,
+      };
+    });
+
+    futureRows.forEach(f => {
       const dateStr = f.month;
       if (!dateStr) return;
       
@@ -1136,10 +1190,6 @@ export default function ForecastsPage() {
         };
       }
       const g = dateGroups[dateStr];
-      if (f.y_true !== null && f.y_true !== undefined) {
-        g.actualSum = (g.actualSum || 0) + Number(f.y_true);
-        g.actualCount++;
-      }
       g.forecastSum += Number(f.p50);
       g.lowerSum += Number(f.p10);
       g.upperSum += Number(f.p90);
@@ -1157,7 +1207,7 @@ export default function ForecastsPage() {
         ciRange: [Math.round(g.lowerSum), Math.round(g.upperSum)],
         trend: null
       }));
-  }, [latestForecasts, selectedSku, filters.horizon]);
+  }, [backtests, latestForecasts, selectedSku, filters.horizon]);
 
   // 2. Seasonality Live Calculation
   const liveSeasonality = useMemo(() => {
@@ -1196,116 +1246,90 @@ export default function ForecastsPage() {
     }));
   }, [demandHistory, selectedSku]);
 
-  // 3. Inventory Projection Simulation
-  const liveInventoryFlow = useMemo(() => {
-    let filtered = selectedSku 
-      ? latestForecasts.filter(f => f.sku === selectedSku)
-      : latestForecasts;
-      
-    const isRawMaterialOnly = !!selectedSku && !filtered.length && rawMaterialReqs.some(r => r.rm_sku === selectedSku);
-    
-    if (!filtered.length && !isRawMaterialOnly) return [];
-
-    let sortedFuture: { dateStr: string; label: string; demand: number }[] = [];
-
-    if (isRawMaterialOnly) {
-      const rmRec = rawMaterialReqs.find(r => r.rm_sku === selectedSku)!;
-      const monthlyDemand = Math.round(rmRec.gross_requirement_qty / 12);
-      const d = new Date();
-      for (let i = 1; i <= 12; i++) {
-        const nextDate = new Date(d.getFullYear(), d.getMonth() + i, 1);
-        const dateStr = nextDate.toISOString().substring(0, 7);
-        sortedFuture.push({
-          dateStr,
-          label: formatMonthLabel(dateStr),
-          demand: monthlyDemand
-        });
-      }
-    } else {
-      const futureMonths = filtered
-        .filter(f => (f.y_true === null || f.y_true === undefined) && f.month)
-        .reduce((acc, f) => {
-          const dateStr = f.month;
-          const label = formatMonthLabel(dateStr);
-          if (!acc[dateStr]) {
-            acc[dateStr] = { dateStr, label, demand: 0 };
-          }
-          acc[dateStr].demand += Number(f.p50);
-          return acc;
-        }, {} as Record<string, { dateStr: string; label: string; demand: number }>);
-        
-      sortedFuture = Object.values(futureMonths).sort((a, b) => compareMonthLabels(a.dateStr, b.dateStr));
-    }
-
-    let startStock = 0;
-    let rop = 0;
-    let maxStock = 0;
-
-    if (recommendations.length > 0 || rawMaterialReqs.length > 0) {
-      if (selectedSku) {
-        const rec = recommendations.find(r => r.sku === selectedSku);
-        const rmRec = rawMaterialReqs.find(r => r.rm_sku === selectedSku);
-        
-        if (rec) {
-          startStock = rec.on_hand_inventory ?? 500;
-          rop = rec.reorder_point ?? 0;
-          maxStock = rec.target_max ?? 1000;
-        } else if (rmRec) {
-          startStock = rmRec.on_hand_inventory ?? 500;
-          rop = rmRec.reorder_point ?? 0;
-          maxStock = (rmRec.reorder_point + rmRec.suggested_procure_qty) || 1000;
-        } else {
-          return [];
+  // 3. Lead-time-aware inventory and replenishment plan.
+  const inventoryPlan = useMemo(() => {
+    const filtered = selectedSku
+      ? latestForecasts.filter((row) => row.sku === selectedSku)
+      : [];
+    const futureMonths = filtered
+      .filter((row) => (row.y_true === null || row.y_true === undefined) && row.month)
+      .reduce((acc, row) => {
+        const period = row.month.slice(0, 10);
+        if (!acc[period]) {
+          acc[period] = { period, label: formatMonthLabel(period), p10: 0, p50: 0, p90: 0 };
         }
-      } else {
-        startStock = recommendations.reduce((sum, r) => sum + (r.on_hand_inventory ?? 0), 0) || 500;
-        rop = recommendations.reduce((sum, r) => sum + (r.reorder_point ?? 0), 0) || 0;
-        maxStock = recommendations.reduce((sum, r) => sum + (r.target_max ?? 0), 0) || 1000;
-      }
-    } else {
-      return [];
+        acc[period].p10 += Number(row.p10 ?? row.p50 ?? 0);
+        acc[period].p50 += Number(row.p50 ?? 0);
+        acc[period].p90 += Number(row.p90 ?? row.p50 ?? 0);
+        return acc;
+      }, {} as Record<string, { period: string; label: string; p10: number; p50: number; p90: number }>);
+
+    let buckets = Object.values(futureMonths).sort((a, b) => a.period.localeCompare(b.period));
+    const rec = recommendations.find((row) => row.sku === selectedSku);
+    const rmRec = rawMaterialReqs.find((row) => row.rm_sku === selectedSku);
+    if (!buckets.length && rmRec) {
+      const monthlyP50 = Math.max(0, rmRec.gross_requirement_qty / 12);
+      const now = new Date();
+      buckets = Array.from({ length: 12 }, (_, index) => {
+        const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + index + 1, 1));
+        const period = date.toISOString().slice(0, 10);
+        return {
+          period,
+          label: formatMonthLabel(period),
+          p10: monthlyP50 * 0.85,
+          p50: monthlyP50,
+          p90: monthlyP50 * 1.15,
+        };
+      });
     }
-    
-    let currentStock = startStock;
-    return sortedFuture.map(m => {
-      const demand = Math.round(m.demand);
-      const stockBefore = currentStock;
-      currentStock = Math.max(0, currentStock - demand);
-      let reorderQty = 0;
-      if (currentStock < rop) {
-        reorderQty = Math.max(0, maxStock - currentStock);
-        currentStock += reorderQty;
-      }
-      return {
-        label: m.label,
-        demand,
-        stock: stockBefore,
-        reorder: rop,
-        suggested: reorderQty
-      };
+    if (!buckets.length || (!rec && !rmRec)) {
+      return buildInventoryPlan([], {
+        onHand: 0,
+        safetyStock: 0,
+        reorderPoint: 0,
+        targetMax: 0,
+        leadTimeDays: 30,
+        moq: 0,
+        orderMultiple: 1,
+      });
+    }
+
+    const observedLeadTime = demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days;
+    return buildInventoryPlan(buckets, {
+      onHand: rec?.on_hand_inventory ?? rmRec?.on_hand_inventory ?? 0,
+      safetyStock: rec?.safety_stock ?? rmRec?.safety_stock ?? 0,
+      reorderPoint: rec?.reorder_point ?? rmRec?.reorder_point ?? 0,
+      targetMax: rec?.target_max ?? ((rmRec?.reorder_point ?? 0) + (rmRec?.suggested_procure_qty ?? 0)),
+      leadTimeDays: rec?.lead_time_days ?? observedLeadTime ?? 30,
+      moq: rec?.moq ?? 0,
+      orderMultiple: rec?.order_multiple ?? 1,
+      recommendedOrderQty: rec?.suggested_order_qty ?? rmRec?.suggested_procure_qty ?? 0,
     });
-  }, [latestForecasts, recommendations, rawMaterialReqs, selectedSku]);
+  }, [latestForecasts, recommendations, rawMaterialReqs, demandHistory, selectedSku]);
 
   // 4. SKU Details and Classification
   const liveSkuDetails = useMemo(() => {
     if (!recommendations.length) return [];
     return recommendations.map(rec => {
       const sid = rec.sku;
-      const seriesPoints = latestForecasts.filter(f => f.sku === sid);
       const actuals = demandHistory.filter(f => f.sku === sid).map(f => Number(f.actual_demand));
-      const velocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 0;
+      const observedVelocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 0;
+      const velocity = Number(rec.average_monthly_demand ?? observedVelocity);
       const abc = rec.abc_class || "-";
       const fms = rec.fms_class || "-";
       const hist = backtests.filter(f => f.sku === sid);
       const sumAbsErr = hist.reduce((s, f) => s + Number(f.absolute_error), 0);
       const sumActual = hist.reduce((s, f) => s + Number(f.y_true), 0);
-      const mape = sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 0;
+      const mape = typeof rec.sku_wape === "number"
+        ? rec.sku_wape * 100
+        : sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 0;
       
       const onHand = rec.on_hand_inventory ?? 0;
       const coverDays = velocity > 0 ? Math.round((onHand / (velocity / 30))) : 20;
       
       return {
         sku: sid,
+        description: rec.description || sid,
         category: rec.category || "Unknown",
         velocity: Math.round(velocity),
         stockDays: coverDays,
@@ -1340,10 +1364,34 @@ export default function ForecastsPage() {
 
   // ── FINAL DATA RESOLUTION (live API only — no synthetic fallbacks) ──────
   const finalForecastData = aggregatedForecastData.length > 0 ? aggregatedForecastData : EMPTY_FORECAST;
-  const finalSkuData = liveSkuDetails;
+  const finalSkuData = [...liveSkuDetails].sort((a, b) => b.velocity - a.velocity);
+  const velocityThreshold = finalSkuData.length
+    ? finalSkuData[Math.floor(finalSkuData.length / 2)].velocity
+    : 0;
+  const forecastAttentionData = finalSkuData.map((row) => {
+    const highImpact = row.velocity >= velocityThreshold;
+    const highError = row.mape > 10;
+    return {
+      ...row,
+      attention: highImpact && highError
+        ? "Priority review"
+        : highImpact
+          ? "Protect service"
+          : highError
+            ? "Review policy"
+            : "Monitor",
+      attentionColor: highImpact && highError
+        ? C.danger
+        : highImpact
+          ? C.accent3
+          : highError
+            ? C.warn
+            : C.muted,
+    };
+  });
   const finalSeasonality = liveSeasonality;
   const finalResiduals = liveResiduals;
-  const finalInventory = liveInventoryFlow;
+  const finalInventory = inventoryPlan.rows;
   const hasLiveForecastData = aggregatedForecastData.length > 0;
   const hasBacktestActuals = useMemo(
     () => backtests.length > 0,
@@ -1360,12 +1408,13 @@ export default function ForecastsPage() {
     if (!rows.length) return null;
     return Math.round(rows.reduce((s, f) => s + Number(f.p50 || 0), 0));
   }, [latestForecasts, selectedSku, forecastHorizonMonths]);
-  const avgStockCoverDays = useMemo(() => {
-    if (!liveSkuDetails.length) return null;
-    const vals = liveSkuDetails.map((s) => s.stockDays).filter((d) => Number.isFinite(d) && d > 0);
-    if (!vals.length) return null;
-    return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  }, [liveSkuDetails]);
+  const minimumProjectedCoverDays = inventoryPlan.minimumDaysOfSupply;
+  const projectedFillRatePct = finalInventory.length
+    ? Number((inventoryPlan.projectedFillRate * 100).toFixed(1))
+    : null;
+  const projectedRiskFillRatePct = finalInventory.length
+    ? Number((inventoryPlan.projectedRiskFillRate * 100).toFixed(1))
+    : null;
   const totalOnHandUnits = useMemo(() => {
     const vals = recommendations
       .map((r) => r.on_hand_inventory)
@@ -1433,18 +1482,18 @@ export default function ForecastsPage() {
           <div className="inline-flex items-center gap-3 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 mb-3 shadow-sm">
             <span className="h-2 w-2 rounded-full bg-primary" />
             <span className="font-mono text-xs uppercase tracking-[0.15em] text-primary">
-              AI Forecast
+              Demand & Replenishment Planning
             </span>
           </div>
-          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">RM/PM Demand Forecast</h1>
+          <h1 className="text-4xl font-extrabold text-base-content tracking-tight pb-1">Inventory Demand Planning</h1>
           <p className="text-sm text-base-content/60 mt-2 font-medium">
-            Active Module · Colombo Main Warehouse · Model: {displayModelName(filters.model)}
+            Forecast demand, live WMS stock, replenishment risk, and model evidence in one decision view.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="text-right mr-2">
             <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
-              <span className="w-2 h-2 rounded-full bg-success" /> CANONICAL FORECAST
+              <span className="w-2 h-2 rounded-full bg-success" /> OPERATIONAL PLAN
             </span>
             <p className="text-[10px] text-base-content/50 mt-0.5">{releaseStatus.replaceAll("_", " ")}</p>
           </div>
@@ -1469,7 +1518,7 @@ export default function ForecastsPage() {
         <input type="checkbox" defaultChecked={false} /> 
         <div className="collapse-title text-sm font-bold flex items-center gap-2 text-base-content/85">
           <span className="material-symbols-outlined text-primary text-base">settings_applications</span>
-          AI Forecasting Engine Controls & Governance Gates
+          Forecast run details
         </div>
         <div className="collapse-content space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mt-1">
@@ -1556,16 +1605,20 @@ export default function ForecastsPage() {
       {/* Global SKU Selector & Search Bar */}
       <div className="card bg-base-100 border border-base-300 p-4 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">Target Analysis SKU:</span>
+          <span className="text-xs font-bold uppercase tracking-wider text-base-content/70">Planning item:</span>
           <div className="badge badge-outline badge-md font-mono text-primary px-3 py-2 font-bold bg-base-200">
             {selectedSku || "All SKUs Combined"}
           </div>
+          {selectedSkuCatalogItem?.description && (
+            <span className="text-sm font-semibold text-base-content/80">
+              {selectedSkuCatalogItem.description}
+            </span>
+          )}
           <div className="join" aria-label="Material type filter">
             {([
-              ["all", "All"],
+              ["all", "All forecasted items"],
               ["raw_material", "Raw materials"],
               ["packaging_material", "Packaging"],
-              ["product", "Finished goods"],
             ] as const).map(([value, label]) => (
               <button
                 key={value}
@@ -1662,14 +1715,14 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={wapeVal !== null ? `${(100 - wapeVal).toFixed(1)}%` : "—"} sub={wapeVal !== null ? `WAPE = ${wapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={forecastedUnitsForHorizon !== null ? forecastedUnitsForHorizon.toLocaleString() : "—"} sub={`Sum P50 horizons 1–${forecastHorizonMonths}`} color={C.accent} icon="package_2" />
-            <KpiCard title="Below Reorder Point" value={reorderNowCount} sub="SKUs requiring POs" color={C.danger} icon="warning" />
-            <KpiCard title="Avg Days of Stock" value={avgStockCoverDays !== null ? `${avgStockCoverDays}d` : "—"} sub="From inventory recommendations" color={C.accent3} icon="grid_view" />
-            <KpiCard title="Forecast Bias" value={fmtMetric(biasVal, "%")} sub="Aggregate signed error on the untouched test" color={C.warn} icon="balance" />
+            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`Lead time: ${selectedSkuRecommendation?.lead_time_days ?? demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days ?? 30} days`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Minimum Cover" value={minimumProjectedCoverDays !== null ? `${minimumProjectedCoverDays}d` : "—"} sub={inventoryPlan.firstRiskPeriod ? `First action: ${inventoryPlan.firstRiskPeriod}` : "No projected exception"} color={C.accent3} icon="calendar_month" />
+            <KpiCard title="P90 Demand Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Stress case across the plan horizon" color={C.warn} icon="verified" />
           </div>
 
           {/* Large Historical Demand & Forecast Chart */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Demand Forecast vs Actuals — 24-Month View" sub={hasBacktestActuals ? "Expected demand vs historical actuals" : "Online horizon forecast only (H+1…H+12) — no historical actuals in this publish"} />
+            <SectionHeader title="Historical Demand vs Forecast — 24-Month View" sub={hasBacktestActuals ? "Historical backtest followed by the promoted 12-month forecast" : "Published forecast only — historical comparison is unavailable"} />
             <div className="h-80 w-full mt-3">
               {processedForecastData.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60">No forecast points for this SKU / filter.</div>
@@ -1688,9 +1741,9 @@ export default function ForecastsPage() {
                       <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower interval bound" />
                     </>
                   )}
-                  <Line type="monotone" dataKey="actual" stroke="#000000" strokeWidth={2.5} dot={false} name="Actual Demand" connectNulls />
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Future Forecast" connectNulls />
+                  <Line type="monotone" dataKey="actual" stroke="#000000" strokeWidth={2.5} dot={false} name="Historical demand" connectNulls />
+                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2} dot={false} strokeDasharray="5 5" name="Held-out backtest" connectNulls />
+                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={2.5} dot={false} name="Published demand forecast" connectNulls />
                   <Brush startIndex={Math.max(0, processedForecastData.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -1727,21 +1780,26 @@ export default function ForecastsPage() {
               </div>
             </div>
 
-            {/* Projected Stock Flow Simulation */}
+            {/* Lead-time inventory plan */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Projected Stock vs Demand Flow" sub="Inventory-policy simulation using forecast demand and reorder assumptions; not observed future stock" color={C.accent3} />
+              <SectionHeader title="Inventory Position & Due Receipts" sub="Demand reduces stock every period; released orders increase stock only when their lead-time receipt becomes due" color={C.accent3} />
               <div className="h-56 w-full mt-3">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={finalInventory.slice(-12)}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <Tooltip content={<ChartTip />} />
-                    <ReferenceLine y={finalInventory[0]?.reorder ?? 800} stroke={C.danger} strokeDasharray="4 3" label={{ value: "ROP", fill: C.danger, fontSize: 10 }} />
-                    <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Projection" />
-                    <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2} dot={false} name="Forecasted Demand" />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                {finalInventory.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-base-content/60">No item plan is available.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={finalInventory.slice(-12)}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                      <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
+                      <Tooltip content={<ChartTip />} />
+                      <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="4 3" />
+                      <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Receipt due" />
+                      <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={2.5} dot={{ r: 2 }} name="Projected ending (P50)" />
+                      <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="Demand-risk ending (P90)" />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -1841,15 +1899,17 @@ export default function ForecastsPage() {
       {/* ── TAB CONTENT: SKU ANALYSIS ── */}
       {tab === "sku" && (
         <div className="space-y-6">
-          {/* Bubble/Scatter plot */}
+          {/* Business impact / forecast reliability matrix */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="SKU Demand Velocity vs Model WAPE" sub="Bubble size indicates safety stock carrying size · Color corresponds to ABC category" color={C.accent2} />
+            <SectionHeader title="Forecast Attention Matrix" sub="Right means higher monthly demand; up means higher forecast error. Color identifies the planner action, not the product category." color={C.accent2} />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
                 <ScatterChart margin={{ left: 10, right: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="velocity" name="Velocity" unit=" u" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Monthly Velocity (Average Demand)", position: "bottom", fill: "currentColor", fontSize: 10, offset: 0 }} />
                   <YAxis dataKey="mape" name="WAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (WAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
+                  <ReferenceLine y={10} stroke={C.warn} strokeDasharray="5 4" label={{ value: "10% review threshold", fill: C.warn, fontSize: 9 }} />
+                  <ReferenceLine x={velocityThreshold} stroke={C.textDim} strokeDasharray="5 4" />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
@@ -1860,15 +1920,15 @@ export default function ForecastsPage() {
                         <p className="my-0.5">WAPE: <strong>{d.mape}%</strong></p>
                         <p className="my-0.5">Stock Cover: <strong>{d.stockDays} days</strong></p>
                         <div className="flex gap-1.5 mt-2">
-                          <Badge label={`ABC: ${d.abc}`} color={abcColor[d.abc] || C.muted} />
-                          <Badge label={`FMS: ${d.fms}`} color={C.accent3} />
+                          <Badge label={d.attention} color={d.attentionColor} />
+                          <Badge label={`ABC ${d.abc} / FMS ${d.fms}`} color={C.textDim} />
                         </div>
                       </div>
                     );
                   }} />
-                  <Scatter data={finalSkuData} name="SKUs">
-                    {finalSkuData.map((s: any, i) => (
-                      <Cell key={i} fill={abcColor[s.abc] || C.muted} fillOpacity={0.8} />
+                  <Scatter data={forecastAttentionData} name="SKUs">
+                    {forecastAttentionData.map((s: any, i) => (
+                      <Cell key={i} fill={s.attentionColor} fillOpacity={0.85} />
                     ))}
                   </Scatter>
                 </ScatterChart>
@@ -1964,11 +2024,7 @@ export default function ForecastsPage() {
                     <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} />
                     <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
                     <Tooltip content={<ChartTip />} />
-                    <Bar dataKey="velocity" name="Velocity" radius={[0, 4, 4, 0]}>
-                      {finalSkuData.slice(0, 6).map((s: any, i: number) => (
-                        <Cell key={i} fill={abcColor[s.abc] || C.muted} fillOpacity={0.8} />
-                      ))}
-                    </Bar>
+                    <Bar dataKey="velocity" name="Velocity" radius={[0, 4, 4, 0]} fill={C.accent3} fillOpacity={0.78} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -2001,15 +2057,20 @@ export default function ForecastsPage() {
       {tab === "inventory" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard title="Total Stock Units" value={totalOnHandUnits !== null ? totalOnHandUnits.toLocaleString() : "—"} sub="On-hand from recommendations" color={C.accent} icon="package_2" />
-            <KpiCard title="Active Reorders" value={reorderNowCount} sub="SKUs below ROP trigger" color={C.danger} icon="notifications_active" />
-            <KpiCard title="Fill Rate Level" value="—" sub="Not wired to WMS outbound yet" color={C.ok} icon="check_circle" />
-            <KpiCard title="Carrying Cost Est." value="—" sub="Not wired to finance module yet" color={C.accent4} icon="payments" />
+            <KpiCard title="Selected On-hand" value={(selectedSkuRecommendation?.on_hand_inventory ?? 0).toLocaleString()} sub={`${selectedSku || "Item"} available before forecast demand`} color={C.accent} icon="package_2" />
+            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} units due within horizon`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Projected P50 Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Forecast demand fulfilled by the policy plan" color={C.ok} icon="check_circle" />
+            <KpiCard title="Projected P90 Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Upper-demand stress case with the same receipts" color={C.accent4} icon="shield" />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Stock Level vs Demand vs Reorder Point" sub="Dynamic inventory simulation over 6-month forecast horizon" color={C.accent3} />
+            <SectionHeader title="Projected Inventory Position" sub="Step lines show month-end stock; bars are receipts that become available after supplier lead time" color={C.accent3} />
             <div className="h-72 w-full mt-3">
+              {finalInventory.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-sm text-base-content/60 text-center px-6">
+                  Select a forecasted inventory item with assigned WMS stock to calculate its replenishment projection.
+                </div>
+              ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={finalInventory}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
@@ -2017,23 +2078,31 @@ export default function ForecastsPage() {
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={finalInventory[0]?.reorder ?? 800} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder Trigger Level", fill: C.danger, fontSize: 10, position: "right" }} />
-                  <Area type="monotone" dataKey="stock" fill={C.accent3} fillOpacity={0.08} stroke={C.accent3} strokeWidth={2} name="Stock Levels" />
-                  <Line type="monotone" dataKey="demand" stroke={C.accent} strokeWidth={2.5} dot={false} name="Forecasted Demand" />
+                  <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.danger, fontSize: 10, position: "right" }} />
+                  <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.warn, fontSize: 10, position: "insideBottomRight" }} />
+                  <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Confirmed/planned receipt due" />
+                  <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={3} dot={{ r: 3 }} name="Projected ending (P50 demand)" />
+                  <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="Risk ending (P90 demand)" />
                   <Brush startIndex={Math.max(0, finalInventory.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
+              )}
             </div>
           </div>
 
           {/* Stock Coverage Heatmap */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Inventory Days of Coverage (Heatmap)" sub="Color intensity corresponds to replenishment urgency based on monthly forecasted demand" color={C.accent4} />
+            <SectionHeader title="Forward Days of Supply" sub="Each value consumes the following forecast buckets until projected ending stock is exhausted; future receipts are shown separately" color={C.accent4} />
+            {finalInventory.length === 0 ? (
+              <div className="py-12 text-center text-sm text-base-content/60">
+                Coverage is unavailable until both live assigned stock and a published demand forecast exist for the item.
+              </div>
+            ) : (
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mt-4">
               {finalInventory.slice(0, 12).map((row, i) => {
-                const cover = Math.max(5, Math.round(row.stock / (row.demand / 30 || 1)));
-                const urgency = cover < 15 ? "danger" : cover < 30 ? "warn" : "ok";
-                const colorHex = { danger: C.danger, warn: C.warn, ok: C.ok }[urgency];
+                const cover = row.daysOfSupply;
+                const urgency = row.status === "stockout" ? "danger" : row.status === "order" || row.status === "watch" ? "warn" : "ok";
+                const colorHex = { danger: C.danger, warn: C.warn, ok: C.ok, neutral: C.muted }[urgency];
                 return (
                   <div 
                     key={i} 
@@ -2044,11 +2113,59 @@ export default function ForecastsPage() {
                     }}
                   >
                     <span className="text-[10px] text-base-content/60 font-semibold">{row.label}</span>
-                    <span className="text-xl font-bold mt-1" style={{ color: colorHex }}>{cover}d</span>
-                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{urgency === "danger" ? "Reorder Now" : urgency === "warn" ? "Warning" : "Safe"}</span>
+                    <span className="text-xl font-bold mt-1" style={{ color: colorHex }}>{`${cover}d`}</span>
+                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered"}</span>
                   </div>
                 );
               })}
+            </div>
+            )}
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
+              <SectionHeader title="Monthly Inventory Ledger" sub="One auditable calculation drives the chart, order recommendations, service projection, and coverage" color={C.accent} />
+              <button className="btn btn-xs btn-outline btn-primary" onClick={() => downloadCsv("inventory_plan.csv", finalInventory)}>
+                Export plan CSV
+              </button>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="table table-sm">
+                <thead>
+                  <tr className="border-b border-base-300">
+                    <th>Period</th>
+                    <th className="text-right">Beginning</th>
+                    <th className="text-right">Receipt due</th>
+                    <th className="text-right">P50 demand</th>
+                    <th className="text-right">P90 demand</th>
+                    <th className="text-right">Ending P50</th>
+                    <th className="text-right">Ending P90</th>
+                    <th className="text-right">Release qty</th>
+                    <th>Receipt period</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {finalInventory.map((row) => {
+                    const statusColor = row.status === "stockout" ? C.danger : row.status === "healthy" ? C.ok : C.warn;
+                    const statusLabel = row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered";
+                    return (
+                      <tr key={row.period} className="hover">
+                        <td className="font-mono text-xs font-semibold">{row.label}</td>
+                        <td className="text-right tabular-nums">{row.beginning.toLocaleString()}</td>
+                        <td className="text-right tabular-nums text-success font-semibold">{row.receipt ? `+${row.receipt.toLocaleString()}` : "—"}</td>
+                        <td className="text-right tabular-nums">{row.demandP50.toLocaleString()}</td>
+                        <td className="text-right tabular-nums text-error">{row.demandP90.toLocaleString()}</td>
+                        <td className="text-right tabular-nums font-semibold">{row.endingP50.toLocaleString()}</td>
+                        <td className="text-right tabular-nums">{row.endingP90.toLocaleString()}</td>
+                        <td className="text-right tabular-nums font-semibold text-primary">{row.orderReleaseQty ? row.orderReleaseQty.toLocaleString() : "—"}</td>
+                        <td className="text-xs">{row.orderDueLabel ?? "—"}</td>
+                        <td><Badge label={statusLabel} color={statusColor} /></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -2059,11 +2176,11 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* KPI grid */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <KpiCard title="WAPE Error" value={fmtMetric(wapeVal, "%")} sub={wapeVal !== null ? "Untouched-test evidence for the selected model" : "No matching backtest evidence"} color={C.ok} icon="track_changes" />
-            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub={rmseVal !== null ? "Untouched-test scale-dependent error" : "No matching backtest evidence"} color={C.accent} icon="architecture" />
-            <KpiCard title="Model Bias" value={fmtMetric(biasVal, "%")} sub={biasVal !== null ? "Untouched-test signed error" : "No matching backtest evidence"} color={C.warn} icon="balance" />
+            <KpiCard title="WAPE Error" value={fmtMetric(wapeVal, "%")} sub={wapeVal !== null ? "Held-out test evidence for the promoted model" : "No matching backtest evidence"} color={C.ok} icon="track_changes" />
+            <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub={rmseVal !== null ? "Held-out scale-dependent error" : "No matching backtest evidence"} color={C.accent} icon="architecture" />
+            <KpiCard title="Model Bias" value={fmtMetric(biasVal, "%")} sub={biasVal !== null ? "Held-out signed error" : "No matching backtest evidence"} color={C.warn} icon="balance" />
             <KpiCard title="90% Interval Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside calibrated 90% bounds" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
-            <KpiCard title="Forecast Method" value={displayModelName(filters.model)} sub="Validated project-operational candidate" color={C.muted} icon="psychology" />
+            <KpiCard title="Forecast Method" value={displayModelName(filters.model)} sub="Active model for the current operational planning dataset" color={C.muted} icon="psychology" />
           </div>
 
           {/* Model residuals */}
@@ -2157,7 +2274,7 @@ export default function ForecastsPage() {
       {/* Footer */}
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">
         <span>OptiWMS Demand Planning Console v2.4</span>
-        <span>Forecast binding active · Production eligibility depends on lineage and governance evidence</span>
+        <span>Plan generated from the active forecast, inventory position, and replenishment policy</span>
       </div>
     </div>
   );
