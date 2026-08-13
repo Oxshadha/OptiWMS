@@ -36,6 +36,8 @@ public final class RoutingModels {
             String area,
             String row,
             String bay,
+            String amalgamatedClass,
+            String velocityClass,
             double centerX,
             double centerY,
             double widthM,

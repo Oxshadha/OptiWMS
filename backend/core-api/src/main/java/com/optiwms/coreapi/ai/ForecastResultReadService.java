@@ -24,6 +24,7 @@ public class ForecastResultReadService {
     private static final String CANONICAL_QUALITY_TIER = "PROJECT_OPERATIONAL_SIMULATION";
     private static final String CANONICAL_TRAINING_SOURCE = "project_ops_v8";
     private static final String CANONICAL_VERSION = "PROJECT_OPERATIONAL_SIMULATION_V8";
+    private static final String CANONICAL_EVIDENCE_SPLIT = "test";
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -179,7 +180,7 @@ public class ForecastResultReadService {
             String split, Integer horizon, String dataset, String model, String warehouseId
     ) {
         String selectedModel = resolveModel(model, warehouseId);
-        String requestedSplit = split == null || split.isBlank() ? "test" : split;
+        String requestedSplit = canonicalEvidenceSplit(split);
         StringBuilder sql = new StringBuilder("""
                 SELECT split, horizon, wape, mae, rmse, bias, under_forecast_rate,
                        interval_nominal_coverage, interval_empirical_coverage,
@@ -232,34 +233,70 @@ public class ForecastResultReadService {
         String selectedModel = resolveModel(model, warehouseId);
         StringBuilder sql = new StringBuilder("""
                 WITH inv AS (
-                    SELECT material_id,
-                           SUM(quantity) AS quantity,
-                           SUM(available_quantity) AS available_quantity,
-                           MAX(buffer_stock) AS buffer_stock,
-                           MAX(reorder_point) AS reorder_point,
-                           MAX(max_stock) AS max_stock
-                    FROM inventory
-                    WHERE source_lineage->>'dataset_version' = :source
+                    SELECT i.material_id,
+                           SUM(i.quantity) AS quantity,
+                           SUM(i.available_quantity) AS available_quantity,
+                           MAX(i.buffer_stock) AS buffer_stock,
+                           MAX(i.reorder_point) AS reorder_point,
+                           MAX(i.max_stock) AS max_stock,
+                           MAX(i.moq) AS moq,
+                           MAX(i.lead_time_days) AS lead_time_days
+                    FROM inventory i
+                    JOIN materials source_material ON source_material.id = i.material_id
+                    WHERE i.data_quality_tier = :quality
+                      AND source_material.data_quality_tier = :quality
+                      AND i.location_code IS NOT NULL
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
+        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND i.warehouse_id::text = :warehouseId");
         sql.append("""
-                    GROUP BY material_id
+                    GROUP BY i.material_id
+                ), demand AS (
+                    SELECT dh.material_id, AVG(dh.demand_units) AS average_monthly_demand
+                    FROM demand_history dh
+                    WHERE dh.data_quality_tier = :quality
+                """);
+        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND dh.warehouse_id::text = :warehouseId");
+        sql.append("""
+                    GROUP BY dh.material_id
+                ), sku_error AS (
+                    SELECT b.material_id,
+                           CASE WHEN SUM(b.y_true) > 0
+                                THEN SUM(b.absolute_error) / SUM(b.y_true)
+                                ELSE NULL END AS sku_wape
+                    FROM forecast_backtest_rows b
+                    WHERE b.dataset = :dataset
+                      AND LOWER(b.model_name) = LOWER(:model)
+                      AND b.split = :split
+                """);
+        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND b.warehouse_id::text = :warehouseId");
+        sql.append("""
+                    GROUP BY b.material_id
                 )
-                SELECT m.material_code, LOWER(COALESCE(m.material_type, 'unknown')),
+                SELECT m.material_code, COALESCE(NULLIF(m.description, ''), m.material_code),
+                       LOWER(COALESCE(m.material_type, 'unknown')),
                        m.abc_class, m.fms_class,
                        COALESCE(i.buffer_stock, 0), COALESCE(i.reorder_point, 0),
                        COALESCE(i.max_stock, 0), COALESCE(i.available_quantity, i.quantity, 0),
                        CASE WHEN COALESCE(i.available_quantity, i.quantity, 0) < COALESCE(i.reorder_point, 0)
                             THEN GREATEST(COALESCE(i.max_stock, 0) - COALESCE(i.available_quantity, i.quantity, 0), 0)
-                            ELSE 0 END
+                            ELSE 0 END,
+                       COALESCE(d.average_monthly_demand, 0), e.sku_wape,
+                       COALESCE(i.moq, 0), COALESCE(m.order_multiple, 1),
+                       COALESCE(i.lead_time_days, 30), COALESCE(m.unit_cost_standard, 0)
                 FROM inv i
                 JOIN materials m ON m.id = i.material_id
+                LEFT JOIN demand d ON d.material_id = m.id
+                LEFT JOIN sku_error e ON e.material_id = m.id
                 WHERE m.decision_eligible = TRUE
                   AND m.material_type IN ('raw_material', 'packaging_material')
                 """);
         if (sku != null && !sku.isBlank()) sql.append(" AND m.material_code = :sku");
         sql.append(" ORDER BY m.material_code LIMIT 5000");
-        Query q = entityManager.createNativeQuery(sql.toString()).setParameter("source", CANONICAL_TRAINING_SOURCE);
+        Query q = entityManager.createNativeQuery(sql.toString())
+                .setParameter("quality", CANONICAL_QUALITY_TIER)
+                .setParameter("dataset", CANONICAL_DATASET)
+                .setParameter("model", selectedModel)
+                .setParameter("split", CANONICAL_EVIDENCE_SPLIT);
         if (warehouseId != null && !warehouseId.isBlank()) q.setParameter("warehouseId", warehouseId);
         if (sku != null && !sku.isBlank()) q.setParameter("sku", sku);
         @SuppressWarnings("unchecked")
@@ -271,17 +308,26 @@ public class ForecastResultReadService {
             item.put("model", selectedModel);
             item.put("warehouse_id", warehouseId);
             item.put("sku", String.valueOf(row[0]));
-            item.put("category", String.valueOf(row[1]));
-            item.put("abc_class", row[2]);
-            item.put("fms_class", row[3]);
-            item.put("amalgamated_class", String.valueOf(row[2]) + String.valueOf(row[3]));
-            item.put("safety_stock", asDouble(row[4]));
-            item.put("reorder_point", asDouble(row[5]));
-            item.put("target_max", asDouble(row[6]));
-            item.put("on_hand_inventory", asDouble(row[7]));
-            item.put("suggested_order_qty", asDouble(row[8]));
+            item.put("description", String.valueOf(row[1]));
+            item.put("category", String.valueOf(row[2]));
+            item.put("abc_class", row[3]);
+            item.put("fms_class", row[4]);
+            item.put("amalgamated_class", String.valueOf(row[3]) + String.valueOf(row[4]));
+            item.put("safety_stock", asDouble(row[5]));
+            item.put("reorder_point", asDouble(row[6]));
+            item.put("target_max", asDouble(row[7]));
+            item.put("on_hand_inventory", asDouble(row[8]));
+            item.put("suggested_order_qty", asDouble(row[9]));
+            item.put("average_monthly_demand", asDouble(row[10]));
+            item.put("sku_wape", asNullableDouble(row[11]));
+            item.put("moq", asDouble(row[12]));
+            item.put("order_multiple", asDouble(row[13]));
+            item.put("lead_time_days", asInt(row[14]));
+            item.put("unit_cost", asDouble(row[15]));
             item.put("data_quality_tier", CANONICAL_QUALITY_TIER);
-            item.put("policy_source", "wms_inventory_min_max");
+            item.put("stock_source", "live_wms_inventory_snapshot");
+            item.put("demand_source", "project_operational_demand_history");
+            item.put("policy_source", "wms_inventory_min_max_plus_promoted_forecast");
             return item;
         }).toList();
         return ResponseEntity.ok(Map.of("items", items, "count", items.size(), "source", "wms_inventory_policy", "canonical", true));
@@ -290,24 +336,46 @@ public class ForecastResultReadService {
     public ResponseEntity<Object> getRawMaterialRequirements(String rmSku, String model, String warehouseId) {
         String selectedModel = resolveModel(model, warehouseId);
         StringBuilder sql = new StringBuilder("""
-                SELECT m.material_code, LOWER(m.material_type),
-                       SUM(fr.forecast_p50), COALESCE(i.available_quantity, i.quantity, 0),
-                       COALESCE(i.buffer_stock, 0), COALESCE(i.reorder_point, 0),
-                       GREATEST(SUM(fr.forecast_p50) + COALESCE(i.buffer_stock, 0)
-                           - COALESCE(i.available_quantity, i.quantity, 0), 0)
-                FROM forecast_results fr
-                JOIN materials m ON m.id = fr.material_id
-                LEFT JOIN inventory i ON i.material_id = m.id AND i.warehouse_id = fr.warehouse_id
-                    AND i.location_code IS NULL
-                WHERE LOWER(fr.model_name) = LOWER(:model)
-                  AND fr.decision_eligible = TRUE
-                  AND m.material_type IN ('raw_material', 'packaging_material')
+                WITH forecast AS (
+                    SELECT fr.material_id, SUM(fr.forecast_p50) AS gross_requirement_qty
+                    FROM forecast_results fr
+                    WHERE LOWER(fr.model_name) = LOWER(:model)
+                      AND fr.training_source = :source
+                      AND fr.decision_eligible = TRUE
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND fr.warehouse_id::text = :warehouseId");
+        sql.append("""
+                    GROUP BY fr.material_id
+                ), inv AS (
+                    SELECT i.material_id,
+                           SUM(i.available_quantity) AS available_quantity,
+                           MAX(i.buffer_stock) AS buffer_stock,
+                           MAX(i.reorder_point) AS reorder_point
+                    FROM inventory i
+                    WHERE i.data_quality_tier = :quality
+                      AND i.location_code IS NOT NULL
+                """);
+        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND i.warehouse_id::text = :warehouseId");
+        sql.append("""
+                    GROUP BY i.material_id
+                )
+                SELECT m.material_code, LOWER(m.material_type), f.gross_requirement_qty,
+                       COALESCE(i.available_quantity, 0), COALESCE(i.buffer_stock, 0),
+                       COALESCE(i.reorder_point, 0),
+                       GREATEST(f.gross_requirement_qty + COALESCE(i.buffer_stock, 0)
+                           - COALESCE(i.available_quantity, 0), 0)
+                FROM forecast f
+                JOIN materials m ON m.id = f.material_id
+                LEFT JOIN inv i ON i.material_id = m.id
+                WHERE m.decision_eligible = TRUE
+                  AND m.material_type IN ('raw_material', 'packaging_material')
+                """);
         if (rmSku != null && !rmSku.isBlank()) sql.append(" AND m.material_code = :rmSku");
-        sql.append(" GROUP BY m.material_code, m.material_type, i.available_quantity, i.quantity, i.buffer_stock, i.reorder_point ORDER BY m.material_code LIMIT 5000");
+        sql.append(" ORDER BY m.material_code LIMIT 5000");
         Query q = entityManager.createNativeQuery(sql.toString())
-                .setParameter("model", selectedModel);
+                .setParameter("model", selectedModel)
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("quality", CANONICAL_QUALITY_TIER);
         if (warehouseId != null && !warehouseId.isBlank()) q.setParameter("warehouseId", warehouseId);
         if (rmSku != null && !rmSku.isBlank()) q.setParameter("rmSku", rmSku);
         @SuppressWarnings("unchecked")
@@ -373,13 +441,14 @@ public class ForecastResultReadService {
                        b.forecast_p50, b.forecast_p95, b.residual, b.absolute_error, b.interval_covered
                 FROM forecast_backtest_rows b JOIN materials m ON m.id = b.material_id
                 WHERE b.dataset = :dataset AND LOWER(b.model_name) = LOWER(:model)
-                  AND b.split = 'untouched_test'
+                  AND b.split = :split
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND b.warehouse_id::text = :warehouseId");
         if (sku != null && !sku.isBlank()) sql.append(" AND m.material_code = :sku");
         sql.append(" ORDER BY b.origin_month DESC, m.material_code LIMIT :limit OFFSET :offset");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("dataset", CANONICAL_DATASET).setParameter("model", selectedModel)
+                .setParameter("split", CANONICAL_EVIDENCE_SPLIT)
                 .setParameter("limit", safeSize).setParameter("offset", safePage * safeSize);
         if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
         if (sku != null && !sku.isBlank()) query.setParameter("sku", sku);
@@ -402,12 +471,13 @@ public class ForecastResultReadService {
                 SELECT horizon, COUNT(*), AVG(CASE WHEN interval_covered THEN 1.0 ELSE 0.0 END),
                        AVG(forecast_p95 - forecast_p05)
                 FROM forecast_backtest_rows
-                WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model) AND split = 'untouched_test'
+                WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model) AND split = :split
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
         sql.append(" GROUP BY horizon ORDER BY horizon");
         Query query = entityManager.createNativeQuery(sql.toString())
-                .setParameter("dataset", CANONICAL_DATASET).setParameter("model", selectedModel);
+                .setParameter("dataset", CANONICAL_DATASET).setParameter("model", selectedModel)
+                .setParameter("split", CANONICAL_EVIDENCE_SPLIT);
         if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
         @SuppressWarnings("unchecked") List<Object[]> rows = query.getResultList();
         List<Map<String, Object>> items = rows.stream().map(row -> Map.<String, Object>of(
@@ -430,6 +500,16 @@ public class ForecastResultReadService {
         item.put("row_counts", row[3]); item.put("validation", row[4]);
         item.put("started_at", row[5]); item.put("finished_at", row[6]);
         return ResponseEntity.ok(Map.of("item", item, "source", "project_dataset_load_audit"));
+    }
+
+    private String canonicalEvidenceSplit(String requestedSplit) {
+        if (requestedSplit == null || requestedSplit.isBlank()) {
+            return CANONICAL_EVIDENCE_SPLIT;
+        }
+        String normalized = requestedSplit.trim().toLowerCase(Locale.ROOT);
+        // Older dashboard builds called the locked holdout "untouched_test".
+        // V8 publishes the same untouched holdout under its contract name "test".
+        return "untouched_test".equals(normalized) ? CANONICAL_EVIDENCE_SPLIT : normalized;
     }
 
     public ResponseEntity<Object> getDashboardSummary(

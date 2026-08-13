@@ -55,6 +55,12 @@ public class StockPlacementPlanner {
         int requiredPallets = capacityService.computePalletCount(totalQuantity, material);
         int qtyPerPallet = unitsPerPallet.setScale(0, RoundingMode.CEILING).intValue();
 
+        LocationEntity preferredLocation = preferredLocationCode == null || preferredLocationCode.isBlank()
+                ? null
+                : locationRepository.findByLocationCode(preferredLocationCode)
+                        .filter(location -> warehouseId.equals(location.getWarehouseId()))
+                        .orElse(null);
+
         List<LocationEntity> candidates = locationRepository.findByWarehouseId(warehouseId).stream()
                 .filter(loc -> "STORAGE".equals(loc.getZoneType()))
                 .filter(loc -> Boolean.TRUE.equals(loc.getIsActive()))
@@ -62,7 +68,8 @@ public class StockPlacementPlanner {
                 .filter(loc -> excludeLocationCodes == null || !excludeLocationCodes.contains(loc.getLocationCode()))
                 .filter(loc -> isRackAvailable(loc))
                 .sorted(Comparator
-                        .comparingInt((LocationEntity loc) -> proximityToPreferred(loc, preferredLocationCode, warehouseId))
+                        .comparingInt((LocationEntity loc) -> proximityToPreferred(loc, preferredLocation))
+                        .thenComparing((LocationEntity loc) -> !locationMatchesVelocity(loc, material.getFmsClass()))
                         .thenComparingInt(loc -> loc.getLevelNumber() != null ? loc.getLevelNumber() : 3))
                 .toList();
 
@@ -205,15 +212,23 @@ public class StockPlacementPlanner {
                 .orElse(candidates.isEmpty() ? null : candidates.get(0));
     }
 
-    private int proximityToPreferred(LocationEntity loc, String preferredLocationCode, UUID warehouseId) {
-        if (preferredLocationCode == null || preferredLocationCode.isBlank()) {
-            return 0;
-        }
-        LocationEntity preferred = locationRepository.findByLocationCode(preferredLocationCode).orElse(null);
-        if (preferred == null || !warehouseId.equals(preferred.getWarehouseId())) {
+    private int proximityToPreferred(LocationEntity loc, LocationEntity preferred) {
+        if (preferred == null) {
             return 0;
         }
         return capacityService.proximityScore(loc, preferred);
+    }
+
+    private boolean locationMatchesVelocity(LocationEntity location, String materialFmsClass) {
+        if (materialFmsClass == null || materialFmsClass.isBlank()) {
+            return true;
+        }
+        String required = materialFmsClass.trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("F", "M", "S").contains(required)) {
+            return true;
+        }
+        String rackClass = location.getAmalgamatedClass();
+        return rackClass != null && rackClass.trim().toUpperCase(Locale.ROOT).endsWith(required);
     }
 
     private WarehouseOccupancyState buildOccupancyState(

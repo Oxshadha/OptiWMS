@@ -203,8 +203,8 @@ public class AiProxyController {
     @PostMapping("/jobs/forecast-run")
     public ResponseEntity<Object> trigger(
             Authentication authentication,
-            @RequestParam(defaultValue = "PROJECT_OPERATIONAL_BASELINE_RM_PM") String dataset,
-            @RequestParam(defaultValue = "EXTRA_TREES_RESPONSIVE") String modelName,
+            @RequestParam(defaultValue = "PROJECT_OPS_RM_PM") String dataset,
+            @RequestParam(defaultValue = "PROJECT_OPS_EXTRA_TREES_CAUSAL") String modelName,
             @RequestParam(defaultValue = "online") String mode,
             @RequestParam(required = false) String warehouseId,
             @RequestParam(defaultValue = "false", name = "critical_override") boolean criticalOverride

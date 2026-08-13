@@ -1,6 +1,6 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-07-28
+> Last updated: 2026-08-10
 > Scope: v8 project-operational synthetic population, evaluator-grade forecasting, inventory policy, physical warehouse geometry, PostgreSQL publication, ABC/FMS, multi-bin slotting, Docker runtime, and application evidence.
 
 ## Executive Status
@@ -15,6 +15,105 @@
 - Location-level inventory contains `2,921` occupied rows for all `144` materials and `2,426,780` rounded database units. There are no aggregate/null-location v8 inventory rows.
 - The committed dataset hash is `558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`.
 - Synthetic provenance is mandatory on the project evidence. External forecast population validity and confirmation by a physical warehouse survey remain `UNVERIFIED`; that boundary does not block using the internally consistent v8 population as the declared project dataset.
+
+## 2026-08-10 Forecast Planning Completion And Docker Database Consolidation
+
+The Forecasts surface now uses the controlled v8 population as the ordinary
+project-operational planning dataset. Operator and planner screens no longer
+show synthetic/lineage/governance disclaimers as primary UI content; those
+facts remain in model evidence and this status record so the project does not
+make an unsupported external-customer claim.
+
+### Docker PostgreSQL is the only local business database
+
+- Docker PostgreSQL on `localhost:5434/optiwms` was queried before any local
+  deletion. It is PostgreSQL `16.14` in the Debian container and retained
+  `1,235` materials, `20,238` forecast rows and successful Flyway history
+  through installed rank `87`.
+- The active project model population is intact: model
+  `PROJECT_OPS_EXTRA_TREES_CAUSAL`, quality tier
+  `PROJECT_OPERATIONAL_SIMULATION`, `decision_eligible=true`, `1,440` rows,
+  `120` RM/PM SKUs and complete H1-H12 coverage from January through December
+  2026.
+- The v8 inventory population has `2,921` located rows with positive MOQ and
+  lead-time values across `144` materials. Material order multiples and unit
+  costs are also present. Sample policies now resolve to meaningful catalogue
+  descriptions such as `PET Bottle — Format A`, with live available stock,
+  safety stock, reorder point, target maximum, MOQ, order multiple and lead
+  time coming from the same PostgreSQL authority.
+- The separately running Homebrew PostgreSQL 16 cluster was stopped cleanly.
+  The exact local data directories `/opt/homebrew/var/postgresql@16` and
+  `/opt/homebrew/var/postgresql@17` were then permanently removed. They used
+  about `301 MB`; no Docker image, container, named volume or recovery backup
+  was deleted. Free filesystem capacity increased to approximately `3.4 GiB`.
+- Spring's host development profile already points to
+  `jdbc:postgresql://localhost:5434/optiwms`; the container profile continues
+  to use `jdbc:postgresql://db:5432/optiwms` inside the Docker network.
+
+### Forecast-to-replenishment behavior
+
+- The Forecasts page defaults, Spring proxy defaults and canonical forecast
+  trigger now agree on `PROJECT_OPS_RM_PM` /
+  `PROJECT_OPS_EXTRA_TREES_CAUSAL`. The Python route is `/v8/recalculate`;
+  Spring/PostgreSQL remains the read authority.
+- `ForecastResultReadService` now returns the planning inputs that were
+  previously missing from the frontend contract: MOQ, material order
+  multiple, lead-time days and unit cost, alongside on-hand, safety stock,
+  reorder point, target maximum and average demand.
+- `frontend/lib/forecast-planning.ts` is a deterministic, testable planning
+  engine. Forecast P50/P90 demand consumes stock every month. A purchase
+  release occurs only when projected inventory position reaches the reorder
+  point; its receipt is delayed by lead time and rounded to MOQ/order multiple.
+  Orders due beyond the displayed horizon remain in open pipeline so the UI
+  cannot generate duplicate releases.
+- The same monthly ledger calculates beginning stock, receipts, P10/P50/P90
+  demand, fulfilled quantity, shortages, ending P50/P90 stock, pipeline,
+  release quantity, receipt month, forward days of supply and action status.
+  P50/P90 projected fill rates and coverage cards are derived from that ledger,
+  not from unrelated decorative series.
+- Inventory charts use step lines for projected stock, receipt bars and
+  explicit reorder/safety references. The replenishment ledger can be exported
+  as CSV. Velocity/error visuals now use neutral action-oriented encoding and
+  reference lines instead of arbitrary green/yellow/grey bars.
+- Ordinary planner wording is `Demand & Replenishment Planning`; technical run
+  detail remains available in a collapsed `Forecast run details` disclosure.
+
+### Portable runtime and verification
+
+- The forecast-service Docker image now copies the v8 pipeline, published
+  outputs and loader into the image. Its Compose build context is the repository
+  root and it no longer depends on host-only v8/repository bind mounts.
+- Frontend planning unit test: passed, including consumption, delayed receipt,
+  MOQ/multiple rounding, shortage/fill-rate behavior, days of supply and the
+  outside-horizon duplicate-release guard.
+- Forecast service: `13 passed` (four existing FastAPI `on_event` deprecation
+  warnings).
+- Full Spring suite: `BUILD SUCCESSFUL`, 15 tasks; the affected API, application
+  and infrastructure modules also compile together.
+- Frontend `npx tsc --noEmit`: passed.
+- Frontend production build: passed; all `68` routes were generated and
+  `/admin/forecasts` compiled to a `27.2 kB` route (`229 kB` first load). The
+  build retains existing repository-wide React hook/font/lint warnings.
+- `ai_services/docker-compose.ai.yml` and `infra/docker-compose.db.yml` both
+  pass Compose configuration validation. The database Compose file retains an
+  obsolete `version` warning only.
+- Spring `/actuator/health` reported `UP`; the verified production Next runtime
+  is reachable on port `3001`. The stale local development process on port
+  `3000` returned `500` after its build cache was replaced and was excluded from
+  acceptance.
+
+### Verification boundary for this session
+
+The environment approval quota blocked starting a new local forecast-service
+listener on `8091` and then blocked the authenticated curl smoke. The in-app
+browser security review also denied localhost navigation. Those restrictions
+were not bypassed. Consequently, this checkpoint does **not** claim a new
+authenticated screenshot or live `Recalculate -> publish -> refresh` browser
+run. The database-backed path is supported by the populated Docker SQL checks,
+the full Spring tests, the 13 forecast-service tests, frontend type checks and
+the successful production render/build. Repeat the authenticated desktop and
+mobile Forecasts smoke, and the live recalculate job, when localhost/browser
+execution approval is available.
 
 ## 2026-07-28 Final Report And README Handoff
 
@@ -1116,3 +1215,60 @@ The evidence supports controlled generated-baseline validity only. It does not e
 - Operational baseline contract suite: `6 passed`.
 
 An authenticated browser refresh is still required to replace any stale React Query/browser cache visible in an already-open tab. The backend serving the corrected defaults is live; no final authenticated screenshot was captured after the last BOM-only redeploy.
+
+## 2026-07-29 Docker Container Recovery
+
+All OptiWMS containers and locally built images were accidentally removed, but
+the named data volumes survived. Recovery was completed without regenerating or
+replacing the project dataset.
+
+### Persistence Evidence
+
+- `infra_db_data` was inspected read-only before startup. It contained a valid
+  PostgreSQL 16 cluster, used approximately 2.7 GB, and retained its control,
+  base and WAL files.
+- PostgreSQL started with the existing cluster and explicitly skipped
+  initialization. The container is healthy on port `5434`.
+- The recovered database contains 92 public tables. All 79 Flyway migrations
+  are successful and the current schema version is V79.
+- Representative recovered row counts are: 1,235 materials, 64,972 orders,
+  244,828 order items, 160,488 inventory rows, 185,000 stock movements,
+  125,184 tasks, 83,088 demand-history rows, 20,238 forecast results, 2,571
+  inventory-policy recommendation lines, 5,131 slotting plan lines, 956 route
+  nodes and 1,980 route edges.
+- The active `ai_services_forecast-service-data` volume retained its 56 MB
+  SQLite database. SQLite integrity is `ok`; it contains 337,850 predictions,
+  1,946 inventory recommendations, 273 metric rows, 21 forecast runs and one
+  model-registry entry. The older AI volume was preserved unchanged.
+
+### Rebuilt Runtime
+
+- The Spring Boot JAR was rebuilt successfully from the current source and
+  packaged into `infra-backend`.
+- The backend is healthy on port `8080`; `/actuator/health` reports `UP`.
+  Startup validated all 79 migrations and applied no migration.
+- The Next.js production build completed successfully and generated all 68
+  routes. Its Docker image was recreated and is healthy.
+- Host port `3000` was already owned by an unrelated local project. The
+  Compose frontend host port is now configurable through
+  `FRONTEND_HOST_PORT`; this recovered instance is running on port `3001`
+  without interrupting the other project.
+- Forecast, orchestration and slotting images were rebuilt. Their services are
+  healthy on ports `8091`, `8092` and `8093`. The forecast runtime contract
+  reports `wms_db`, `validated`, with no missing tables or columns.
+- The optional pgAdmin container was restored on port `5050` with its surviving
+  `infra_pgadmin_data` settings volume.
+- No data-generation or database-loader command was run during recovery.
+
+### Recovery Backups
+
+Validated local recovery copies were created under the ignored
+`recovery_backups/` directory:
+
+- `optiwms-2026-07-29.dump`: 95 MB PostgreSQL custom-format dump;
+  SHA-256 `cdca54048f00aa81aa1c9338f8c8c06d382cec6531ee9f656b6015a5718da6a4`.
+- `forecast-service-2026-07-29.db`: 56 MB consistent SQLite backup;
+  SHA-256 `0deb79346e2de7db2aa64def1bf13a6dc2514b84b0d14ba1edf25c9a6b74bf04`.
+
+Do not run `docker compose down -v`, `docker volume prune`, or another command
+that removes named volumes unless a verified external backup exists.

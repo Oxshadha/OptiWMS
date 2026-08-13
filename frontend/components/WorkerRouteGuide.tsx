@@ -26,6 +26,11 @@ interface CachedRoute {
   session: WorkerRouteSession;
 }
 
+const routeRequests = new Map<
+  string,
+  Promise<{ graph: WarehouseRoutingGraph; session: WorkerRouteSession }>
+>();
+
 export function WorkerRouteGuide({
   warehouseId,
   taskId,
@@ -130,43 +135,58 @@ export function WorkerRouteGuide({
       }
 
       try {
-        const nextGraph = await routingApi.getGraph(effectiveWarehouseId, true);
-        let nextSession: WorkerRouteSession | null = null;
-        if (
-          cached?.key === routeKey &&
-          ["ACTIVE", "WAITING", "PLANNED"].includes(cached.session.status)
-        ) {
-          try {
-            nextSession = await routingApi.getSession(cached.session.id);
-          } catch {
-            nextSession = null;
-          }
+        let routeRequest = routeRequests.get(routeKey);
+        if (!routeRequest) {
+          routeRequest = (async () => {
+            const nextGraph = await routingApi.getGraph(effectiveWarehouseId, true);
+            let nextSession: WorkerRouteSession | null = null;
+            if (
+              cached?.key === routeKey &&
+              ["ACTIVE", "WAITING", "PLANNED"].includes(cached.session.status)
+            ) {
+              try {
+                nextSession = await routingApi.getSession(cached.session.id);
+              } catch {
+                nextSession = null;
+              }
+            }
+
+            if (!nextSession || !["ACTIVE", "WAITING", "PLANNED"].includes(nextSession.status)) {
+              const previous = sessionRef.current;
+              if (
+                previous &&
+                activeKeyRef.current &&
+                activeKeyRef.current !== routeKey &&
+                ["ACTIVE", "WAITING", "PLANNED"].includes(previous.status)
+              ) {
+                try {
+                  await routingApi.cancel(previous.id, previous.routeVersion);
+                } catch {
+                  // Lease expiry is the server-side fallback.
+                }
+              }
+              nextSession = await routingApi.createSession({
+                warehouseId: effectiveWarehouseId,
+                workerId: worker.id,
+                taskId,
+                orderId,
+                operationType: operationType === "putaway" ? "PUTAWAY" : "PICKING",
+                vehicleType: "FORKLIFT",
+                locationCodes: allCodes,
+              });
+            }
+
+            return { graph: nextGraph, session: nextSession };
+          })();
+          routeRequests.set(routeKey, routeRequest);
+          void routeRequest.finally(() => {
+            if (routeRequests.get(routeKey) === routeRequest) {
+              routeRequests.delete(routeKey);
+            }
+          }).catch(() => undefined);
         }
 
-        if (!nextSession || !["ACTIVE", "WAITING", "PLANNED"].includes(nextSession.status)) {
-          const previous = sessionRef.current;
-          if (
-            previous &&
-            activeKeyRef.current &&
-            activeKeyRef.current !== routeKey &&
-            ["ACTIVE", "WAITING", "PLANNED"].includes(previous.status)
-          ) {
-            try {
-              await routingApi.cancel(previous.id, previous.routeVersion);
-            } catch {
-              // Lease expiry is the server-side fallback.
-            }
-          }
-          nextSession = await routingApi.createSession({
-            warehouseId: effectiveWarehouseId,
-            workerId: worker.id,
-            taskId,
-            orderId,
-            operationType: operationType === "putaway" ? "PUTAWAY" : "PICKING",
-            vehicleType: "FORKLIFT",
-            locationCodes: allCodes,
-          });
-        }
+        const { graph: nextGraph, session: nextSession } = await routeRequest;
 
         if (cancelled || requestNumber !== requestNumberRef.current) return;
         activeKeyRef.current = routeKey;
@@ -288,10 +308,15 @@ export function WorkerRouteGuide({
   if (allCodes.length === 0) return null;
 
   const currentStop = session?.stops.find((stop) => stop.status === "CURRENT");
+  const laterStops =
+    session?.stops.filter((stop) => stop.status === "PENDING") || [];
   const pendingStops =
     session?.stops.filter((stop) => ["CURRENT", "PENDING"].includes(stop.status))
       .length || 0;
   const firstLeg = session?.route.find((leg) => leg.status === "RESERVED");
+  const distanceToNextStop = session && currentStop
+    ? distanceThroughNode(session.route, currentStop.accessNodeId)
+    : session?.totalDistanceM || 0;
 
   return (
     <div className="rounded-xl border border-base-300 bg-base-100 p-3 mt-3">
@@ -336,6 +361,15 @@ export function WorkerRouteGuide({
           <span>{error}</span>
         </div>
       ) : null}
+
+      {operationType === "putaway" ? (
+        <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-slate-700">
+          <div className="font-bold text-slate-900">One approved handling-unit trip</div>
+          <div className="mt-0.5">
+            Combine cartons only when the pallet/load ID and forklift capacity allow it. MOQ does not determine vehicle load.
+          </div>
+        </div>
+      ) : null}
       {loading && !session ? (
         <div className="flex items-center gap-2 py-6 justify-center text-sm">
           <span className="loading loading-spinner loading-sm" />
@@ -353,9 +387,9 @@ export function WorkerRouteGuide({
           />
           <div className="grid grid-cols-2 gap-2 text-xs">
             <Metric label="Remaining stops" value={String(pendingStops)} />
-            <Metric label="Route distance" value={`${session.totalDistanceM.toFixed(1)} m`} />
+            <Metric label="To next stop" value={`${distanceToNextStop.toFixed(1)} m`} />
             <Metric
-              label="Estimated travel"
+              label="Total travel"
               value={`${Math.ceil(session.estimatedTravelSeconds / 60)} min`}
             />
             <Metric
@@ -383,6 +417,19 @@ export function WorkerRouteGuide({
                 {firstLeg.waitSeconds > 0
                   ? ` · wait ${Math.ceil(firstLeg.waitSeconds)} seconds`
                   : ""}
+              </div>
+            ) : null}
+            {laterStops.length > 0 ? (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-base-content/55">Later:</span>
+                {laterStops.slice(0, 3).map((stop) => (
+                  <span key={stop.id} className="badge badge-ghost badge-sm font-mono">
+                    {stop.locationCode}
+                  </span>
+                ))}
+                {laterStops.length > 3 ? (
+                  <span className="text-base-content/55">+{laterStops.length - 3}</span>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -442,4 +489,17 @@ function direction(
   if (to.y > from.y) return "south";
   if (to.y < from.y) return "north";
   return "hold position";
+}
+
+function distanceThroughNode(
+  legs: WorkerRouteSession["route"],
+  targetNodeId: string
+) {
+  let distance = 0;
+  for (const leg of legs) {
+    if (leg.status === "RELEASED") continue;
+    distance += leg.distanceM;
+    if (leg.toNodeId === targetNodeId) break;
+  }
+  return distance;
 }
