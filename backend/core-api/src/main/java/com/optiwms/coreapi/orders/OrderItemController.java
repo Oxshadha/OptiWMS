@@ -72,7 +72,7 @@ public class OrderItemController {
         List<PutawayItemDto> putawayItems = items.stream()
                 .filter(item -> item.getPickedQuantity() != null && item.getPickedQuantity() > 0)
                 .map(item -> {
-                    String suggestedLocation = null;
+                    String suggestedLocation = item.getLocationCode();
                     List<String> existingLocations = java.util.List.of();
                     PutawaySplitPlanDto splitPlan = null;
                     String materialCode = null;
@@ -84,29 +84,31 @@ public class OrderItemController {
                     } catch (Exception ignored) {
                         // Material lookup best-effort
                     }
-                    try {
-                        existingLocations = materialLocationService
-                                .findMaterialLocations(item.getMaterialId(), order.getWarehouseId())
-                                .stream()
-                                .map(MaterialLocationAssignmentService.LocationInventory::locationCode)
-                                .distinct()
-                                .collect(java.util.stream.Collectors.toList());
-                        suggestedLocation = materialLocationService.suggestLocationForPutaway(
-                                item.getMaterialId(),
-                                order.getWarehouseId(),
-                                item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity());
-                        Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity()
-                                : item.getQuantity();
-                        if (putawayQty != null && putawayQty > 0) {
-                            var plan = putawayCapacityPlanningService.suggestSplitPlan(
-                                    order.getWarehouseId(),
+                    if (suggestedLocation == null || suggestedLocation.isBlank()) {
+                        try {
+                            existingLocations = materialLocationService
+                                    .findMaterialLocations(item.getMaterialId(), order.getWarehouseId())
+                                    .stream()
+                                    .map(MaterialLocationAssignmentService.LocationInventory::locationCode)
+                                    .distinct()
+                                    .collect(java.util.stream.Collectors.toList());
+                            suggestedLocation = materialLocationService.suggestLocationForPutaway(
                                     item.getMaterialId(),
-                                    putawayQty,
-                                    suggestedLocation);
-                            splitPlan = toPutawaySplitPlanDto(plan);
+                                    order.getWarehouseId(),
+                                    item.getPickedQuantity() != null ? item.getPickedQuantity() : item.getQuantity());
+                            Integer putawayQty = item.getPickedQuantity() != null ? item.getPickedQuantity()
+                                    : item.getQuantity();
+                            if (putawayQty != null && putawayQty > 0) {
+                                var plan = putawayCapacityPlanningService.suggestSplitPlan(
+                                        order.getWarehouseId(),
+                                        item.getMaterialId(),
+                                        putawayQty,
+                                        suggestedLocation);
+                                splitPlan = toPutawaySplitPlanDto(plan);
+                            }
+                        } catch (Exception ignored) {
+                            // Suggestions are best-effort; do not break the putaway list.
                         }
-                    } catch (Exception ignored) {
-                        // Suggestions best-effort; do not break putaway list
                     }
                     return new PutawayItemDto(
                             item.getId().toString(),

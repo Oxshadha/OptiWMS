@@ -1,10 +1,6 @@
 import React from "react";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
-
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 
 export const metadata = {
   title: "OptiWMS",
@@ -44,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
         />
       </head>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}>
+      <body className="font-sans">
         <Providers>
           {children}
         </Providers>
@@ -52,5 +48,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
 

@@ -17,10 +17,77 @@ SEED = 20260711
 LAYOUT_VERSION = "CMB_METRIC_AISLE_V8_EXPANSION"
 PALLET_VOLUME_CM3 = 1_800_000.0
 
+OPERATIONAL_APRON_COORDINATES = {
+    "QTN-01": (-31.0, -12.0),
+    "RCV-01": (-7.0, -12.0),
+    "STG-01": (17.0, -12.0),
+    "PACK-01": (41.0, -12.0),
+    "DSP-01": (65.0, -12.0),
+    "DOOR-01": (17.0, -24.0),
+}
+
 
 def _stable_uuid(kind: str, key: str) -> str:
     namespace = uuid.UUID("791ff7ca-a3f0-4ce2-ad95-02ac0438064e")
     return str(uuid.uuid5(namespace, f"v8:{kind}:{key}"))
+
+
+def _align_operational_apron(layout: pd.DataFrame) -> pd.DataFrame:
+    """Place operational functions on realistic, separately readable positions."""
+    aligned = layout.copy()
+    for location_code, (coordinate_x, coordinate_y) in OPERATIONAL_APRON_COORDINATES.items():
+        location_mask = aligned["location_code"].eq(location_code)
+        aligned.loc[location_mask, ["coordinate_x", "coordinate_y"]] = (
+            coordinate_x,
+            coordinate_y,
+        )
+    return aligned
+
+
+def _align_velocity_zones_to_doors(layout: pd.DataFrame) -> pd.DataFrame:
+    """Assign rack F/M/S suffixes by travel depth from the nearest door.
+
+    ABC remains the capacity/value compatibility prefix. FMS on a physical rack
+    is a velocity zone: the nearest third of racks is Fast, the middle third is
+    Medium, and the deepest third is Slow. This keeps the physical layout and
+    slotting meaning aligned instead of scattering velocity suffixes randomly.
+    """
+    aligned = layout.copy()
+    storage_mask = aligned["zone_type"].isin(["PICK_FACE", "RESERVE"])
+    storage = aligned.loc[storage_mask].copy()
+    doors = aligned.loc[aligned["zone_type"].eq("DOOR"), ["coordinate_x", "coordinate_y"]]
+    if storage.empty or doors.empty:
+        return aligned
+
+    rack_keys = ["area", "row_number", "bay_number"]
+    racks = (
+        storage.groupby(rack_keys, as_index=False)
+        .agg(coordinate_x=("coordinate_x", "mean"), coordinate_y=("coordinate_y", "mean"))
+    )
+    door_points = doors[["coordinate_x", "coordinate_y"]].to_numpy(dtype=float)
+    rack_points = racks[["coordinate_x", "coordinate_y"]].to_numpy(dtype=float)
+    racks["door_distance"] = np.abs(
+        rack_points[:, None, :] - door_points[None, :, :]
+    ).sum(axis=2).min(axis=1)
+    racks = racks.sort_values(["door_distance", *rack_keys]).reset_index(drop=True)
+    fast_max = racks.iloc[(len(racks) - 1) // 3]["door_distance"]
+    medium_max = racks.iloc[(len(racks) * 2 - 1) // 3]["door_distance"]
+    racks["velocity_class"] = np.select(
+        [racks["door_distance"].le(fast_max), racks["door_distance"].le(medium_max)],
+        ["F", "M"],
+        default="S",
+    )
+    velocity_by_rack = racks.set_index(rack_keys)["velocity_class"]
+    storage_index = pd.MultiIndex.from_frame(aligned.loc[storage_mask, rack_keys])
+    suffixes = velocity_by_rack.reindex(storage_index).to_numpy()
+    prefixes = aligned.loc[storage_mask, "physical_class"].astype("string").str[0].str.upper()
+    valid_prefix = prefixes.isin(["A", "B", "C"])
+    aligned.loc[storage_mask, "physical_class"] = np.where(
+        valid_prefix,
+        prefixes.fillna("C").to_numpy() + suffixes,
+        aligned.loc[storage_mask, "physical_class"],
+    )
+    return aligned
 
 
 def _read_baseline_materials() -> pd.DataFrame:
@@ -424,6 +491,8 @@ def _expanded_layout(capacity: pd.DataFrame) -> pd.DataFrame:
     if rack_index != len(new_classes):
         raise RuntimeError("Expanded rack grid does not match the class plan")
     layout = pd.concat([existing, pd.DataFrame(new_rows)], ignore_index=True, sort=False)
+    layout = _align_operational_apron(layout)
+    layout = _align_velocity_zones_to_doors(layout)
     if layout["location_code"].duplicated().any():
         raise RuntimeError("Expanded layout contains duplicate location codes")
     return layout

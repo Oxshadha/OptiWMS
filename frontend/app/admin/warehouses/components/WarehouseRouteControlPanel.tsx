@@ -28,8 +28,11 @@ export function WarehouseRouteControlPanel({
 
   const refresh = useCallback(async () => {
     try {
-      const [nextGraph, nextRoutes, nextStats] = await Promise.all([
-        routingApi.getGraph(warehouseId, true),
+      // Graph creation is authoritative and may happen on the first request
+      // after a layout migration. Load it before dependent graph statistics so
+      // the UI never reports a false failure while generation is in flight.
+      const nextGraph = await routingApi.getGraph(warehouseId, true);
+      const [nextRoutes, nextStats] = await Promise.all([
         routingApi.getActive(warehouseId),
         routingApi.getStats(warehouseId),
       ]);
@@ -201,87 +204,93 @@ export function WarehouseRouteControlPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div
+        className={
+          routes.length > 0
+            ? "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]"
+            : "grid grid-cols-1"
+        }
+      >
         <div className="p-5 border-b xl:border-b-0 xl:border-r border-base-300">
           <LiveWarehouseRouteMap
             graph={graph}
             routes={routes}
             detail="admin"
           />
-          {routes.length === 0 ? (
-            <div className="alert mt-3">
-              <span>
-                No worker has an active route. The active graph remains ready for
-                inbound putaway and outbound picking.
-              </span>
+        </div>
+
+        {routes.length > 0 ? (
+          <div className="p-5 bg-base-200/40">
+            <h3 className="font-bold mb-3">
+              Active workers and reservations
+            </h3>
+            <div className="space-y-3">
+              {routes.map((route) => {
+                const currentStop = route.stops.find(
+                  (stop) => stop.status === "CURRENT"
+                );
+                return (
+                  <div
+                    key={route.id}
+                    className="rounded-xl border border-base-300 bg-base-100 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="font-bold">
+                          Worker {route.workerId.slice(0, 8)}
+                        </div>
+                        <div className="text-xs text-base-content/60">
+                          {route.operationType} · {route.vehicleType}
+                        </div>
+                      </div>
+                      <span
+                        className={`badge ${
+                          route.status === "WAITING"
+                            ? "badge-warning"
+                            : "badge-success"
+                        }`}
+                      >
+                        {route.status} · v{route.routeVersion}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs mt-3">
+                      <div>
+                        <div className="text-base-content/50">Current node</div>
+                        <div className="font-mono truncate">
+                          {route.currentNodeId}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-base-content/50">Next stop</div>
+                        <div className="font-mono truncate">
+                          {currentStop?.locationCode ||
+                            route.endNodeId ||
+                            "Complete"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-base-content/50">Distance</div>
+                        <div>{route.totalDistanceM.toFixed(1)} m</div>
+                      </div>
+                      <div>
+                        <div className="text-base-content/50">Planned wait</div>
+                        <div>{route.totalWaitSeconds.toFixed(0)} sec</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ) : null}
-        </div>
 
-        <div className="p-5 bg-base-200/40">
-          <h3 className="font-bold mb-3">Active workers and reservations</h3>
-          <div className="space-y-3">
-            {routes.map((route) => {
-              const currentStop = route.stops.find(
-                (stop) => stop.status === "CURRENT"
-              );
-              return (
-                <div
-                  key={route.id}
-                  className="rounded-xl border border-base-300 bg-base-100 p-4"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="font-bold">
-                        Worker {route.workerId.slice(0, 8)}
-                      </div>
-                      <div className="text-xs text-base-content/60">
-                        {route.operationType} · {route.vehicleType}
-                      </div>
-                    </div>
-                    <span
-                      className={`badge ${
-                        route.status === "WAITING"
-                          ? "badge-warning"
-                          : "badge-success"
-                      }`}
-                    >
-                      {route.status} · v{route.routeVersion}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs mt-3">
-                    <div>
-                      <div className="text-base-content/50">Current node</div>
-                      <div className="font-mono truncate">{route.currentNodeId}</div>
-                    </div>
-                    <div>
-                      <div className="text-base-content/50">Next stop</div>
-                      <div className="font-mono truncate">
-                        {currentStop?.locationCode || route.endNodeId || "Complete"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-base-content/50">Distance</div>
-                      <div>{route.totalDistanceM.toFixed(1)} m</div>
-                    </div>
-                    <div>
-                      <div className="text-base-content/50">Planned wait</div>
-                      <div>{route.totalWaitSeconds.toFixed(0)} sec</div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            <div className="rounded-xl border border-warning/40 bg-warning/10 p-4 mt-4 text-xs leading-relaxed">
+              <div className="font-bold mb-1">Operational safety boundary</div>
+              Routes coordinate expected aisle occupancy. Operators must still
+              maintain visibility, speed, stopping distance and local
+              right-of-way. A worker with an expired/offline lease must stop
+              before a reserved narrow aisle.
+            </div>
           </div>
-
-          <div className="rounded-xl border border-warning/40 bg-warning/10 p-4 mt-4 text-xs leading-relaxed">
-            <div className="font-bold mb-1">Operational safety boundary</div>
-            Routes coordinate expected aisle occupancy. Operators must still
-            maintain visibility, speed, stopping distance and local right-of-way.
-            A worker with an expired/offline lease must stop before a reserved
-            narrow aisle.
-          </div>
-        </div>
+        ) : null}
       </div>
     </div>
   );

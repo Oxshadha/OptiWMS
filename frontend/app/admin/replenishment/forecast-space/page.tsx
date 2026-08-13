@@ -162,7 +162,7 @@ export default function ForecastSpacePage() {
         warehouseId,
         horizonMonths,
         materialType: materialType || undefined,
-        forecastModelName: "EXTRA_TREES_RESPONSIVE",
+        forecastModelName: "PROJECT_OPS_EXTRA_TREES_CAUSAL",
         createdBy: "warehouse-intelligence-ui",
         notes: "Forecast-driven min/max/ROP recommendation run",
       });

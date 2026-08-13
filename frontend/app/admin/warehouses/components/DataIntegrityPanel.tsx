@@ -42,6 +42,7 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
   const [metrics, setMetrics] = useState<IntegrityMetrics>(emptyMetrics);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
   const loadMetrics = async () => {
     if (!warehouseId) return;
@@ -78,44 +79,68 @@ export function DataIntegrityPanel({ warehouseId }: DataIntegrityPanelProps) {
   }, [metrics]);
 
   return (
-    <div className="card bg-base-100 border border-base-300 p-4">
-      <div className="flex items-center justify-between mb-3">
+    <div className="card bg-base-100 border border-base-300 shadow-sm overflow-hidden">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between gap-4 p-4 text-left hover:bg-base-200/50 transition-colors"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+        aria-controls="warehouse-data-integrity-details"
+      >
         <div>
-          <h3 className="font-semibold text-base-content">Data Integrity</h3>
+          <h3 className="font-semibold text-base-content flex items-center gap-2">
+            <span className="material-symbols-outlined text-lg">verified_user</span>
+            Data health
+          </h3>
           <p className="text-xs text-base-content/60">
-            Master-data coverage, storage compatibility, and stock-health checks.
+            {health.label === "Ready"
+              ? "Warehouse master data and storage assignments are ready."
+              : "Exceptions need review; expand to see technical details."}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className={`text-sm font-semibold ${health.cls}`}>{health.label}</span>
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => void loadMetrics()}
-            disabled={loading}
-            title="Refresh checks"
-          >
-            <span className="material-symbols-outlined">refresh</span>
-          </button>
+          <span className={`material-symbols-outlined transition-transform ${expanded ? "rotate-180" : ""}`}>
+            expand_more
+          </span>
         </div>
-      </div>
+      </button>
 
-      {error ? (
-        <div className="alert alert-warning">
-          <span>{error}</span>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          <Metric title="Materials" value={metrics.totalMaterials} />
-          <Metric title="Defaults Assigned" value={metrics.defaultsAssigned} />
-          <Metric title="Missing Defaults" value={metrics.materialsWithoutDefault} warn={metrics.materialsWithoutDefault > 0} />
-          <Metric title="Inventory Rows" value={metrics.inventoryRows} />
-          <Metric title="Total Qty" value={metrics.inventoryQtySum} />
-          <Metric title="Null Locations" value={metrics.inventoryRowsNullLocation} warn={metrics.inventoryRowsNullLocation > 0} />
-          <Metric title="Pallet Stock in Bulk Bins" value={metrics.wrongTypeNonBulkInBulk} warn={metrics.wrongTypeNonBulkInBulk > 0} />
-          <Metric title="Bulk Stock in Standard Bins" value={metrics.wrongTypeBulkInNonBulk} warn={metrics.wrongTypeBulkInNonBulk > 0} />
-          <Metric title="Invalid Defaults" value={metrics.defaultsToInactiveOrBlocked} warn={metrics.defaultsToInactiveOrBlocked > 0} />
-          <Metric title="Duplicate Primary Bins" value={metrics.duplicatePrimaryLocationCount} warn={metrics.duplicatePrimaryLocationCount > 0} />
-          <Metric title="Stock: Available / Low" value={`${metrics.availableLike} / ${metrics.lowLike}`} />
+      {expanded && (
+        <div id="warehouse-data-integrity-details" className="border-t border-base-300 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-base-content/60">
+              Master-data coverage, storage compatibility, and stock-health diagnostics.
+            </p>
+            <button
+              className="btn btn-xs btn-ghost"
+              onClick={() => void loadMetrics()}
+              disabled={loading}
+              title="Refresh checks"
+            >
+              <span className={`material-symbols-outlined text-base ${loading ? "animate-spin" : ""}`}>refresh</span>
+              Refresh
+            </button>
+          </div>
+          {error ? (
+            <div className="alert alert-warning">
+              <span>{error}</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              <Metric title="Materials" value={metrics.totalMaterials} />
+              <Metric title="Defaults Assigned" value={metrics.defaultsAssigned} />
+              <Metric title="Missing Defaults" value={metrics.materialsWithoutDefault} warn={metrics.materialsWithoutDefault > 0} />
+              <Metric title="Inventory Rows" value={metrics.inventoryRows} />
+              <Metric title="Total Qty" value={metrics.inventoryQtySum} />
+              <Metric title="Unassigned Stock Rows" value={metrics.inventoryRowsNullLocation} warn={metrics.inventoryRowsNullLocation > 0} />
+              <Metric title="Pallet Stock in Bulk Bins" value={metrics.wrongTypeNonBulkInBulk} warn={metrics.wrongTypeNonBulkInBulk > 0} />
+              <Metric title="Bulk Stock in Standard Bins" value={metrics.wrongTypeBulkInNonBulk} warn={metrics.wrongTypeBulkInNonBulk > 0} />
+              <Metric title="Invalid Defaults" value={metrics.defaultsToInactiveOrBlocked} warn={metrics.defaultsToInactiveOrBlocked > 0} />
+              <Metric title="Duplicate Primary Bins" value={metrics.duplicatePrimaryLocationCount} warn={metrics.duplicatePrimaryLocationCount > 0} />
+              <Metric title="Stock: Available / Low" value={`${metrics.availableLike} / ${metrics.lowLike}`} />
+            </div>
+          )}
         </div>
       )}
     </div>

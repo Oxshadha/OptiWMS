@@ -474,6 +474,16 @@ docker compose \
   up -d --force-recreate frontend
 ```
 
+If host port `3000` is already in use, select another host port without
+changing the container:
+
+```bash
+FRONTEND_HOST_PORT=3001 docker compose \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.runtime.yml \
+  up -d --force-recreate frontend
+```
+
 For local frontend development:
 
 ```bash
@@ -533,7 +543,8 @@ docker compose \
 Then open `http://localhost:3000/admin/login` and
 `http://localhost:3000/worker/login`. Confirm the selected warehouse is
 `WH-001`, the route graph reports 956 nodes/1,980 directed edges, and the
-forecast UI identifies `PROJECT_OPS_EXTRA_TREES_CAUSAL`.
+forecast UI identifies `PROJECT_OPS_EXTRA_TREES_CAUSAL`. Replace `3000` with
+the configured `FRONTEND_HOST_PORT` when an alternate host port is used.
 
 ### Day-to-day restart
 
@@ -556,9 +567,9 @@ Step 5.
 
 | Service | URL |
 | --- | --- |
-| Frontend | `http://localhost:3000` |
-| Admin live route control | `http://localhost:3000/admin/pathfinding` |
-| Worker PWA | `http://localhost:3000/worker` |
+| Frontend | `http://localhost:${FRONTEND_HOST_PORT:-3000}` |
+| Admin live route control | `http://localhost:${FRONTEND_HOST_PORT:-3000}/admin/pathfinding` |
+| Worker PWA | `http://localhost:${FRONTEND_HOST_PORT:-3000}/worker` |
 | Spring API | `http://localhost:8080` |
 | Spring health | `http://localhost:8080/actuator/health` |
 | Forecast service/OpenAPI | `http://localhost:8091`, `/docs` |

@@ -114,7 +114,7 @@ public class WarehouseRoutingService {
         List<DbLocation> locations = jdbc.query("""
                 SELECT location_code, area, row_number, bay_number,
                        location_type, zone_type,
-                       coordinate_x, coordinate_y
+                       coordinate_x, coordinate_y, amalgamated_class
                   FROM locations
                  WHERE warehouse_id = ?
                    AND is_active = TRUE
@@ -639,6 +639,7 @@ public class WarehouseRoutingService {
                             location.area(),
                             location.row(),
                             location.bay(),
+                            nullToEmpty(location.amalgamatedClass()),
                             location.x(),
                             location.y(),
                             new ArrayList<>()
@@ -794,6 +795,8 @@ public class WarehouseRoutingService {
                     rack.area(),
                     rack.row(),
                     rack.bay(),
+                    rack.amalgamatedClass(),
+                    velocityClass(rack.amalgamatedClass()),
                     rack.x(),
                     rack.y(),
                     RACK_HALF_WIDTH_M * 2.0,
@@ -819,13 +822,14 @@ public class WarehouseRoutingService {
                             "zoneType", nullToEmpty(station.zoneType())
                     )
             ));
+            double stationAisleX = nearestValue(aisleXList, station.x());
             connectOrthogonally(
                     nodes,
                     edges,
                     stationNodeId,
                     station.x(),
                     station.y(),
-                    aisleXList.get(0),
+                    stationAisleX,
                     crossYs.first(),
                     "STATION_LINK"
             );
@@ -846,7 +850,7 @@ public class WarehouseRoutingService {
                 "PARK-IN",
                 "Inbound Forklift Parking",
                 aisleXList.get(0),
-                minCrossY - 2.0,
+                minCrossY - 5.0,
                 aisleXList.get(0),
                 minCrossY
         );
@@ -857,7 +861,7 @@ public class WarehouseRoutingService {
                 "PARK-OUT",
                 "Outbound Forklift Parking",
                 aisleXList.get(aisleXList.size() - 1),
-                minCrossY - 2.0,
+                minCrossY - 5.0,
                 aisleXList.get(aisleXList.size() - 1),
                 minCrossY
         );
@@ -992,6 +996,12 @@ public class WarehouseRoutingService {
                             String.valueOf(metadata.get("area")),
                             String.valueOf(metadata.get("row")),
                             String.valueOf(metadata.get("bay")),
+                            metadata.get("amalgamatedClass") == null
+                                    ? ""
+                                    : String.valueOf(metadata.get("amalgamatedClass")),
+                            velocityClass(metadata.get("amalgamatedClass") == null
+                                    ? ""
+                                    : String.valueOf(metadata.get("amalgamatedClass"))),
                             asDouble(metadata.get("rackX")),
                             asDouble(metadata.get("rackY")),
                             RACK_HALF_WIDTH_M * 2.0,
@@ -1740,7 +1750,9 @@ public class WarehouseRoutingService {
             graph.nodes().stream()
                     .sorted(Comparator.comparing(NodeDef::id))
                     .forEach(node -> digest.update((
-                            node.id() + "|" + node.type() + "|" + fmt(node.x()) + "|" + fmt(node.y()) + "\n"
+                            node.id() + "|" + node.type() + "|" + fmt(node.x()) + "|" + fmt(node.y())
+                                    + "|" + String.valueOf(node.metadata().getOrDefault("amalgamatedClass", ""))
+                                    + "\n"
                     ).getBytes(StandardCharsets.UTF_8)));
             graph.edges().stream()
                     .sorted(Comparator.comparing(EdgeDef::id))
@@ -1778,6 +1790,7 @@ public class WarehouseRoutingService {
                         "area", rack.area(),
                         "row", rack.row(),
                         "bay", rack.bay(),
+                        "amalgamatedClass", rack.amalgamatedClass(),
                         "rackX", rack.x(),
                         "rackY", rack.y(),
                         "accessSide", side
@@ -1882,6 +1895,12 @@ public class WarehouseRoutingService {
                     3.5
             );
         }
+    }
+
+    private static double nearestValue(List<Double> values, double target) {
+        return values.stream()
+                .min(Comparator.comparingDouble(value -> Math.abs(value - target)))
+                .orElseThrow(() -> new IllegalArgumentException("At least one aisle is required"));
     }
 
     private void addBidirectionalEdge(
@@ -2063,7 +2082,8 @@ public class WarehouseRoutingService {
                     rs.getString("location_type"),
                     rs.getString("zone_type"),
                     rs.getBigDecimal("coordinate_x").doubleValue(),
-                    rs.getBigDecimal("coordinate_y").doubleValue()
+                    rs.getBigDecimal("coordinate_y").doubleValue(),
+                    rs.getString("amalgamated_class")
             );
 
     private static final RowMapper<SessionRow> SESSION_ROW_MAPPER =
@@ -2101,7 +2121,8 @@ public class WarehouseRoutingService {
             String locationType,
             String zoneType,
             double x,
-            double y
+            double y,
+            String amalgamatedClass
     ) {}
 
     private record DoubleRange(double min, double max) {}
@@ -2111,10 +2132,19 @@ public class WarehouseRoutingService {
             String area,
             String row,
             String bay,
+            String amalgamatedClass,
             double x,
             double y,
             List<String> locationCodes
     ) {}
+
+    private static String velocityClass(String amalgamatedClass) {
+        if (amalgamatedClass == null || amalgamatedClass.isBlank()) return "";
+        char suffix = Character.toUpperCase(amalgamatedClass.charAt(amalgamatedClass.length() - 1));
+        return suffix == 'F' || suffix == 'M' || suffix == 'S'
+                ? String.valueOf(suffix)
+                : "";
+    }
 
     private record NodeDef(
             String id,
