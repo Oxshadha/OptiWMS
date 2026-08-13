@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -35,6 +36,9 @@ def root() -> Path:
 
 
 def source_dir() -> Path:
+    configured = os.getenv("OPTIWMS_V8_OUTPUTS_DIR")
+    if configured:
+        return Path(configured).resolve()
     return root() / "Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs"
 
 

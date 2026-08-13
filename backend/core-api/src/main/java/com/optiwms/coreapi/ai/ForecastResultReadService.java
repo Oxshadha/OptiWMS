@@ -40,6 +40,84 @@ public class ForecastResultReadService {
         return count != null && count.longValue() > 0;
     }
 
+    public ResponseEntity<Object> getCanonicalReadiness(String warehouseId, String buildCommit) {
+        String warehouseFilter = warehouseId != null && !warehouseId.isBlank()
+                ? " AND fr.warehouse_id::text = :warehouseId" : "";
+        Query forecastQuery = entityManager.createNativeQuery("""
+                SELECT COUNT(*), COUNT(*) FILTER (WHERE decision_eligible=TRUE),
+                       COUNT(DISTINCT material_id), MAX(created_at),
+                       (SELECT COUNT(*) FROM materials
+                        WHERE data_quality_tier=:qualityTier)
+                FROM forecast_results fr
+                WHERE training_source=:source AND model_name=:model
+                """ + warehouseFilter)
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("model", CANONICAL_MODEL)
+                .setParameter("qualityTier", CANONICAL_QUALITY_TIER);
+        if (!warehouseFilter.isBlank()) forecastQuery.setParameter("warehouseId", warehouseId);
+        Object[] forecast = (Object[]) forecastQuery.getSingleResult();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> registryRows = entityManager.createNativeQuery("""
+                SELECT status, promotion_eligible,
+                       COALESCE(source_lineage->>'dataset_hash','')
+                FROM forecast_model_registry
+                WHERE dataset=:dataset AND model_name=:model AND version=:version
+                ORDER BY updated_at DESC LIMIT 1
+                """).setParameter("dataset", CANONICAL_DATASET).setParameter("model", CANONICAL_MODEL)
+                .setParameter("version", CANONICAL_VERSION).getResultList();
+        @SuppressWarnings("unchecked")
+        List<Object[]> auditRows = entityManager.createNativeQuery("""
+                SELECT dataset_hash, finished_at
+                FROM project_dataset_load_audit
+                WHERE dataset_version=:version AND status='ok'
+                ORDER BY finished_at DESC LIMIT 1
+                """).setParameter("version", CANONICAL_VERSION).getResultList();
+
+        long rows = ((Number) forecast[0]).longValue();
+        long eligible = ((Number) forecast[1]).longValue();
+        long forecastMaterials = ((Number) forecast[2]).longValue();
+        long catalogMaterials = ((Number) forecast[4]).longValue();
+        Object[] registry = registryRows.isEmpty() ? null : registryRows.get(0);
+        Object[] audit = auditRows.isEmpty() ? null : auditRows.get(0);
+        String registryHash = registry != null ? String.valueOf(registry[2]) : "";
+        String auditHash = audit != null ? String.valueOf(audit[0]) : "";
+        boolean checksumMatches = !auditHash.isBlank() && !registryHash.isBlank() && auditHash.equals(registryHash);
+        boolean ready = rows == 1440 && eligible == 1440
+                && forecastMaterials == 120 && catalogMaterials == 144
+                && registry != null && "PROMOTED".equals(registry[0])
+                && Boolean.TRUE.equals(registry[1]) && checksumMatches;
+
+        List<String> errors = new ArrayList<>();
+        if (rows == 0) errors.add("MISSING_DATABASE_POPULATION");
+        else if (rows != 1440 || forecastMaterials != 120 || catalogMaterials != 144) {
+            errors.add("INCOMPLETE_FORECAST_POPULATION");
+        }
+        if (eligible != rows) errors.add("STALE_OR_UNAPPROVED_PUBLISH");
+        if (registry == null) errors.add("MISSING_MODEL_REGISTRATION");
+        else if (!"PROMOTED".equals(registry[0])) errors.add("MODEL_NOT_PROMOTED");
+        if (audit == null) errors.add("MISSING_DATASET_LOAD_AUDIT");
+        if (audit != null && registry != null && !checksumMatches) errors.add("MODEL_DATASET_CHECKSUM_MISMATCH");
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("ready", ready);
+        response.put("errors", errors);
+        response.put("dataset", CANONICAL_DATASET);
+        response.put("datasetVersion", CANONICAL_VERSION);
+        response.put("modelName", CANONICAL_MODEL);
+        response.put("modelStatus", registry != null ? registry[0] : "MISSING");
+        response.put("forecastRowCount", rows);
+        response.put("decisionEligibleRowCount", eligible);
+        response.put("materialCount", catalogMaterials);
+        response.put("forecastMaterialCount", forecastMaterials);
+        response.put("forecastFreshness", forecast[3]);
+        response.put("datasetLoadedAt", audit != null ? audit[1] : null);
+        response.put("datasetChecksum", auditHash);
+        response.put("checksumMatches", checksumMatches);
+        response.put("buildCommit", buildCommit == null || buildCommit.isBlank() ? "development" : buildCommit);
+        return ResponseEntity.ok(response);
+    }
+
     public ResponseEntity<Object> getGatewayModels() {
         List<Map<String, Object>> rows = availableModels();
         Optional<Map<String, Object>> canonical = rows.stream()

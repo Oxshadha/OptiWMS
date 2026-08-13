@@ -272,7 +272,7 @@ export default function DashboardPage() {
       icon: "psychology",
       title: "AI service health moved",
       message: "Forecasting and solver health belong in Intelligent Engine, away from the daily dashboard.",
-      href: "/admin/replenishment",
+      href: "/admin/inventory-intelligence",
       action: "Open engine",
     });
     return insights.slice(0, 4);

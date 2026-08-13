@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -18,6 +19,9 @@ public class AiProxyController {
     private final AiProxyService service;
     private final ForecastResultReadService forecastResultReadService;
     private final ForecastJobService forecastJobService;
+
+    @Value("${optiwms.build.commit:development}")
+    private String buildCommit;
 
     public AiProxyController(AiProxyService service, ForecastResultReadService forecastResultReadService,
             ForecastJobService forecastJobService) {
@@ -51,10 +55,15 @@ public class AiProxyController {
             @RequestParam(defaultValue = "100") Integer size
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        if (forecastResultReadService.hasRows(sku, horizon, model, scopedWarehouse)) {
-            return forecastResultReadService.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse, page, size);
-        }
-        return service.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse);
+        return forecastResultReadService.getForecasts(sku, horizon, dataset, model, runId, scopedWarehouse, page, size);
+    }
+
+    @GetMapping("/forecast-readiness")
+    public ResponseEntity<Object> forecastReadiness(
+            Authentication authentication,
+            @RequestParam(required = false) String warehouseId) {
+        return forecastResultReadService.getCanonicalReadiness(
+                service.resolveWarehouseScope(authentication, warehouseId), buildCommit);
     }
 
     @GetMapping("/forecast-metrics")
@@ -67,10 +76,7 @@ public class AiProxyController {
             @RequestParam(required = false) String warehouseId
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        if (forecastResultReadService.hasCanonicalForecasts()) {
-            return forecastResultReadService.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
-        }
-        return service.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
+        return forecastResultReadService.getForecastMetrics(split, horizon, dataset, model, scopedWarehouse);
     }
 
     @GetMapping("/forecast-skus")
@@ -148,10 +154,7 @@ public class AiProxyController {
             @RequestParam(required = false, name = "top_n") Integer topN
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        if (forecastResultReadService.hasRows(sku, horizon, model, scopedWarehouse)) {
-            return forecastResultReadService.getDashboardSummary(dataset, model, runId, scopedWarehouse, sku, horizon, topN);
-        }
-        return service.getDashboardSummary(dataset, model, runId, scopedWarehouse, sku, horizon, topN);
+        return forecastResultReadService.getDashboardSummary(dataset, model, runId, scopedWarehouse, sku, horizon, topN);
     }
 
     @GetMapping("/inventory-recommendations")
@@ -164,10 +167,7 @@ public class AiProxyController {
             @RequestParam(required = false, name = "run_id") Integer runId
     ) {
         String scopedWarehouse = service.resolveWarehouseScope(authentication, warehouseId);
-        if (forecastResultReadService.hasCanonicalForecasts()) {
-            return forecastResultReadService.getInventoryRecommendations(sku, model, scopedWarehouse);
-        }
-        return service.getInventoryRecommendations(sku, dataset, model, runId, scopedWarehouse);
+        return forecastResultReadService.getInventoryRecommendations(sku, model, scopedWarehouse);
     }
 
     @GetMapping("/raw-material-requirements")

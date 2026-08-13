@@ -102,9 +102,12 @@ export const slottingPlansApi = {
 
   approve: (
     planId: string,
-    body: { approvedBy: string; directApply?: boolean }
+    body: { approvedBy: string }
   ): Promise<SlottingPlanSummary> =>
     apiClient.post<SlottingPlanSummary>(`/v1/slotting/plans/${planId}/approve`, body),
+
+  schedule: (planId: string, scheduledFor: string): Promise<SlottingPlanSummary> =>
+    apiClient.post<SlottingPlanSummary>(`/v1/slotting/plans/${planId}/schedule`, { scheduledFor }),
 
   updateLine: (
     planId: string,

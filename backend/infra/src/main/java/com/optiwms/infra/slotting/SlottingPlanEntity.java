@@ -23,6 +23,10 @@ public class SlottingPlanEntity {
     @JdbcTypeCode(SqlTypes.UUID)
     private UUID warehouseId;
 
+    @Column(name = "planning_cycle_id")
+    @JdbcTypeCode(SqlTypes.UUID)
+    private UUID planningCycleId;
+
     @Column(name = "plan_code", nullable = false, length = 64)
     private String planCode;
 
@@ -52,6 +56,12 @@ public class SlottingPlanEntity {
 
     @Column(name = "total_distance_saved_meters", nullable = false)
     private BigDecimal totalDistanceSavedMeters;
+
+    @Column(name = "confirmed_distance_saved_meters", nullable = false)
+    private BigDecimal confirmedDistanceSavedMeters;
+
+    @Column(name = "scheduled_for")
+    private OffsetDateTime scheduledFor;
 
     @Column(name = "created_by", length = 128)
     private String createdBy;
@@ -122,6 +132,9 @@ public class SlottingPlanEntity {
         if (totalDistanceSavedMeters == null) {
             totalDistanceSavedMeters = BigDecimal.ZERO;
         }
+        if (confirmedDistanceSavedMeters == null) {
+            confirmedDistanceSavedMeters = BigDecimal.ZERO;
+        }
         if (executionStatus == null) {
             executionStatus = "NONE";
         }
@@ -142,6 +155,8 @@ public class SlottingPlanEntity {
     public void setId(UUID id) { this.id = id; }
     public UUID getWarehouseId() { return warehouseId; }
     public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
     public String getPlanCode() { return planCode; }
     public void setPlanCode(String planCode) { this.planCode = planCode; }
     public LocalDate getValidFrom() { return validFrom; }
@@ -162,6 +177,10 @@ public class SlottingPlanEntity {
     public void setTotalMovesProposed(Integer totalMovesProposed) { this.totalMovesProposed = totalMovesProposed; }
     public BigDecimal getTotalDistanceSavedMeters() { return totalDistanceSavedMeters; }
     public void setTotalDistanceSavedMeters(BigDecimal totalDistanceSavedMeters) { this.totalDistanceSavedMeters = totalDistanceSavedMeters; }
+    public BigDecimal getConfirmedDistanceSavedMeters() { return confirmedDistanceSavedMeters; }
+    public void setConfirmedDistanceSavedMeters(BigDecimal confirmedDistanceSavedMeters) { this.confirmedDistanceSavedMeters = confirmedDistanceSavedMeters; }
+    public OffsetDateTime getScheduledFor() { return scheduledFor; }
+    public void setScheduledFor(OffsetDateTime scheduledFor) { this.scheduledFor = scheduledFor; }
     public String getCreatedBy() { return createdBy; }
     public void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
     public String getApprovedBy() { return approvedBy; }

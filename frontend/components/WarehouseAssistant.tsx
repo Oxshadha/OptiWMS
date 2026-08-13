@@ -19,11 +19,9 @@ import {
 } from "lucide-react";
 import {
   askWarehouseAI,
-  askDataAnalytics,
-  queryWmsDatabase,
+  askInventoryIntelligence,
   WarehouseAIRole,
   WarehouseAISource,
-  DataAnalyticsResponse,
 } from "@/services/aiService";
 
 type ChatMessage = {
@@ -77,7 +75,7 @@ export function WarehouseAssistant({
         id: "assistant-welcome-data",
         role: "assistant",
         content:
-          "Hello! I can query your WMS data, generate reports, and visualise trends. What would you like to explore?",
+          "I can explain a SKU outlook, list inventory risks, explain a recommendation, or report a planning-cycle status using authorized business tools.",
       },
     ],
   });
@@ -130,33 +128,7 @@ export function WarehouseAssistant({
           ],
         }));
       } else {
-        let response: DataAnalyticsResponse =
-          await askDataAnalytics(trimmedQuery);
-
-        if (
-          response.sql &&
-          !response.data &&
-          !response.chart &&
-          !response.error
-        ) {
-          try {
-            const exec = await queryWmsDatabase(response.sql);
-            response = {
-              ...response,
-              data: exec.data ?? response.data,
-              chart: exec.chart ?? response.chart,
-              error: exec.error ?? response.error,
-            };
-          } catch (err) {
-            response = {
-              ...response,
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }
-
-        const hasData = response.data && response.data.length > 0;
-        const hasChart = !!response.chart;
+        const response = await askInventoryIntelligence(trimmedQuery);
 
         setChatHistories((prev) => ({
           ...prev,
@@ -165,16 +137,8 @@ export function WarehouseAssistant({
             {
               id: `assistant-${Date.now()}`,
               role: "assistant",
-              // Only show a content message for errors or when there's genuinely nothing to display
-              content: response.error
-                ? response.error
-                : hasChart || hasData
-                  ? ""
-                  : "No data available for this query.",
-              sql: response.sql,
-              data: response.data,
-              chart: response.chart,
-              error: response.error,
+              content: response.answer,
+              sources: response.sources,
             },
           ],
         }));
@@ -233,7 +197,7 @@ export function WarehouseAssistant({
               placeholder={
                 currentTab === "sop"
                   ? "Ask about SOPs, safety checks, or warehouse exceptions…"
-                  : "Ask about your WMS data…"
+                  : "Ask about a SKU, risk, recommendation, or planning cycle…"
               }
               onQueryChange={setQuery}
               onSubmit={handleSubmit}
@@ -440,7 +404,7 @@ function AssistantHeader({
               : "bg-base-200 text-base-content hover:bg-base-300",
           )}
         >
-          Data &amp; Analytics
+          Inventory Intelligence
         </button>
       </div>
     </div>
@@ -642,7 +606,7 @@ function AssistantBody({
             <span>
               {currentTab === "sop"
                 ? "Looking through the SOPs…"
-                : "Fetching data…"}
+                : "Reading authorized facts…"}
             </span>
           </div>
         </div>

@@ -6,6 +6,7 @@ import com.optiwms.infra.forecastspace.SpaceOptimizationRunEntity;
 import com.optiwms.infra.forecastspace.SpaceOptimizationRunRepository;
 import com.optiwms.infra.slotting.SlottingPlanEntity;
 import com.optiwms.infra.slotting.SlottingPlanRepository;
+import com.optiwms.infra.orders.OrderRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -13,6 +14,7 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -20,14 +22,17 @@ public class ActionCenterService {
     private final InventoryPolicyRecommendationRunRepository policyRunRepository;
     private final SpaceOptimizationRunRepository spaceRunRepository;
     private final SlottingPlanRepository slottingPlanRepository;
+    private final OrderRepository orderRepository;
 
     public ActionCenterService(
             InventoryPolicyRecommendationRunRepository policyRunRepository,
             SpaceOptimizationRunRepository spaceRunRepository,
-            SlottingPlanRepository slottingPlanRepository) {
+            SlottingPlanRepository slottingPlanRepository,
+            OrderRepository orderRepository) {
         this.policyRunRepository = policyRunRepository;
         this.spaceRunRepository = spaceRunRepository;
         this.slottingPlanRepository = slottingPlanRepository;
+        this.orderRepository = orderRepository;
     }
 
     public ActionCenterSummary summarize(UUID warehouseId) {
@@ -42,69 +47,103 @@ public class ActionCenterService {
         SpaceOptimizationRunEntity latestSpace = first(spaceRuns);
         SlottingPlanEntity latestSlotting = first(slottingPlans);
 
-        int pendingPolicies = (int) policyRuns.stream().filter(run -> !"APPROVED".equals(run.getStatus())).count();
-        int pendingSpaceRuns = (int) spaceRuns.stream().filter(run -> !"APPROVED".equals(run.getStatus())).count();
+        Set<String> reviewable = Set.of("DRAFT", "PENDING_APPROVAL", "READY_FOR_REVIEW");
+        InventoryPolicyRecommendationRunEntity actionablePolicy = policyRuns.stream()
+                .filter(run -> reviewable.contains(run.getStatus()))
+                .findFirst()
+                .orElse(null);
+        int pendingPolicies = (int) policyRuns.stream().filter(run -> reviewable.contains(run.getStatus())).count();
+        int pendingSpaceRuns = (int) spaceRuns.stream().filter(run -> reviewable.contains(run.getStatus())).count();
         int draftSlottingPlans = (int) slottingPlans.stream().filter(run -> "DRAFT".equals(run.getStatus())).count();
+        int draftPurchaseSuggestions = (int) orderRepository.findOperationalByWarehouseId(warehouseId).stream()
+                .filter(order -> "draft".equalsIgnoreCase(order.getStatus()))
+                .filter(order -> order.getNotes() != null && order.getNotes().contains("Forecast policy purchase suggestion"))
+                .count();
+        InventoryPolicyRecommendationRunEntity policyForDecisionView = actionablePolicy != null
+                ? actionablePolicy : latestPolicy;
+        int stockoutExposure = policyForDecisionView != null ? nz(policyForDecisionView.getHighRiskCount()) : 0;
+        BigDecimal excessInventoryValue = policyForDecisionView != null
+                && policyForDecisionView.getEstimatedHoldingCostDelta() != null
+                && policyForDecisionView.getEstimatedHoldingCostDelta().signum() < 0
+                ? policyForDecisionView.getEstimatedHoldingCostDelta().negate() : BigDecimal.ZERO;
+        int scheduledMoves = latestSlotting != null
+                && Set.of("SCHEDULED", "ACTIVE").contains(latestSlotting.getStatus())
+                ? nz(latestSlotting.getTotalMovesProposed()) : 0;
 
         List<ActionItem> actions = new ArrayList<>();
         if (latestPolicy == null) {
             actions.add(new ActionItem(
+                    null,
                     "CREATE_POLICY",
                     "Generate inventory policy",
                     "Create min/max, reorder point, and order quantity recommendations from forecast demand.",
                     "HIGH",
-                    "/admin/replenishment/forecast-space",
+                    "/admin/inventory-intelligence",
                     null));
-        } else if (!"APPROVED".equals(latestPolicy.getStatus())) {
+        } else if (actionablePolicy != null) {
             actions.add(new ActionItem(
+                    actionablePolicy.getId(),
                     "APPROVE_POLICY",
                     "Review min/max policy",
                     "Pending forecast-driven policy run has "
-                            + nz(latestPolicy.getHighRiskCount()) + " high-risk and "
-                            + nz(latestPolicy.getDataInsufficientCount()) + " data-gap lines.",
-                    latestPolicy.getHighRiskCount() != null && latestPolicy.getHighRiskCount() > 0 ? "HIGH" : "MEDIUM",
-                    "/admin/replenishment/forecast-space",
-                    latestPolicy.getCreatedAt()));
+                            + nz(actionablePolicy.getHighRiskCount()) + " high-risk and "
+                            + nz(actionablePolicy.getDataInsufficientCount()) + " data-gap lines.",
+                    actionablePolicy.getHighRiskCount() != null && actionablePolicy.getHighRiskCount() > 0 ? "HIGH" : "MEDIUM",
+                    "/admin/inventory-intelligence",
+                    actionablePolicy.getCreatedAt()));
         }
 
         if (latestPolicy != null && "APPROVED".equals(latestPolicy.getStatus()) && latestSpace == null) {
             actions.add(new ActionItem(
+                    latestPolicy.getId(),
                     "CREATE_SPACE_RUN",
                     "Optimize released and needed pallet space",
                     "Approved policy exists; create the storage impact run to reuse released compatible space.",
                     "HIGH",
-                    "/admin/replenishment/forecast-space",
+                    "/admin/inventory-intelligence",
                     latestPolicy.getApprovedAt()));
-        } else if (latestSpace != null && !"APPROVED".equals(latestSpace.getStatus())) {
+        } else if (latestSpace != null && reviewable.contains(latestSpace.getStatus())) {
             actions.add(new ActionItem(
+                    latestSpace.getId(),
                     "APPROVE_SPACE",
                     "Create slotting draft from space impact",
                     "Space run found "
                             + nz(latestSpace.getInfeasibleCount()) + " infeasible lines and "
                             + fmt(latestSpace.getTotalSpaceSavedPalletPositions()) + " saved pallet positions.",
                     latestSpace.getInfeasibleCount() != null && latestSpace.getInfeasibleCount() > 0 ? "HIGH" : "MEDIUM",
-                    "/admin/replenishment/forecast-space",
+                    "/admin/inventory-intelligence",
                     latestSpace.getCreatedAt()));
         }
 
         if (latestSlotting == null) {
             actions.add(new ActionItem(
+                    null,
                     "CREATE_SLOTTING_PLAN",
                     "Generate location plan",
                     "Create an on-demand slotting plan for pick-face and reserve locations.",
                     "MEDIUM",
-                    "/admin/slotting-plans",
+                    "/admin/inventory-intelligence",
                     null));
         } else if ("DRAFT".equals(latestSlotting.getStatus())) {
             actions.add(new ActionItem(
+                    latestSlotting.getId(),
                     "APPROVE_SLOTTING_PLAN",
                     "Approve location plan",
                     "Draft plan proposes "
                             + nz(latestSlotting.getTotalMovesProposed()) + " moves under a "
                             + fmt(latestSlotting.getRelocationBudgetPct()) + "% relocation budget.",
                     latestSlotting.getTotalMovesProposed() != null && latestSlotting.getTotalMovesProposed() > 0 ? "HIGH" : "LOW",
-                    "/admin/slotting-plans",
+                    "/admin/inventory-intelligence",
                     latestSlotting.getCreatedAt()));
+        } else if ("APPROVED".equals(latestSlotting.getStatus())) {
+            actions.add(new ActionItem(
+                    latestSlotting.getId(),
+                    "SCHEDULE_SLOTTING_PLAN",
+                    "Schedule approved relocation work",
+                    "Release the approved moves in the warehouse off-peak window so workers receive scan-based tasks.",
+                    "MEDIUM",
+                    "/admin/inventory-intelligence",
+                    latestSlotting.getApprovedAt()));
         }
 
         actions.sort(Comparator.comparing(ActionItem::priorityRank).reversed());
@@ -120,14 +159,22 @@ public class ActionCenterService {
                 pendingPolicies,
                 pendingSpaceRuns,
                 draftSlottingPlans,
-                latestPolicy != null ? latestPolicy.getStatus() : "NONE",
+                draftPurchaseSuggestions,
+                stockoutExposure,
+                excessInventoryValue,
+                scheduledMoves,
+                latestSlotting != null ? nz(latestSlotting.getTotalDistanceSavedMeters()) : BigDecimal.ZERO,
+                latestSlotting != null ? nz(latestSlotting.getConfirmedDistanceSavedMeters()) : BigDecimal.ZERO,
+                policyForDecisionView != null ? policyForDecisionView.getStatus() : "NONE",
                 latestSpace != null ? latestSpace.getStatus() : "NONE",
                 latestSlotting != null ? latestSlotting.getStatus() : "NONE",
-                latestPolicy != null ? latestPolicy.getTotalStockDelta() : BigDecimal.ZERO,
-                latestPolicy != null ? latestPolicy.getTotalPalletPositionsDelta() : BigDecimal.ZERO,
+                latestSlotting != null && latestSlotting.getExecutionStatus() != null
+                        ? latestSlotting.getExecutionStatus() : "NOT_STARTED",
+                policyForDecisionView != null ? policyForDecisionView.getTotalStockDelta() : BigDecimal.ZERO,
+                policyForDecisionView != null ? policyForDecisionView.getTotalPalletPositionsDelta() : BigDecimal.ZERO,
                 latestSpace != null ? latestSpace.getTotalSpaceSavedPalletPositions() : BigDecimal.ZERO,
                 latestSpace != null ? latestSpace.getTotalSpaceNeededPalletPositions() : BigDecimal.ZERO,
-                latestSlotting != null ? latestSlotting.getTotalMovesProposed() : 0,
+                latestSlotting != null ? nz(latestSlotting.getTotalMovesProposed()) : 0,
                 actions,
                 solverGuidance);
     }
@@ -138,6 +185,10 @@ public class ActionCenterService {
 
     private int nz(Integer value) {
         return value != null ? value : 0;
+    }
+
+    private BigDecimal nz(BigDecimal value) {
+        return value != null ? value : BigDecimal.ZERO;
     }
 
     private String fmt(BigDecimal value) {
@@ -152,9 +203,16 @@ public class ActionCenterService {
             int pendingPolicyRuns,
             int pendingSpaceRuns,
             int draftSlottingPlans,
+            int draftPurchaseSuggestions,
+            int stockoutExposure,
+            BigDecimal excessInventoryValue,
+            int scheduledMoves,
+            BigDecimal estimatedTravelReductionMeters,
+            BigDecimal confirmedTravelReductionMeters,
             String latestPolicyStatus,
             String latestSpaceStatus,
             String latestSlottingStatus,
+            String latestSlottingExecutionStatus,
             BigDecimal totalStockDelta,
             BigDecimal totalPalletDelta,
             BigDecimal totalSpaceSavedPalletPositions,
@@ -164,6 +222,7 @@ public class ActionCenterService {
             SolverGuidance solverGuidance) {}
 
     public record ActionItem(
+            UUID sourceId,
             String type,
             String title,
             String description,

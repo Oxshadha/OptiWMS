@@ -516,15 +516,10 @@ public class AiProxyService {
 
     public String resolveWarehouseScope(Authentication authentication, String requestedWarehouseId) {
         UserEntity user = resolveUser(authentication);
-        if (user == null) {
-            return requestedWarehouseId;
-        }
-
-        if (isAdminLike(authentication)) {
-            return requestedWarehouseId;
-        }
-
-        return user.getWarehouseId() != null ? user.getWarehouseId().toString() : null;
+        // Never accept an operational warehouse scope solely because it was supplied by
+        // a prompt or query parameter. Cross-warehouse access needs an explicit assignment
+        // model; until then every assistant/AI read is bound to the user's warehouse.
+        return user != null && user.getWarehouseId() != null ? user.getWarehouseId().toString() : null;
     }
 
     private UserEntity resolveUser(Authentication authentication) {

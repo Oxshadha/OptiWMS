@@ -1,13 +1,29 @@
 import os
-from typing import Optional
-from fastapi import FastAPI, HTTPException
+import hashlib
+import json
+import logging
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
+from typing import Any, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from fastapi import FastAPI, Header, HTTPException, Response, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agent import load_agent, ask
-from db_agent import ask_database
 
 app = FastAPI(title="OptiWMS Agent API")
 chain = load_agent()
+bearer = HTTPBearer(auto_error=True)
+logger = logging.getLogger("optiwms.sop_assistant")
+spring_api_base_url = os.getenv("SPRING_API_BASE_URL", "http://localhost:8080").rstrip("/")
+request_limit_per_minute = int(os.getenv("AI_AGENT_RATE_LIMIT_PER_MINUTE", "30"))
+request_windows: dict[str, deque[float]] = defaultdict(deque)
+request_window_lock = threading.Lock()
 
 allowed_origins = os.getenv(
     "AI_AGENT_ALLOWED_ORIGINS",
@@ -30,52 +46,71 @@ class QuestionRequest(BaseModel):
 
 class AnswerResponse(BaseModel):
     answer: str
-    sources: list[str]
-    context: Optional[str] = None
-
-class DataResponse(BaseModel):
-    sql: Optional[str] = None
-    data: Optional[list] = None
-    chart: Optional[str] = None
-    error: Optional[str] = None
-
-
-class SQLRequest(BaseModel):
-    sql: str
+    citations: list[str]
+    facts: dict[str, Any]
+    warnings: list[str]
+    toolCalls: list[dict[str, Any]]
+    correlationId: str
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "liveDataMode": "typed-spring-tools-only"}
 
 @app.post("/ask", response_model=AnswerResponse)
-def ask_question(request: QuestionRequest):
+def ask_question(
+    request: QuestionRequest,
+    response: Response,
+    credentials: HTTPAuthorizationCredentials = Security(bearer),
+    requested_correlation: Optional[str] = Header(default=None, alias="X-Correlation-ID"),
+):
+    identity = validate_identity(credentials.credentials)
+    enforce_rate_limit(credentials.credentials)
     question = (request.message or request.question or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="A message is required.")
     answer, sources = ask(chain, question)
-    return AnswerResponse(answer=answer, sources=sources, context=request.context)
+    correlation_id = requested_correlation.strip() if requested_correlation else str(uuid.uuid4())
+    response.headers["X-Correlation-ID"] = correlation_id
+    logger.info(
+        "assistant_tool tool=sop_search user=%s result_count=%d correlation_id=%s",
+        identity.get("username") or identity.get("email") or identity.get("id") or "authenticated",
+        len(sources),
+        correlation_id,
+    )
+    return AnswerResponse(
+        answer=answer,
+        citations=sources,
+        facts={},
+        warnings=[],
+        toolCalls=[{"name": "search_sop_index", "resultCount": len(sources)}],
+        correlationId=correlation_id,
+    )
 
-@app.post("/ask-data", response_model=DataResponse)
-def ask_data_question(request: QuestionRequest):
-    question = (request.message or request.question or "").strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="A message is required.")
-    df, sql, chart, error = ask_database(question)
-    if error:
-        return DataResponse(error=error, sql=sql)
-    data = df.to_dict(orient="records") if df is not None else None
-    return DataResponse(sql=sql, data=data, chart=chart)
+
+def validate_identity(token: str) -> dict[str, Any]:
+    validation_request = Request(
+        f"{spring_api_base_url}/api/auth/me",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    try:
+        with urlopen(validation_request, timeout=4) as spring_response:
+            payload = json.loads(spring_response.read().decode("utf-8"))
+            return payload if isinstance(payload, dict) else {}
+    except HTTPError as exc:
+        if exc.code in (401, 403):
+            raise HTTPException(status_code=401, detail="The signed-in identity is not valid.") from exc
+        raise HTTPException(status_code=503, detail="Identity validation is temporarily unavailable.") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="Identity validation is temporarily unavailable.") from exc
 
 
-@app.post("/query-sql", response_model=DataResponse)
-def query_sql(request: SQLRequest):
-    sql = request.sql or ""
-    if not sql:
-        raise HTTPException(status_code=400, detail="A SQL statement is required.")
-    from db_agent import run_sql
-
-    df, chart, error = run_sql(sql)
-    if error:
-        return DataResponse(error=error, sql=sql)
-    data = df.to_dict(orient="records") if df is not None else None
-    return DataResponse(sql=sql, data=data, chart=chart)
+def enforce_rate_limit(token: str) -> None:
+    now = time.monotonic()
+    key = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with request_window_lock:
+        window = request_windows[key]
+        while window and now - window[0] >= 60:
+            window.popleft()
+        if len(window) >= request_limit_per_minute:
+            raise HTTPException(status_code=429, detail="Assistant request limit exceeded. Try again shortly.")
+        window.append(now)

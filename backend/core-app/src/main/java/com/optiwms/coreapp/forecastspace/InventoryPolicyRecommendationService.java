@@ -8,6 +8,8 @@ import com.optiwms.infra.forecast.ForecastResultRepository;
 import com.optiwms.infra.forecastspace.*;
 import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
+import com.optiwms.infra.intelligence.PlanningCycleEntity;
+import com.optiwms.infra.intelligence.PlanningCycleRepository;
 import com.optiwms.infra.orders.OrderItemEntity;
 import com.optiwms.infra.orders.OrderItemRepository;
 import com.optiwms.infra.master.MaterialEntity;
@@ -50,6 +52,7 @@ public class InventoryPolicyRecommendationService {
     private final HandlingUnitCapacityService capacityService;
     private final OrderService orderService;
     private final OrderItemRepository orderItemRepository;
+    private final PlanningCycleRepository planningCycleRepository;
 
     public InventoryPolicyRecommendationService(
             InventoryPolicyRecommendationRunRepository runRepository,
@@ -63,7 +66,8 @@ public class InventoryPolicyRecommendationService {
             SupplierMaterialRepository supplierMaterialRepository,
             HandlingUnitCapacityService capacityService,
             OrderService orderService,
-            OrderItemRepository orderItemRepository) {
+            OrderItemRepository orderItemRepository,
+            PlanningCycleRepository planningCycleRepository) {
         this.runRepository = runRepository;
         this.lineRepository = lineRepository;
         this.scenarioRepository = scenarioRepository;
@@ -76,6 +80,7 @@ public class InventoryPolicyRecommendationService {
         this.capacityService = capacityService;
         this.orderService = orderService;
         this.orderItemRepository = orderItemRepository;
+        this.planningCycleRepository = planningCycleRepository;
     }
 
     @Transactional
@@ -83,8 +88,16 @@ public class InventoryPolicyRecommendationService {
         int horizon = normalizeHorizon(request.horizonMonths());
         UUID warehouseId = request.warehouseId();
 
+        PlanningCycleEntity cycle = new PlanningCycleEntity();
+        cycle.setWarehouseId(warehouseId);
+        cycle.setCreatedBy(request.createdBy());
+        cycle.setCadence("DAILY_POLICY");
+        cycle.setLifecycleStatus("CALCULATING");
+        cycle = planningCycleRepository.save(cycle);
+
         InventoryPolicyRecommendationRunEntity run = new InventoryPolicyRecommendationRunEntity();
         run.setWarehouseId(warehouseId);
+        run.setPlanningCycleId(cycle.getId());
         run.setHorizonMonths(horizon);
         run.setForecastModelName(request.forecastModelName());
         run.setForecastRunId(request.forecastRunId());
@@ -152,7 +165,10 @@ public class InventoryPolicyRecommendationService {
         run.setHighRiskCount(highRisk);
         run.setDataInsufficientCount(dataInsufficient);
         run.setStatus("PENDING_APPROVAL");
-        return runRepository.save(run);
+        InventoryPolicyRecommendationRunEntity saved = runRepository.save(run);
+        cycle.setLifecycleStatus("READY_FOR_REVIEW");
+        planningCycleRepository.save(cycle);
+        return saved;
     }
 
     public ForecastSpaceReadiness readiness(UUID warehouseId, String materialType, Integer horizonMonths) {
@@ -258,6 +274,11 @@ public class InventoryPolicyRecommendationService {
         return lineRepository.findByRunIdOrderByMaterialCodeAsc(runId);
     }
 
+    public InventoryPolicyRecommendationLineEntity getLine(UUID lineId) {
+        return lineRepository.findById(lineId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Policy line not found"));
+    }
+
     public List<InventoryPolicySimulationEvidenceEntity> getSimulationEvidence(UUID runId) {
         getRun(runId);
         return simulationEvidenceRepository.findByPolicyRunId(runId);
@@ -298,8 +319,8 @@ public class InventoryPolicyRecommendationService {
                 item.setReorderPoint(line.getProposedReorderPoint());
                 item.setBufferStock(line.getProposedMinStock());
                 item.setOrderQuantity(line.getProposedOrderQty());
-                item.setPalletRequirement(line.getPalletPositionsDelta() != null
-                        ? line.getPalletPositionsDelta().abs()
+                item.setPalletRequirement(line.getTargetPalletPositions() != null
+                        ? line.getTargetPalletPositions()
                         : item.getPalletRequirement());
                 updatedInventory.add(item);
             }
@@ -312,6 +333,12 @@ public class InventoryPolicyRecommendationService {
         run.setStatus("APPROVED");
         run.setApprovedBy(approvedBy);
         run.setApprovedAt(OffsetDateTime.now());
+        if (run.getPlanningCycleId() != null) {
+            planningCycleRepository.findById(run.getPlanningCycleId()).ifPresent(cycle -> {
+                cycle.setLifecycleStatus("APPROVED");
+                planningCycleRepository.save(cycle);
+            });
+        }
         run.setNotes(appendNote(run.getNotes(), String.format(Locale.ROOT,
                 "Created %d draft purchase suggestions with %d lines; %d lines had no preferred supplier.",
                 suggestions.ordersCreated(), suggestions.linesCreated(), suggestions.linesSkipped())));
@@ -521,6 +548,8 @@ public class InventoryPolicyRecommendationService {
         BigDecimal currentTarget = line.getCurrentMaxStock() != null ? line.getCurrentMaxStock() : current;
         BigDecimal stockDelta = proposedMax.subtract(currentTarget).setScale(2, RoundingMode.HALF_UP);
         BigDecimal palletDelta = palletPositions(stockDelta, material);
+        BigDecimal targetPalletPositions = palletPositions(proposedMax, material)
+                .setScale(2, RoundingMode.CEILING);
         BigDecimal holdingDelta = stockDelta.multiply(supplier.unitCost()).multiply(DEFAULT_HOLDING_COST_RATE)
                 .setScale(2, RoundingMode.HALF_UP);
 
@@ -531,6 +560,7 @@ public class InventoryPolicyRecommendationService {
         line.setProposedOrderQty(orderQty.setScale(2, RoundingMode.HALF_UP));
         line.setStockDelta(stockDelta);
         line.setPalletPositionsDelta(palletDelta);
+        line.setTargetPalletPositions(targetPalletPositions);
         line.setHoldingCostDelta(holdingDelta);
 
         BigDecimal stockoutRisk = stockoutRisk(available, proposedRop, forecast.p90(), forecast.p50());

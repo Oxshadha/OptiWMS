@@ -21,6 +21,10 @@ public class InventoryPolicyRecommendationRunEntity {
     @JdbcTypeCode(SqlTypes.UUID)
     private UUID warehouseId;
 
+    @Column(name = "planning_cycle_id")
+    @JdbcTypeCode(SqlTypes.UUID)
+    private UUID planningCycleId;
+
     @Column(name = "horizon_months", nullable = false)
     private Integer horizonMonths;
 
@@ -89,6 +93,8 @@ public class InventoryPolicyRecommendationRunEntity {
     public void setId(UUID id) { this.id = id; }
     public UUID getWarehouseId() { return warehouseId; }
     public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
     public Integer getHorizonMonths() { return horizonMonths; }
     public void setHorizonMonths(Integer horizonMonths) { this.horizonMonths = horizonMonths; }
     public String getStatus() { return status; }

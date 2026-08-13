@@ -1,11 +1,16 @@
 package com.optiwms.coreapi.forecastspace;
 
+import com.optiwms.coreapi.ai.AiProxyService;
 import com.optiwms.coreapp.forecastspace.ForecastSpaceOptimizationService;
 import com.optiwms.coreapp.forecastspace.InventoryPolicyRecommendationService;
 import com.optiwms.infra.forecastspace.*;
+import com.optiwms.infra.master.MaterialRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -13,24 +18,32 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/forecast-space")
+@PreAuthorize("hasAnyRole('ADMIN','WAREHOUSE_MANAGER','MANAGER','SUPERVISOR')")
 public class ForecastSpaceOptimizationController {
     private final InventoryPolicyRecommendationService policyService;
     private final ForecastSpaceOptimizationService spaceService;
+    private final MaterialRepository materialRepository;
+    private final AiProxyService aiProxyService;
 
     public ForecastSpaceOptimizationController(
             InventoryPolicyRecommendationService policyService,
-            ForecastSpaceOptimizationService spaceService) {
+            ForecastSpaceOptimizationService spaceService,
+            MaterialRepository materialRepository,
+            AiProxyService aiProxyService) {
         this.policyService = policyService;
         this.spaceService = spaceService;
+        this.materialRepository = materialRepository;
+        this.aiProxyService = aiProxyService;
     }
 
     @GetMapping("/readiness")
     public ReadinessDto getReadiness(
+            Authentication authentication,
             @RequestParam UUID warehouseId,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) Integer horizonMonths) {
         InventoryPolicyRecommendationService.ForecastSpaceReadiness readiness =
-                policyService.readiness(warehouseId, materialType, horizonMonths);
+                policyService.readiness(authorizedWarehouse(authentication, warehouseId), materialType, horizonMonths);
         return new ReadinessDto(
                 str(readiness.warehouseId()),
                 readiness.horizonMonths(),
@@ -50,10 +63,12 @@ public class ForecastSpaceOptimizationController {
     }
 
     @PostMapping("/policy-runs")
-    public ResponseEntity<PolicyRunDto> createPolicyRun(@RequestBody CreatePolicyRunDto body) {
+    public ResponseEntity<PolicyRunDto> createPolicyRun(@RequestBody CreatePolicyRunDto body,
+            Authentication authentication) {
+        UUID warehouseId = authorizedWarehouse(authentication, UUID.fromString(body.warehouseId()));
         InventoryPolicyRecommendationRunEntity run = policyService.createRun(
                 new InventoryPolicyRecommendationService.CreatePolicyRunRequest(
-                        UUID.fromString(body.warehouseId()),
+                        warehouseId,
                         body.horizonMonths(),
                         body.materialType(),
                         body.forecastModelName(),
@@ -64,73 +79,112 @@ public class ForecastSpaceOptimizationController {
     }
 
     @GetMapping("/policy-runs")
-    public List<PolicyRunDto> listPolicyRuns(@RequestParam UUID warehouseId) {
-        return policyService.listRuns(warehouseId).stream().map(this::toPolicyRun).toList();
+    public List<PolicyRunDto> listPolicyRuns(@RequestParam UUID warehouseId, Authentication authentication) {
+        return policyService.listRuns(authorizedWarehouse(authentication, warehouseId)).stream().map(this::toPolicyRun).toList();
     }
 
     @GetMapping("/policy-runs/{runId}")
-    public PolicyRunDto getPolicyRun(@PathVariable UUID runId) {
-        return toPolicyRun(policyService.getRun(runId));
+    public PolicyRunDto getPolicyRun(@PathVariable UUID runId, Authentication authentication) {
+        return toPolicyRun(authorizedPolicyRun(runId, authentication));
     }
 
     @GetMapping("/policy-runs/{runId}/lines")
-    public List<PolicyLineDto> getPolicyLines(@PathVariable UUID runId) {
+    public List<PolicyLineDto> getPolicyLines(@PathVariable UUID runId, Authentication authentication) {
+        authorizedPolicyRun(runId, authentication);
         return policyService.getLines(runId).stream().map(this::toPolicyLine).toList();
     }
 
     @GetMapping("/policy-runs/{runId}/simulation-evidence")
-    public List<PolicySimulationEvidenceDto> getPolicySimulationEvidence(@PathVariable UUID runId) {
+    public List<PolicySimulationEvidenceDto> getPolicySimulationEvidence(@PathVariable UUID runId,
+            Authentication authentication) {
+        authorizedPolicyRun(runId, authentication);
         return policyService.getSimulationEvidence(runId).stream().map(this::toSimulationEvidence).toList();
     }
 
     @GetMapping("/policy-lines/{lineId}/scenarios")
-    public List<ScenarioDto> getPolicyLineScenarios(@PathVariable UUID lineId) {
+    public List<ScenarioDto> getPolicyLineScenarios(@PathVariable UUID lineId, Authentication authentication) {
+        authorizedPolicyRun(policyService.getLine(lineId).getRunId(), authentication);
         return policyService.getScenariosForPolicyLine(lineId).stream().map(this::toScenario).toList();
     }
 
     @PostMapping("/policy-runs/{runId}/approve")
-    public PolicyRunDto approvePolicyRun(@PathVariable UUID runId, @RequestBody ApproveRunDto body) {
+    public PolicyRunDto approvePolicyRun(@PathVariable UUID runId, @RequestBody ApproveRunDto body,
+            Authentication authentication) {
+        authorizedPolicyRun(runId, authentication);
         return toPolicyRun(policyService.approveRun(runId, body.approvedBy()));
     }
 
     @PostMapping("/policy-runs/{runId}/rollback")
-    public PolicyRunDto rollbackPolicyRun(@PathVariable UUID runId, @RequestBody RollbackRunDto body) {
+    public PolicyRunDto rollbackPolicyRun(@PathVariable UUID runId, @RequestBody RollbackRunDto body,
+            Authentication authentication) {
+        authorizedPolicyRun(runId, authentication);
         return toPolicyRun(policyService.rollbackRun(runId, body.rolledBackBy()));
     }
 
     @PostMapping("/space-runs")
-    public ResponseEntity<SpaceRunDto> createSpaceRun(@RequestBody CreateSpaceRunDto body) {
+    public ResponseEntity<SpaceRunDto> createSpaceRun(@RequestBody CreateSpaceRunDto body,
+            Authentication authentication) {
+        UUID policyRunId = UUID.fromString(body.policyRunId());
+        authorizedPolicyRun(policyRunId, authentication);
         SpaceOptimizationRunEntity run = spaceService.createRun(
                 new ForecastSpaceOptimizationService.CreateSpaceRunRequest(
-                        UUID.fromString(body.policyRunId()),
+                        policyRunId,
                         body.createdBy(),
                         body.notes()));
         return ResponseEntity.status(HttpStatus.CREATED).body(toSpaceRun(run));
     }
 
     @GetMapping("/space-runs")
-    public List<SpaceRunDto> listSpaceRuns(@RequestParam UUID warehouseId) {
-        return spaceService.listRuns(warehouseId).stream().map(this::toSpaceRun).toList();
+    public List<SpaceRunDto> listSpaceRuns(@RequestParam UUID warehouseId, Authentication authentication) {
+        return spaceService.listRuns(authorizedWarehouse(authentication, warehouseId)).stream().map(this::toSpaceRun).toList();
     }
 
     @GetMapping("/space-runs/{runId}")
-    public SpaceRunDto getSpaceRun(@PathVariable UUID runId) {
-        return toSpaceRun(spaceService.getRun(runId));
+    public SpaceRunDto getSpaceRun(@PathVariable UUID runId, Authentication authentication) {
+        return toSpaceRun(authorizedSpaceRun(runId, authentication));
     }
 
     @GetMapping("/space-runs/{runId}/lines")
-    public List<SpaceLineDto> getSpaceLines(@PathVariable UUID runId) {
+    public List<SpaceLineDto> getSpaceLines(@PathVariable UUID runId, Authentication authentication) {
+        authorizedSpaceRun(runId, authentication);
         return spaceService.getLines(runId).stream().map(this::toSpaceLine).toList();
     }
 
     @GetMapping("/space-lines/{lineId}/scenarios")
-    public List<ScenarioDto> getSpaceLineScenarios(@PathVariable UUID lineId) {
+    public List<ScenarioDto> getSpaceLineScenarios(@PathVariable UUID lineId, Authentication authentication) {
+        authorizedSpaceRun(spaceService.getLine(lineId).getRunId(), authentication);
         return spaceService.getScenariosForSpaceLine(lineId).stream().map(this::toScenario).toList();
     }
 
     @PostMapping("/space-runs/{runId}/approve")
-    public SpaceRunDto approveSpaceRun(@PathVariable UUID runId, @RequestBody ApproveRunDto body) {
+    public SpaceRunDto approveSpaceRun(@PathVariable UUID runId, @RequestBody ApproveRunDto body,
+            Authentication authentication) {
+        authorizedSpaceRun(runId, authentication);
         return toSpaceRun(spaceService.approveRun(runId, body.approvedBy()));
+    }
+
+    private InventoryPolicyRecommendationRunEntity authorizedPolicyRun(UUID runId, Authentication authentication) {
+        InventoryPolicyRecommendationRunEntity run = policyService.getRun(runId);
+        authorizedWarehouse(authentication, run.getWarehouseId());
+        return run;
+    }
+
+    private SpaceOptimizationRunEntity authorizedSpaceRun(UUID runId, Authentication authentication) {
+        SpaceOptimizationRunEntity run = spaceService.getRun(runId);
+        authorizedWarehouse(authentication, run.getWarehouseId());
+        return run;
+    }
+
+    private UUID authorizedWarehouse(Authentication authentication, UUID requested) {
+        String scoped = aiProxyService.resolveWarehouseScope(authentication, requested != null ? requested.toString() : null);
+        if (scoped == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No authorized warehouse assignment");
+        UUID authorized;
+        try { authorized = UUID.fromString(scoped); }
+        catch (IllegalArgumentException ex) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid warehouse assignment"); }
+        if (!authorized.equals(requested)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Warehouse is outside the signed-in user's assignment");
+        }
+        return authorized;
     }
 
     private PolicyRunDto toPolicyRun(InventoryPolicyRecommendationRunEntity run) {
@@ -159,6 +213,7 @@ public class ForecastSpaceOptimizationController {
                 str(line.getRunId()),
                 str(line.getMaterialId()),
                 line.getMaterialCode(),
+                materialRepository.findById(line.getMaterialId()).map(material -> material.getDescription()).orElse(line.getMaterialCode()),
                 line.getMaterialType(),
                 dbl(line.getCurrentStock()),
                 dbl(line.getCurrentAvailableStock()),
@@ -168,6 +223,7 @@ public class ForecastSpaceOptimizationController {
                 dbl(line.getCurrentBufferStock()),
                 dbl(line.getCurrentOrderQty()),
                 dbl(line.getCurrentPalletRequirement()),
+                dbl(line.getTargetPalletPositions()),
                 dbl(line.getForecastP10()),
                 dbl(line.getForecastP50()),
                 dbl(line.getForecastP90()),
@@ -340,6 +396,7 @@ public class ForecastSpaceOptimizationController {
             String runId,
             String materialId,
             String materialCode,
+            String materialName,
             String materialType,
             Double currentStock,
             Double currentAvailableStock,
@@ -349,6 +406,7 @@ public class ForecastSpaceOptimizationController {
             Double currentBufferStock,
             Double currentOrderQty,
             Double currentPalletRequirement,
+            Double targetPalletPositions,
             Double forecastP10,
             Double forecastP50,
             Double forecastP90,

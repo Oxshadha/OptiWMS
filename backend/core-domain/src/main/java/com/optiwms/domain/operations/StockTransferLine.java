@@ -16,6 +16,8 @@ public class StockTransferLine extends BaseEntity {
     private Integer movedQuantity;
     private String status;
     private UUID assignedWorkerId;
+    private UUID planningCycleId;
+    private UUID slottingPlanLineId;
     private String notes;
 
     public UUID getTransferId() { return transferId; }
@@ -40,6 +42,10 @@ public class StockTransferLine extends BaseEntity {
     public void setStatus(String status) { this.status = status; }
     public UUID getAssignedWorkerId() { return assignedWorkerId; }
     public void setAssignedWorkerId(UUID assignedWorkerId) { this.assignedWorkerId = assignedWorkerId; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
+    public UUID getSlottingPlanLineId() { return slottingPlanLineId; }
+    public void setSlottingPlanLineId(UUID slottingPlanLineId) { this.slottingPlanLineId = slottingPlanLineId; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
 }

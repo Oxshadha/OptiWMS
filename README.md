@@ -29,7 +29,7 @@ routes prove external production validity.
 | Inventory min/max | Reorder point, safety stock, proposed minimum/maximum, order quantity, service/cost simulation and approval |
 | MILP slotting | Physical-capacity and compatibility-constrained pick-face/reserve allocation using OR-Tools MILP and min-cost flow |
 | Worker routing | PWA guidance, rack-safe paths, multi-worker time reservations and admin live monitoring |
-| Warehouse assistant | SOP retrieval for workers/admins and read-only natural-language WMS analytics with tables/charts |
+| Warehouse assistant | SOP retrieval plus authenticated, warehouse-scoped forecast and inventory business tools |
 
 ## Current Verified Scope
 
@@ -122,8 +122,9 @@ controlled population only; external population validity remains
 - manager drawer and full-screen assistant;
 - retrieval-augmented answers grounded in the included warehouse SOP files;
 - source labels returned with SOP answers;
-- natural-language WMS analytics that generate read-only `SELECT` statements;
-- tabular results and generated charts for manager analysis.
+- typed, authenticated tools for SKU outlooks, inventory risks,
+  recommendation explanations and planning-cycle status;
+- no model-generated SQL, schema inspection or direct database credentials.
 
 The assistant is an advisory presentation layer, not the forecast, min/max,
 MILP or routing decision engine. Its standalone FastAPI service currently
@@ -207,7 +208,7 @@ authority to invent a route reservation or bypass a server validation.
 | Included warehouse SOP documents | 8 |
 
 The active dataset hash is
-`558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`.
+`4c0e2e4f4166249456061fbf94facf41eaa36ccb6b2352f06954839e11d32619`.
 The generation seed is `20260711`.
 
 ## Current Model Decision
@@ -292,22 +293,23 @@ Evidence:
 
 ## Warehouse Assistant
 
-The assistant has two modes:
+The assistant has two strictly separated sources:
 
 1. **SOP Assistant:** retrieves relevant chunks from the local Chroma vector
    store using MiniLM embeddings and asks Gemini to answer only from the
    retrieved warehouse SOP context.
-2. **Data & Analytics:** converts a natural-language question into PostgreSQL
-   `SELECT` SQL, rejects DDL/DML keywords, limits generated requests to 500 rows
-   and returns data tables or charts.
+2. **Inventory Intelligence:** selects among Spring-owned read-only tools for a
+   SKU outlook, ranked inventory risk, recommendation explanation or planning
+   cycle. Spring validates the signed-in JWT and derives warehouse scope from
+   the user's assignments.
 
 Worker access is integrated in the mobile layout; managers can use the top-bar
 drawer or `/admin/assistant`.
 
-Current assistant boundary: the standalone service has CORS and a read-only SQL
-guard, but it does not yet enforce Spring JWT, warehouse row-level scoping or
-role-specific data-tab access. It is therefore suitable for the controlled
-local demonstration and SOP assistance, not production database exposure.
+The standalone Python service handles SOP retrieval only. Live operational
+facts never pass through generated SQL: the assistant tool contract is
+[checked in as OpenAPI](docs/openapi/optiwms-assistant-tools.yaml), tool calls
+are rate-limited/audited, and mutating actions are absent from the contract.
 
 ## Architecture
 
@@ -323,7 +325,8 @@ flowchart LR
     ADMIN --> AG
     AG --> V[("SOP vector store")]
     AG --> L["Gemini"]
-    AG -->|guarded SELECT| PG
+    AG -->|"JWT identity validation"| API
+    ADMIN -->|"typed read-only tools"| API
     F --> PG
     S --> API
     E["Python/Jupyter evaluators"] --> A["Versioned evidence and serving artifacts"]
@@ -379,7 +382,7 @@ OptiWMS/
 |   |-- forecast-service/     Forecast serving and governance
 |   |-- orchestrator-service/ Forecast run orchestration
 |   |-- slotting-service/     OR-Tools physical slotting
-|   `-- ai-agent/             SOP RAG and read-only WMS analytics
+|   `-- ai-agent/             SOP RAG only; live facts use Spring typed tools
 |-- Ai miroservices/modeling/
 |   |-- v8_controlled_synthetic_validation/  Current project evidence
 |   |-- project_operational_baseline/        Shared V3 evaluator baseline
@@ -412,6 +415,32 @@ cd /Users/k.e.oshada/Documents/OptiWMS
 ## Build and Run
 
 ### First-time complete project sequence
+
+For a clean developer clone, copy and review the AI environment and run the
+supported one-command bootstrap:
+
+```bash
+cp ai_services/.env.example ai_services/.env
+./scripts/dev-bootstrap.sh
+```
+
+If ordinary development processes already use ports 8080 or 3000, use for
+example `BACKEND_HOST_PORT=18080 FRONTEND_HOST_PORT=13000
+./scripts/dev-bootstrap.sh`.
+
+It starts PostgreSQL/Spring, waits for Flyway, runs the idempotent forecast
+bootstrap, verifies exactly 144 project materials and 1,440 canonical H1-H12
+rows, checks the promoted model/checksum, starts forecast/orchestrator/slotting,
+removes stale `.next` output and builds the frontend. It refuses to replace a
+populated unmarked database. `--refresh-project-data` is only for a disposable
+development database.
+
+After bootstrap, Spring creates review-only forecast/policy evidence daily at
+02:15 Asia/Colombo and a low-disruption slotting draft on the first day of each
+month. These jobs never approve purchasing or physical moves. Override the
+`intelligence.policy.cron` / `intelligence.slotting.cron` properties, or set
+`intelligence.scheduling.enabled=false`, when another production scheduler owns
+the cadence.
 
 The following is the supported order for a clean evaluator workstation. AI
 services and the assistant are started after the transactional WMS so that
@@ -563,6 +592,27 @@ docker compose -f docker-compose.ai.yml up -d \
 The standalone assistant must be restarted separately with the command in
 Step 5.
 
+### Shared team environment
+
+`infra/deploy` contains the HTTPS team deployment template. After DNS points
+to the VM and the versioned GHCR images exist, copy `.env.example`, supply its
+values from the VM's secret manager, and provision the canonical dataset once:
+
+```bash
+cp infra/deploy/.env.example infra/deploy/.env
+docker compose --env-file infra/deploy/.env \
+  -f infra/deploy/docker-compose.team.yml --profile provision \
+  run --rm forecast-bootstrap
+docker compose --env-file infra/deploy/.env \
+  -f infra/deploy/docker-compose.team.yml up -d
+```
+
+The proxy provides HTTPS plus team-level access control. Application users
+still authenticate with Spring JWTs; create a warehouse-assigned read-only
+account for chatbot development rather than sharing database credentials.
+Operational tools remain available under `/api/v1/assistant/tools`, and the
+SOP assistant is proxied at `/agent/ask`.
+
 ## Service URLs
 
 | Service | URL |
@@ -587,7 +637,7 @@ top-level package named `app`.
 
 | Test layer | Command | Latest result |
 | --- | --- | --- |
-| Spring backend | `cd backend && ./gradlew test --no-daemon` | 23 methods; success |
+| Spring backend | `cd backend && ./gradlew test --no-daemon` | Full suite succeeds |
 | Forecast service | `cd ai_services/forecast-service && ../../.venv/bin/python -m pytest tests -q` | 13 passed |
 | Slotting service | `cd ai_services/slotting-service && ../../.venv/bin/python -m pytest tests -q` | 6 passed |
 | v8 contracts | `cd "Ai miroservices/modeling/v8_controlled_synthetic_validation" && ../../../.venv/bin/python -m pytest tests -q` | 4 passed |
@@ -596,7 +646,7 @@ top-level package named `app`.
 | Routing evaluator | See [Appendix A.8](report.md#a8-routing-evaluator-tests) | 5 passed |
 | Frontend | `cd frontend && npx tsc --noEmit && npm run build` | Passed |
 | Live routing | `./scripts/test_worker_routing_runtime.sh` | Passed |
-| Warehouse assistant | Frontend compile/build plus manual `/health`, SOP and read-only analytics checks | No automated agent suite yet |
+| Warehouse assistant | Spring contract, warehouse-scope and rate-limit tests; Python syntax/API contract check | Typed tools and removed SQL paths verified |
 
 The complete test-case-by-file catalogue, integration behavior and commands are
 in [Appendix A of the final report](report.md#appendix-a--test-catalogue-and-execution).
@@ -687,8 +737,18 @@ setup/import cells may correctly produce no visible output.
 
 - `GET http://localhost:8000/health`
 - `POST http://localhost:8000/ask`
-- `POST http://localhost:8000/ask-data`
-- `POST http://localhost:8000/query-sql`
+- `GET /api/v1/assistant/tools/sku-outlook`
+- `GET /api/v1/assistant/tools/inventory-risks`
+- `GET /api/v1/assistant/tools/recommendations/{id}/explanation`
+- `GET /api/v1/assistant/tools/planning-cycles/{id}`
+
+All Spring tool endpoints and the SOP `/ask` endpoint require a user JWT. The
+SOP service validates that identity against Spring and returns the common
+`answer`, `citations`, `facts`, `warnings`, `toolCalls`, `correlationId`
+contract. See
+[`docs/openapi/optiwms-assistant-tools.yaml`](docs/openapi/optiwms-assistant-tools.yaml)
+for teammate integration examples. The removed `/ask-data` and `/query-sql`
+routes are not part of the supported architecture.
 
 See [the route setup document](frontend/PATHFINDING_SETUP.md) for the full
 worker/admin lifecycle and security boundary.
@@ -710,7 +770,7 @@ summary shows what is and is not currently proven:
 | Outbound/picking/packing/shipping | Routing tests cover movement only | Mutating smoke workflow and PWA inspection | Allocation-to-delivery automated journey |
 | Returns | None dedicated | UI/API inspection | Lifecycle and exception integration tests |
 | PWA/offline sync | TypeScript and production build | Browser/offline inspection | Playwright service-worker, retry and conflict tests |
-| Warehouse assistant | TypeScript/build and source guard review | Manual health/SOP/controlled SQL calls | JWT/scoping, prompt-injection, retrieval quality and automated API/browser tests |
+| Warehouse assistant | Spring contract, scope and rate-limit tests; TypeScript/build and source guard review | Authenticated typed-tool and SOP inspection | Broader prompt-injection and retrieval-quality evaluation |
 | Reports/analytics | Report service JUnit tests | Dashboard/report inspection | Scheduled-run and export integration coverage |
 
 The report’s [Appendix A](report.md#appendix-a--test-catalogue-and-execution)
