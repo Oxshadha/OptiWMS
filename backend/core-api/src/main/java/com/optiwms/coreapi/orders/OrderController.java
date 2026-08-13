@@ -172,10 +172,30 @@ public class OrderController {
             return ResponseEntity.badRequest()
                     .body(new ErrorResponse("Expected delivery date cannot be before order date."));
         }
+        if (orderDate.isBefore(LocalDate.now())) {
+            return ResponseEntity.badRequest()
+                    .body(new ErrorResponse("Order date cannot be in the past."));
+        }
+        String orderType = request.orderType() == null ? "" : request.orderType().trim().toLowerCase();
+        if ("inbound".equals(orderType) && (request.supplierId() == null || request.supplierId().isBlank())) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Inbound orders require a supplier."));
+        }
+        if ("inbound".equals(orderType) && expectedDate == null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Inbound orders require an expected delivery date."));
+        }
+        if ("outbound".equals(orderType) && (request.customerId() == null || request.customerId().isBlank())) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Outbound orders require a customer."));
+        }
+        if ("outbound".equals(orderType) && expectedDate == null) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Outbound orders require a required delivery date."));
+        }
+        if (!"inbound".equals(orderType) && !"outbound".equals(orderType)) {
+            return ResponseEntity.badRequest().body(new ErrorResponse("Order type must be inbound or outbound."));
+        }
 
         Order order = new Order();
         order.setOrderNumber(request.orderNumber());
-        order.setOrderType(request.orderType());
+        order.setOrderType(orderType);
         order.setCustomerId(request.customerId() != null ? UUID.fromString(request.customerId()) : null);
         order.setSupplierId(request.supplierId() != null ? UUID.fromString(request.supplierId()) : null);
         order.setWarehouseId(UUID.fromString(request.warehouseId()));
@@ -211,6 +231,14 @@ public class OrderController {
         );
 
         return ResponseEntity.status(HttpStatus.CREATED).body(toDto(created));
+    }
+
+    @PostMapping("/repair/canonical-numbers")
+    public ResponseEntity<OrderService.CanonicalOrderRepairResult> repairCanonicalOrderNumbers(
+            @RequestBody(required = false) CanonicalOrderRepairRequest request
+    ) {
+        boolean dryRun = request == null || request.dryRun();
+        return ResponseEntity.ok(orderService.repairCanonicalOrderNumbers(dryRun));
     }
 
     @PutMapping("/{id}/status")
@@ -368,6 +396,8 @@ public class OrderController {
     ) {}
 
     public record UpdateStatusRequest(String status) {}
+
+    public record CanonicalOrderRepairRequest(boolean dryRun) {}
 
     public record UpdateOrderRequest(
             String expectedDate,

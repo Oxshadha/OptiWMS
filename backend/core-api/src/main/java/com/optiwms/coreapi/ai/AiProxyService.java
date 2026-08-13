@@ -20,6 +20,8 @@ import java.util.Map;
 @Service
 public class AiProxyService {
 
+    private static final String CANONICAL_DATASET = "PROJECT_OPERATIONAL_BASELINE_RM_PM";
+
     private final RestTemplate restTemplate;
     private final UserRepository userRepository;
 
@@ -128,13 +130,30 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> getRawMaterialRequirements(Integer runId, String dataset, String model, String warehouseId, String rmSku) {
-        UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(forecastBaseUrl + "/raw-material-requirements");
-        if (runId != null) ub.queryParam("run_id", runId);
-        if (dataset != null && !dataset.isBlank()) ub.queryParam("dataset", dataset);
-        if (model != null && !model.isBlank()) ub.queryParam("model", model);
-        if (warehouseId != null && !warehouseId.isBlank()) ub.queryParam("warehouse_id", warehouseId);
-        if (rmSku != null && !rmSku.isBlank()) ub.queryParam("rm_sku", rmSku);
-        return exchangeGet(ub.toUriString());
+        String url = forecastBaseUrl + "/raw-material-requirements";
+        UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(url)
+                .queryParam("dataset", dataset)
+                .queryParam("model", model);
+
+        if (runId != null) {
+            builder.queryParam("run_id", runId);
+        }
+        if (warehouseId != null && !warehouseId.isBlank()) {
+            builder.queryParam("warehouse_id", warehouseId);
+        }
+        if (rmSku != null && !rmSku.isBlank()) {
+            builder.queryParam("rm_sku", rmSku);
+        }
+
+        return exchangeGetSafe(builder.toUriString(), "forecast");
+    }
+
+    public ResponseEntity<Object> getRunJobs(Integer runId) {
+        if (runId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "run_id is required"));
+        }
+        String url = forecastBaseUrl + "/runs/" + runId + "/jobs";
+        return exchangeGetSafe(url, "forecast");
     }
 
     public ResponseEntity<Object> getBomMappings(String fgSku, String rmSku, Boolean activeOnly) {
@@ -152,6 +171,9 @@ public class AiProxyService {
     }
 
     public ResponseEntity<Object> triggerForecastRun(String dataset, String modelName, String mode, String warehouseId) {
+        if (CANONICAL_DATASET.equalsIgnoreCase(dataset)) {
+            return triggerCanonicalForecastRun();
+        }
         ResponseEntity<Object> orchestratorResult = triggerForecastRunViaOrchestrator(dataset, modelName, mode, warehouseId);
         if (orchestratorResult.getStatusCode().is2xxSuccessful()) {
             return orchestratorResult;
@@ -159,11 +181,39 @@ public class AiProxyService {
         return triggerForecastRunViaForecastService(dataset, modelName, mode, warehouseId, orchestratorResult);
     }
 
+    private ResponseEntity<Object> triggerCanonicalForecastRun() {
+        try {
+            HttpEntity<String> request = new HttpEntity<>(headers());
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    forecastBaseUrl + "/canonical/recalculate",
+                    HttpMethod.POST,
+                    request,
+                    Map.class
+            );
+            return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+        } catch (ResourceAccessException ex) {
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of(
+                    "ok", false,
+                    "reason", "canonical_forecast_service_unavailable",
+                    "message", "Canonical RM/PM forecast worker is unavailable.",
+                    "error", ex.getMessage()
+            ));
+        } catch (HttpStatusCodeException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(Map.of(
+                    "ok", false,
+                    "reason", "canonical_forecast_failed",
+                    "message", "Canonical RM/PM forecast worker rejected the recalculation.",
+                    "status", ex.getStatusCode().value(),
+                    "error", ex.getResponseBodyAsString()
+            ));
+        }
+    }
+
     private ResponseEntity<Object> triggerForecastRunViaOrchestrator(String dataset, String modelName, String mode, String warehouseId) {
         UriComponentsBuilder ub = UriComponentsBuilder.fromHttpUrl(orchestratorBaseUrl + "/jobs/forecast-run")
                 .queryParam("dataset", dataset)
                 .queryParam("model_name", modelName)
-                ;
+                .queryParam("async_run", true);
         if (mode != null && !mode.isBlank()) ub.queryParam("mode", mode);
         if (warehouseId != null && !warehouseId.isBlank()) {
             ub.queryParam("warehouse_id", warehouseId);
@@ -285,6 +335,9 @@ public class AiProxyService {
             String warehouseId,
             boolean criticalOverrideRequested
     ) {
+        if (CANONICAL_DATASET.equalsIgnoreCase(dataset)) {
+            return triggerForecastRun(dataset, modelName, mode, warehouseId);
+        }
         if (!blockTriggerOnCritical) {
             return triggerForecastRun(dataset, modelName, mode, warehouseId);
         }
@@ -495,8 +548,12 @@ public class AiProxyService {
     private ResponseEntity<Object> exchangeGet(String url) {
         HttpEntity<String> request = new HttpEntity<>(headers());
         ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, request, byte[].class);
+        HttpHeaders safeHeaders = new HttpHeaders();
+        if (response.getHeaders().getContentType() != null) {
+            safeHeaders.setContentType(response.getHeaders().getContentType());
+        }
         return ResponseEntity.status(response.getStatusCode())
-                .headers(response.getHeaders())
+                .headers(safeHeaders)
                 .body(response.getBody());
     }
 

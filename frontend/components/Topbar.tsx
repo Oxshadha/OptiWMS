@@ -50,10 +50,9 @@ export function Topbar({
     const q = query.toLowerCase();
     return MOCK_RESULTS.filter(
       (r) =>
-        r.label.toLowerCase().includes(q) || r.extra?.toLowerCase().includes(q)
+        r.label.toLowerCase().includes(q) || r.extra?.toLowerCase().includes(q),
     );
   }, [query]);
-
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -95,7 +94,7 @@ export function Topbar({
         // Navigate to warehouses page with search query
         // Future: if result.id exists, could navigate to /admin/warehouses/[id]
         router.push(
-          `/admin/warehouses?search=${encodeURIComponent(result.label)}`
+          `/admin/warehouses?search=${encodeURIComponent(result.label)}`,
         );
         break;
       case "Order":
@@ -104,11 +103,11 @@ export function Topbar({
         // Future: if result.id exists, could navigate to /admin/orders/[id]
         if (result.label.startsWith("SO-")) {
           router.push(
-            `/admin/orders/outbound?search=${encodeURIComponent(result.label)}`
+            `/admin/orders/outbound?search=${encodeURIComponent(result.label)}`,
           );
         } else {
           router.push(
-            `/admin/orders?search=${encodeURIComponent(result.label)}`
+            `/admin/orders?search=${encodeURIComponent(result.label)}`,
           );
         }
         break;
@@ -116,7 +115,7 @@ export function Topbar({
         // Navigate to customers page with search query
         // Future: if result.id exists, could navigate to /admin/customers/[id]
         router.push(
-          `/admin/customers?search=${encodeURIComponent(result.label)}`
+          `/admin/customers?search=${encodeURIComponent(result.label)}`,
         );
         break;
       default:
@@ -156,8 +155,14 @@ export function Topbar({
       try {
         setLoadingNotifications(true);
         const [notifs, count] = await Promise.all([
-          notificationsApi.getAll(admin.id, undefined, { role: role || undefined, warehouseId: admin.warehouseId }),
-          notificationsApi.getUnreadCount(admin.id, { role: role || undefined, warehouseId: admin.warehouseId }),
+          notificationsApi.getAll(admin.id, undefined, {
+            role: role || undefined,
+            warehouseId: admin.warehouseId,
+          }),
+          notificationsApi.getUnreadCount(admin.id, {
+            role: role || undefined,
+            warehouseId: admin.warehouseId,
+          }),
         ]);
         setNotifications(notifs.slice(0, 10)); // Show latest 10
         setUnreadCount(count);
@@ -184,8 +189,10 @@ export function Topbar({
     const diffDays = Math.floor(diffHours / 24);
 
     if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+    if (diffMins < 60)
+      return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+    if (diffHours < 24)
+      return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
     return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
   };
 
@@ -193,9 +200,11 @@ export function Topbar({
     if (!notification.read) {
       try {
         await notificationsApi.markAsRead(notification.id);
-        setNotifications(notifications.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
-        ));
+        setNotifications(
+          notifications.map((n) =>
+            n.id === notification.id ? { ...n, read: true } : n,
+          ),
+        );
         setUnreadCount(Math.max(0, unreadCount - 1));
       } catch (error) {
         logger.error("Error marking notification as read:", error);
@@ -235,9 +244,9 @@ export function Topbar({
   ];
 
   return (
-    <header className="relative flex items-center justify-between gap-4 px-6 py-4 bg-base-100 border-b border-base-200">
+    <header className="relative flex items-center justify-between gap-2 px-3 py-4 sm:gap-4 sm:px-6 bg-base-100 border-b border-base-200">
       {/* Search Bar - Left Aligned */}
-      <div className="flex items-center gap-4 flex-1 max-w-xl">
+      <div className="flex items-center gap-2 sm:gap-4 flex-1 max-w-xl">
         {showToggle && onToggleSidebar && (
           <button
             onClick={onToggleSidebar}
@@ -247,66 +256,69 @@ export function Topbar({
             <span className="material-symbols-outlined">menu</span>
           </button>
         )}
-        <div className="relative flex-1 search-dropdown">
-          <label className="input input-bordered flex items-center gap-2 w-full">
-            <span className="material-symbols-outlined text-base-content/60">
-              search
-            </span>
-            <input
-              type="text"
-              className="grow"
-              placeholder="Find inventory, orders or reports"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setOpenSearch(true);
-              }}
-              onFocus={() => {
-                if (query) setOpenSearch(true);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  setOpenSearch(false);
-                  setQuery("");
-                }
-              }}
-            />
-          </label>
-          {openSearch && query && (
-            <div className="absolute mt-2 w-full rounded-xl bg-base-100 shadow-lg border border-base-200 z-20">
-              {filtered.length === 0 ? (
-                <div className="px-4 py-3 text-sm text-base-content/70">
-                  No results found
-                </div>
-              ) : (
-                <ul className="divide-y divide-base-200">
-                  {filtered.map((r) => (
-                    <li
-                      key={r.type + r.label}
-                      className="px-4 py-3 text-sm flex justify-between hover:bg-base-200 cursor-pointer transition-colors"
-                      onClick={() => handleSearchResultClick(r)}
-                    >
-                      <span>
-                        <span className="font-semibold">{r.label}</span>
-                        {r.extra && (
-                          <span className="text-base-content/60">
-                            {" "}
-                            — {r.extra}
-                          </span>
-                        )}
-                      </span>
-                      <span className="badge badge-outline">{r.type}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
+        <div className="relative min-w-0 flex-1 search-dropdown">
+        <label
+          className="input input-bordered flex items-center gap-2 w-full"
+          data-tour-target="topbar-search"
+        >
+          <span className="material-symbols-outlined text-base-content/60">
+            search
+          </span>
+          <input
+            type="text"
+            className="grow"
+            placeholder="Find inventory, orders or reports"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setOpenSearch(true);
+            }}
+            onFocus={() => {
+              if (query) setOpenSearch(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setOpenSearch(false);
+                setQuery("");
+              }
+            }}
+          />
+        </label>
+        {openSearch && query && (
+          <div className="absolute mt-2 w-full rounded-xl bg-base-100 shadow-lg border border-base-200 z-20">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-base-content/70">
+                No results found
+              </div>
+            ) : (
+              <ul className="divide-y divide-base-200">
+                {filtered.map((r) => (
+                  <li
+                    key={r.type + r.label}
+                    className="px-4 py-3 text-sm flex justify-between hover:bg-base-200 cursor-pointer transition-colors"
+                    onClick={() => handleSearchResultClick(r)}
+                  >
+                    <span>
+                      <span className="font-semibold">{r.label}</span>
+                      {r.extra && (
+                        <span className="text-base-content/60">
+                          {" "}
+                          — {r.extra}
+                        </span>
+                      )}
+                    </span>
+                    <span className="badge badge-outline">{r.type}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
       </div>
 
       {/* Icons - Right Aligned */}
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-3">
         {/* AI Services Status - Only show if user has access to any AI service */}
         <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-base-200/50">
           <span className="text-xs text-base-content/60">AI:</span>
@@ -321,6 +333,7 @@ export function Topbar({
           <button
             className="btn btn-ghost btn-circle relative"
             title="Notifications"
+            data-tour-target="topbar-notifications"
             onClick={() => {
               setOpenNotifications((v) => !v);
               setOpenCalendar(false);
@@ -420,7 +433,7 @@ export function Topbar({
         </div>
 
         {/* Calendar */}
-        <div className="relative calendar-dropdown">
+        <div className="relative hidden sm:block calendar-dropdown">
           <button
             className="btn btn-ghost btn-circle"
             title="Calendar"
@@ -455,7 +468,7 @@ export function Topbar({
                       >
                         {day}
                       </div>
-                    )
+                    ),
                   )}
                 </div>
                 <div className="grid grid-cols-7 gap-1">
@@ -517,7 +530,7 @@ export function Topbar({
 
         {mounted && (
           <button
-            className="btn btn-primary btn-circle"
+            className="btn btn-primary btn-circle hidden sm:inline-flex"
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
             onClick={toggleTheme}
           >
@@ -527,14 +540,14 @@ export function Topbar({
           </button>
         )}
 
-        <WarehouseAssistant
-          userRole="manager"
-          userId={admin?.id}
-        />
+        <WarehouseAssistant userRole="manager" userId={admin?.id} />
+        <div className="hidden md:block">
+          <WarehouseAssistant userRole="manager" />
+        </div>
 
         <div className="relative profile-dropdown">
           <button
-            className="flex items-center gap-2 px-3 py-1 rounded-full bg-base-200"
+            className="flex items-center gap-2 px-2 py-1 sm:px-3 rounded-full bg-base-200"
             onClick={() => {
               setOpenProfile((v) => !v);
               setOpenCalendar(false);
@@ -553,7 +566,7 @@ export function Topbar({
                 HK
               </div>
             )}
-            <div className="flex flex-col items-start leading-tight">
+            <div className="hidden lg:flex flex-col items-start leading-tight">
               <span className="text-sm font-medium">{displayName}</span>
               <span className="text-xs text-base-content/60">
                 {displayRole}

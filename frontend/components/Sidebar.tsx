@@ -13,75 +13,94 @@ import {
 } from "@/lib/admin-roles";
 
 const allNavItems = [
-  { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
+  // Top Level
+  { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard", tourTarget: "nav-dashboard" },
   {
     href: "/admin/warehouses",
     label: "Warehouses",
     icon: "warehouse",
+    tourTarget: "nav-warehouses",
     subItems: [
-      { href: "/admin/warehouses", label: "Warehouse Layout" },
-      { href: "/pathfinding", label: "Route Optimizer" },
+      { href: "/admin/warehouses", label: "Warehouse Layout", tourTarget: "nav-warehouses-layout" },
+      { href: "/admin/pathfinding", label: "Live Route Control", tourTarget: "nav-pathfinding" },
     ],
   },
   {
     href: "/admin/orders",
     label: "Orders",
     icon: "inventory_2",
+    tourTarget: "nav-orders",
     subItems: [
-      { href: "/admin/orders/inbound", label: "Inbound Orders" },
-      { href: "/admin/orders/outbound", label: "Outbound Orders" },
+      { href: "/admin/orders/inbound", label: "Inbound Orders", tourTarget: "nav-orders-inbound" },
+      { href: "/admin/orders/outbound", label: "Outbound Orders", tourTarget: "nav-orders-outbound" },
     ],
   },
-  { href: "/admin/shipments", label: "Shipments", icon: "local_shipping" },
-  {
-    href: "/admin/delivery-partners",
-    label: "Delivery Partners",
-    icon: "handshake",
-  },
-  { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
-  { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
+  { href: "/admin/inventory", label: "Inventory", icon: "inventory", tourTarget: "nav-inventory" },
+  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2", tourTarget: "nav-materials" },
+  { href: "/admin/forecasts", label: "Forecasts", icon: "timeline", tourTarget: "nav-forecasts" },
   {
     href: "/admin/replenishment",
     label: "Intelligent Engine",
     icon: "psychology",
+    tourTarget: "nav-intelligent-engine",
     subItems: [
-      { href: "/admin/replenishment", label: "Engine Hub" },
-      { href: "/admin/slotting-plans", label: "Quarterly Slotting" },
-      { href: "/admin/ai-slotting", label: "Storage Optimiser" },
+      { href: "/admin/replenishment", label: "Action Center", tourTarget: "nav-action-center" },
+      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner", tourTarget: "nav-forecast-space" },
+      { href: "/admin/slotting-plans", label: "Slotting Planner", tourTarget: "nav-slotting" },
     ],
   },
-  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
-  { href: "/admin/supply-plans", label: "Supply Plans", icon: "calendar_month" },
-  { href: "/admin/bom-master", label: "BOM Master", icon: "account_tree" },
-  { href: "/admin/suppliers", label: "Suppliers", icon: "business" },
+  { href: "/admin/tasks", label: "Tasks", icon: "task", tourTarget: "nav-tasks" },
+
+  // Operations Group
   {
-    href: "/admin/labor-productivity",
-    label: "Labor Productivity",
-    icon: "groups_3",
-  },
-  {
-    href: "/admin/staff",
-    label: "Staff",
-    icon: "group",
+    href: "/admin/operations",
+    label: "Warehouse Operations",
+    icon: "engineering",
+    tourTarget: "nav-operations",
     subItems: [
-      { href: "/admin/workers", label: "Workers" },
-      { href: "/admin/admins", label: "Managers" },
+      { href: "/admin/packing", label: "Packing", tourTarget: "nav-packing" },
+      { href: "/admin/picking", label: "Picking", tourTarget: "nav-picking" },
+      { href: "/admin/cycle-counts", label: "Cycle Counts", tourTarget: "nav-cycle-counts" },
+      { href: "/admin/stock-transfers", label: "Stock Transfers", tourTarget: "nav-stock-transfers" },
+      { href: "/admin/quality-checks", label: "Quality Checks", tourTarget: "nav-quality-checks" },
+      { href: "/admin/returns", label: "Returns", tourTarget: "nav-returns" },
+      { href: "/admin/shipments", label: "Shipments", tourTarget: "nav-shipments" },
     ],
   },
-  { href: "/admin/tasks", label: "Tasks", icon: "task" },
-  { href: "/admin/cycle-counts", label: "Cycle Counts", icon: "autorenew" },
+
+  // Network & Partners Group
   {
-    href: "/admin/stock-transfers",
-    label: "Stock Transfers",
-    icon: "swap_horiz",
+    href: "/admin/network",
+    label: "Network & Partners",
+    icon: "hub",
+    tourTarget: "nav-network",
+    subItems: [
+      { href: "/admin/suppliers", label: "Suppliers", tourTarget: "nav-suppliers" },
+      { href: "/admin/delivery-partners", label: "Delivery Partners", tourTarget: "nav-delivery-partners" },
+      { href: "/admin/customers", label: "Customers", tourTarget: "nav-customers" },
+    ],
   },
-  { href: "/admin/packing", label: "Packing", icon: "inventory" },
-  { href: "/admin/quality-checks", label: "Quality Checks", icon: "verified" },
-  { href: "/admin/returns", label: "Returns", icon: "keyboard_return" },
-  { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
-  { href: "/admin/customers", label: "Customers", icon: "people" },
-  { href: "/admin/sops", label: "SOPs", icon: "description" },
-  { href: "/admin/reports", label: "Export Reports", icon: "description" },
+
+  // Management & Data Group
+  {
+    href: "/admin/management",
+    label: "Management & Data",
+    icon: "admin_panel_settings",
+    tourTarget: "nav-management",
+    subItems: [
+      { href: "/admin/labor-productivity", label: "Labor Productivity", tourTarget: "nav-labor-productivity" },
+      { href: "/admin/workers", label: "Workers", tourTarget: "nav-workers" },
+      { href: "/admin/admins", label: "Managers", tourTarget: "nav-admins" },
+      { href: "/admin/supply-plans", label: "Supply Plans", tourTarget: "nav-supply-plans" },
+      { href: "/admin/bom-master", label: "BOM Master", tourTarget: "nav-bom-master" },
+      { href: "/admin/sops", label: "SOPs", tourTarget: "nav-sops" },
+      { href: "/admin/reports", label: "Export Reports", tourTarget: "nav-reports" },
+      { href: "/admin/data-quality", label: "Data Quality", tourTarget: "nav-data-quality" },
+    ],
+  },
+  { href: "/admin/anomalies", label: "Anomalies", icon: "warning", tourTarget: "nav-anomalies" },
+  { href: "/admin/dashboard-settings", label: "Settings", icon: "settings", tourTarget: "nav-settings" },
+  { href: "/admin/help", label: "Help Center", icon: "help", tourTarget: "nav-help" },
 ];
 
 /**
@@ -101,68 +120,48 @@ function getRoleRelevantNavItems(
     return filterRoutesByRole(items, role);
   }
 
-  // Warehouse Manager: Focus on operational and inventory management
-  // Hide: Admins (no access), Settings (no access), Customers (not primary focus)
+  // Filter routes based on core role permissions via admin-roles.ts
+  let allowedItems = filterRoutesByRole(items, role);
+
+  // For specific roles, we manually prune items that might technically be viewable 
+  // but clutter the UX for that role's primary workflow.
+  
   if (role === "warehouse_manager") {
-    return filterRoutesByRole(items, role).filter((item) => {
-      // Hide Admins sub-item from Staff menu
-      if (item.href === "/admin/staff" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href !== "/admin/admins"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
-        }
+    // Hide: Admins (no access), Settings (no access), Customers (not primary focus)
+    const hiddenHrefs = ["/admin/admins"];
+    allowedItems = allowedItems.map(item => {
+      if (item.subItems) {
+        return { ...item, subItems: item.subItems.filter(sub => !hiddenHrefs.includes(sub.href)) };
       }
-      // Keep all other accessible items
-      return true;
-    });
+      return item;
+    }).filter(item => !hiddenHrefs.includes(item.href) && !(item.subItems && item.subItems.length === 0));
   }
 
-  // Inbound Coordinator: Focus on inbound coordination
-  // Hide: Outbound-focused items (Packing, Shipments - outbound focus), Customers (view only, not primary), Labor Productivity (view-only, Warehouse Manager primary)
-  // Keep: Inbound Orders, Suppliers, Inventory, Products, Quality Checks (inbound), Returns (to supplier), Tasks (receiving)
   if (role === "inbound_coordinator") {
-    return filterRoutesByRole(items, role).filter((item) => {
-      // Hide outbound-focused operational items and non-primary features
-      if (
-        item.href === "/admin/packing" ||
-        item.href === "/admin/shipments" ||
-        item.href === "/admin/customers" ||
-        item.href === "/admin/labor-productivity"
-      ) {
-        return false;
-      }
+    // Hide: Outbound-focused items and non-primary features
+    const hiddenHrefs = [
+      "/admin/packing",
+      "/admin/picking",
+      "/admin/shipments",
+      "/admin/customers",
+      "/admin/labor-productivity",
+      "/admin/admins"
+    ];
 
-      // Filter Orders sub-items to show only Inbound
-      if (item.href === "/admin/orders" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href === "/admin/orders/inbound"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
+    allowedItems = allowedItems.map(item => {
+      if (item.subItems) {
+        let newSubItems = item.subItems.filter(sub => !hiddenHrefs.includes(sub.href));
+        // Force orders to only show inbound
+        if (item.href === "/admin/orders") {
+          newSubItems = newSubItems.filter(sub => sub.href === "/admin/orders/inbound");
         }
+        return { ...item, subItems: newSubItems };
       }
-
-      // Hide Admins sub-item from Staff menu
-      if (item.href === "/admin/staff" && item.subItems) {
-        item.subItems = item.subItems.filter(
-          (sub) => sub.href !== "/admin/admins"
-        );
-        // If no sub-items left, hide the parent item
-        if (item.subItems.length === 0) {
-          return false;
-        }
-      }
-
-      return true;
-    });
+      return item;
+    }).filter(item => !hiddenHrefs.includes(item.href) && !(item.subItems && item.subItems.length === 0));
   }
 
-  // Default: use permission-based filtering
-  return filterRoutesByRole(items, role);
+  return allowedItems;
 }
 
 export function Sidebar({
@@ -178,6 +177,12 @@ export function Sidebar({
     // Auto-expand Orders if on orders page
     if (pathname.startsWith("/admin/orders")) {
       return ["/admin/orders"];
+    }
+    if (
+      pathname.startsWith("/admin/warehouses") ||
+      pathname.startsWith("/admin/pathfinding")
+    ) {
+      return ["/admin/warehouses"];
     }
     // Auto-expand Team if on workers or admins page
     if (
@@ -243,107 +248,80 @@ export function Sidebar({
             hasSubItems &&
             item.subItems?.some((sub) => pathname.startsWith(sub.href));
 
-          return (
-            <div key={item.href} className="space-y-1">
-              {hasSubItems ? (
-                <>
-                  <button
-                    onClick={() => toggleExpand(item.href)}
-                    className={clsx(
-                      "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all",
-                      active || hasActiveSubItem
-                        ? "bg-primary text-primary-content"
-                        : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="material-symbols-outlined text-xl">
-                        {item.icon}
-                      </span>
-                      <span>{item.label}</span>
-                    </div>
-                    <span
-                      className={clsx(
-                        "material-symbols-outlined text-sm transition-transform",
-                        isExpanded && "rotate-90"
-                      )}
-                    >
-                      chevron_right
-                    </span>
-                  </button>
-                  {isExpanded && (
-                    <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
-                      {item.subItems?.map((subItem) => {
-                        const subActive = pathname.startsWith(subItem.href);
-                        return (
-                          <Link
-                            key={subItem.href}
-                            href={subItem.href}
-                            className={clsx(
-                              "flex items-center gap-3 rounded-lg px-4 py-2 text-sm transition-all",
-                              subActive
-                                ? "bg-primary/20 text-primary-content"
-                                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                            )}
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
-                            <span>{subItem.label}</span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <Link
-                  href={item.href}
-                  className={clsx(
-                    "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-                    active
-                      ? "bg-primary text-primary-content"
-                      : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-                  )}
-                >
-                  <span className="material-symbols-outlined text-xl">
-                    {item.icon}
-                  </span>
-                  <span>{item.label}</span>
-                </Link>
+    return (
+      <div key={item.href} className="space-y-1">
+        {hasSubItems ? (
+          <>
+            <button
+              onClick={() => toggleExpand(item.href)}
+              className={clsx(
+                "flex items-center justify-between w-full rounded-xl px-4 py-3 text-sm transition-all text-left",
+                active || hasActiveSubItem
+                  ? "bg-primary text-primary-content"
+                  : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
               )}
-            </div>
-          );
-        })}
-      </nav>
-      <div className="p-4 border-t border-white/10 space-y-2">
-        {canAccessRoute(role, "/admin/dashboard-settings") && (
+              {...(item.tourTarget ? { "data-tour-target": item.tourTarget } : {})}
+            >
+              <div className="flex items-center gap-3">
+                <span className="material-symbols-outlined text-xl">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </div>
+              <span
+                className={clsx(
+                  "material-symbols-outlined text-sm transition-transform",
+                  isExpanded && "rotate-90"
+                )}
+              >
+                chevron_right
+              </span>
+            </button>
+            {isExpanded && (
+              <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
+                {item.subItems?.map((subItem) => {
+                  const subActive = pathname.startsWith(subItem.href);
+                  return (
+                    <Link
+                      key={subItem.href}
+                      href={subItem.href}
+                      className={clsx(
+                        "flex items-center gap-3 rounded-lg px-4 py-2 text-sm transition-all",
+                        subActive
+                          ? "bg-primary/20 text-primary-content"
+                          : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
+                      )}
+                      {...(subItem.tourTarget ? { "data-tour-target": subItem.tourTarget } : {})}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
+                      <span>{subItem.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        ) : (
           <Link
-            href="/admin/dashboard-settings"
+            href={item.href}
             className={clsx(
               "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-              pathname.startsWith("/admin/dashboard-settings")
+              active
                 ? "bg-primary text-primary-content"
                 : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
             )}
+            {...(item.tourTarget ? { "data-tour-target": item.tourTarget } : {})}
           >
-            <span className="material-symbols-outlined text-xl">settings</span>
-            <span>Settings</span>
-          </Link>
-        )}
-        {canAccessRoute(role, "/admin/help") && (
-          <Link
-            href="/admin/help"
-            className={clsx(
-              "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-              pathname.startsWith("/admin/help")
-                ? "bg-primary text-primary-content"
-                : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
-            )}
-          >
-            <span className="material-symbols-outlined text-xl">help</span>
-            <span>Help Center</span>
+            <span className="material-symbols-outlined text-xl shrink-0">
+              {item.icon}
+            </span>
+            <span>{item.label}</span>
           </Link>
         )}
       </div>
+    );
+  })}
+      </nav>
     </aside>
   );
 }

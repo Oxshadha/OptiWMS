@@ -6,7 +6,7 @@ export interface WarehouseAISource {
 }
 
 export interface WarehouseAIResponse {
-  mode?: "SOP" | "DATA";
+  mode?: "SOP" | "DATA" | "TOUR";
   answer: string;
   sources: WarehouseAISource[];
   sql?: string;
@@ -16,6 +16,8 @@ export interface WarehouseAIResponse {
   download_url?: string;
   session_id?: string;
   raw?: unknown;
+  action?: string;
+  tourId?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 45000;
@@ -176,7 +178,7 @@ export async function askWarehouseAI(
             : "I couldn't read a valid answer from the AI service.";
 
     return {
-      mode: typeof data.mode === "string" ? (data.mode as "SOP" | "DATA") : undefined,
+      mode: typeof data.mode === "string" ? (data.mode as "SOP" | "DATA" | "TOUR") : undefined,
       answer,
       sources: normalizeSources(data.sources ?? data.citations, role),
       sql: typeof data.sql === "string" ? data.sql : undefined,
@@ -185,6 +187,8 @@ export async function askWarehouseAI(
       error: typeof data.error === "string" ? data.error : undefined,
       download_url: typeof data.download_url === "string" ? data.download_url : undefined,
       session_id: typeof data.session_id === "string" ? data.session_id : undefined,
+      action: typeof data.action === "string" ? data.action : undefined,
+      tourId: typeof data.tourId === "string" ? data.tourId : undefined,
       raw: data,
     };
   } catch (error) {

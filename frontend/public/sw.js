@@ -1,5 +1,5 @@
 // Bump to invalidate old caches when changing offline navigation behavior.
-const CACHE_VERSION = "optiwms-worker-shell-v2";
+const CACHE_VERSION = "optiwms-worker-shell-v3";
 const APP_SHELL_CACHE = `app-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 
@@ -13,6 +13,8 @@ const CRITICAL_WORKER_ROUTES = [
   "/worker/tasks",
   "/worker/picking",
   "/worker/putaway",
+  "/worker/receiving",
+  "/worker/packing",
   "/worker/cycle-count",
 ];
 

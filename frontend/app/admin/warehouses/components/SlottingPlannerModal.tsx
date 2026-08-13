@@ -39,6 +39,8 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
   const [bulkMaxPalletCapacity, setBulkMaxPalletCapacity] = useState<number>(10);
   const [useLevelProfileForBulk, setUseLevelProfileForBulk] = useState<boolean>(false);
   const [expandedRackId, setExpandedRackId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
   const [bulkLevelProfile, setBulkLevelProfile] = useState<
     Array<{ level: number; capacity: number; maxWeightKg: number; maxVolumeCm3: number; maxLpnCount: number }>
   >([
@@ -280,6 +282,11 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
     }
   };
 
+  const totalPages = Math.ceil(rackRows.length / pageSize);
+  const paginatedRacks = useMemo(() => {
+    return rackRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [rackRows, currentPage]);
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Slotting Rules Planner" size="xl">
       {loading ? (
@@ -437,7 +444,7 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                   </tr>
                 </thead>
                 <tbody>
-                  {rackRows.map((rack) => (
+                  {paginatedRacks.map((rack) => (
                     <Fragment key={rack.rackId}>
                     <tr>
                       <td className="font-mono">{rack.rackId}</td>
@@ -666,6 +673,30 @@ export function SlottingPlannerModal({ isOpen, warehouseId, onClose, onUpdated }
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="flex justify-between items-center mt-3">
+                <div className="text-xs text-base-content/60">
+                  Showing {(currentPage - 1) * pageSize + 1} to {Math.min(currentPage * pageSize, rackRows.length)} of {rackRows.length} racks
+                </div>
+                <div className="join">
+                  <button
+                    className="join-item btn btn-sm"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  >
+                    «
+                  </button>
+                  <button className="join-item btn btn-sm no-animation">Page {currentPage} of {totalPages}</button>
+                  <button
+                    className="join-item btn btn-sm"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-lg border border-base-300 p-3">

@@ -67,9 +67,9 @@ export default function AISlottingOptimizationPage() {
     <div className="p-6 max-w-7xl mx-auto space-y-8 bg-base-100 min-h-screen text-base-content">
       {/* Header */}
       <div>
-        <h1 className="text-4xl font-bold text-primary">AI Slotting Optimization</h1>
+        <h1 className="text-4xl font-bold text-primary">Advanced Solver Lab</h1>
         <p className="text-lg opacity-80 mt-2">
-          Use the Genetic Algorithm engine to automatically reorganize your warehouse bins based on velocity, constraints, and capacities.
+          Admin-only GA experimentation for large re-slotting scenarios. Daily manager decisions should use Action Center and Slotting Planner.
         </p>
       </div>
 
@@ -77,7 +77,7 @@ export default function AISlottingOptimizationPage() {
         {/* Settings Panel */}
         <div className="card bg-base-200 shadow-xl lg:col-span-1">
           <div className="card-body">
-            <h2 className="card-title text-accent border-b border-base-300 pb-2">Engine Settings</h2>
+            <h2 className="card-title text-accent border-b border-base-300 pb-2">GA Engine Settings</h2>
             
             <div className="form-control w-full mt-4">
               <label className="label">
@@ -142,7 +142,7 @@ export default function AISlottingOptimizationPage() {
                     Running GA Engine...
                   </>
                 ) : (
-                  'Run Optimization'
+                  'Run GA Solver'
                 )}
               </button>
             </div>
@@ -161,7 +161,7 @@ export default function AISlottingOptimizationPage() {
 
           {!result && !error && !isLoading && (
             <div className="card bg-base-200 h-full flex items-center justify-center opacity-60 p-10 text-center border-dashed border-2 border-base-300">
-              <p>Configure the engine and run the optimization to view new slotting assignments here.</p>
+              <p>Configure the GA solver to test alternative assignments. Approved WMS location plans are created in Slotting Planner.</p>
             </div>
           )}
 

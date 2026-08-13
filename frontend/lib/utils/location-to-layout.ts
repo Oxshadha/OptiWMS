@@ -15,8 +15,16 @@ import {
   normalizeRow,
 } from '@/lib/utils/location-identity';
 import { applyOccupancyToBin } from '@/lib/utils/bin-occupancy';
-import { locationsApi, type BinOccupancy } from '@/lib/api/locations';
+import { locationsApi, type BinOccupancy, type RackSummary } from '@/lib/api/locations';
 import { slottingIntelligenceApi } from '@/lib/api/slotting-intelligence';
+
+const OPERATIONAL_STORAGE_ZONES = new Set(['STORAGE', 'PICK_FACE', 'RESERVE']);
+const OPERATIONAL_STORAGE_TYPES = new Set(['STORAGE', 'PICKING', 'BULK']);
+
+function isOperationalStorage(location: Pick<Location, 'zoneType' | 'locationType'>): boolean {
+  return OPERATIONAL_STORAGE_ZONES.has((location.zoneType || '').toUpperCase())
+    || OPERATIONAL_STORAGE_TYPES.has((location.locationType || '').toUpperCase());
+}
 
 /**
  * Convert a single location to a LocationBin
@@ -85,7 +93,7 @@ function locationsToRacks(
   pendingMovesByRack: Map<string, number> = new Map()
 ): RackUnit[] {
   // Safety check: Filter to only STORAGE locations (backend should already do this, but double-check)
-  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = locations.filter(isOperationalStorage);
   
   const rackMap = groupLocationsByRack(storageLocations);
   const racks: RackUnit[] = [];
@@ -160,6 +168,154 @@ function locationsToRacks(
   return racks;
 }
 
+function rackStatusFromSummary(value?: string | null): RackUnit["status"] {
+  const status = (value || "active").toLowerCase();
+  if (status === "maintenance" || status === "reserved" || status === "out_of_service") {
+    return status;
+  }
+  return "active";
+}
+
+function buildWarehouseLayout(
+  warehouseId: string,
+  warehouseName: string,
+  racks: RackUnit[],
+  stations: WarehouseLayout['stations'] = []
+): WarehouseLayout {
+  const maxX = Math.max(800, ...racks.map((r) => r.x + r.width));
+  const maxY = Math.max(620, ...racks.map((r) => r.y + r.height));
+
+  return {
+    id: warehouseId,
+    name: warehouseName,
+    warehouseId,
+    width: maxX + 70,
+    height: maxY + 70,
+    racks,
+    stations,
+    aisles: [],
+  };
+}
+
+function summaryToBins(summary: RackSummary): LocationBin[] {
+  const maxLevels = Math.max(summary.maxLevels || 1, 1);
+  const positionsPerLevel = Math.max(summary.positionsPerLevel || 1, 1);
+  const binCount = Math.min(
+    Math.max(summary.binCount || maxLevels * positionsPerLevel, 1),
+    maxLevels * positionsPerLevel
+  );
+  const occupiedBins = Math.min(summary.occupiedBins || 0, binCount);
+  const palletCapacityPerBin = Math.max(Math.ceil((summary.palletCapacity || binCount) / binCount), 1);
+  const avgPalletsPerOccupiedBin = occupiedBins > 0 ? Math.max(Math.ceil((summary.palletCount || occupiedBins) / occupiedBins), 1) : 0;
+  const avgWeightPerOccupiedBin = occupiedBins > 0 ? (summary.totalWeightKg || 0) / occupiedBins : 0;
+  const avgQtyPerOccupiedBin = occupiedBins > 0 ? Math.ceil((summary.totalQuantity || 0) / occupiedBins) : 0;
+
+  return Array.from({ length: binCount }, (_, idx) => {
+    const level = Math.floor(idx / positionsPerLevel) + 1;
+    const position = String.fromCharCode(65 + (idx % positionsPerLevel));
+    const occupied = idx < occupiedBins;
+    return {
+      id: `${summary.rackId}-${level}-${position}`,
+      level,
+      status: occupied ? "occupied" : "empty",
+      maxPalletCapacity: palletCapacityPerBin,
+      palletCount: occupied ? Math.min(avgPalletsPerOccupiedBin, palletCapacityPerBin) : 0,
+      levelWeightCapacityKg: summary.weightCapacityKg ? summary.weightCapacityKg / maxLevels : undefined,
+      levelWeightUsedKg: occupied ? avgWeightPerOccupiedBin * 2 : 0,
+      inventory: occupied
+        ? {
+            sku: "Mixed SKU",
+            quantity: avgQtyPerOccupiedBin,
+            weight: avgWeightPerOccupiedBin,
+          }
+        : undefined,
+    } satisfies LocationBin;
+  });
+}
+
+export function occupancyRowsToBins(rows: BinOccupancy[]): LocationBin[] {
+  return rows.map((row) => {
+    const baseBin: LocationBin = {
+      id: row.locationCode,
+      level: row.levelNumber || 1,
+      status: row.quantity > 0 ? "occupied" : "empty",
+      maxPalletCapacity: row.maxPalletCapacity ?? 1,
+      inventory:
+        row.quantity > 0
+          ? {
+              sku: row.materialCode || "Unknown SKU",
+              quantity: row.quantity,
+              weight: row.binWeightKg ?? 0,
+              unitsPerPallet: row.unitsPerPallet ?? undefined,
+              palletWeightKg: row.palletWeightKg ?? undefined,
+            }
+          : undefined,
+    };
+    return applyOccupancyToBin(baseBin, row);
+  });
+}
+
+export async function convertRackSummariesToLayout(
+  summaries: RackSummary[],
+  warehouseId: string,
+  warehouseName: string
+): Promise<WarehouseLayout> {
+  const pendingMovesMap = await loadPendingMovesMap(warehouseId);
+  const rackWidth = 190;
+  const rackHeight = 95;
+  const sectionPadding = 50;
+  const zoneHeaderHeight = 40;
+  const horizontalAisle = 40;
+  const verticalAisle = 50;
+  const positioned = summaries.filter(
+    (summary) => summary.coordinateX != null && summary.coordinateY != null
+      && Number.isFinite(Number(summary.coordinateX)) && Number.isFinite(Number(summary.coordinateY))
+  );
+  // Rotate the metric plan for the desktop canvas: bays run left-to-right and
+  // physical zones run top-to-bottom. Swapping axes preserves every distance.
+  const coordinateXs = [...new Set(positioned.map((summary) => Number(summary.coordinateY)))].sort((a, b) => a - b);
+  const coordinateYs = [...new Set(positioned.map((summary) => Number(summary.coordinateX)))].sort((a, b) => a - b);
+  const xIndex = new Map(coordinateXs.map((value, index) => [value, index]));
+  const yIndex = new Map(coordinateYs.map((value, index) => [value, index]));
+  const fallbackColumns = 5;
+
+  const racks = summaries.map((summary, rackIndex) => {
+    const hasCoordinates = summary.coordinateX != null && summary.coordinateY != null
+      && Number.isFinite(Number(summary.coordinateX)) && Number.isFinite(Number(summary.coordinateY));
+    const rowInGrid = Math.floor(rackIndex / fallbackColumns);
+    const colInGrid = rackIndex % fallbackColumns;
+    const bins = summaryToBins(summary);
+    const rowNumber = parseInt(normalizeRow(summary.rowNumber), 10);
+    const bay = parseInt(normalizeBay(summary.bayNumber), 10);
+
+    return {
+      id: summary.rackId,
+      zone: normalizeArea(summary.area),
+      aisle: Number.isFinite(rowNumber) ? rowNumber : Math.floor(rackIndex / fallbackColumns) + 1,
+      bay: Number.isFinite(bay) ? bay : 1,
+      x: hasCoordinates
+        ? sectionPadding + (xIndex.get(Number(summary.coordinateY)) ?? 0) * (rackWidth + horizontalAisle)
+        : sectionPadding + colInGrid * (rackWidth + horizontalAisle),
+      y: hasCoordinates
+        ? sectionPadding + zoneHeaderHeight + (yIndex.get(Number(summary.coordinateX)) ?? 0) * (rackHeight + verticalAisle)
+        : sectionPadding + zoneHeaderHeight + rowInGrid * (rackHeight + verticalAisle),
+      width: rackWidth,
+      height: rackHeight,
+      bins,
+      maxLevels: Math.max(...bins.map((bin) => bin.level), 5),
+      status: rackStatusFromSummary(summary.rackStatus),
+      amalgamatedClass: summary.amalgamatedClass || undefined,
+      description: summary.description || undefined,
+      isBulk: (summary.locationType || "").toLowerCase() === "bulk",
+      isGeneratedOverflow: summary.autoGenerated,
+      pendingMoveCount: pendingMovesMap.get(summary.rackId) ?? 0,
+    } satisfies RackUnit;
+  });
+  // Operational stations belong to route planning. The detailed rack view is kept
+  // spatially stable so rack labels and all L1-L5 segments remain inspectable.
+  return buildWarehouseLayout(warehouseId, warehouseName, racks, []);
+}
+
 async function loadPendingMovesMap(warehouseId: string): Promise<Map<string, number>> {
   try {
     const snapshot = await slottingIntelligenceApi.getSnapshot(warehouseId);
@@ -202,7 +358,7 @@ export async function convertLocationHierarchyToLayout(
   });
   
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = allLocations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = allLocations.filter(isOperationalStorage);
   
   // Load inventory for this warehouse - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
@@ -288,6 +444,7 @@ export async function convertLocationHierarchyToLayout(
     width: maxX + 100,
     height: maxY + 100,
     racks,
+    stations: [],
     aisles,
   };
 }
@@ -301,7 +458,7 @@ export async function convertLocationsToLayout(
   warehouseName: string
 ): Promise<WarehouseLayout> {
   // Filter to only STORAGE locations (safety check - backend should already filter)
-  const storageLocations = locations.filter((loc) => loc.zoneType === 'STORAGE');
+  const storageLocations = locations.filter(isOperationalStorage);
   
   // Load inventory - only in-stock items with location codes
   const inventoryItems = await inventoryApi.getByWarehouse(warehouseId);
@@ -364,6 +521,7 @@ export async function convertLocationsToLayout(
     width: maxX + 100,
     height: maxY + 100,
     racks,
+    stations: [],
     aisles: [],
   };
 }

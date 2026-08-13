@@ -15,6 +15,30 @@ export interface ForecastPoint {
   y_true?: number | null;
 }
 
+export interface DemandHistoryPoint {
+  sku: string;
+  material_type: string;
+  month: string;
+  actual_demand: number;
+  promotion_flag: boolean;
+  holiday_flag: boolean;
+  lead_time_days?: number | null;
+}
+
+export interface ForecastBacktestPoint {
+  sku: string;
+  model: string;
+  month: string;
+  horizon: number;
+  y_true: number;
+  p10?: number | null;
+  p50: number;
+  p90?: number | null;
+  residual: number;
+  absolute_error: number;
+  interval_covered?: boolean | null;
+}
+
 export interface InventoryRecommendation {
   run_id: number;
   dataset: string;
@@ -22,11 +46,30 @@ export interface InventoryRecommendation {
   warehouse_id?: string | null;
   sku: string;
   category?: string | null;
+  abc_class?: string | null;
+  fms_class?: string | null;
+  amalgamated_class?: string | null;
   safety_stock: number;
   reorder_point: number;
   target_max: number;
   on_hand_inventory?: number | null;
   suggested_order_qty: number;
+}
+
+export interface RawMaterialRequirement {
+  run_id: number;
+  dataset: string;
+  model: string;
+  warehouse_id?: string | null;
+  rm_sku: string;
+  rm_category?: string | null;
+  fg_sku_count: number;
+  gross_requirement_qty: number;
+  on_hand_inventory: number;
+  safety_stock: number;
+  reorder_point: number;
+  net_requirement_qty: number;
+  suggested_procure_qty: number;
 }
 
 export interface ForecastMetric {
@@ -37,9 +80,13 @@ export interface ForecastMetric {
   split: string;
   horizon: number;
   WAPE?: number;
+  MAE?: number;
   MASE_mean?: number;
   RMSE?: number;
   Bias?: number;
+  under_forecast_rate?: number;
+  nominal_interval_coverage?: number;
+  empirical_interval_coverage?: number;
 }
 
 export interface InferenceAuditSummary {
@@ -177,11 +224,13 @@ export interface ProductionReadinessResponse {
 export interface GatewayModelsResponse {
   champion?: {
     name: string;
+    dataset?: string;
     version?: string;
     is_champion?: boolean;
   };
   available_models?: Array<{
     name: string;
+    dataset?: string;
     artifact_count?: number;
     is_champion?: boolean;
   }>;
@@ -246,15 +295,33 @@ function normalizeInferenceSummary(raw: unknown): InferenceAuditSummary {
 export interface PagedResponse<T> {
   items: T[];
   count: number;
+  canonical?: boolean;
+  model_used?: string;
+  release_status?: string;
+  source?: string;
 }
 
 export interface ForecastRunTriggerResponse {
+  jobId?: string;
+  runId?: string;
+  stage?: string;
+  progress?: number;
+  message?: string;
   job?: string;
   status?: string;
   run_id?: number;
   mode_requested?: string;
   triggered_at?: string;
   publish_result?: Record<string, unknown>;
+}
+
+export interface ForecastJobStatus {
+  jobId: string;
+  runId: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  stage: string;
+  progress: number;
+  message: string;
 }
 
 function buildQuery(params: Record<string, string | number | undefined | null>): string {
@@ -268,7 +335,32 @@ function buildQuery(params: Record<string, string | number | undefined | null>):
   return q ? `?${q}` : '';
 }
 
+export interface PublishJobResponse {
+  id: number;
+  run_id: number;
+  mode: string;
+  status: string;
+  error: string | null;
+  progress_percent: number | null;
+  progress_message: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ForecastSkuItem {
+  sku: string;
+  description: string;
+  material_type: string;
+  horizon_count: number;
+}
+
 export const aiForecastApi = {
+  getForecastSkus(params: { model?: string; warehouseId?: string } = {}) {
+    const query = buildQuery(params);
+    return apiClient.get<PagedResponse<ForecastSkuItem>>(`/ai/forecast-skus${query}`);
+  },
+
   getForecasts(params: {
     sku?: string;
     horizon?: number;
@@ -276,6 +368,8 @@ export const aiForecastApi = {
     model?: string;
     warehouseId?: string;
     runId?: number;
+    page?: number;
+    size?: number;
   } = {}) {
     const query = buildQuery({
       sku: params.sku,
@@ -284,6 +378,8 @@ export const aiForecastApi = {
       model: params.model,
       warehouseId: params.warehouseId,
       run_id: params.runId,
+      page: params.page,
+      size: params.size,
     });
     return apiClient.get<PagedResponse<ForecastPoint>>(`/ai/forecasts${query}`);
   },
@@ -307,6 +403,18 @@ export const aiForecastApi = {
     return apiClient.get<PagedResponse<ForecastMetric>>(`/ai/forecast-metrics${query}`);
   },
 
+  getDemandHistory(params: { sku?: string; warehouseId?: string; page?: number; size?: number } = {}) {
+    const query = buildQuery(params);
+    return apiClient.get<PagedResponse<DemandHistoryPoint>>(`/ai/forecast-history${query}`);
+  },
+
+  getForecastBacktests(params: {
+    sku?: string; model?: string; warehouseId?: string; page?: number; size?: number;
+  } = {}) {
+    const query = buildQuery(params);
+    return apiClient.get<PagedResponse<ForecastBacktestPoint>>(`/ai/forecast-backtests${query}`);
+  },
+
   getInventoryRecommendations(params: {
     sku?: string;
     dataset?: string;
@@ -324,6 +432,23 @@ export const aiForecastApi = {
     return apiClient.get<PagedResponse<InventoryRecommendation>>(`/ai/inventory-recommendations${query}`);
   },
 
+  getRawMaterialRequirements(params: {
+    rmSku?: string;
+    dataset?: string;
+    model?: string;
+    warehouseId?: string;
+    runId?: number;
+  } = {}) {
+    const query = buildQuery({
+      rm_sku: params.rmSku,
+      dataset: params.dataset,
+      model: params.model,
+      warehouseId: params.warehouseId,
+      run_id: params.runId,
+    });
+    return apiClient.get<PagedResponse<RawMaterialRequirement>>(`/ai/raw-material-requirements${query}`);
+  },
+
   triggerForecastRun(params: {
     dataset?: string;
     modelName?: string;
@@ -332,13 +457,21 @@ export const aiForecastApi = {
     criticalOverride?: boolean;
   } = {}) {
     const query = buildQuery({
-      dataset: params.dataset ?? 'P',
-      modelName: params.modelName ?? 'LIGHTGBM',
+      dataset: params.dataset ?? 'PROJECT_OPERATIONAL_BASELINE_RM_PM',
+      modelName: params.modelName ?? 'EXTRA_TREES_RESPONSIVE',
       mode: params.mode ?? 'snapshot',
       warehouseId: params.warehouseId,
       critical_override: params.criticalOverride === true ? "true" : undefined,
     });
     return apiClient.post<ForecastRunTriggerResponse>(`/ai/jobs/forecast-run${query}`);
+  },
+
+  getRunJobs(runId: number) {
+    return apiClient.get<PagedResponse<PublishJobResponse>>(`/ai/runs/${runId}/jobs`);
+  },
+
+  getForecastJob(jobId: string) {
+    return apiClient.get<ForecastJobStatus>(`/ai/jobs/${encodeURIComponent(jobId)}`);
   },
 
   getHealth() {

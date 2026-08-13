@@ -106,13 +106,19 @@ export function MaterialDetailModal({
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Units Per Carton</span>
+              <span className="label-text font-medium">Units Per Handling Unit</span>
             </label>
-            <div>{material.palletSpaces != null ? material.palletSpaces : "—"}</div>
+            <div>{material.unitsPerHandlingUnit != null ? material.unitsPerHandlingUnit : "—"}</div>
           </div>
           <div>
             <label className="label">
-              <span className="label-text font-medium">Carton Weight (kg)</span>
+              <span className="label-text font-medium">Units Per Pallet</span>
+            </label>
+            <div>{material.unitsPerPallet != null ? material.unitsPerPallet : "—"}</div>
+          </div>
+          <div>
+            <label className="label">
+              <span className="label-text font-medium">Base Unit Weight (kg)</span>
             </label>
             <div>
               {material.weightKg != null ? material.weightKg : "—"}

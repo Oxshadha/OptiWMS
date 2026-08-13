@@ -6,6 +6,7 @@ import com.optiwms.domain.dock.DockAppointment;
 import com.optiwms.domain.dock.DockDoor;
 import com.optiwms.domain.dock.YardTrailer;
 import com.optiwms.domain.notifications.Notification;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +19,10 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/dock-management")
+@ConditionalOnProperty(
+        name = "optiwms.features.dock-management.enabled",
+        havingValue = "true"
+)
 public class DockManagementController {
 
     private final DockManagementService service;

@@ -74,6 +74,8 @@ function WorkerServiceWorkerRegistrar() {
       "/worker/tasks",
       "/worker/picking",
       "/worker/putaway",
+      "/worker/receiving",
+      "/worker/packing",
       "/worker/cycle-count",
     ];
 
@@ -564,23 +566,16 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
           <div className="flex items-center gap-3">
-            <div
-              className="w-12 h-12 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
-              style={{ backgroundColor: "#EEEEEE" }}
-            >
-              <Image
-                src="/assets/logos/OptiWMS Logo.JPG"
-                alt="OptiWMS Logo"
-                width={48}
-                height={48}
-                className="object-contain w-full h-full"
-              />
-            </div>
+            <Image
+              src="/assets/logos/OptiWMS Logo.png?v=5"
+              alt="OptiWMS Logo"
+              width={140}
+              height={48}
+              className="object-contain h-10 w-auto"
+              priority
+            />
             <div>
-              <h1 className="text-lg font-bold text-base-content">
-                OptiWMS
-              </h1>
-              <p className="text-xs text-base-content/70">Worker App</p>
+              <p className="text-xs font-bold text-base-content/70">Worker App</p>
               <div className="flex items-center gap-1.5 mt-0.5">
                 <div
                   className={`w-2 h-2 rounded-full ${

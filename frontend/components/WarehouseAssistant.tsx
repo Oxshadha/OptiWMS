@@ -33,6 +33,7 @@ import {
   normalizeSources,
 } from "@/services/aiService";
 import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
+import { startProductTour } from "@/lib/tours/tourEngine";
 
 type ChatMessage = {
   id: string;
@@ -46,6 +47,8 @@ type ChatMessage = {
   answer?: string;       // Conversational summary or download-link markdown
   download_url?: string; // Report mode: PDF link
   timestamp?: string | Date;
+  action?: string;
+  tourId?: string;
 };
 
 const getBaseUrl = () => {
@@ -143,6 +146,15 @@ export function WarehouseAssistant({
   const [loadingHistory, setLoadingHistory] = useState(false);
 
   useEffect(() => {
+    if (chatHistory.length > 0) {
+      const lastMsg = chatHistory[chatHistory.length - 1];
+      if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
+        startProductTour(lastMsg.tourId);
+      }
+    }
+  }, [chatHistory]);
+
+  useEffect(() => {
     if (userRole === "manager") {
       onManagerOpenChange?.(isOpen);
     }
@@ -190,6 +202,8 @@ export function WarehouseAssistant({
           error: metadata.error,
           download_url: metadata.download_url,
           timestamp: m.timestamp,
+          action: metadata.action,
+          tourId: metadata.tourId,
         };
       });
 
@@ -260,6 +274,8 @@ export function WarehouseAssistant({
           error: response.error,
           download_url: response.download_url,
           timestamp: new Date().toISOString(),
+          action: response.action,
+          tourId: response.tourId,
         },
       ]);
 
@@ -425,6 +441,7 @@ export function WarehouseAssistant({
         type="button"
         aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
         onClick={() => setIsOpen((current) => !current)}
+        data-tour-target="ai-assistant-btn"
         style={{
           position: "fixed",
           right: 22,
@@ -596,6 +613,7 @@ export function WarehouseAssistant({
         type="button"
         aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
         onClick={() => setIsOpen((current) => !current)}
+        data-tour-target="ai-assistant-btn"
         style={{
           position: "fixed",
           right: 22,

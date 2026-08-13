@@ -74,9 +74,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/auth/login", "/api/auth/refresh", "/api/auth/register").permitAll()
-                        // Warehouse graph endpoint for visualization (public for UI dashboards)
-                        .requestMatchers("/api/warehouse/graph").permitAll()
-                        .requestMatchers("/api/pathfinding/warehouse/graph").permitAll()
+                        // Routing graph regeneration changes the operational navigation
+                        // contract and is restricted to warehouse management.
+                        .requestMatchers(HttpMethod.POST, "/api/routing/graph/rebuild")
+                        .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER")
                         // Allow authenticated users to access their own preferences
                         .requestMatchers("/api/auth/me/**").authenticated()
                         // Role-based access control
@@ -100,7 +101,7 @@ public class SecurityConfig {
                         // Other master data operations require admin/manager roles
                         .requestMatchers("/api/master/**")
                         .hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "INBOUND_COORDINATOR")
-                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/api/ai/forecasts").permitAll().requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .authenticationProvider(authenticationProvider())
                 // Order matters: Security Headers → Rate Limiting → JWT Auth

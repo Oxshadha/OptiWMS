@@ -11,6 +11,7 @@ export interface DemandInsight {
   stockoutRisk: number;
   reclaimableBins: number;
   confidencePct: number;
+  evidenceStatus: 'FORECAST_BACKED' | 'PARTIAL_FORECAST' | 'HISTORICAL_FALLBACK';
   rationale: string;
 }
 

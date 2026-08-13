@@ -288,6 +288,7 @@ export function generateWarehouse1Layout(): WarehouseLayout {
     width: maxX,
     height: maxY,
     racks,
+    stations: [],
     aisles,
   };
 }
@@ -471,6 +472,7 @@ export function generateWarehouse2Layout(): WarehouseLayout {
     width: maxX,
     height: maxY,
     racks,
+    stations: [],
     aisles,
   };
 }

@@ -6,8 +6,10 @@ import com.optiwms.coreapp.inventory.InventoryService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -59,12 +61,14 @@ public class InventoryController {
     public ResponseEntity<PagedInventoryResponse> listPaged(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam(defaultValue = "createdAt") String sortBy,
-            @RequestParam(defaultValue = "desc") String sortDir,
+            @RequestParam(defaultValue = "sku") String sortBy,
+            @RequestParam(defaultValue = "asc") String sortDir,
             @RequestParam(required = false) UUID materialId,
             @RequestParam(required = false) UUID warehouseId,
             @RequestParam(required = false) String materialType,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) String stockState,
+            @RequestParam(defaultValue = "false") boolean includeLegacy,
             @RequestParam(required = false) String q
     ) {
         int safePage = Math.max(page, 0);
@@ -80,7 +84,9 @@ public class InventoryController {
                 warehouseId,
                 materialType,
                 status,
+                stockState,
                 q,
+                includeLegacy,
                 PageRequest.of(safePage, safeSize, sort)
         );
 
@@ -95,6 +101,19 @@ public class InventoryController {
                 itemPage.getTotalElements(),
                 itemPage.getTotalPages()
         ));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<InventorySummaryResponse> summary(
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) String materialType
+    ) {
+        var summary = inventoryService.summarize(warehouseId, materialType);
+        return ResponseEntity.ok(new InventorySummaryResponse(
+                summary.totalItems(),
+                summary.inStockItems(),
+                summary.lowStockItems(),
+                summary.outOfStockItems()));
     }
 
     @GetMapping("/{id}")
@@ -146,7 +165,7 @@ public class InventoryController {
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
@@ -252,7 +271,7 @@ public class InventoryController {
             );
             return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED).body(toDto(created));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
@@ -292,7 +311,7 @@ public class InventoryController {
             );
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage(), e);
         }
     }
 
@@ -425,6 +444,13 @@ public class InventoryController {
             int totalPages
     ) {}
 
+    public record InventorySummaryResponse(
+            long totalItems,
+            long inStockItems,
+            long lowStockItems,
+            long outOfStockItems
+    ) {}
+
     public record CreateInventoryRequest(
             UUID materialId,
             UUID warehouseId,
@@ -466,11 +492,15 @@ public class InventoryController {
 
     private String sanitizeSortBy(String sortBy) {
         if (sortBy == null || sortBy.isBlank()) {
-            return "createdAt";
+            return "material.materialCode";
         }
         return switch (sortBy) {
+            case "sku" -> "material.materialCode";
+            case "name" -> "material.description";
+            case "qty" -> "quantity";
+            case "location" -> "locationCode";
             case "id", "createdAt", "updatedAt", "locationCode", "status", "quantity", "availableQuantity", "reservedQuantity", "expiryDate", "lastMovementDate" -> sortBy;
-            default -> "createdAt";
+            default -> "material.materialCode";
         };
     }
 }

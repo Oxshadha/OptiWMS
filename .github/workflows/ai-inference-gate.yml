@@ -24,7 +24,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Keep CI aligned with pyproject.toml and the Python 3.12 service image.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ai_services/forecast-service/pyproject.toml
       - name: Install forecast-service deps
         run: |
           python -m pip install --upgrade pip

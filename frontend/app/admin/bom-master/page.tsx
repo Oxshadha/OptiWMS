@@ -78,6 +78,7 @@ export default function BomMasterPage() {
   const [componentEdits, setComponentEdits] = useState<Record<string, ComponentDraft>>({});
   const [newMapping, setNewMapping] = useState<MappingDraft>(EMPTY_MAPPING_DRAFT);
   const [mappingEdits, setMappingEdits] = useState<Record<string, MappingDraft>>({});
+  const [headerSearch, setHeaderSearch] = useState("");
 
   const selectedHeader = useMemo(
     () => headers.find((h) => h.id === selectedHeaderId),
@@ -104,6 +105,22 @@ export default function BomMasterPage() {
       }),
     [materials],
   );
+
+  const filteredHeaders = useMemo(() => {
+    const query = headerSearch.trim().toLowerCase();
+    if (!query) return headers;
+    return headers.filter((header) => {
+      const material = materialMap.get(header.parentMaterialId);
+      return [material?.materialCode, material?.description, header.version, header.status]
+        .some((value) => String(value || "").toLowerCase().includes(query));
+    });
+  }, [headerSearch, headers, materialMap]);
+
+  const bomSummary = useMemo(() => ({
+    finishedGoods: materials.filter((m) => (m.materialType || "").toLowerCase() === "product").length,
+    rawMaterials: materials.filter((m) => (m.materialType || "").toLowerCase() === "raw_material").length,
+    packagingMaterials: materials.filter((m) => (m.materialType || "").toLowerCase() === "packaging_material").length,
+  }), [materials]);
 
   const loadAll = async () => {
     try {
@@ -395,6 +412,20 @@ export default function BomMasterPage() {
         </p>
       </div>
 
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          ["Finished-good BOMs", headers.length],
+          ["Finished goods", bomSummary.finishedGoods],
+          ["Raw materials", bomSummary.rawMaterials],
+          ["Packaging materials", bomSummary.packagingMaterials],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="border border-base-300 bg-base-100 p-3 rounded-lg">
+            <p className="text-xs text-base-content/60">{label}</p>
+            <p className="text-xl font-bold mt-1">{value}</p>
+          </div>
+        ))}
+      </div>
+
       {!canWrite && (
         <div className="alert alert-warning">
           <span>Read-only access. Admin role is required for BOM create/update/delete.</span>
@@ -502,12 +533,21 @@ export default function BomMasterPage() {
             </div>
 
             <div className="card bg-base-100 border border-base-300 rounded-xl p-4">
-              <h2 className="text-lg font-semibold mb-3">BOM Records</h2>
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h2 className="text-lg font-semibold">Finished Good to Components</h2>
+                <input
+                  className="input input-bordered input-sm w-52"
+                  placeholder="Search FG SKU or name"
+                  value={headerSearch}
+                  onChange={(event) => setHeaderSearch(event.target.value)}
+                />
+              </div>
               <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
                 <table className="table table-sm">
                   <thead>
                     <tr>
                       <th>Parent SKU</th>
+                      <th>Finished Good</th>
                       <th>Warehouse</th>
                       <th>Version</th>
                       <th>Status</th>
@@ -515,9 +555,10 @@ export default function BomMasterPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {headers.map((h) => (
+                    {filteredHeaders.map((h) => (
                       <tr key={h.id} className={selectedHeaderId === h.id ? "bg-base-200" : ""}>
                         <td>{materialMap.get(h.parentMaterialId)?.materialCode || h.parentMaterialId}</td>
+                        <td className="max-w-44 truncate">{materialMap.get(h.parentMaterialId)?.description || "-"}</td>
                         <td>{h.warehouseId ? warehouseMap.get(h.warehouseId)?.name || h.warehouseId : "Global"}</td>
                         <td>{h.version}</td>
                         <td>{h.status}</td>
@@ -535,10 +576,10 @@ export default function BomMasterPage() {
                         </td>
                       </tr>
                     ))}
-                    {!headers.length && (
+                    {!filteredHeaders.length && (
                       <tr>
-                        <td colSpan={5} className="text-center text-base-content/60">
-                          No BOM records
+                        <td colSpan={6} className="text-center text-base-content/60">
+                          No matching BOM records
                         </td>
                       </tr>
                     )}
@@ -548,8 +589,9 @@ export default function BomMasterPage() {
             </div>
           </div>
 
-          <div className="card bg-base-100 border border-base-300 rounded-xl p-4 space-y-4">
-            <h2 className="text-lg font-semibold">Forecast SKU Mapping (Explicit)</h2>
+          <details className="collapse collapse-arrow bg-base-100 border border-base-300 rounded-xl">
+            <summary className="collapse-title text-base font-semibold">Advanced forecast SKU mapping</summary>
+            <div className="collapse-content space-y-4">
             <p className="text-sm text-base-content/70">
               Use explicit map rows for forecast SKU namespace to WMS product SKU namespace.
               This is the enterprise-safe path for shadow evaluation and model governance.
@@ -730,7 +772,8 @@ export default function BomMasterPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+            </div>
+          </details>
 
           <div className="card bg-base-100 border border-base-300 rounded-xl p-4 space-y-4">
             <h2 className="text-lg font-semibold">Selected BOM Record</h2>
