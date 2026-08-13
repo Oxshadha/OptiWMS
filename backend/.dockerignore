@@ -8,6 +8,7 @@ build/
 # ignore all JARs except the Gradle wrapper (needed for Docker builds)
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
+!core-api/build/libs/core-api-0.1.0-SNAPSHOT.jar
 *.class
 
 # IDE
@@ -30,4 +31,3 @@ logs/
 
 # Documentation
 *.md
-

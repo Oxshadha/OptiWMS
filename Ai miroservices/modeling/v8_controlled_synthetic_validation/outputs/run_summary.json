@@ -1,0 +1,188 @@
+{
+  "seed": 20260711,
+  "data_tier": "CONTROLLED_SYNTHETIC_GROUND_TRUTH",
+  "materials": 120,
+  "raw_materials": 90,
+  "packaging_materials": 30,
+  "finished_goods": 24,
+  "bom_rows": 211,
+  "bom_coverage_controlled_pct": 100.0,
+  "history_months": 72,
+  "tuning_months": 6,
+  "selection_months": 6,
+  "test_months": 12,
+  "best_lightgbm_params": {
+    "num_leaves": 31,
+    "learning_rate": 0.05,
+    "min_child_samples": 30,
+    "reg_lambda": 0.5,
+    "n_estimators": 320
+  },
+  "locked_champion": "extra_trees_causal",
+  "selection_champion_metrics": {
+    "model": "extra_trees_causal",
+    "rows": 720,
+    "materials": 120,
+    "WAPE": 0.0810995644250875,
+    "MAE": 698.337999045157,
+    "RMSE": 1456.85484423038,
+    "Bias": -0.009952376486637864,
+    "under_forecast_rate": 0.4722222222222222,
+    "shock_WAPE": 0.09176384160838098
+  },
+  "test_champion_metrics": {
+    "model": "extra_trees_causal",
+    "rows": 1440,
+    "materials": 120,
+    "WAPE": 0.08335697840628727,
+    "MAE": 736.7584634403185,
+    "RMSE": 1408.4608905558036,
+    "Bias": -0.0015093530870204453,
+    "under_forecast_rate": 0.4826388888888889,
+    "shock_WAPE": 0.08567139890507648
+  },
+  "test_leaderboard": [
+    {
+      "model": "random_forest_causal",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.08237960017197607,
+      "MAE": 728.119814344842,
+      "RMSE": 1368.4013808969455,
+      "Bias": 0.00701296043025806,
+      "under_forecast_rate": 0.46875,
+      "shock_WAPE": 0.0808451778189336
+    },
+    {
+      "model": "extra_trees_causal",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.08335697840628727,
+      "MAE": 736.7584634403185,
+      "RMSE": 1408.4608905558036,
+      "Bias": -0.0015093530870204453,
+      "under_forecast_rate": 0.4826388888888889,
+      "shock_WAPE": 0.08567139890507648
+    },
+    {
+      "model": "bom_plan",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.08513046323977516,
+      "MAE": 752.4335753006194,
+      "RMSE": 1347.5981998967536,
+      "Bias": 0.018369726572383543,
+      "under_forecast_rate": 0.41805555555555557,
+      "shock_WAPE": 0.08312904423144687
+    },
+    {
+      "model": "lightgbm_causal_tweedie",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.08628920514107127,
+      "MAE": 762.6752241588804,
+      "RMSE": 1530.0233640760296,
+      "Bias": -0.0072433222638699475,
+      "under_forecast_rate": 0.5145833333333333,
+      "shock_WAPE": 0.08690520552848972
+    },
+    {
+      "model": "lightgbm_causal_ratio",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.0916373138155594,
+      "MAE": 809.944983747845,
+      "RMSE": 1541.0991800869785,
+      "Bias": 0.0020198501436794257,
+      "under_forecast_rate": 0.49236111111111114,
+      "shock_WAPE": 0.08785580523114418
+    },
+    {
+      "model": "lightgbm_direct_ratio",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.10302958893767193,
+      "MAE": 910.6366747679687,
+      "RMSE": 1662.3960807248675,
+      "Bias": 0.0012262370505165814,
+      "under_forecast_rate": 0.4826388888888889,
+      "shock_WAPE": 0.09768518939664395
+    },
+    {
+      "model": "holt_damped",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.106812027858266,
+      "MAE": 944.0681155480193,
+      "RMSE": 1798.6974750630468,
+      "Bias": -0.012142922281217862,
+      "under_forecast_rate": 0.5277777777777778,
+      "shock_WAPE": 0.10543450258864763
+    },
+    {
+      "model": "seasonal_naive",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.13617019499586266,
+      "MAE": 1203.553026388889,
+      "RMSE": 2222.6465036999953,
+      "Bias": -0.058848715093184734,
+      "under_forecast_rate": 0.6173611111111111,
+      "shock_WAPE": 0.17348376061557658
+    },
+    {
+      "model": "croston_sba",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.14912848395701644,
+      "MAE": 1318.0860774467378,
+      "RMSE": 2583.603828920486,
+      "Bias": -0.09647057284633481,
+      "under_forecast_rate": 0.6763888888888889,
+      "shock_WAPE": 0.16632422064106694
+    },
+    {
+      "model": "moving_average_6",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.15428388897969936,
+      "MAE": 1363.6526077546296,
+      "RMSE": 2519.7195050572755,
+      "Bias": -0.012350269255253999,
+      "under_forecast_rate": 0.5111111111111111,
+      "shock_WAPE": 0.12855088149324126
+    },
+    {
+      "model": "elastic_net_causal",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.3531679188616978,
+      "MAE": 3121.507739504792,
+      "RMSE": 19988.105967958298,
+      "Bias": 0.24344060997235986,
+      "under_forecast_rate": 0.5368055555555555,
+      "shock_WAPE": 0.2862117627586628
+    },
+    {
+      "model": "ridge_causal",
+      "rows": 1440,
+      "materials": 120,
+      "WAPE": 0.40274367208738304,
+      "MAE": 3559.6876791905297,
+      "RMSE": 23671.253444528247,
+      "Bias": 0.2682472668084488,
+      "under_forecast_rate": 0.5611111111111111,
+      "shock_WAPE": 0.2955244940675145
+    }
+  ],
+  "interval_calibration": {
+    "model": "extra_trees_causal",
+    "nominal_coverage": 0.9,
+    "empirical_coverage": 0.9208333333333333,
+    "normalized_error_quantile": 0.19162892427248662,
+    "average_interval_width": 3382.3475283500206,
+    "calibration_rows": 720,
+    "test_rows": 1440
+  },
+  "claim_limit": "Synthetic recovery validates the pipeline and experimental method, not real-world production accuracy or exclusive data causation."
+}

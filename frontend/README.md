@@ -43,7 +43,6 @@ The application will be available at `http://localhost:3000`
 - **Order Management**: Inbound and outbound order processing
 - **Task Management**: Worker task assignment and tracking
 - **Reports**: Comprehensive reporting and analytics
-- **Dock Management**: Yard trailer queue and dock appointment scheduling (Inbound Coordinator)
 - **Labor Productivity**: Worker performance metrics, PPH tracking, and leaderboards (Warehouse Manager)
 - **Velocity Heat Map**: Activity velocity visualization for warehouse optimization
 
@@ -146,7 +145,6 @@ frontend/
    - Inbound receipt coordination
    - Purchase order documentation
    - ERP integration
-   - Dock scheduling
    - Supplier coordination
    - All warehouses scope
 
@@ -323,7 +321,6 @@ npm run build
   -\- **[Velocity Heat Map](./docs/VELOCITY_HEAT_MAP.md)** - Activity velocity visualization guide
 - **[Role Testing Guide](./docs/ROLE_TESTING_GUIDE.md)** - How to test role-based access
 - **[Dashboard Visibility](./docs/DASHBOARD_VISIBILITY_IMPLEMENTATION.md)** - Dashboard implementation
-- **[Dock Management](./docs/DOCK_MANAGEMENT.md)** - Dock scheduling and yard management
 - **[Labor Productivity](./docs/LABOR_PRODUCTIVITY.md)** - Worker performance metrics and gamification
 - **[Offline Resilience](./docs/OFFLINE_RESILIENCE.md)** - Offline-first PWA best practices
 

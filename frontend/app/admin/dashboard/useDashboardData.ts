@@ -1,21 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   analyticsApi,
+  type AnalyticsPeriod,
   DashboardKPIs,
   InventoryOverview,
   OrderChartData,
   TopProduct,
 } from "@/lib/api/analytics";
+import { warehousesApi } from "@/lib/api/warehouses";
 import { logger } from "@/lib/utils/logger";
 
 interface DashboardDataState {
   kpis: DashboardKPIs | null;
   ordersChart: OrderChartData[];
   topProducts: TopProduct[];
+  allOrdersChart: OrderChartData[];
   inventoryOverview: InventoryOverview | null;
   loading: boolean;
+  isRefreshing: boolean;
   error: string | null;
 }
 
@@ -23,130 +28,118 @@ const initialState: DashboardDataState = {
   kpis: null,
   ordersChart: [],
   topProducts: [],
+  allOrdersChart: [],
   inventoryOverview: null,
   loading: true,
+  isRefreshing: false,
   error: null,
 };
 
-export function useDashboardData(options?: { topProductsLimit?: number }) {
-  const [state, setState] = useState<DashboardDataState>(initialState);
+export function useDashboardData(options?: { topProductsLimit?: number; period?: AnalyticsPeriod }) {
   const topProductsLimit = options?.topProductsLimit ?? 4;
+  const period = options?.period ?? "current_month";
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async (): Promise<Omit<DashboardDataState, "loading" | "isRefreshing" | "error">> => {
     logger.debug("[Dashboard] Starting data fetch...");
-
-    // Wait briefly for auth bootstrap.
-    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const token = localStorage.getItem("accessToken");
     logger.debug("[Dashboard] Token check:", token ? "Found" : "Not found");
 
     if (!token) {
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Not authenticated. Please login.",
-      }));
-      return;
+      throw new Error("Not authenticated. Please login.");
     }
 
-    try {
-      setState((prev) => ({ ...prev, loading: true, error: null }));
+    const fetchWithTimeout = async <T,>(
+      promise: Promise<T>,
+      timeoutMs: number = 10000
+    ): Promise<T> => {
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timeout")), timeoutMs)
+      );
+      return Promise.race([promise, timeout]);
+    };
 
-      const fetchWithTimeout = async <T,>(
-        promise: Promise<T>,
-        timeoutMs: number = 10000
-      ): Promise<T> => {
-        const timeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Request timeout")), timeoutMs)
-        );
-        return Promise.race([promise, timeout]);
-      };
+    const warehouses = await fetchWithTimeout(warehousesApi.getAll());
+    let warehouseId = warehouses[0]?.id;
 
-      const [kpisData, ordersChartData, topProductsData, inventoryData] =
-        await Promise.all([
-          fetchWithTimeout(analyticsApi.getDashboardKPIs(undefined, "monthly")).catch(
-            (err) => {
-              logger.error("[Dashboard] KPIs fetch error:", err);
-              return null;
-            }
-          ),
-          fetchWithTimeout(analyticsApi.getOrdersChart("monthly")).catch((err) => {
-            logger.error("[Dashboard] Orders chart fetch error:", err);
-            return [];
-          }),
-          fetchWithTimeout(analyticsApi.getTopProducts(topProductsLimit)).catch((err) => {
-            logger.error("[Dashboard] Top products fetch error:", err);
-            return [];
-          }),
-          fetchWithTimeout(analyticsApi.getInventoryOverview()).catch((err) => {
-            logger.error("[Dashboard] Inventory overview fetch error:", err);
+    // Fallback to the full warehouse list if the operational slice is empty.
+    // This keeps the dashboard usable in DBs that only have legacy/demo warehouses.
+    if (!warehouseId) {
+      logger.warn("[Dashboard] No operational warehouses found, falling back to legacy warehouses");
+      const legacyWarehouses = await fetchWithTimeout(
+        warehousesApi.getAll(true as any)
+      );
+      warehouseId = legacyWarehouses[0]?.id;
+    }
+
+    if (!warehouseId) {
+      throw new Error("No warehouse is available for dashboard analytics.");
+    }
+
+    const [kpisData, ordersChartData, allOrdersChartData, topProductsData, inventoryData] =
+      await Promise.all([
+        fetchWithTimeout(analyticsApi.getDashboardKPIs(warehouseId, period)).catch(
+          (err) => {
+            logger.error("[Dashboard] KPIs fetch error:", err);
             return null;
-          }),
-        ]);
+          }
+        ),
+        fetchWithTimeout(analyticsApi.getOrdersChart(period, warehouseId)).catch((err) => {
+          logger.error("[Dashboard] Orders chart fetch error:", err);
+          return [];
+        }),
+        fetchWithTimeout(analyticsApi.getOrdersChart("all", warehouseId)).catch((err) => {
+          logger.error("[Dashboard] All-period orders chart fetch error:", err);
+          return [];
+        }),
+        fetchWithTimeout(analyticsApi.getTopProducts(topProductsLimit, warehouseId, period)).catch((err) => {
+          logger.error("[Dashboard] Top products fetch error:", err);
+          return [];
+        }),
+        fetchWithTimeout(analyticsApi.getInventoryOverview(warehouseId)).catch((err) => {
+          logger.error("[Dashboard] Inventory overview fetch error:", err);
+          return null;
+        }),
+      ]);
 
-      setState({
-        kpis: kpisData,
-        ordersChart: ordersChartData,
-        topProducts: topProductsData,
-        inventoryOverview: inventoryData,
-        loading: false,
-        error: null,
-      });
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to load dashboard data";
+    return {
+      kpis: kpisData,
+      ordersChart: ordersChartData,
+      allOrdersChart: allOrdersChartData,
+      topProducts: topProductsData,
+      inventoryOverview: inventoryData,
+    };
+  }, [period, topProductsLimit]);
 
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: errorMessage,
-      }));
+  const dashboardQuery = useQuery({
+    queryKey: ["admin-dashboard", period, topProductsLimit],
+    queryFn: fetchDashboardData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: 1,
+    select: (data) => ({
+      kpis: data.kpis,
+      ordersChart: data.ordersChart,
+      topProducts: data.topProducts,
+      allOrdersChart: data.allOrdersChart,
+      inventoryOverview: data.inventoryOverview,
+    }),
+  });
 
-      if (
-        errorMessage.includes("Not authenticated") ||
-        errorMessage.includes("Session expired")
-      ) {
-        window.location.href = "/admin/login";
-      }
-    }
-  }, [topProductsLimit]);
-
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
-
-  useEffect(() => {
-    if (!state.loading) {
-      return;
-    }
-
-    const timeout = setTimeout(() => {
-      setState((prev) => {
-        const hasAnyData =
-          !!prev.kpis ||
-          prev.ordersChart.length > 0 ||
-          prev.topProducts.length > 0 ||
-          !!prev.inventoryOverview;
-
-        if (hasAnyData) {
-          return { ...prev, loading: false };
-        }
-
-        return {
-          ...prev,
-          loading: false,
-          error:
-            "Dashboard data failed to load. Please check your connection and try again.",
-        };
-      });
-    }, 15000);
-
-    return () => clearTimeout(timeout);
-  }, [state.loading, state.kpis, state.ordersChart, state.topProducts, state.inventoryOverview]);
+  const errorMessage =
+    dashboardQuery.error instanceof Error
+      ? dashboardQuery.error.message
+      : dashboardQuery.error
+        ? "Failed to load dashboard data"
+        : null;
 
   return {
-    ...state,
-    reload: fetchDashboardData,
+    ...(dashboardQuery.data ?? initialState),
+    loading: dashboardQuery.isPending && !dashboardQuery.data,
+    isRefreshing: dashboardQuery.isFetching && !dashboardQuery.isPending,
+    error: errorMessage,
+    reload: dashboardQuery.refetch,
   };
 }

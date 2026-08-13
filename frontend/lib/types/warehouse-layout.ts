@@ -42,6 +42,7 @@ export interface RackUnit {
   notes?: string; // Additional notes
   velocity?: number; // Velocity percentage (0-100) for heat map visualization
   isBulk?: boolean; // True when rack belongs to bulk-storage location type
+  isGeneratedOverflow?: boolean; // True when rack belongs to extended reserve capacity
   pendingMoveCount?: number; // Open stock-transfer lines targeting this rack
 }
 
@@ -52,6 +53,15 @@ export interface WarehouseLayout {
   width: number; // Total warehouse width in SVG units
   height: number; // Total warehouse height in SVG units
   racks: RackUnit[];
+  stations: {
+    id: string;
+    label: string;
+    kind: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }[];
   aisles: {
     id: string;
     x: number;

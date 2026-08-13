@@ -3,6 +3,7 @@ package com.optiwms.coreapp.operations;
 import com.optiwms.coreapp.orders.OrderService;
 import com.optiwms.coreapp.tasks.TaskService;
 import com.optiwms.domain.operations.PackingRecord;
+import com.optiwms.domain.orders.Order;
 import com.optiwms.domain.tasks.Task;
 import com.optiwms.infra.operations.PackingRecordEntity;
 import com.optiwms.infra.operations.PackingRecordRepository;
@@ -66,7 +67,16 @@ public class PackingService {
     }
 
     public List<PackingRecord> findByOrderNumber(String orderNumber) {
-        return repository.findByOrderNumber(orderNumber).stream()
+        List<PackingRecordEntity> records = repository.findByOrderNumber(orderNumber);
+        try {
+            Order order = orderService.findByOrderNumber(orderNumber);
+            if (order.getOrderNumber() != null && !order.getOrderNumber().equals(orderNumber)) {
+                records = new ArrayList<>(records);
+                records.addAll(repository.findByOrderNumber(order.getOrderNumber()));
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return records.stream()
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
@@ -121,8 +131,10 @@ public class PackingService {
     @Transactional
     public PackingRecord create(PackingRecord packingRecord) {
         PackingRecordEntity entity = new PackingRecordEntity();
-        entity.setOrderId(packingRecord.getOrderId());
-        entity.setOrderNumber(packingRecord.getOrderNumber());
+        Order order = resolveOrder(packingRecord.getOrderId(), packingRecord.getOrderNumber());
+        String canonicalOrderNumber = order != null ? order.getOrderNumber() : packingRecord.getOrderNumber();
+        entity.setOrderId(order != null ? order.getId() : packingRecord.getOrderId());
+        entity.setOrderNumber(canonicalOrderNumber);
         entity.setPackagingTypeId(packingRecord.getPackagingTypeId());
         entity.setBoxType(packingRecord.getBoxType());
         entity.setBoxDimensions(normalizeJsonObjectText(packingRecord.getBoxDimensions()));
@@ -131,7 +143,7 @@ public class PackingService {
         entity.setActualWeightKg(packingRecord.getActualWeightKg());
         entity.setDimensionalWeightKg(packingRecord.getDimensionalWeightKg());
         entity.setChargeableWeightKg(packingRecord.getChargeableWeightKg());
-        entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), packingRecord.getOrderNumber()));
+        entity.setTrackingNumber(normalizeTrackingNumber(packingRecord.getTrackingNumber(), canonicalOrderNumber));
         entity.setShippingLabelUrl(packingRecord.getShippingLabelUrl());
         entity.setPackingSlipUrl(packingRecord.getPackingSlipUrl());
         entity.setPackingNotes(packingRecord.getPackingNotes());
@@ -150,6 +162,19 @@ public class PackingService {
             }
         }
         return toDomain(saved);
+    }
+
+    private Order resolveOrder(UUID orderId, String orderNumber) {
+        try {
+            if (orderId != null) {
+                return orderService.findById(orderId);
+            }
+            if (orderNumber != null && !orderNumber.isBlank()) {
+                return orderService.findByOrderNumber(orderNumber);
+            }
+        } catch (RuntimeException ignored) {
+        }
+        return null;
     }
 
     @Transactional

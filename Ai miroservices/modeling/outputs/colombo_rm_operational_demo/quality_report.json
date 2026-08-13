@@ -1,0 +1,17 @@
+{
+  "warehouse_name": "Colombo Main Warehouse",
+  "material_scope": "raw_material",
+  "horizon_months": 12,
+  "source_materials": 274,
+  "forecast_rows": 3288,
+  "duplicate_sku_month_rows": 0,
+  "missing_material_ids": 0,
+  "missing_location_codes": 274,
+  "forecast_coverage_pct": 100,
+  "confidence_coverage_pct": 100,
+  "notes": [
+    "Use this report for internal reproducibility and debugging.",
+    "Load only WMS-compatible CSV rows into operational tables.",
+    "Colombo RM manager screens should read from WMS tables after load."
+  ]
+}

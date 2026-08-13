@@ -2,6 +2,7 @@ import os
 import re
 import io
 import json
+import httpx
 import uuid
 import time
 import base64
@@ -280,9 +281,37 @@ def _fig_to_bytes(fig) -> bytes:
     return buf.read()
 
 
+# ── Groq API Fallback Helper ─────────────────────────────────────────────────
+def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-lite") -> tuple[str, bool]:
+    try:
+        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt,
+        )
+        return response.text, False
+    except ResourceExhausted:
+        print("Gemini quota exhausted. Falling back to Groq...")
+        groq_key = os.getenv("GROQ_API_KEY")
+        if not groq_key:
+            raise ResourceExhausted("Google Gemini quota exhausted and GROQ_API_KEY not found.")
+        
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {groq_key}",
+            "Content-Type": "application/json"
+        }
+        data = {
+            "model": "llama3-70b-8192",
+            "messages": [{"role": "user", "content": prompt}]
+        }
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(url, headers=headers, json=data)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"], True
+
 # ── SQL generation ────────────────────────────────────────────────────────────
-def generate_sql(question: str, schema: str) -> str:
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+def generate_sql(question: str, schema: str) -> tuple[str, bool]:
     prompt = f"""You are a SQL expert for a Warehouse Management System (WMS) using PostgreSQL.
 
 Given the database schema below, write a SQL SELECT query to answer the user's question.
@@ -296,18 +325,13 @@ USER QUESTION:
 {question}
 
 SQL QUERY:"""
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
-        contents=prompt,
-    )
-    return extract_sql(response.text)
+    text, fallback = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+    return extract_sql(text), fallback
 
 
 # ── Mode 1: Conversational summary ───────────────────────────────────────────
-def generate_conversational_answer(question: str, sql: str, df: pd.DataFrame) -> str:
+def generate_conversational_answer(question: str, sql: str, df: pd.DataFrame) -> tuple[str, bool]:
     """Ask Gemini to summarise the query results in clear, natural English."""
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-
     # Build a compact data sample for the prompt (max 20 rows)
     if df is not None and not df.empty:
         sample = df.head(20).to_string(index=False)
@@ -332,18 +356,13 @@ Respond in clear, conversational English. Explain what the data shows, highlight
 and note any trends or concerns worth mentioning. Be concise (3–6 sentences).
 Do NOT output JSON. Do NOT suggest downloading a report unless the user asked for one."""
 
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
-        contents=prompt,
-    )
-    return response.text.strip()
+    text, fallback = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+    return text.strip(), fallback
 
 
 # ── Mode 2: Report JSON schema generation ────────────────────────────────────
-def generate_report_json(question: str, sql: str, df: pd.DataFrame) -> dict:
+def generate_report_json(question: str, sql: str, df: pd.DataFrame) -> tuple[dict, bool]:
     """Ask Gemini to produce a structured report JSON object from the query results."""
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-
     sample = df.head(50).to_string(index=False) if df is not None and not df.empty else "(no data)"
     row_count = len(df) if df is not None else 0
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -395,16 +414,13 @@ RULES:
 - Include 2-4 key_insights and 2-3 recommendations.
 - Return ONLY the raw JSON. No markdown fences. No explanation."""
 
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
-        contents=prompt,
-    )
-
-    raw = response.text.strip()
+    text, fallback = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+    
+    raw = text.strip()
     # Strip markdown fences if model added them anyway
     raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s*```$", "", raw)
-    return json.loads(raw)
+    return json.loads(raw), fallback
 
 
 # ── PDF builder ───────────────────────────────────────────────────────────────
@@ -764,14 +780,14 @@ def ask_database(question: str):
     engine = get_engine()
     schema = get_schema_description(engine)
     report_mode = is_report_request(question)
+    fallback_used = False
 
     # ── Generate SQL ──────────────────────────────────────────────────────────
     try:
-        sql = generate_sql(question, schema)
-    except ResourceExhausted:
-        return None, None, None, (
-            "Google Gemini quota exhausted. Check your project billing and usage."
-        ), None, None
+        sql, sql_fb = generate_sql(question, schema)
+        fallback_used = fallback_used or sql_fb
+    except ResourceExhausted as e:
+        return None, None, None, str(e), None, None
     except Exception as e:
         return None, None, None, f"Failed to generate SQL: {str(e)}", None, None
 
@@ -791,11 +807,14 @@ def ask_database(question: str):
     # ── Mode 2: Report Generation ─────────────────────────────────────────────
     if report_mode:
         try:
-            report_json = generate_report_json(question, sql, df)
+            report_json, rep_fb = generate_report_json(question, sql, df)
+            fallback_used = fallback_used or rep_fb
             pdf_path = build_pdf_report(report_json, df)
             file_name = pdf_path.name
             download_url = f"/download/{file_name}"
             answer = f"Your report **\"{report_json.get('title', 'Warehouse Report')}\"** is ready!"
+            if fallback_used:
+                answer += "\n\n*(Note: Gemini API quota reached. Answer generated using Groq fallback.)*"
             return None, sql, None, None, answer, download_url
         except Exception as e:
             return None, sql, None, f"Report generation failed: {str(e)}", None, None
@@ -803,7 +822,10 @@ def ask_database(question: str):
     # ── Mode 1: Conversational ────────────────────────────────────────────────
     chart = generate_chart(df)
     try:
-        answer = generate_conversational_answer(question, sql, df)
+        answer, conv_fb = generate_conversational_answer(question, sql, df)
+        fallback_used = fallback_used or conv_fb
+        if fallback_used and answer:
+            answer += "\n\n*(Note: Gemini API quota reached. Answer generated using Groq fallback.)*"
     except Exception:
         answer = ""
 
@@ -850,23 +872,55 @@ def classify_question(question: str) -> str:
     Classifies the user's question as:
     - 'SOP': Standard Operating Procedures, instructions, policies, rules, maps.
     - 'DATA': Database numbers, inventory, orders, stock levels, or reports.
+    - 'TOUR': Requests for an interactive UI guide or product tour on how to use the admin dashboard.
     """
+    q_lower = question.lower()
+
+    # ── Fast-path: explicit TOUR keyword combinations ──────────────────────
+    tour_triggers = ["tour", "guide", "navigate", "how do i use", "show me how", "walk me through", "tutorial", "how to use", "where is the", "where do i find"]
+    software_context = ["dashboard", "app", "system", "software", "platform", "admin", "screen", "page", "menu", "button", "tab", "feature", "panel", "widget"]
+
+    has_tour_word = any(k in q_lower for k in tour_triggers)
+    has_software_word = any(k in q_lower for k in software_context)
+
+    # If user asks "how do I use X" about the UI, it's a TOUR
+    if has_tour_word and has_software_word:
+        return "TOUR"
+    # If user explicitly mentions "dashboard" + asking what's in it / how to use
+    if "dashboard" in q_lower and any(k in q_lower for k in ["how", "what", "where", "use", "in the", "overview"]):
+        return "TOUR"
+
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         prompt = f"""You are a query classifier for a Warehouse Management System (WMS).
-Classify the user question into one of these two classes:
-- 'SOP': Standard Operating Procedures, how-to guidelines, safety instructions, return policies, damaged product flows, operational rules, or locations of items in a static map context.
-- 'DATA': Stock numbers, inventory counts, order status, movement logs, analytics, queries about what is in the postgres database tables, or requests to generate/create/download reports.
+Classify the user question into one of these three classes:
+- 'SOP': Standard Operating Procedures, safety instructions, return policies, operational rules, or physical warehouse locations/equipment.
+- 'DATA': Stock numbers, inventory counts, order status, movement logs, analytics, queries about what is in the postgres database tables, or requests to generate reports.
+- 'TOUR': Requests for a product tour, UI guide, how to use the software dashboard, how to navigate around the application, where things are on screen, or what features exist in the software.
+
+CRITICAL CLASSIFICATION RULES:
+1. If the user asks ANY question about what is in the dashboard, how to use the software, how to navigate, where a feature is on screen, or how the UI works → CLASSIFY AS 'TOUR'.
+2. 'SOP' is ONLY for physical warehouse operations (like forklifts, safety, damaged goods, PPT usage, cycle count steps, etc).
+3. If the user asks "how do I..." or "where is..." or "what's in the dashboard" about the software → it is 'TOUR', not 'SOP'.
+4. Examples:
+   - "whats in the dashboard and how to use them" → TOUR
+   - "show me how to manage inventory in the app" → TOUR
+   - "how to use a forklift safely" → SOP
+   - "where is SKU-001 stored physically" → SOP
+   - "where is the inventory page" → TOUR
+   - "show me inventory count for SKU-001" → DATA
 
 User Question: "{question}"
 
-Answer ONLY with 'SOP' or 'DATA'. Do not add any explanation or other text."""
+Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other text."""
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
             contents=prompt,
         )
         res = response.text.strip().upper()
-        if "SOP" in res:
+        if "TOUR" in res:
+            return "TOUR"
+        elif "SOP" in res:
             return "SOP"
         elif "DATA" in res:
             return "DATA"
@@ -874,20 +928,81 @@ Answer ONLY with 'SOP' or 'DATA'. Do not add any explanation or other text."""
         print(f"Classifier error: {e}")
 
     # Fallback keyword matching
-    q_lower = question.lower()
     if "report" in q_lower or "pdf" in q_lower:
         return "DATA"
-    sop_keywords = ["sop", "procedure", "how to", "policy", "rule", "step", "guide", "safety", "standard", "map", "location"]
+    tour_keywords = [
+        "tour", "guide", "navigate", "dashboard", "where is", "show me how",
+        "walk me through", "tutorial", "how to use", "feature", "screen", "page",
+        "button", "menu", "tab", "app", "software", "system"
+    ]
+    if any(k in q_lower for k in tour_keywords):
+        return "TOUR"
+    sop_keywords = ["sop", "procedure", "policy", "rule", "step", "safety", "standard", "map", "location", "forklift", "ppt", "pallet", "stacker"]
     if any(k in q_lower for k in sop_keywords):
         return "SOP"
     return "DATA"
+
+
+# ── Tour ID selection ─────────────────────────────────────────────────────────
+def select_tour_id(question: str) -> str:
+    """
+    Given the user's question, return the most appropriate tour config ID
+    from frontend/lib/tours/tourConfig.ts.
+    Falls back to dashboard_overview_tour if no specific match.
+    """
+    q = question.lower()
+
+    # Inventory / stock related
+    if any(k in q for k in ["inventory", "stock", "sku", "item", "product"]):
+        return "inventory_management_tour"
+
+    # Orders / inbound / outbound
+    if any(k in q for k in ["order", "inbound", "outbound", "purchase", "shipment", "delivery"]):
+        return "orders_and_shipments_tour"
+
+    # Warehouse / layout / map / locations
+    if any(k in q for k in ["warehouse", "layout", "map", "location", "bin", "rack", "zone", "slot"]):
+        return "warehouse_layout_tour"
+
+    # Reports / analytics / dashboard metrics
+    if any(k in q for k in ["report", "analytic", "metric", "kpi", "chart", "graph", "pdf", "export"]):
+        return "reports_analytics_tour"
+
+    # Workers / labor / tasks
+    if any(k in q for k in ["worker", "labor", "task", "productivity", "staff", "picking", "packing"]):
+        return "workforce_tasks_tour"
+
+    # SOP / help / rules
+    if any(k in q for k in ["sop", "procedure", "policy", "rule", "safety", "help"]):
+        return "sop_help_tour"
+
+    # Default: general dashboard overview
+    return "dashboard_overview_tour"
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
 def ask(chain, question: str, user_id: str = None, session_id: str = None) -> dict:
     mode = classify_question(question)
 
-    if mode == "SOP":
+    if mode == "TOUR":
+        tour_id = select_tour_id(question)
+        tour_intros = {
+            "inventory_management_tour": "Let me show you how to manage inventory and check stock levels.",
+            "orders_and_shipments_tour": "Let me walk you through managing orders and shipments.",
+            "warehouse_layout_tour": "Let me guide you around the warehouse layout and locations.",
+            "reports_analytics_tour": "Let me show you the analytics and reporting features.",
+            "workforce_tasks_tour": "Let me walk you through workers and task management.",
+            "sop_help_tour": "Let me show you where to find SOPs and help resources.",
+            "dashboard_overview_tour": "Let me give you a quick tour of the dashboard and main features.",
+        }
+        intro = tour_intros.get(tour_id, tour_intros["dashboard_overview_tour"])
+        res = {
+            "mode": "TOUR",
+            "answer": f"{intro} Starting the interactive tour now — just follow the highlighted steps on your screen.",
+            "action": "START_TOUR",
+            "tourId": tour_id
+        }
+    elif mode == "SOP":
         result = chain.invoke({"query": question})
         answer = result["result"]
         sources = list(set([
@@ -949,7 +1064,9 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None) -> di
                     "data": res.get("data"),
                     "chart": res.get("chart"),
                     "error": res.get("error"),
-                    "download_url": res.get("download_url")
+                    "download_url": res.get("download_url"),
+                    "action": res.get("action"),
+                    "tourId": res.get("tourId")
                 }
                 ai_msg = ChatMessage(
                     session_id=session_id,

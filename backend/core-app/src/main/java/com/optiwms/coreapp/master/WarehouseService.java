@@ -6,11 +6,19 @@ import com.optiwms.infra.master.WarehouseRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 public class WarehouseService {
+
+    private static final String CURRENT_OPERATIONAL_DATASET = "PROJECT_OPERATIONAL_SIMULATION_V8";
+    private static final List<String> OPERATIONAL_DATASETS = List.of(
+            CURRENT_OPERATIONAL_DATASET,
+            "PROJECT_OPERATIONAL_BASELINE_V3",
+            "OPERATIONAL_ENTRY"
+    );
 
     private final WarehouseRepository repository;
 
@@ -20,6 +28,17 @@ public class WarehouseService {
 
     public List<Warehouse> listAll() {
         return repository.findAll().stream().map(this::toDomain).collect(Collectors.toList());
+    }
+
+    public List<Warehouse> listOperational() {
+        return repository.findByDatasetVersionIn(OPERATIONAL_DATASETS).stream()
+                .filter(entity -> "active".equalsIgnoreCase(entity.getStatus()))
+                .sorted(Comparator
+                        .comparingInt((WarehouseEntity entity) ->
+                                CURRENT_OPERATIONAL_DATASET.equals(entity.getDatasetVersion()) ? 0 : 1)
+                        .thenComparing(WarehouseEntity::getCode))
+                .map(this::toDomain)
+                .collect(Collectors.toList());
     }
 
     public Warehouse findById(java.util.UUID id) {
@@ -98,5 +117,3 @@ public class WarehouseService {
         return w;
     }
 }
-
-

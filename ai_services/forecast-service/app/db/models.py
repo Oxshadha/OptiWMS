@@ -137,6 +137,8 @@ class PublishJob(Base):
     mode: Mapped[str] = mapped_column(String(16), default="auto")
     status: Mapped[str] = mapped_column(String(24), default="queued", index=True)  # queued|processing|succeeded|failed
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    progress_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -13,7 +13,13 @@ export interface Material {
   weightKg?: number;
   volumeCm3?: number;
   palletSpaces?: number;
+  unitsPerPallet?: number;
+  maxStackHeight?: number;
   maxPalletWeightKg?: number;
+  minOrderQuantity?: number;
+  handlingUnitType?: string;
+  unitsPerHandlingUnit?: number;
+  orderMultiple?: number;
   // ABC/FMS Classification for storage zone assignment
   abcClass?: string;      // A, B, C (volume-based)
   fmsClass?: string;      // F, M, S (frequency-based)
@@ -34,6 +40,27 @@ export interface PagedMaterialsResponse {
   totalPages: number;
 }
 
+export interface MaterialSummary {
+  total: number;
+  dimensioned: number;
+  rawMaterials: number;
+  products: number;
+  packaging: number;
+}
+
+export interface MaterialOrderingProfile {
+  material: Material;
+  supplierMinimumOrderQuantity?: number | null;
+  supplierOrderMultiple?: number | null;
+  supplierUnitsPerHandlingUnit?: number | null;
+  supplierLeadTimeDays?: number | null;
+  preferred?: boolean | null;
+  effectiveMinimumOrderQuantity: number;
+  effectiveOrderMultiple: number;
+  effectiveUnitsPerHandlingUnit: number;
+  warehouseAvailableQuantity?: number | null;
+}
+
 export const materialsApi = {
   getAll: async (materialType?: string, supplierId?: string): Promise<Material[]> => {
     const params = new URLSearchParams();
@@ -50,8 +77,8 @@ export const materialsApi = {
   getPaged: async ({
     page = 0,
     size = 10,
-    sortBy = "createdAt",
-    sortDir = "desc",
+    sortBy = "materialCode",
+    sortDir = "asc",
     materialType,
     supplierId,
     q,
@@ -75,10 +102,22 @@ export const materialsApi = {
     return apiClient.get<PagedMaterialsResponse>(`/master/materials/paged?${params.toString()}`);
   },
 
+  getSummary: async (): Promise<MaterialSummary> => {
+    return apiClient.get<MaterialSummary>('/master/materials/summary');
+  },
+
   getByCode: async (materialCode: string): Promise<Material> => {
     // URL encode the material code to handle special characters
     const encodedCode = encodeURIComponent(materialCode.trim());
     return apiClient.get<Material>(`/master/materials/code/${encodedCode}`);
+  },
+
+  getOrderingProfile: async (id: string, options?: { supplierId?: string; warehouseId?: string }): Promise<MaterialOrderingProfile> => {
+    const params = new URLSearchParams();
+    if (options?.supplierId) params.append("supplierId", options.supplierId);
+    if (options?.warehouseId) params.append("warehouseId", options.warehouseId);
+    const query = params.toString();
+    return apiClient.get<MaterialOrderingProfile>(`/master/materials/${id}/ordering-profile${query ? `?${query}` : ""}`);
   },
 
   create: async (material: Omit<Material, 'id'>): Promise<Material> => {

@@ -64,6 +64,8 @@ class DataResponse(BaseModel):
     download_url: Optional[str] = None  # Set in Report mode
     sources: Optional[List[str]] = None  # SOP sources
     session_id: Optional[str] = None
+    action: Optional[str] = None        # e.g. "START_TOUR" for guided product tours
+    tourId: Optional[str] = None        # Tour config key in frontend/lib/tours/tourConfig.ts
 
 class SessionSummary(BaseModel):
     id: str
@@ -110,6 +112,8 @@ def ask_question(request: QuestionRequest):
             download_url=res.get("download_url"),
             sources=res.get("sources"),
             session_id=res.get("session_id"),
+            action=res.get("action"),
+            tourId=res.get("tourId"),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

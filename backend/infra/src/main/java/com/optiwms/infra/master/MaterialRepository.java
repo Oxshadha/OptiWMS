@@ -20,5 +20,7 @@ public interface MaterialRepository extends JpaRepository<MaterialEntity, UUID>,
     
     boolean existsByMaterialCode(String materialCode);
     java.util.List<MaterialEntity> findByMaterialType(String materialType);
+    List<MaterialEntity> findByDataQualityTierIn(List<String> dataQualityTiers);
+    List<MaterialEntity> findByMaterialTypeAndDataQualityTierIn(String materialType, List<String> dataQualityTiers);
     List<MaterialEntity> findByMaterialCodeContainingIgnoreCaseOrDescriptionContainingIgnoreCase(String materialCode, String description);
 }

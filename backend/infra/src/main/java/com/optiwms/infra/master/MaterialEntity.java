@@ -58,6 +58,9 @@ public class MaterialEntity {
     @Column(name = "pallet_spaces", precision = 10, scale = 2)
     private java.math.BigDecimal palletSpaces;
 
+    @Column(name = "units_per_pallet")
+    private Integer unitsPerPallet;
+
     @Column(name = "stackable")
     private Boolean stackable;
 
@@ -80,8 +83,29 @@ public class MaterialEntity {
     @Column(name = "min_order_quantity", precision = 15, scale = 2)
     private java.math.BigDecimal minOrderQuantity;
 
+    @Column(name = "handling_unit_type", length = 20)
+    private String handlingUnitType;
+
+    @Column(name = "units_per_handling_unit", precision = 15, scale = 2)
+    private java.math.BigDecimal unitsPerHandlingUnit;
+
+    @Column(name = "order_multiple", precision = 15, scale = 2)
+    private java.math.BigDecimal orderMultiple;
+
     @Column(name = "safety_stock_level", precision = 15, scale = 2)
     private java.math.BigDecimal safetyStockLevel;
+
+    @Column(name = "unit_cost_standard", precision = 15, scale = 2)
+    private java.math.BigDecimal unitCostStandard;
+
+    @Column(name = "abc_class", length = 1)
+    private String abcClass;
+
+    @Column(name = "fms_class", length = 1)
+    private String fmsClass;
+
+    @Column(name = "data_quality_tier", length = 64)
+    private String dataQualityTier;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -93,6 +117,9 @@ public class MaterialEntity {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
+        if (dataQualityTier == null || dataQualityTier.isBlank()) {
+            dataQualityTier = "OPERATIONAL_ENTRY";
+        }
     }
 
     @PreUpdate
@@ -229,6 +256,14 @@ public class MaterialEntity {
         this.palletSpaces = palletSpaces;
     }
 
+    public Integer getUnitsPerPallet() {
+        return unitsPerPallet;
+    }
+
+    public void setUnitsPerPallet(Integer unitsPerPallet) {
+        this.unitsPerPallet = unitsPerPallet;
+    }
+
     public Boolean getStackable() {
         return stackable;
     }
@@ -269,6 +304,13 @@ public class MaterialEntity {
         this.fragile = fragile;
     }
 
+    public String getAbcClass() { return abcClass; }
+    public void setAbcClass(String abcClass) { this.abcClass = abcClass; }
+    public String getFmsClass() { return fmsClass; }
+    public void setFmsClass(String fmsClass) { this.fmsClass = fmsClass; }
+    public String getDataQualityTier() { return dataQualityTier; }
+    public void setDataQualityTier(String dataQualityTier) { this.dataQualityTier = dataQualityTier; }
+
     public java.math.BigDecimal getMaxPalletWeightKg() {
         return maxPalletWeightKg;
     }
@@ -285,11 +327,43 @@ public class MaterialEntity {
         this.minOrderQuantity = minOrderQuantity;
     }
 
+    public String getHandlingUnitType() {
+        return handlingUnitType;
+    }
+
+    public void setHandlingUnitType(String handlingUnitType) {
+        this.handlingUnitType = handlingUnitType;
+    }
+
+    public java.math.BigDecimal getUnitsPerHandlingUnit() {
+        return unitsPerHandlingUnit;
+    }
+
+    public void setUnitsPerHandlingUnit(java.math.BigDecimal unitsPerHandlingUnit) {
+        this.unitsPerHandlingUnit = unitsPerHandlingUnit;
+    }
+
+    public java.math.BigDecimal getOrderMultiple() {
+        return orderMultiple;
+    }
+
+    public void setOrderMultiple(java.math.BigDecimal orderMultiple) {
+        this.orderMultiple = orderMultiple;
+    }
+
     public java.math.BigDecimal getSafetyStockLevel() {
         return safetyStockLevel;
     }
 
     public void setSafetyStockLevel(java.math.BigDecimal safetyStockLevel) {
         this.safetyStockLevel = safetyStockLevel;
+    }
+
+    public java.math.BigDecimal getUnitCostStandard() {
+        return unitCostStandard;
+    }
+
+    public void setUnitCostStandard(java.math.BigDecimal unitCostStandard) {
+        this.unitCostStandard = unitCostStandard;
     }
 }

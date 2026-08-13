@@ -48,31 +48,30 @@ public class LocationService {
      * Get only storage locations (exclude staging, receiving, shipment, packing areas)
      * For warehouse map visualization - only show racks, not staging areas
      *
-     * Include inactive storage locations as well so non-active racks remain visible
-     * and can be re-activated from the UI.
      * Material type categorization (raw materials, finished goods) is handled by inventory,
      * not by location type.
      */
     public List<Location> findStorageLocationsByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseId(warehouseId).stream()
-                .filter(entity -> {
-                    // Only STORAGE zone type - exclude RECEIVING, SHIPMENT, PACKING, STAGING
-                    String zoneType = entity.getZoneType();
-                    return "STORAGE".equals(zoneType);
-                })
+                .filter(entity -> entity.getIsActive() == null || entity.getIsActive())
+                .filter(entity -> isOperationalStorageLocation(entity.getLocationType(), entity.getZoneType()))
                 .map(this::toDomain)
                 .collect(Collectors.toList());
     }
 
     public List<Location> findAvailableByWarehouse(UUID warehouseId) {
         return repository.findByWarehouseIdAndIsActive(warehouseId, true).stream()
-                .filter(entity -> {
-                    String zoneType = entity.getZoneType();
-                    return "STORAGE".equals(zoneType) || "storage".equals(entity.getLocationType());
-                })
+                .filter(entity -> isOperationalStorageLocation(entity.getLocationType(), entity.getZoneType()))
                 .filter(entity -> "active".equals(normalizeRackStatus(entity.getRackStatus())))
                 .map(this::toDomain)
                 .collect(Collectors.toList());
+    }
+
+    static boolean isOperationalStorageLocation(String locationType, String zoneType) {
+        String type = locationType == null ? "" : locationType.trim().toUpperCase(java.util.Locale.ROOT);
+        String zone = zoneType == null ? "" : zoneType.trim().toUpperCase(java.util.Locale.ROOT);
+        return java.util.Set.of("STORAGE", "PICKING", "BULK").contains(type)
+                || java.util.Set.of("STORAGE", "PICK_FACE", "RESERVE").contains(zone);
     }
 
     public Location findByLocationCode(String locationCode) {

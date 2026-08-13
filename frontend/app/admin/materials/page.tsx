@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { DataTable } from "@/components/DataTable";
 import { Pagination } from "@/components/Pagination";
@@ -103,7 +104,7 @@ export default function MaterialsPage() {
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<SortBy>(null);
+  const [sortBy, setSortBy] = useState<SortBy>("sku");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -139,7 +140,7 @@ export default function MaterialsPage() {
             ? "materialCode"
             : sortBy === "type"
               ? "materialType"
-              : "createdAt";
+              : "materialCode";
 
       return materialsApi.getPaged({
         page: currentPage - 1,
@@ -153,6 +154,11 @@ export default function MaterialsPage() {
     },
   });
   const warehousesQuery = useReferenceWarehouses();
+  const summaryQuery = useQuery({
+    queryKey: ["admin-materials", "summary"],
+    queryFn: materialsApi.getSummary,
+    staleTime: 60_000,
+  });
   const reload = useInvalidateAdminList(["admin-materials"]);
 
   const loadMaterialLocations = async () => {
@@ -228,13 +234,12 @@ export default function MaterialsPage() {
   const totalItems = materialsQuery.data?.totalElements ?? 0;
   const totalPages = Math.max(materialsQuery.data?.totalPages ?? 1, 1);
 
-  const summaryStats = {
+  const summaryStats = summaryQuery.data ?? {
     total: totalItems,
-    dimensioned: materials.filter(hasCompleteDimensions).length,
-    rawMaterials: materials.filter((m) => (m.materialType || "raw_material") === "raw_material")
-      .length,
-    products: materials.filter((m) => m.materialType === "product").length,
-    packaging: materials.filter((m) => m.materialType === "packaging_material").length,
+    dimensioned: 0,
+    rawMaterials: 0,
+    products: 0,
+    packaging: 0,
   };
 
   const handleImportDimensions = async (file: File) => {
@@ -358,7 +363,7 @@ export default function MaterialsPage() {
           },
           {
             label: "Dimensioned SKUs",
-            value: `${summaryStats.dimensioned}/${materials.length}`,
+            value: `${summaryStats.dimensioned}/${summaryStats.total}`,
             icon: "straighten",
           },
           {
@@ -427,7 +432,6 @@ export default function MaterialsPage() {
                   setCurrentPage(1);
                 }}
               >
-                <option value="">No Sort</option>
                 <option value="name">Name</option>
                 <option value="sku">SKU</option>
                 <option value="type">Type</option>
@@ -507,27 +511,36 @@ export default function MaterialsPage() {
                 ),
               },
               {
-                key: "palletSpaces",
-                label: "Units Per Carton",
+                key: "unitsPerHandlingUnit",
+                label: "Units / Handling Unit",
                 render: (material: Material) => (
                   <span className="text-base-content/60">
-                    {material.palletSpaces != null ? material.palletSpaces : "—"}
+                    {material.unitsPerHandlingUnit != null ? material.unitsPerHandlingUnit : "—"}
+                  </span>
+                ),
+              },
+              {
+                key: "unitsPerPallet",
+                label: "Units / Pallet",
+                render: (material: Material) => (
+                  <span className="text-base-content/60">
+                    {material.unitsPerPallet != null ? material.unitsPerPallet : "—"}
                   </span>
                 ),
               },
               {
                 key: "weightKg",
-                label: "Carton Weight (kg)",
+                label: "Base Unit Weight (kg)",
                 render: (material: Material) => dimCell(material.weightKg, material),
               },
               {
                 key: "volumeCm3",
-                label: "Volume (cm³)",
+                label: "Base Unit Volume (cm³)",
                 render: (material: Material) => dimCell(material.volumeCm3, material),
               },
               {
                 key: "maxPalletWeightKg",
-                label: "Max Carton Wt (kg)",
+                label: "Pallet Gross Wt (kg)",
                 render: (material: Material) => (
                   <span className="text-base-content/60">
                     {material.maxPalletWeightKg != null ? material.maxPalletWeightKg : "—"}
@@ -560,7 +573,7 @@ export default function MaterialsPage() {
               },
               {
                 key: "binLocation",
-                label: "Bin Location",
+                label: "Assigned Locations",
                 render: (material: Material) => {
                   const summary = materialsWithLocations.get(material.id);
                   if (!summary)
@@ -572,7 +585,7 @@ export default function MaterialsPage() {
                       </span>
                       {summary.all.length > 1 && (
                         <span className="text-[11px] text-base-content/60">
-                          +{summary.all.length - 1} fallback
+                          +{summary.all.length - 1} reserve
                         </span>
                       )}
                     </div>

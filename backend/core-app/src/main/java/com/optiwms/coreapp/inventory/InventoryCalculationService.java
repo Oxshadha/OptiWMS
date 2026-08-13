@@ -5,6 +5,7 @@ import com.optiwms.infra.inventory.InventoryItemEntity;
 import com.optiwms.infra.inventory.InventoryItemRepository;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
+import com.optiwms.coreapp.master.HandlingUnitCapacityService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,14 +24,17 @@ public class InventoryCalculationService {
     private final InventoryItemRepository inventoryRepository;
     private final MaterialRepository materialRepository;
     private final BinOccupancyService binOccupancyService;
+    private final HandlingUnitCapacityService handlingUnitCapacityService;
 
     public InventoryCalculationService(
             InventoryItemRepository inventoryRepository,
             MaterialRepository materialRepository,
-            BinOccupancyService binOccupancyService) {
+            BinOccupancyService binOccupancyService,
+            HandlingUnitCapacityService handlingUnitCapacityService) {
         this.inventoryRepository = inventoryRepository;
         this.materialRepository = materialRepository;
         this.binOccupancyService = binOccupancyService;
+        this.handlingUnitCapacityService = handlingUnitCapacityService;
     }
 
     /**
@@ -52,10 +56,10 @@ public class InventoryCalculationService {
             // Calculate Pallet Requirement if null
             // Formula: CEILING(Quantity / Pallets per Material, 1)
             if (inventory.getPalletRequirement() == null && material != null) {
-                BigDecimal palletSpaces = material.getPalletSpaces();
-                if (palletSpaces != null && palletSpaces.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal unitsPerPallet = handlingUnitCapacityService.resolveUnitsPerPallet(material);
+                if (unitsPerPallet.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal quantity = BigDecimal.valueOf(inventory.getQuantity());
-                    BigDecimal palletReq = quantity.divide(palletSpaces, 2, RoundingMode.CEILING);
+                    BigDecimal palletReq = quantity.divide(unitsPerPallet, 2, RoundingMode.CEILING);
                     inventory.setPalletRequirement(palletReq);
                     needsUpdate = true;
                 }
@@ -113,17 +117,17 @@ public class InventoryCalculationService {
         MaterialEntity material = materialRepository.findById(inventory.getMaterialId())
                 .orElse(null);
 
-        if (material == null || material.getPalletSpaces() == null) {
+        if (material == null) {
             return null;
         }
 
-        BigDecimal palletSpaces = material.getPalletSpaces();
-        if (palletSpaces.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal unitsPerPallet = handlingUnitCapacityService.resolveUnitsPerPallet(material);
+        if (unitsPerPallet.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
 
         BigDecimal quantity = BigDecimal.valueOf(inventory.getQuantity());
-        return quantity.divide(palletSpaces, 2, RoundingMode.CEILING);
+        return quantity.divide(unitsPerPallet, 2, RoundingMode.CEILING);
     }
 
     /**

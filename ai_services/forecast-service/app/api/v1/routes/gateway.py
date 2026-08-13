@@ -439,6 +439,7 @@ def gateway_models():
     dataset = settings.default_forecast_dataset
     provider = get_active_provider()
     champion = provider.model_info()
+    provider_health = provider.health_check()
 
     artifacts = list_artifacts(dataset=dataset)
 
@@ -447,6 +448,8 @@ def gateway_models():
     for a in artifacts:
         name = a.get("artifact_name", "unknown").split("_h")[0]
         model_names[name] = model_names.get(name, 0) + 1
+    if provider_health.get("provider") == "v8_snapshot":
+        model_names[champion.name] = max(model_names.get(champion.name, 0), 1)
 
     return {
         "api_version": "1.0",
@@ -460,7 +463,11 @@ def gateway_models():
             for name, count in sorted(model_names.items())
         ],
         "dataset": dataset,
-        "total_artifacts": len(artifacts),
+        "total_artifacts": max(
+            len(artifacts),
+            int(provider_health.get("total_artifacts", 0)),
+        ),
+        "provider": provider_health.get("provider"),
     }
 
 

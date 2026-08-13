@@ -286,7 +286,7 @@ class AiProxyServiceTest {
         )).thenReturn(new ResponseEntity<>(critical, HttpStatus.OK));
 
         when(restTemplate.exchange(
-                eq("http://localhost:8092/jobs/forecast-run?dataset=A&model_name=XGBOOST"),
+                eq("http://localhost:8092/jobs/forecast-run?dataset=A&model_name=XGBOOST&async_run=true"),
                 eq(HttpMethod.POST),
                 any(HttpEntity.class),
                 eq(Map.class)

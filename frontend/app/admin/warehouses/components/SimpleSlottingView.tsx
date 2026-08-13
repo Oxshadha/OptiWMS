@@ -1,6 +1,6 @@
 "use client";
 
-import type { WarehouseLayout } from "@/lib/types/warehouse-layout";
+import type { RackUnit, WarehouseLayout } from "@/lib/types/warehouse-layout";
 import { parseRackId } from "@/lib/utils/location-identity";
 
 export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
@@ -19,7 +19,7 @@ export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
   };
 
   const classColor = (slotClass?: string) => {
-    const normalized = (slotClass || "CM").toUpperCase();
+    const normalized = (slotClass || "UNASSIGNED").toUpperCase();
     if (normalized.endsWith("F")) {
       return {
         tile: "bg-blue-50 border-blue-300",
@@ -38,87 +38,100 @@ export function SimpleSlottingView({ layout }: { layout: WarehouseLayout }) {
     };
   };
 
-  const grouped = layout.racks.reduce<Record<string, typeof layout.racks>>((acc, rack) => {
-    const zone = parseRack(rack).zone;
-    if (!acc[zone]) acc[zone] = [];
-    acc[zone].push(rack);
-    return acc;
-  }, {});
+  const grouped = layout.racks
+    .reduce<Record<string, RackUnit[]>>((acc, rack) => {
+      const zone = parseRack(rack).zone;
+      if (!acc[zone]) acc[zone] = [];
+      acc[zone].push(rack);
+      return acc;
+    }, {});
 
   const zoneOrder = Object.keys(grouped).sort();
   const classCount = layout.racks.reduce<Record<string, number>>((acc, rack) => {
-    const key = (rack.amalgamatedClass || "CM").toUpperCase();
+    const key = (rack.amalgamatedClass || "UNASSIGNED").toUpperCase();
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
   const classOrder = ["AF", "AM", "AS", "BF", "BM", "BS", "CF", "CM", "CS"];
+  const zoneDescription = (zone: string) => {
+    if (zone === "A") return "Fast-pick racks nearest receiving, packing, and dispatch.";
+    if (zone === "B") return "Forward pallet storage for high-throughput replenishment.";
+    if (zone === "C") return "Bulk raw-material storage with high-capacity lower levels.";
+    if (zone === "D") return "Packaging and finished-goods storage for standard flows.";
+    if (zone === "E") return "Controlled and special-handling storage with segregated positions.";
+    return "Operational storage racks.";
+  };
+
+  const racksByClass = classOrder.map((slotClass) => ({
+    slotClass,
+    racks: layout.racks
+      .filter((rack) => (rack.amalgamatedClass || "").toUpperCase() === slotClass)
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true })),
+  }));
+
+  const classMeaning = (slotClass: string) => {
+    const volume = slotClass[0] === "A" ? "High volume" : slotClass[0] === "B" ? "Medium volume" : "Low volume";
+    const velocity = slotClass[1] === "F" ? "fast access" : slotClass[1] === "M" ? "standard access" : "deep access";
+    return `${volume}, ${velocity}`;
+  };
 
   return (
-    <div className="card bg-base-100 border border-base-300 p-4">
-      <div className="mb-3">
-        <h3 className="font-semibold text-base-content">Simple Slotting Layout</h3>
-        <p className="text-xs text-base-content/60">High-level view by zone and slotting class (no detailed bay UI).</p>
-        <p className="mt-1 text-xs text-base-content/70">
-          Amalgamated Classes: A* = high-volume products, B* = medium-volume products, C* = low-volume products.
-          F = fast-moving, M = medium-moving, S = slow-moving.
-        </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-md border border-blue-300 bg-blue-50 px-2 py-1 text-blue-800">F = Blue</span>
-          <span className="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-base-content/80">M = White/Neutral</span>
-          <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-900">S = Yellow</span>
+    <div className="space-y-4 bg-base-100 border border-base-300 p-4">
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <h3 className="font-semibold text-base-content">Operational Rack Suitability</h3>
+          <p className="text-xs text-base-content/60">Every rack is active operational capacity. Classes define which ABC/FMS demand profiles each rack can serve.</p>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          {classOrder.map((slotClass) => (
-            <span
-              key={slotClass}
-              className="rounded-md border border-base-300 bg-base-100 px-2 py-1 text-base-content/80"
-            >
-              {slotClass}: {classCount[slotClass] || 0}
-            </span>
-          ))}
+        <div className="flex gap-4 text-xs text-base-content/70">
+          <span><strong>{layout.racks.length}</strong> operational racks</span>
+          <span><strong>{Object.keys(classCount).filter((value) => value !== "UNASSIGNED").length}</strong> suitability classes</span>
+          <span className={classCount.UNASSIGNED ? "text-error" : "text-success"}>
+            <strong>{classCount.UNASSIGNED || 0}</strong> unassigned
+          </span>
         </div>
       </div>
-      <div className="space-y-4">
-        {zoneOrder.map((zone) => (
-          <div key={zone} className="rounded-lg border border-base-300 p-3">
-            <div className="text-sm font-semibold mb-2">Zone {zone}</div>
-            <div className="space-y-3">
-              {Object.entries(
-                grouped[zone].reduce<Record<string, typeof layout.racks>>((rows, rack) => {
-                  const parsed = parseRack(rack);
-                  const key = `${parsed.zone}-${parsed.rowCode}`;
-                  if (!rows[key]) rows[key] = [];
-                  rows[key].push(rack);
-                  return rows;
-                }, {})
-              )
-                .sort((a, b) => a[0].localeCompare(b[0]))
-                .map(([rowKey, racks]) => (
-                  <div key={rowKey} className="rounded-md border border-base-300 p-2">
-                    <div className="mb-2 text-xs font-semibold text-base-content/70">Row {rowKey}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {racks
-                        .slice()
-                        .sort((a, b) => parseRack(a).bay - parseRack(b).bay)
-                        .map((rack) => {
-                          const colors = classColor(rack.amalgamatedClass);
-                          return (
-                            <div
-                              key={rack.id}
-                              className={`min-w-[120px] rounded-md border px-2 py-1 ${colors.tile}`}
-                              title={rack.id}
-                            >
-                              <div className={`text-xs font-mono ${colors.text}`}>{rack.id}</div>
-                              <div className={`text-xs ${colors.text}`}>Class: {rack.amalgamatedClass || "CM"}</div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  </div>
-                ))}
+
+      <div className="grid grid-cols-3 gap-2">
+        {racksByClass.map(({ slotClass, racks }) => {
+          const colors = classColor(slotClass);
+          return (
+            <div key={slotClass} className={`border p-3 ${colors.tile}`}>
+              <div className="flex items-center justify-between">
+                <span className={`font-mono font-bold ${colors.text}`}>{slotClass}</span>
+                <span className="text-lg font-semibold">{racks.length}</span>
+              </div>
+              <div className="text-xs text-base-content/60">{classMeaning(slotClass)}</div>
+              <div className="mt-1 truncate font-mono text-[11px] text-base-content/50" title={racks.map((rack) => rack.id).join(", ")}>
+                {racks.slice(0, 4).map((rack) => rack.id).join(" · ") || "No racks assigned"}
+                {racks.length > 4 ? ` · +${racks.length - 4}` : ""}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+      </div>
+
+      <div className="overflow-x-auto border border-base-300">
+        <table className="table table-sm">
+          <thead>
+            <tr><th>Zone</th><th>Operational role</th><th className="text-right">Racks</th><th>Class allocation</th></tr>
+          </thead>
+          <tbody>
+            {zoneOrder.map((zone) => {
+              const zoneRacks = grouped[zone];
+              const distribution = classOrder
+                .map((slotClass) => `${slotClass} ${zoneRacks.filter((rack) => rack.amalgamatedClass === slotClass).length}`)
+                .filter((value) => !value.endsWith(" 0"));
+              return (
+                <tr key={zone}>
+                  <td className="font-semibold">Zone {zone}</td>
+                  <td className="text-xs text-base-content/70">{zoneDescription(zone)}</td>
+                  <td className="text-right">{zoneRacks.length}</td>
+                  <td className="font-mono text-xs">{distribution.join(" · ") || "Unassigned"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

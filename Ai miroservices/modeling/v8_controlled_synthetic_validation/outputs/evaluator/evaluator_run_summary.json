@@ -1,0 +1,65 @@
+{
+  "data_tier": "CONTROLLED_SYNTHETIC_GROUND_TRUTH",
+  "purpose": "Independent v8 replication of the shared neural window and architecture contract.",
+  "history_months": 24,
+  "horizon_months": 12,
+  "seeds": [
+    17,
+    42,
+    101,
+    303,
+    707
+  ],
+  "production_decision_eligible": false,
+  "external_population_validity": "UNVERIFIED",
+  "leaderboard": [
+    {
+      "split": "selection",
+      "model_name": "CONV1D_ATTENTION_GLOBAL",
+      "rows": 1440,
+      "series": 120,
+      "WAPE": 0.11397836071465871,
+      "MAE": 948.1237241427103,
+      "RMSE": 2056.156381017029,
+      "Bias": 0.0798267577716434,
+      "under_forecast_rate": 0.6597222222222222,
+      "selection_score": 0.15389173960048042
+    },
+    {
+      "split": "selection",
+      "model_name": "SEASONAL_NAIVE",
+      "rows": 1440,
+      "series": 120,
+      "WAPE": 0.14239222350940897,
+      "MAE": 1184.4831340277779,
+      "RMSE": 2295.1327156664024,
+      "Bias": 0.07528966835068843,
+      "under_forecast_rate": 0.6138888888888889,
+      "selection_score": 0.1800370576847532
+    },
+    {
+      "split": "untouched_test",
+      "model_name": "CONV1D_ATTENTION_GLOBAL",
+      "rows": 1440,
+      "series": 120,
+      "WAPE": 0.09899621267759491,
+      "MAE": 874.9873053020901,
+      "RMSE": 1623.95671709803,
+      "Bias": 0.031221564872541383,
+      "under_forecast_rate": 0.5583333333333333,
+      "selection_score": 0.1146069951138656
+    },
+    {
+      "split": "untouched_test",
+      "model_name": "SEASONAL_NAIVE",
+      "rows": 1440,
+      "series": 120,
+      "WAPE": 0.13617019499586266,
+      "MAE": 1203.553026388889,
+      "RMSE": 2222.6465036999953,
+      "Bias": 0.058848715093184734,
+      "under_forecast_rate": 0.6173611111111111,
+      "selection_score": 0.16559455254245503
+    }
+  ]
+}

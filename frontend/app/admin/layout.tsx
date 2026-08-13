@@ -39,9 +39,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     <AdminProvider>
       <RouteGuard requiredRole="admin">
         <div className="min-h-screen bg-base-200 overflow-x-hidden">
-          <Sidebar collapsed={sidebarCollapsed} onToggleCollapse={toggleSidebar} />
-          <div className={clsx("flex min-h-screen flex-1 flex-col transition-all duration-300", sidebarCollapsed ? "lg:ml-0" : "lg:ml-64")}>
-            <Topbar onToggleSidebar={toggleSidebar} showToggle={sidebarCollapsed} />
+          <Sidebar
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={toggleSidebar}
+          />
+          <div
+            className={clsx(
+              "flex min-h-screen flex-1 flex-col transition-all duration-300",
+              sidebarCollapsed ? "lg:ml-0" : "lg:ml-64",
+            )}
+          >
+            <Topbar
+              onToggleSidebar={toggleSidebar}
+              showToggle={sidebarCollapsed}
+            />
             <main className="p-6 space-y-6">{children}</main>
           </div>
         </div>

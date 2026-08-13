@@ -14,7 +14,7 @@ services:
       - DATABASE_URL=sqlite:////data/forecast_service.db
       - REPORTS_DIR=${REPORTS_DIR:-/reports}
       - RUNTIME_DATA_SOURCE_MODE=${RUNTIME_DATA_SOURCE_MODE:-csv}
-      - WMS_RUNTIME_DATABASE_URL=${WMS_RUNTIME_DATABASE_URL:-}
+      - WMS_RUNTIME_DATABASE_URL=${WMS_RUNTIME_DATABASE_URL:-postgresql://optiwms:optiwms@host.docker.internal:5434/optiwms}
       - WMS_RUNTIME_OUTBOUND_STATUSES=${WMS_RUNTIME_OUTBOUND_STATUSES:-shipped,delivered,completed}
       - PUBLISH_QUEUE_POLL_INTERVAL_SECONDS=${PUBLISH_QUEUE_POLL_INTERVAL_SECONDS:-1.0}
       - RETENTION_MAX_RUNS_PER_SCOPE=${RETENTION_MAX_RUNS_PER_SCOPE:-30}
@@ -49,6 +49,12 @@ services:
       - GOVERNANCE_AUTO_ROLLBACK=${GOVERNANCE_AUTO_ROLLBACK:-true}
       - GOVERNANCE_ROLLBACK_MODEL_NAME=${GOVERNANCE_ROLLBACK_MODEL_NAME:-ARIMA}
       - GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE=${GOVERNANCE_ENFORCE_GATE_ON_AUTOPROMOTE:-true}
+      - FORECAST_PROVIDER_TYPE=${FORECAST_PROVIDER_TYPE:-v8_snapshot}
+      - V8_FORECAST_ROOT=${V8_FORECAST_ROOT:-/v8_operational}
+      - DEFAULT_FORECAST_DATASET=${DEFAULT_FORECAST_DATASET:-PROJECT_OPS_RM_PM}
+      - CHAMPION_MODELS_JSON=${CHAMPION_MODELS_JSON:-{"PROJECT_OPS_RM_PM":{"default":"PROJECT_OPS_EXTRA_TREES_CAUSAL"}}}
+      - CANONICAL_FORECAST_ROOT=/project_operational_baseline
+      - OPTIWMS_REPOSITORY_ROOT=/optiwms
     ports:
       - "${FORECAST_SERVICE_PORT}:${FORECAST_SERVICE_PORT}"
     healthcheck:
@@ -61,6 +67,9 @@ services:
       - ../Ai miroservices/modeling/outputs/reports:${REPORTS_DIR:-/reports}:ro
       - ../Ai miroservices/modeling/outputs/artifacts:/model-artifacts:ro
       - ../Ai miroservices/modeling/v6_academic_final:/v6_academic_final:ro
+      - ../Ai miroservices/modeling/project_operational_baseline:/project_operational_baseline
+      - ../Ai miroservices/modeling/v8_controlled_synthetic_validation:/v8_operational
+      - ..:/optiwms:ro
       - forecast-service-data:/data
     networks:
       - optiwms-network
@@ -102,6 +111,10 @@ services:
       - WMS_API_BASE_URL=${WMS_API_BASE_URL}
       - AI_ENV=${AI_ENV}
       - LOG_LEVEL=${LOG_LEVEL}
+      - SLOTTING_MILP_CANDIDATES_PER_SKU=${SLOTTING_MILP_CANDIDATES_PER_SKU:-36}
+      - SLOTTING_MILP_TIME_LIMIT_MS=${SLOTTING_MILP_TIME_LIMIT_MS:-45000}
+      - SLOTTING_MILP_SOLVER=${SLOTTING_MILP_SOLVER:-SCIP}
+      - SLOTTING_FLOW_CANDIDATES_PER_SKU=${SLOTTING_FLOW_CANDIDATES_PER_SKU:-1000}
     depends_on:
       forecast-service:
         condition: service_healthy

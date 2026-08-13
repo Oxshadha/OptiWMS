@@ -1,0 +1,10 @@
+assumption,status,evidence,action
+Temporal ordering and no random K-fold,SUPPORTED,Expanding-origin H1-H12 protocol with a locked 2025 test.,Keep all preprocessing inside each origin.
+Annual seasonality is present,SUPPORTED,33.3% of series pass AR(1)-red-noise annual spectral testing after FDR.,Retain cyclic and spectral ablations; do not force seasonality on every series.
+Series are stationary,NOT_REQUIRED,69.8% pass joint ADF/KPSS evidence.,Trees and neural models do not require stationarity; monitor regime slices.
+Residuals are centered,REJECTED,HAC intercept test on monthly aggregate residuals.,Keep bias in the selection score and monitor by horizon.
+Residuals are serially uncorrelated,SUPPORTED,Ljung-Box test on monthly aggregate residuals.,Use HAC/block inference regardless of outcome.
+Residuals are Gaussian,NOT_REQUIRED,Jarque-Bera is reported but Gaussian intervals are not used.,Use empirical/quantile intervals and block-bootstrap inference.
+Residual variance is constant,REJECTED,Breusch-Pagan and scale-error tests.,Use scale-normalized intervals and slice metrics.
+P10-P90 intervals are calibrated,SUPPORTED,Untouched-test block-bootstrap coverage interval.,Recalibrate on pre-test residuals if rejected.
+Generated sample represents the operational population,UNVERIFIED,All current histories are controlled/generated rather than sampled customer operations.,"Require representative real issue history, population definition, lineage and shadow validation."
