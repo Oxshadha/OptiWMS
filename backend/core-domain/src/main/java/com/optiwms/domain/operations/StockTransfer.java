@@ -11,6 +11,7 @@ import java.util.UUID;
 public class StockTransfer extends BaseEntity {
     private String transferNumber;
     private String transferType;
+    private UUID planningCycleId;
     private UUID materialId;
     private UUID sourceWarehouseId;
     private String sourceLocationCode;
@@ -33,6 +34,8 @@ public class StockTransfer extends BaseEntity {
     public void setTransferNumber(String transferNumber) { this.transferNumber = transferNumber; }
     public String getTransferType() { return transferType; }
     public void setTransferType(String transferType) { this.transferType = transferType; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
     public UUID getMaterialId() { return materialId; }
     public void setMaterialId(UUID materialId) { this.materialId = materialId; }
     public UUID getSourceWarehouseId() { return sourceWarehouseId; }

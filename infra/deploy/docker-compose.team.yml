@@ -1,0 +1,103 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-optiwms}
+      POSTGRES_USER: ${POSTGRES_USER:-optiwms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - team_db:/var/lib/postgresql/data
+      - ../init-scripts:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-optiwms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ghcr.io/${GHCR_OWNER:?set GHCR_OWNER}/optiwms-backend:${OPTIWMS_TAG:?set OPTIWMS_TAG}
+    restart: unless-stopped
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-optiwms}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-optiwms}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      FRONTEND_URL: https://${TEAM_HOST:?set TEAM_HOST}
+      OPTIWMS_BUILD_COMMIT: ${OPTIWMS_TAG}
+      AI_FORECAST_BASE_URL: http://forecast:8091
+      AI_ORCHESTRATOR_BASE_URL: http://orchestrator:8092
+      AI_SLOTTING_BASE_URL: http://slotting:8093
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+
+  forecast-bootstrap:
+    profiles: [provision]
+    image: ghcr.io/${GHCR_OWNER}/optiwms-forecast:${OPTIWMS_TAG}
+    depends_on:
+      backend: { condition: service_healthy }
+    environment:
+      OPTIWMS_V8_OUTPUTS_DIR: /opt/optiwms/v8/outputs
+    command: ["python", "/opt/optiwms/scripts/load_project_operational_simulation.py", "--db-url", "postgresql://${POSTGRES_USER:-optiwms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-optiwms}"]
+
+  forecast:
+    image: ghcr.io/${GHCR_OWNER}/optiwms-forecast:${OPTIWMS_TAG}
+    restart: unless-stopped
+    environment:
+      SERVICE_PORT: 8091
+      DEFAULT_FORECAST_DATASET: PROJECT_OPS_RM_PM
+      CHAMPION_MODELS_JSON: '{"PROJECT_OPS_RM_PM":{"default":"PROJECT_OPS_EXTRA_TREES_CAUSAL"}}'
+      WMS_RUNTIME_DATABASE_URL: postgresql://${POSTGRES_USER:-optiwms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-optiwms}
+      WMS_API_BASE_URL: http://backend:8080/api
+
+  slotting:
+    image: ghcr.io/${GHCR_OWNER}/optiwms-slotting:${OPTIWMS_TAG}
+    restart: unless-stopped
+    environment: { SERVICE_PORT: 8093, WMS_API_BASE_URL: 'http://backend:8080/api' }
+
+  orchestrator:
+    image: ghcr.io/${GHCR_OWNER}/optiwms-orchestrator:${OPTIWMS_TAG}
+    restart: unless-stopped
+    environment: { SERVICE_PORT: 8092, WMS_API_BASE_URL: 'http://backend:8080/api', FORECAST_API_BASE_URL: 'http://forecast:8091' }
+
+  assistant:
+    image: ghcr.io/${GHCR_OWNER}/optiwms-assistant:${OPTIWMS_TAG}
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:?set GOOGLE_API_KEY}
+      SPRING_API_BASE_URL: http://backend:8080
+      AI_AGENT_ALLOWED_ORIGINS: https://${TEAM_HOST}
+      AI_AGENT_RATE_LIMIT_PER_MINUTE: ${AI_AGENT_RATE_LIMIT_PER_MINUTE:-30}
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER}/optiwms-frontend:${OPTIWMS_TAG}
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [frontend, backend, assistant]
+    environment:
+      TEAM_HOST: ${TEAM_HOST:?set TEAM_HOST}
+      TEAM_USER: ${TEAM_USER:?set TEAM_USER}
+      TEAM_PASSWORD_HASH: ${TEAM_PASSWORD_HASH:?set TEAM_PASSWORD_HASH}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  team_db:
+  caddy_data:
+  caddy_config:

@@ -37,14 +37,9 @@ const allNavItems = [
   { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
   { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
   {
-    href: "/admin/replenishment",
-    label: "Intelligent Engine",
+    href: "/admin/inventory-intelligence",
+    label: "Inventory Intelligence",
     icon: "psychology",
-    subItems: [
-      { href: "/admin/replenishment", label: "Action Center" },
-      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner" },
-      { href: "/admin/slotting-plans", label: "Slotting Planner" },
-    ],
   },
   { href: "/admin/tasks", label: "Tasks", icon: "task" },
   

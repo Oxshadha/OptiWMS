@@ -50,6 +50,12 @@ public class StockTransferLineEntity {
     @Column(name = "assigned_worker_id", columnDefinition = "UUID")
     private UUID assignedWorkerId;
 
+    @Column(name = "planning_cycle_id", columnDefinition = "UUID")
+    private UUID planningCycleId;
+
+    @Column(name = "slotting_plan_line_id", columnDefinition = "UUID")
+    private UUID slottingPlanLineId;
+
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
@@ -100,6 +106,10 @@ public class StockTransferLineEntity {
     public void setStatus(String status) { this.status = status; }
     public UUID getAssignedWorkerId() { return assignedWorkerId; }
     public void setAssignedWorkerId(UUID assignedWorkerId) { this.assignedWorkerId = assignedWorkerId; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
+    public UUID getSlottingPlanLineId() { return slottingPlanLineId; }
+    public void setSlottingPlanLineId(UUID slottingPlanLineId) { this.slottingPlanLineId = slottingPlanLineId; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public LocalDateTime getCreatedAt() { return createdAt; }

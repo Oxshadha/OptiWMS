@@ -20,6 +20,9 @@ public class SpaceOptimizationRunEntity {
     @Column(name = "warehouse_id", nullable = false)
     @JdbcTypeCode(SqlTypes.UUID)
     private UUID warehouseId;
+    @Column(name = "planning_cycle_id")
+    @JdbcTypeCode(SqlTypes.UUID)
+    private UUID planningCycleId;
 
     @Column(name = "policy_run_id")
     @JdbcTypeCode(SqlTypes.UUID)
@@ -85,6 +88,8 @@ public class SpaceOptimizationRunEntity {
     public void setId(UUID id) { this.id = id; }
     public UUID getWarehouseId() { return warehouseId; }
     public void setWarehouseId(UUID warehouseId) { this.warehouseId = warehouseId; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
     public UUID getPolicyRunId() { return policyRunId; }
     public void setPolicyRunId(UUID policyRunId) { this.policyRunId = policyRunId; }
     public Integer getHorizonMonths() { return horizonMonths; }

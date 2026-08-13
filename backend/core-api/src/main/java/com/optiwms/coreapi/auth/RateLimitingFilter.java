@@ -20,9 +20,15 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
     // Rate limit: 5 attempts per minute per IP
     private static final int MAX_ATTEMPTS = 5;
+    private static final int MAX_ASSISTANT_REQUESTS = 60;
     private static final long WINDOW_DURATION_MINUTES = 1;
 
     private final Cache<String, Integer> attemptCache = Caffeine.newBuilder()
+            .expireAfterWrite(WINDOW_DURATION_MINUTES, TimeUnit.MINUTES)
+            .maximumSize(10_000)
+            .build();
+
+    private final Cache<String, Integer> assistantRequestCache = Caffeine.newBuilder()
             .expireAfterWrite(WINDOW_DURATION_MINUTES, TimeUnit.MINUTES)
             .maximumSize(10_000)
             .build();
@@ -33,7 +39,21 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain)
             throws ServletException, IOException {
 
-        // Only apply rate limiting to login endpoint
+        if (request.getRequestURI().startsWith("/api/v1/assistant/")) {
+            String clientKey = getClientIpAddress(request);
+            Integer requests = assistantRequestCache.getIfPresent(clientKey);
+            if (requests != null && requests >= MAX_ASSISTANT_REQUESTS) {
+                response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
+                response.setContentType("application/json");
+                response.getWriter().write("{\"message\":\"Assistant request limit exceeded. Try again shortly.\"}");
+                return;
+            }
+            assistantRequestCache.put(clientKey, requests == null ? 1 : requests + 1);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // Apply stricter brute-force protection to the login endpoint.
         if (request.getRequestURI().equals("/api/auth/login") && "POST".equals(request.getMethod())) {
             String clientIp = getClientIpAddress(request);
             Integer attempts = attemptCache.getIfPresent(clientIp);

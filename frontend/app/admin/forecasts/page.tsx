@@ -113,7 +113,7 @@ interface KpiCardProps {
 function KpiCard({ title, value, sub, color, delta, icon }: KpiCardProps) {
   const up = delta !== undefined ? delta >= 0 : false;
   return (
-    <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300">
+    <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-5 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300 h-full min-w-0">
       <div className="absolute top-0 left-0 w-full h-1" style={{ background: color }} />
       <div className="flex justify-between items-center mb-1">
         <span className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">{title}</span>
@@ -128,6 +128,26 @@ function KpiCard({ title, value, sub, color, delta, icon }: KpiCardProps) {
         )}
         <span>{sub}</span>
       </div>
+    </div>
+  );
+}
+
+function InventoryPlanTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="bg-base-100 border border-base-300 rounded-lg p-3 shadow-lg text-xs min-w-64">
+      <p className="text-primary font-bold mb-2">{label}</p>
+      <div className="space-y-1 text-base-content/75">
+        <p className="flex justify-between gap-5"><span>Beginning stock</span><strong className="text-base-content tabular-nums">{Number(row.beginning).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Forecast demand (P50)</span><strong className="text-base-content tabular-nums">−{Number(row.demandP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Simulated policy receipt</span><strong className="text-base-content tabular-nums">{row.receipt ? `+${Number(row.receipt).toLocaleString()}` : "None"}</strong></p>
+        <div className="border-t border-base-300 my-1.5" />
+        <p className="flex justify-between gap-5"><span>Projected ending (P50)</span><strong className="text-blue-700 tabular-nums">{Number(row.endingP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Upper-demand ending (P90)</span><strong className="text-error tabular-nums">{Number(row.endingP90).toLocaleString()}</strong></p>
+      </div>
+      {row.receipt > 0 && <p className="mt-2 pt-2 border-t border-base-300 text-[10px] leading-4 text-base-content/55">Policy simulation only—not a confirmed purchase order.</p>}
     </div>
   );
 }
@@ -263,10 +283,20 @@ const displayModelName = (model?: string) => {
   if (normalized === "EXTRA_TREES_RESPONSIVE") return "Extra Trees Responsive";
   if (normalized === "EXTRA_TREES_DAMPED_TREND") return "Extra Trees with Damped Trend";
   if (normalized === "EXTRA_TREES") return "Extra Trees";
-  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "Promoted Warehouse Demand Model";
+  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "Extra Trees demand forecast";
   if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "Warehouse Demand Model";
   return model || "Forecast model";
 };
+
+const setupErrorMessage = (code: string) => ({
+  MISSING_DATABASE_POPULATION: "Forecast database population is missing. Run scripts/dev-bootstrap.sh.",
+  INCOMPLETE_FORECAST_POPULATION: "Canonical forecast population is incomplete; reload the project-operational dataset.",
+  STALE_OR_UNAPPROVED_PUBLISH: "The forecast publish is stale or not decision eligible.",
+  MISSING_MODEL_REGISTRATION: "The promoted model is not registered in this database.",
+  MODEL_NOT_PROMOTED: "The canonical model exists but is not promoted.",
+  MISSING_DATASET_LOAD_AUDIT: "Dataset load verification is missing.",
+  MODEL_DATASET_CHECKSUM_MISMATCH: "Model and dataset checksums disagree; do not use this publish for decisions.",
+}[code] ?? `Forecast setup error: ${code}.`);
 
 export default function ForecastsPage() {
   const { role, admin } = useAdmin();
@@ -300,6 +330,7 @@ export default function ForecastsPage() {
   const [rawMaterialReqs, setRawMaterialReqs] = useState<RawMaterialRequirement[]>([]);
   const [forecastSkuCatalog, setForecastSkuCatalog] = useState<ForecastSkuItem[]>([]);
   const [releaseStatus, setReleaseStatus] = useState<string>("UNREGISTERED");
+  const [canonicalReadiness, setCanonicalReadiness] = useState<import("@/lib/api/ai-forecast").CanonicalForecastReadiness | null>(null);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
   const [skuTypeFilter, setSkuTypeFilter] = useState<"all" | "raw_material" | "packaging_material" | "product">("all");
@@ -359,35 +390,12 @@ export default function ForecastsPage() {
   };
 
   const resolveBinding = async (): Promise<{ dataset: string; model: string }> => {
-    const championDataset = DEFAULT_DATASET;
-    const championModel = DEFAULT_MODEL.toUpperCase();
-
-    try {
-      const models = await aiForecastApi.getGatewayModels();
-      const name = models?.champion?.name;
-      if (name) {
-        const dataset = models?.champion?.dataset || championDataset;
-        return { dataset: String(dataset), model: String(name).toUpperCase() };
-      }
-    } catch (gatewayError) {
-      logger.warn("[ForecastsPage] Gateway models unavailable, using configured champion:", gatewayError);
+    const readiness = await aiForecastApi.getCanonicalReadiness(effectiveWarehouseId);
+    setCanonicalReadiness(readiness);
+    if (!readiness.ready) {
+      throw new Error(readiness.errors.map(setupErrorMessage).join(" "));
     }
-
-    try {
-      const forecastRes = await aiForecastApi.getForecasts({
-        dataset: championDataset,
-        model: championModel,
-        warehouseId: effectiveWarehouseId,
-      });
-      const binding = pickLatestBinding(forecastRes.items ?? []);
-      if (binding) {
-        return binding;
-      }
-    } catch (forecastError) {
-      logger.warn("[ForecastsPage] Champion forecast lookup failed:", forecastError);
-    }
-
-    return { dataset: championDataset, model: championModel };
+    return { dataset: readiness.dataset, model: readiness.modelName.toUpperCase() };
   };
 
   const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
@@ -1392,6 +1400,10 @@ export default function ForecastsPage() {
   const finalSeasonality = liveSeasonality;
   const finalResiduals = liveResiduals;
   const finalInventory = inventoryPlan.rows;
+  const inventoryChartData = finalInventory.map((row) => ({
+    ...row,
+    receiptEvent: row.receipt > 0 ? row.endingP50 : null,
+  }));
   const hasLiveForecastData = aggregatedForecastData.length > 0;
   const hasBacktestActuals = useMemo(
     () => backtests.length > 0,
@@ -1491,6 +1503,9 @@ export default function ForecastsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <span className="badge badge-ghost badge-sm font-mono">
+            {(canonicalReadiness?.buildCommit || process.env.NEXT_PUBLIC_BUILD_COMMIT || "local").slice(0, 10)} · {canonicalReadiness?.datasetVersion || "PROJECT_OPS_RM_PM"}
+          </span>
           <div className="text-right mr-2">
             <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
               <span className="w-2 h-2 rounded-full bg-success" /> OPERATIONAL PLAN
@@ -1502,6 +1517,13 @@ export default function ForecastsPage() {
           </div>
         </div>
       </div>
+
+      {canonicalReadiness && !canonicalReadiness.ready && (
+        <div className="alert alert-error text-sm">
+          <span className="material-symbols-outlined">database_off</span>
+          <span>{canonicalReadiness.errors.map(setupErrorMessage).join(" ")}</span>
+        </div>
+      )}
 
       {!hasLiveForecastData && !loading && (
         <div className="alert alert-warning text-sm">
@@ -1715,7 +1737,7 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={wapeVal !== null ? `${(100 - wapeVal).toFixed(1)}%` : "—"} sub={wapeVal !== null ? `WAPE = ${wapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={forecastedUnitsForHorizon !== null ? forecastedUnitsForHorizon.toLocaleString() : "—"} sub={`Sum P50 horizons 1–${forecastHorizonMonths}`} color={C.accent} icon="package_2" />
-            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`Lead time: ${selectedSkuRecommendation?.lead_time_days ?? demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days ?? 30} days`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Proposed Releases" value={inventoryPlan.releaseCount} sub={`Simulated with ${selectedSkuRecommendation?.lead_time_days ?? demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days ?? 30}-day lead time`} color={C.danger} icon="shopping_cart_checkout" />
             <KpiCard title="Minimum Cover" value={minimumProjectedCoverDays !== null ? `${minimumProjectedCoverDays}d` : "—"} sub={inventoryPlan.firstRiskPeriod ? `First action: ${inventoryPlan.firstRiskPeriod}` : "No projected exception"} color={C.accent3} icon="calendar_month" />
             <KpiCard title="P90 Demand Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Stress case across the plan horizon" color={C.warn} icon="verified" />
           </div>
@@ -1782,21 +1804,21 @@ export default function ForecastsPage() {
 
             {/* Lead-time inventory plan */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Inventory Position & Due Receipts" sub="Demand reduces stock every period; released orders increase stock only when their lead-time receipt becomes due" color={C.accent3} />
+              <SectionHeader title="Projected Stock Under Current Policy" sub="Month-end stock after forecast demand; diamonds mark simulated replenishment receipts—not confirmed purchase orders" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 {finalInventory.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">No item plan is available.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={finalInventory.slice(-12)}>
+                    <ComposedChart data={inventoryChartData.slice(-12)}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                       <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                       <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                      <Tooltip content={<ChartTip />} />
+                      <Tooltip content={<InventoryPlanTooltip />} />
                       <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="4 3" />
-                      <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Receipt due" />
-                      <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={2.5} dot={{ r: 2 }} name="Projected ending (P50)" />
-                      <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="Demand-risk ending (P90)" />
+                      <Area type="monotone" dataKey="endingP50" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={2.5} dot={{ r: 2 }} name="Projected ending (P50)" />
+                      <Line type="monotone" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="Upper-demand ending (P90)" />
+                      <Scatter dataKey="receiptEvent" fill={C.accent2} name="Simulated receipt" shape="diamond" />
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
@@ -1908,7 +1930,7 @@ export default function ForecastsPage() {
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="velocity" name="Velocity" unit=" u" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Monthly Velocity (Average Demand)", position: "bottom", fill: "currentColor", fontSize: 10, offset: 0 }} />
                   <YAxis dataKey="mape" name="WAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (WAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
-                  <ReferenceLine y={10} stroke={C.warn} strokeDasharray="5 4" label={{ value: "10% review threshold", fill: C.warn, fontSize: 9 }} />
+                  <ReferenceLine y={10} stroke={C.warn} strokeDasharray="5 4" label={{ value: "10% review threshold", fill: "#111827", fontSize: 10, fontWeight: 700, position: "insideTopRight", dy: -6 }} />
                   <ReferenceLine x={velocityThreshold} stroke={C.textDim} strokeDasharray="5 4" />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
@@ -2031,18 +2053,18 @@ export default function ForecastsPage() {
             </div>
 
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Forecast Error (WAPE %) per SKU" color={C.accent2} />
+              <SectionHeader title="Forecast Error (WAPE %) per SKU" sub="Highest-demand SKUs; the labelled 10% line marks the review threshold" color={C.accent2} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
+                  <BarChart data={finalSkuData.slice(0, 6)} layout="vertical" margin={{ top: 18, right: 24, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                     <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} unit="%" />
                     <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" />
+                    <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" label={{ value: "10% review threshold", fill: "#111827", fontSize: 10, fontWeight: 700, position: "insideTopRight", dx: -4, dy: -7 }} />
                     <Bar dataKey="mape" name="WAPE %" radius={[0, 4, 4, 0]}>
                       {finalSkuData.slice(0, 6).map((s: any, i: number) => (
-                        <Cell key={i} fill={s.mape > 12.0 ? C.danger : s.mape > 8.0 ? C.warn : C.ok} fillOpacity={0.8} />
+                        <Cell key={i} fill={s.mape > 15.0 ? C.danger : s.mape > 10.0 ? C.warn : C.ok} fillOpacity={0.8} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -2058,13 +2080,13 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <KpiCard title="Selected On-hand" value={(selectedSkuRecommendation?.on_hand_inventory ?? 0).toLocaleString()} sub={`${selectedSku || "Item"} available before forecast demand`} color={C.accent} icon="package_2" />
-            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} units due within horizon`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Proposed Releases" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} simulated receipt units within horizon`} color={C.danger} icon="shopping_cart_checkout" />
             <KpiCard title="Projected P50 Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Forecast demand fulfilled by the policy plan" color={C.ok} icon="check_circle" />
             <KpiCard title="Projected P90 Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Upper-demand stress case with the same receipts" color={C.accent4} icon="shield" />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Inventory Position" sub="Step lines show month-end stock; bars are receipts that become available after supplier lead time" color={C.accent3} />
+            <SectionHeader title="Projected Stock & Replenishment Events" sub="Monthly stock after forecast consumption; receipt markers come from the current replenishment policy simulation" color={C.accent3} />
             <div className="h-72 w-full mt-3">
               {finalInventory.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60 text-center px-6">
@@ -2072,22 +2094,29 @@ export default function ForecastsPage() {
                 </div>
               ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={finalInventory}>
+                <ComposedChart data={inventoryChartData} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                  <Tooltip content={<ChartTip />} />
+                  <Tooltip content={<InventoryPlanTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.danger, fontSize: 10, position: "right" }} />
-                  <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.warn, fontSize: 10, position: "insideBottomRight" }} />
-                  <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Confirmed/planned receipt due" />
-                  <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={3} dot={{ r: 3 }} name="Projected ending (P50 demand)" />
-                  <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="Risk ending (P90 demand)" />
+                  <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideTopRight" }} />
+                  <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideBottomRight" }} />
+                  <Area type="monotone" dataKey="endingP50" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={3} dot={{ r: 3 }} name="Projected ending (P50 demand)" />
+                  <Line type="monotone" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="Upper-demand ending (P90)" />
+                  <Scatter dataKey="receiptEvent" fill={C.accent2} name="Simulated receipt event" shape="diamond" />
                   <Brush startIndex={Math.max(0, finalInventory.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
                 </ComposedChart>
               </ResponsiveContainer>
               )}
             </div>
+            {finalInventory.length > 0 && (
+              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-blue-950"><strong>Blue:</strong> expected month-end stock after P50 forecast demand.</div>
+                <div className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2 text-rose-950"><strong>Red dashed:</strong> stock remaining under the P90 high-demand case.</div>
+                <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-emerald-950"><strong>Green diamond:</strong> simulated policy receipt. No marker means no receipt is due—not zero stock.</div>
+              </div>
+            )}
           </div>
 
           {/* Stock Coverage Heatmap */}
@@ -2114,7 +2143,7 @@ export default function ForecastsPage() {
                   >
                     <span className="text-[10px] text-base-content/60 font-semibold">{row.label}</span>
                     <span className="text-xl font-bold mt-1" style={{ color: colorHex }}>{`${cover}d`}</span>
-                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered"}</span>
+                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{row.status === "stockout" ? "Shortage" : row.status === "order" ? "Order proposed" : row.status === "watch" ? "Safety risk" : "Covered"}</span>
                   </div>
                 );
               })}
@@ -2124,7 +2153,7 @@ export default function ForecastsPage() {
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-              <SectionHeader title="Monthly Inventory Ledger" sub="One auditable calculation drives the chart, order recommendations, service projection, and coverage" color={C.accent} />
+              <SectionHeader title="Monthly Inventory Ledger" sub="One auditable policy simulation drives the chart, proposed releases, service projection, and coverage" color={C.accent} />
               <button className="btn btn-xs btn-outline btn-primary" onClick={() => downloadCsv("inventory_plan.csv", finalInventory)}>
                 Export plan CSV
               </button>
@@ -2135,20 +2164,20 @@ export default function ForecastsPage() {
                   <tr className="border-b border-base-300">
                     <th>Period</th>
                     <th className="text-right">Beginning</th>
-                    <th className="text-right">Receipt due</th>
+                    <th className="text-right">Simulated receipt</th>
                     <th className="text-right">P50 demand</th>
                     <th className="text-right">P90 demand</th>
                     <th className="text-right">Ending P50</th>
                     <th className="text-right">Ending P90</th>
-                    <th className="text-right">Release qty</th>
-                    <th>Receipt period</th>
+                    <th className="text-right">Proposed release</th>
+                    <th>Simulated due period</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {finalInventory.map((row) => {
                     const statusColor = row.status === "stockout" ? C.danger : row.status === "healthy" ? C.ok : C.warn;
-                    const statusLabel = row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered";
+                    const statusLabel = row.status === "stockout" ? "Shortage" : row.status === "order" ? "Order proposed" : row.status === "watch" ? "Safety risk" : "Covered";
                     return (
                       <tr key={row.period} className="hover">
                         <td className="font-mono text-xs font-semibold">{row.label}</td>
@@ -2175,12 +2204,45 @@ export default function ForecastsPage() {
       {tab === "model" && (
         <div className="space-y-6">
           {/* KPI grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
             <KpiCard title="WAPE Error" value={fmtMetric(wapeVal, "%")} sub={wapeVal !== null ? "Held-out test evidence for the promoted model" : "No matching backtest evidence"} color={C.ok} icon="track_changes" />
             <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub={rmseVal !== null ? "Held-out scale-dependent error" : "No matching backtest evidence"} color={C.accent} icon="architecture" />
             <KpiCard title="Model Bias" value={fmtMetric(biasVal, "%")} sub={biasVal !== null ? "Held-out signed error" : "No matching backtest evidence"} color={C.warn} icon="balance" />
             <KpiCard title="90% Interval Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside calibrated 90% bounds" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
-            <KpiCard title="Forecast Method" value={displayModelName(filters.model)} sub="Active model for the current operational planning dataset" color={C.muted} icon="psychology" />
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-4 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="material-symbols-outlined text-primary text-2xl mt-0.5">psychology</span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-bold text-base-content">{displayModelName(filters.model)}</h3>
+                    <span className="badge badge-success badge-outline badge-sm font-semibold">PROMOTED</span>
+                  </div>
+                  <p className="text-xs text-base-content/60 mt-1">Active H1–H12 demand forecast for the current warehouse planning dataset.</p>
+                </div>
+              </div>
+              <code className="text-[10px] sm:text-xs bg-base-200 border border-base-300 rounded-md px-2.5 py-1.5 text-base-content/65 break-all">{filters.model}</code>
+            </div>
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+            <SectionHeader title="Where This Forecast Is Used" sub="The promoted rows are operational inputs; execution remains approval-controlled" color={C.accent3} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Inventory policy</strong><span className="badge badge-success badge-sm">Connected</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">P10/P50/P90 demand feeds lead-time safety stock, reorder point, min/max and the stochastic service/cost gate.</p>
+              </div>
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Draft purchasing</strong><span className="badge badge-warning badge-sm">Manager-gated</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">An approved policy run may create draft inbound purchase suggestions. The forecast never releases a purchase order automatically.</p>
+              </div>
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Space and slotting</strong><span className="badge badge-success badge-sm">Connected via policy</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">Forecast P50, stock delta and pallet demand flow into the constrained slotting optimizer after policy review.</p>
+              </div>
+            </div>
           </div>
 
           {/* Model residuals */}

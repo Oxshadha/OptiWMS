@@ -33,6 +33,7 @@ export interface PolicyRecommendationLine {
   runId: string;
   materialId: string;
   materialCode: string;
+  materialName: string;
   materialType?: string | null;
   currentStock: number;
   currentAvailableStock: number;
@@ -57,6 +58,7 @@ export interface PolicyRecommendationLine {
   proposedReorderPoint?: number | null;
   proposedTargetStock?: number | null;
   proposedOrderQty?: number | null;
+  targetPalletPositions?: number | null;
   stockDelta: number;
   palletPositionsDelta: number;
   holdingCostDelta: number;

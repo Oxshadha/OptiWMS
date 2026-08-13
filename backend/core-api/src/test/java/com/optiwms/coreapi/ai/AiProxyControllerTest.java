@@ -68,18 +68,18 @@ class AiProxyControllerTest {
     }
 
     @Test
-    void forecasts_shouldFallBackToPythonServiceWhenCanonicalRowsMissing() throws Exception {
+    void forecasts_shouldNotFallBackToPythonWhenCanonicalRowsMissing() throws Exception {
         when(aiProxyService.resolveWarehouseScope(null, "1")).thenReturn("1");
-        when(forecastResultReadService.hasRows("FG-001", 1, "LIGHTGBM", "1")).thenReturn(false);
-        when(aiProxyService.getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1"))
-                .thenReturn(ResponseEntity.ok(Map.of("source", "forecast_service", "count", 0)));
+        when(forecastResultReadService.getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1", 0, 100))
+                .thenReturn(ResponseEntity.ok(Map.of("source", "wms_forecast_results", "count", 0,
+                        "items", List.of())));
 
         mockMvc.perform(get("/api/ai/forecasts?sku=FG-001&horizon=1&dataset=P&model=LIGHTGBM&warehouseId=1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.source").value("forecast_service"))
+                .andExpect(jsonPath("$.source").value("wms_forecast_results"))
                 .andExpect(jsonPath("$.count").value(0));
 
-        verify(aiProxyService).getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1");
+        verify(forecastResultReadService).getForecasts("FG-001", 1, "P", "LIGHTGBM", null, "1", 0, 100);
     }
 
     @Test
