@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAdmin } from "@/contexts/AdminContext";
 import { authApi } from "@/lib/api/auth";
 import { getRoleDisplayName } from "@/lib/admin-roles";
@@ -38,6 +38,7 @@ export function Topbar({
 }) {
   const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
+  const pathname = usePathname();
   const { isDark, toggleTheme, mounted } = useTheme();
   const [query, setQuery] = useState("");
   const [openProfile, setOpenProfile] = useState(false);
@@ -540,10 +541,14 @@ export function Topbar({
           </button>
         )}
 
-        <WarehouseAssistant userRole="manager" userId={admin?.id} />
-        <div className="hidden md:block">
-          <WarehouseAssistant userRole="manager" />
-        </div>
+        {pathname !== "/admin/assistant" && (
+          <>
+            <WarehouseAssistant userRole="manager" userId={admin?.id} />
+            <div className="hidden md:block">
+              <WarehouseAssistant userRole="manager" />
+            </div>
+          </>
+        )}
 
         <div className="relative profile-dropdown">
           <button
