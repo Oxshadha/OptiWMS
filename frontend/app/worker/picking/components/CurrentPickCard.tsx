@@ -2,6 +2,11 @@
 
 import { Pick } from "../types";
 import { isUUID } from "@/lib/utils/material-display";
+import {
+  QUANTITY_INPUT_PROPS,
+  parseQuantityInput,
+  quantityInputValue,
+} from "@/lib/utils/quantity-input";
 
 export function CurrentPickCard({
   currentPick,
@@ -103,12 +108,13 @@ export function CurrentPickCard({
               <span className="material-symbols-outlined">remove</span>
             </button>
             <input
-              type="number"
+              {...QUANTITY_INPUT_PROPS}
               className="input input-bordered flex-1 text-center text-xl font-bold"
-              value={pickedQty}
-              onChange={(e) => onPickedQtyChange(Math.max(0, parseInt(e.target.value) || 0))}
-              min="0"
-              max={currentPick.qty}
+              value={quantityInputValue(pickedQty)}
+              onChange={(e) =>
+                onPickedQtyChange(Math.min(currentPick.qty, parseQuantityInput(e.target.value)))
+              }
+              placeholder="0"
             />
             <button onClick={() => onPickedQtyChange(Math.min(currentPick.qty, pickedQty + 1))} className="btn btn-circle btn-outline btn-sm">
               <span className="material-symbols-outlined">add</span>

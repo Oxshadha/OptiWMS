@@ -186,10 +186,10 @@ export default function WorkerLoginPage() {
         <div className="flex flex-col items-center mb-10 space-y-4">
           <div className="bg-neutral w-36 h-36 rounded-[2rem] shadow-xl flex items-center justify-center transition-all">
             <Image
-              src="/assets/logos/OptiWMS Logo.png?v=5"
+              src="/assets/logos/optiwms-mark.png?v=7"
               alt="OptiWMS Logo"
-              width={220}
-              height={110}
+              width={835}
+              height={718}
               className="object-contain w-[85%] h-auto drop-shadow-md"
               priority
             />

@@ -11,14 +11,22 @@ import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 import { locationsApi, type Location } from "@/lib/api/locations";
 import { materialsApi, type Material, type MaterialOrderingProfile } from "@/lib/api/materials";
 import { operationsApi } from "@/lib/api/operations";
-import {
-  AISlottingService,
-  type SlottingRecommendationItemResponse,
-} from "@/lib/services/aiSlottingService";
+import { slottingPlansApi } from "@/lib/api/slotting-plans";
 import { showToast } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 import { downloadHtmlDocument, escapeHtml } from "@/lib/utils/documents";
 import { statusConfig, type InboundOrderDisplay } from "../types";
+
+/**
+ * A slotting recommendation as stored in the database by an approved slotting plan.
+ * The wizard only reads what the admin-side optimiser already persisted — it never calls
+ * the optimisation service itself, so location selection never waits on a live service.
+ */
+type StoredRecommendation = {
+  locationCode: string;
+  reason: string;
+  alternatives: string[];
+};
 
 type CapacityPlan = {
   feasible: boolean;
@@ -216,9 +224,8 @@ export function CreateInboundOrderModal({
   const [capacityCheckLoading, setCapacityCheckLoading] = useState(false);
   const [capacityProgress, setCapacityProgress] = useState<CapacityProgress | null>(null);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
-  const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [capacityPlansByItem, setCapacityPlansByItem] = useState<Map<number, CapacityPlan>>(new Map());
-  const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, SlottingRecommendationItemResponse>>(new Map());
+  const [recommendationsByItem, setRecommendationsByItem] = useState<Map<number, StoredRecommendation>>(new Map());
   const [profilesByMaterialId, setProfilesByMaterialId] = useState<Map<string, MaterialOrderingProfile>>(new Map());
   const [capacityError, setCapacityError] = useState<string | null>(null);
   const [lastCapacityCheckKey, setLastCapacityCheckKey] = useState("");
@@ -381,48 +388,46 @@ export function CreateInboundOrderModal({
     async function loadRecommendations() {
       if (step !== 4 || !formData.warehouseId || formData.items.length === 0 || hasIncompleteMeasurements) {
         setRecommendationLoading(false);
-        setRecommendationError(null);
         setRecommendationsByItem(new Map());
         return;
       }
 
       setRecommendationLoading(true);
-      setRecommendationError(null);
       try {
-        const response = await AISlottingService.recommendPlacement({
-          warehouse_id: formData.warehouseId,
-          items: formData.items.map((item) => {
-            const material = materialById.get(item.productId);
-            return {
-              material_id: item.productId,
-              quantity: item.quantityOrdered,
-              weight_kg: item.weightKg > 0 ? item.weightKg : undefined,
-              volume_cm3: item.lengthCm * item.widthCm * item.heightCm || undefined,
-              length_cm: item.lengthCm > 0 ? item.lengthCm : undefined,
-              width_cm: item.widthCm > 0 ? item.widthCm : undefined,
-              height_cm: item.heightCm > 0 ? item.heightCm : undefined,
-              preferred_zone: material?.preferredZone,
-              current_location_code: item.locationCode || undefined,
-            };
-          }),
-          population_size: 20,
-          generations: 50,
-          mutation_rate: 0.05,
-          top_k_alternatives: 3,
+        // Read the slotting decisions the admin-side optimiser already stored. No live
+        // optimisation call here: ordering must never block on a service being reachable.
+        const activePlan = await slottingPlansApi.getActivePlan(formData.warehouseId);
+        const lines = activePlan?.id ? await slottingPlansApi.getLines(activePlan.id) : [];
+
+        const lineByMaterialId = new Map(lines.map((line) => [line.materialId, line]));
+        const recommendationMap = new Map<number, StoredRecommendation>();
+        formData.items.forEach((item, index) => {
+          const line = lineByMaterialId.get(item.productId);
+          // A manager override (final) beats the optimiser's proposal (recommended).
+          const locationCode = line?.finalPrimaryLocation || line?.recommendedPrimaryLocation;
+          if (!locationCode) {
+            return;
+          }
+          recommendationMap.set(index, {
+            locationCode,
+            reason: line?.moveReason || `From slotting plan ${activePlan.planCode ?? ""}`.trim(),
+            alternatives: (line?.reserveLocations ?? [])
+              .map((reserve) => reserve.finalLocationCode || reserve.locationCode)
+              .filter((code): code is string => Boolean(code) && code !== locationCode),
+          });
         });
-        const recommendationMap = new Map<number, SlottingRecommendationItemResponse>();
-        response.recommendations.forEach((recommendation, index) => recommendationMap.set(index, recommendation));
         setRecommendationsByItem(recommendationMap);
       } catch (err) {
-        logger.error("Failed to load slotting recommendations:", err);
-        setRecommendationError(err instanceof Error ? err.message : "Location recommendations are unavailable.");
+        // No active plan yet is the normal case for a new warehouse, not an error the
+        // buyer needs to see — locations then get assigned during putaway instead.
+        logger.info("No stored slotting recommendations available:", err);
         setRecommendationsByItem(new Map());
       } finally {
         setRecommendationLoading(false);
       }
     }
     void loadRecommendations();
-  }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements, materialById]);
+  }, [step, formData.warehouseId, formData.items, hasIncompleteMeasurements]);
 
   function updateItem(index: number, patch: Partial<InboundItemForm>) {
     setFormData((current) => {
@@ -588,7 +593,7 @@ export function CreateInboundOrderModal({
   async function handleConfirmRecommendedLocations() {
     const confirmedItems = formData.items.map((item, idx) => ({
       ...item,
-      locationCode: item.locationCode || recommendationsByItem.get(idx)?.recommended_location_code || "",
+      locationCode: item.locationCode || recommendationsByItem.get(idx)?.locationCode || "",
     }));
     await submitInboundOrder(confirmedItems);
   }
@@ -747,12 +752,11 @@ export function CreateInboundOrderModal({
         {step === 4 && (
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-semibold text-base-content">Location Selection</h3>
-            {recommendationError && <div className="alert alert-warning"><span>{recommendationError}</span></div>}
             {warehouseLocations.length === 0 && <div className="alert alert-warning"><span>No storage locations found for this warehouse.</span></div>}
             <div className="space-y-4">
               {formData.items.map((item, idx) => {
                 const recommendation = recommendationsByItem.get(idx);
-                const selectedCode = item.locationCode || recommendation?.recommended_location_code || "";
+                const selectedCode = item.locationCode || recommendation?.locationCode || "";
                 return (
                   <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg space-y-3">
                     <div className="flex items-center justify-between gap-3">
@@ -762,20 +766,25 @@ export function CreateInboundOrderModal({
                       </div>
                       <span className="badge badge-outline">Qty {item.quantityOrdered}</span>
                     </div>
-                    {recommendationLoading && <div className="flex items-center gap-2 text-sm text-base-content/60"><span className="loading loading-spinner loading-xs"></span>Generating recommendation...</div>}
+                    {recommendationLoading && <div className="flex items-center gap-2 text-sm text-base-content/60"><span className="loading loading-spinner loading-xs"></span>Loading slotting plan...</div>}
                     {!recommendationLoading && recommendation && (
                       <div className="rounded-lg bg-base-100 border border-primary/20 p-4 space-y-2">
-                        <div className="text-xs uppercase text-base-content/60">Recommended Location</div>
-                        <div className="text-2xl font-bold text-primary">{recommendation.recommended_location_code}</div>
+                        <div className="text-xs uppercase text-base-content/60">Planned Location</div>
+                        <div className="text-2xl font-bold text-primary">{recommendation.locationCode}</div>
                         <div className="text-sm text-base-content/70">{recommendation.reason}</div>
                         <div className="flex flex-wrap gap-2">
-                          {recommendation.alternatives.map((alternative) => <span key={alternative.location_id} className="badge badge-ghost">{alternative.location_code}</span>)}
+                          {recommendation.alternatives.map((alternative) => <span key={alternative} className="badge badge-ghost">{alternative}</span>)}
                         </div>
+                      </div>
+                    )}
+                    {!recommendationLoading && !recommendation && (
+                      <div className="text-sm text-base-content/60">
+                        No slotting plan entry for this material — a location will be assigned during putaway.
                       </div>
                     )}
                     <SelectControl label="Final Location" value={selectedCode} onChange={(value) => updateItem(idx, { locationCode: value })}>
                       <option value="">Use recommendation / assign during putaway</option>
-                      {recommendation && <option value={recommendation.recommended_location_code}>{recommendation.recommended_location_code} - recommended</option>}
+                      {recommendation && <option value={recommendation.locationCode}>{recommendation.locationCode} - from slotting plan</option>}
                       {availableWarehouseLocations.map((location) => <option key={location.id} value={location.locationCode}>{location.locationCode}</option>)}
                     </SelectControl>
                   </div>

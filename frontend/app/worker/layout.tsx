@@ -566,13 +566,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-between">
           {/* Left Side - App Icon and Info */}
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 shadow-sm ring-1 ring-slate-800">
+            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-slate-950 p-1.5 shadow-sm ring-1 ring-slate-800">
+              {/* Pre-trimmed mark: the original PNG carries ~33% transparent padding,
+                  which is why this used to need a scale transform that clipped it. */}
               <Image
-                src="/assets/logos/OptiWMS Logo.png?v=6"
+                src="/assets/logos/optiwms-mark.png?v=7"
                 alt="OptiWMS"
-                width={44}
-                height={44}
-                className="h-11 w-11 scale-[1.7] object-contain"
+                width={835}
+                height={718}
+                className="h-full w-full object-contain"
                 priority
               />
             </div>
