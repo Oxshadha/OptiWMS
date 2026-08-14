@@ -174,15 +174,6 @@ export const tours: Record<string, TourConfig> = {
           side: "right",
         },
       },
-      {
-        element: '[data-tour-target="nav-warehouses"]',
-        popover: {
-          title: "Dock Management",
-          description:
-            "Coordinate dock doors and carrier appointments for smooth loading/unloading.",
-          side: "right",
-        },
-      },
     ],
   },
 

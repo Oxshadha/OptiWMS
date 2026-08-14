@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import Image from "next/image";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -191,6 +191,16 @@ export function Sidebar({
 
   // Filter nav items based on admin role and role relevance
   const navItems = getRoleRelevantNavItems(allNavItems, role);
+
+  // Sub-item anchors only exist in the DOM while their group is open, so a tour
+  // targeting them would silently lose those steps. The tour asks for every
+  // group to be opened before it starts.
+  useEffect(() => {
+    const expandAll = () =>
+      setExpandedItems(navItems.filter((item) => item.subItems?.length).map((item) => item.href));
+    window.addEventListener("optiwms:tour-expand-nav", expandAll);
+    return () => window.removeEventListener("optiwms:tour-expand-nav", expandAll);
+  }, [navItems]);
 
   const toggleExpand = (href: string) => {
     setExpandedItems((prev) =>
