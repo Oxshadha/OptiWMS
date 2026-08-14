@@ -445,6 +445,10 @@ public class SlottingPlanService {
             List<UUID> removeIds = toRemove.stream().map(SlottingPlanLineEntity::getId).toList();
             reserveLineRepository.deleteByPlanLineIdIn(removeIds);
             lineRepository.deleteAll(toRemove);
+            // Hibernate orders inserts before deletes within a flush, so the
+            // replacement lines below would collide with the rows being removed
+            // on uq_slotting_plan_line_material. Force the deletes out first.
+            lineRepository.flush();
         }
 
         int movesProposed = 0;
