@@ -398,7 +398,7 @@ export function SOPDetailModal({
           <button className="btn btn-ghost" onClick={onClose}>
             Close
           </button>
-          {canEdit && (
+          {canEdit && !sop.isSystem && (
             <button className="btn btn-primary" onClick={() => onEdit(sop)}>
               Edit SOP
             </button>
