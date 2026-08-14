@@ -218,11 +218,11 @@ export function Sidebar({
           </button>
         )}
         <Image
-          src="/assets/logos/OptiWMS Logo.png?v=5"
+          src="/assets/logos/optiwms-mark.png?v=7"
           alt="OptiWMS Logo"
-          width={150}
-          height={150}
-          className="object-contain w-[150px] h-auto scale-150 mt-2"
+          width={835}
+          height={718}
+          className="object-contain w-[150px] h-auto mt-2"
           priority
         />
       </div>
