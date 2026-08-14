@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.OffsetDateTime;
 
 @Repository
 public interface SlottingPlanRepository extends JpaRepository<SlottingPlanEntity, UUID> {
@@ -17,4 +18,6 @@ public interface SlottingPlanRepository extends JpaRepository<SlottingPlanEntity
     boolean existsByWarehouseIdAndPlanCode(UUID warehouseId, String planCode);
 
     Optional<SlottingPlanEntity> findByWarehouseIdAndPlanCode(UUID warehouseId, String planCode);
+    List<SlottingPlanEntity> findByStatusAndScheduledForLessThanEqualOrderByScheduledForAsc(
+            String status, OffsetDateTime scheduledFor);
 }

@@ -2,24 +2,30 @@
 fastapi
 uvicorn[standard]
 python-dotenv
+httpx
 
 # Database & Data Handling
 psycopg2-binary
 sqlalchemy
 pandas
 
-# AI & Vector Embeddings
+# Core LangChain Framework
 langchain-core
 langchain-community
 langchain-classic
-langchain-google-genai
-chromadb
-sentence-transformers
+langchain-text-splitters
 
-# Visualization
+# AI Models & Ecosystem Integrations
+google-genai
+google-api-core
+langchain-google-genai
+
+# Vector Storage
+chromadb
+langchain-chroma
+
+# Visualization & Reporting
 plotly
 matplotlib
 seaborn
-
-streamlit
-google-genai
+reportlab

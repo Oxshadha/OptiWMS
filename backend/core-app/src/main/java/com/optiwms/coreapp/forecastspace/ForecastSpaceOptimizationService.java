@@ -87,6 +87,7 @@ public class ForecastSpaceOptimizationService {
 
         SpaceOptimizationRunEntity run = new SpaceOptimizationRunEntity();
         run.setWarehouseId(policyRun.getWarehouseId());
+        run.setPlanningCycleId(policyRun.getPlanningCycleId());
         run.setPolicyRunId(policyRun.getId());
         run.setHorizonMonths(policyRun.getHorizonMonths());
         run.setAlgorithm("PENDING_OPTIMIZER");
@@ -175,6 +176,11 @@ public class ForecastSpaceOptimizationService {
         return lineRepository.findByRunIdOrderByMaterialCodeAsc(runId);
     }
 
+    public SpaceOptimizationLineEntity getLine(UUID lineId) {
+        return lineRepository.findById(lineId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Space line not found"));
+    }
+
     public List<SpaceOptimizationScenarioEntity> getScenariosForSpaceLine(UUID lineId) {
         return scenarioRepository.findBySpaceLineId(lineId);
     }
@@ -217,6 +223,7 @@ public class ForecastSpaceOptimizationService {
         plan.setValidTo(today.plusMonths(Math.max(1, run.getHorizonMonths() != null ? run.getHorizonMonths() : 3)));
         plan.setStatus("DRAFT");
         plan.setAlgorithm(run.getAlgorithm() != null ? run.getAlgorithm() : "JAVA_FEASIBLE_FALLBACK_V1");
+        plan.setPlanningCycleId(run.getPlanningCycleId());
         plan.setCreatedBy(createdBy);
         plan.setSourceStatsAt(OffsetDateTime.now());
         plan.setNotes("Generated from forecast-space optimization run " + run.getId());
@@ -587,7 +594,7 @@ public class ForecastSpaceOptimizationService {
                     ? policyLine.getForecastP50().doubleValue() : null;
             payload.incumbent_primary_location_code = spaceLine.getCurrentPrimaryLocationCode();
             payload.locked = false;
-            payload.required_pallets = Math.max(1, nz(policyLine.getPalletPositionsDelta()).abs().setScale(0, RoundingMode.CEILING).intValue());
+            payload.required_pallets = Math.max(1, nz(policyLine.getTargetPalletPositions()).setScale(0, RoundingMode.CEILING).intValue());
             payload.demand_trend = nz(policyLine.getStockDelta()).compareTo(BigDecimal.ZERO) >= 0 ? "RISING" : "FALLING";
             payload.min_stock_units = policyLine.getProposedMinStock() != null ? policyLine.getProposedMinStock().doubleValue() : null;
             request.materials.add(payload);

@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: OptiWMS Read-only Assistant Tools
+  version: 1.0.0
+  description: Authenticated business tools for forecast, inventory-risk, recommendation, and planning-cycle explanations. No SQL or mutation tool is exposed.
+servers:
+  - url: http://localhost:8080/api/v1/assistant/tools
+    description: Local Docker
+security:
+  - bearerAuth: []
+paths:
+  /sku-outlook:
+    get:
+      operationId: get_sku_outlook
+      summary: Explain a SKU forecast, policy, and inventory outlook.
+      parameters:
+        - $ref: '#/components/parameters/Warehouse'
+        - name: sku
+          in: query
+          required: true
+          schema: { type: string }
+        - name: horizon
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 12, default: 12 }
+      responses:
+        '200': { $ref: '#/components/responses/ToolResponse' }
+        '401': { description: Missing or invalid JWT }
+        '403': { description: Warehouse is outside the signed-in user's authorization }
+  /inventory-risks:
+    get:
+      operationId: list_inventory_risks
+      summary: List ranked risks from the latest warehouse planning run.
+      parameters:
+        - $ref: '#/components/parameters/Warehouse'
+        - name: severity
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200': { $ref: '#/components/responses/ToolResponse' }
+  /recommendations/{id}/explanation:
+    get:
+      operationId: explain_recommendation
+      summary: Return deterministic facts and calculation rationale for one recommendation.
+      parameters:
+        - $ref: '#/components/parameters/Warehouse'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/ToolResponse' }
+  /planning-cycles/{id}:
+    get:
+      operationId: get_planning_cycle_status
+      summary: Report policy, space, slotting, and worker execution status for a planning cycle.
+      parameters:
+        - $ref: '#/components/parameters/Warehouse'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { $ref: '#/components/responses/ToolResponse' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Warehouse:
+      name: warehouse
+      in: query
+      description: Optional for warehouse-assigned users. Spring validates this against the authenticated identity; it is never trusted from a prompt.
+      schema: { type: string, format: uuid }
+  responses:
+    ToolResponse:
+      description: Structured business facts for an LLM or UI renderer.
+      headers:
+        X-Correlation-ID:
+          schema: { type: string }
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ToolEnvelope'
+  schemas:
+    ToolEnvelope:
+      type: object
+      required: [asOf, warehouse, datasetVersion, modelName, facts, warnings, sourceRecordReferences, correlationId]
+      properties:
+        asOf: { type: string, format: date-time }
+        warehouse: { type: string, format: uuid }
+        dataset: { type: string }
+        datasetVersion: { type: string }
+        modelName: { type: string }
+        facts: { type: object, additionalProperties: true }
+        warnings: { type: array, items: { type: string } }
+        sourceRecordReferences: { type: array, items: { type: string } }
+        correlationId: { type: string }
+    AssistantResponse:
+      description: Common response returned by the assistant layer after one or more typed tool calls or SOP retrieval.
+      type: object
+      required: [answer, citations, facts, warnings, toolCalls, correlationId]
+      properties:
+        answer: { type: string }
+        citations: { type: array, items: { type: string } }
+        facts: { type: object, additionalProperties: true }
+        warnings: { type: array, items: { type: string } }
+        toolCalls:
+          type: array
+          items: { type: object, additionalProperties: true }
+        correlationId: { type: string }

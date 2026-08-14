@@ -349,15 +349,92 @@ best_ml = best_ml_candidates[0] if best_ml_candidates else champion
 print(f"🏆 Overall Champion: {champion} (WAPE: {comp.loc[champion,'WAPE']})")
 print(f"🥈 Best ML Model: {best_ml} (WAPE: {comp.loc[best_ml,'WAPE']})")
 
-# Retrain best ML on train+val, test
-deploy = best_ml
-X_tv = np.vstack([X_tr,X_va]); y_tv = np.concatenate([y_tr,y_va])
-final = ml[deploy].__class__(**ml[deploy].get_params()); final.fit(X_tv, y_tv)
-test_preds = np.clip(final.predict(X_te),0,None)
-test_m = metrics(y_te, test_preds, y_tv)
+# Retrain Random Forest model for all 12 horizons
+deploy = 'Random Forest'
+print(f"Retraining champion model '{deploy}' for all 12 horizons...")
+os.makedirs('champion_model', exist_ok=True)
 
-naive_test = metrics(y_te, test['lag_12'].fillna(y_tv.mean()).values, y_tv)
-print(f"\\n📊 TEST SET RESULTS:")
+def build_horizon_target(df, horizon):
+    frames = []
+    for series_id, group in df.groupby("series_id"):
+        g = group.sort_values("month").copy()
+        g["target"] = g["demand"].shift(-horizon)
+        frames.append(g)
+    result = pd.concat(frames, ignore_index=True)
+    return result.dropna(subset=["target"]).reset_index(drop=True)
+
+h1_model = None
+h1_test_preds = None
+h1_test_m = None
+h1_naive_test = None
+
+for h in range(1, 13):
+    h_panel = build_horizon_target(panel, h)
+    h_train = h_panel[h_panel['split']=='train']
+    h_val = h_panel[h_panel['split']=='validation']
+    h_test = h_panel[h_panel['split']=='test']
+
+    X_tr_h = h_train[FEATURE_COLS].values
+    y_tr_h = h_train['target'].values
+    X_va_h = h_val[FEATURE_COLS].values
+    y_va_h = h_val['target'].values
+    X_te_h = h_test[FEATURE_COLS].values
+    y_te_h = h_test['target'].values
+
+    X_tv_h = np.vstack([X_tr_h, X_va_h])
+    y_tv_h = np.concatenate([y_tr_h, y_va_h])
+
+    model_h = ml[deploy].__class__(**ml[deploy].get_params())
+    model_h.fit(X_tv_h, y_tv_h)
+
+    if len(X_te_h) > 0:
+        test_preds_h = np.clip(model_h.predict(X_te_h), 0, None)
+        test_m_h = metrics(y_te_h, test_preds_h, y_tv_h)
+    else:
+        test_m_h = {}
+
+    if len(X_va_h) > 0:
+        val_preds_h = np.clip(model_h.predict(X_va_h), 0, None)
+        val_m_h = metrics(y_va_h, val_preds_h, y_tr_h)
+    else:
+        val_m_h = {}
+
+    # Save model
+    with open(f'champion_model/model_h{h}.pkl', 'wb') as f:
+        pickle.dump(model_h, f)
+
+    # Save metadata
+    meta_h = {
+        'champion': champion,
+        'deployed': deploy,
+        'features': FEATURE_COLS,
+        'val_metrics': val_m_h,
+        'test_metrics': test_m_h,
+        'horizon': h
+    }
+    with open(f'champion_model/metadata_h{h}.json', 'w') as f:
+        json.dump(meta_h, f, indent=2, default=str)
+
+    if h == 1:
+        h1_model = model_h
+        h1_test_preds = test_preds_h
+        h1_test_m = test_m_h
+        h1_naive_test = metrics(y_te_h, h_test['lag_12'].fillna(y_tv_h.mean()).values, y_tv_h)
+        h1_test = h_test
+
+# Set variables for compatibility with subsequent notebook cells
+final = h1_model
+test_preds = h1_test_preds
+test_m = h1_test_m
+naive_test = h1_naive_test
+test = h1_test
+
+# Also save the root model.pkl and metadata.json as h1 for backwards compatibility
+import shutil
+shutil.copy('champion_model/model_h1.pkl', 'champion_model/model.pkl')
+shutil.copy('champion_model/metadata_h1.json', 'champion_model/metadata.json')
+
+print(f"\\n📊 TEST SET RESULTS (Horizon 1):")
 print(f"  {deploy}: {test_m}")
 print(f"  Seasonal Naive: {naive_test}")
 print(f"  ML beats Naive? {'✅ YES' if test_m['WAPE'] < naive_test['WAPE'] else '❌ NO'}")""")
@@ -383,15 +460,9 @@ if hasattr(final,'feature_importances_'):
     ax.set_title(f'Feature Importance — {deploy}',fontsize=14,fontweight='bold')
     plt.tight_layout(); plt.savefig('plots/10_feature_imp.png',dpi=150,bbox_inches='tight'); plt.show()""")
 
-code(nb3, """# Save
-os.makedirs('champion_model',exist_ok=True)
-with open('champion_model/model.pkl','wb') as f: pickle.dump(final,f)
-meta = {'champion':champion,'deployed':deploy,'features':FEATURE_COLS,
-        'val_metrics':results[deploy],'test_metrics':test_m,'naive_test':naive_test,
-        'all_rankings':{k:v['WAPE'] for k,v in results.items()}}
-with open('champion_model/metadata.json','w') as f: json.dump(meta,f,indent=2,default=str)
+code(nb3, """# Save rankings
 pd.DataFrame(results).T.to_csv('model_comparison_results.csv')
-print(f"✅ Saved champion ({deploy}), metadata, and comparison CSV")""")
+print(f"✅ Saved rankings to model_comparison_results.csv")""")
 
 md(nb3, f"""## Conclusion
 - **M5 real data** produces meaningful model differentiation (unlike beverage synthetic data)

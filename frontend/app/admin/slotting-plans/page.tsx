@@ -126,10 +126,7 @@ export default function SlottingPlansPage() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [onlyMoved, setOnlyMoved] = useState(false);
-  const [directApply, setDirectApply] = useState(false);
   const [warehouseLocations, setWarehouseLocations] = useState<Location[]>([]);
-
-  const isAdmin = admin?.role === "admin";
 
   const locationIndex = useMemo(
     () => buildLocationIndex(warehouseLocations),
@@ -259,19 +256,8 @@ export default function SlottingPlansPage() {
       setLoading(true);
       const plan = await slottingPlansApi.approve(selectedPlan.id, {
         approvedBy: admin?.email ?? "manager",
-        directApply: isAdmin && directApply,
       });
-      if (plan.executionStatus === "DIRECT_APPLIED") {
-        setInfo(
-          "Plan approved with direct location apply. Inventory and default locations updated immediately — refresh warehouse layout to see changes."
-        );
-      } else if (plan.transfersCreated && plan.transfersCreated > 0) {
-        setInfo(
-          `Plan approved. ${plan.transfersCreated} stock transfer job(s) created (${plan.executionStatus ?? "PENDING_MOVES"}). Forklift tasks are queued — inventory updates when moves complete.`
-        );
-      } else {
-        setInfo("Plan approved — target default locations updated. No physical relocations required.");
-      }
+      setInfo(`Plan approved (${plan.executionStatus ?? "PENDING_SCHEDULE"}). Schedule it from Inventory Intelligence to release worker scan tasks in the off-peak window.`);
       await loadPlans(warehouseId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to approve plan");
@@ -289,7 +275,7 @@ export default function SlottingPlansPage() {
             MILP optimized RM, PM, and finished-goods location planning with ABC/FMS demand signals, rack constraints, and operational move caps.
           </p>
         </div>
-        <Link href="/admin/replenishment" className="btn btn-ghost btn-sm">
+        <Link href="/admin/inventory-intelligence" className="btn btn-ghost btn-sm">
           ← Action Center
         </Link>
       </div>
@@ -408,20 +394,6 @@ export default function SlottingPlansPage() {
                 <input type="checkbox" className="checkbox" checked={useMilp} onChange={(e) => setUseMilp(e.target.checked)} />
                 <span className="label-text">Use multi-bin MILP optimizer for location plan</span>
               </label>
-              {isAdmin && selectedPlan && selectedPlan.status === "DRAFT" && !solverApprovalBlocked && (
-                <label
-                  className="label cursor-pointer gap-2 justify-start mb-0 border border-warning/40 rounded-lg px-3 py-2 bg-warning/5"
-                  title="Skips stock transfer jobs and updates inventory location_code immediately"
-                >
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-warning checkbox-sm"
-                    checked={directApply}
-                    onChange={(e) => setDirectApply(e.target.checked)}
-                  />
-                  <span className="label-text text-xs">Direct apply <span className="opacity-60">(admin only)</span></span>
-                </label>
-              )}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -434,12 +406,12 @@ export default function SlottingPlansPage() {
               {selectedPlan && selectedPlan.status === "DRAFT" && (
                 <>
                   <button
-                    className={directApply && isAdmin ? "btn btn-warning" : "btn btn-success"}
+                    className="btn btn-success"
                     disabled={loading || solverApprovalBlocked}
                     title={solverApprovalBlocked ? "A fallback plan cannot be approved" : undefined}
                     onClick={() => void handleApprove()}
                   >
-                    {directApply && isAdmin ? "Approve & apply directly" : "Approve plan"}
+                    Approve plan
                   </button>
                 </>
               )}

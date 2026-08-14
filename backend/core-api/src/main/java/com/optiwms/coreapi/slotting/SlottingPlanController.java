@@ -1,13 +1,14 @@
 package com.optiwms.coreapi.slotting;
 
+import com.optiwms.coreapi.ai.AiProxyService;
 import com.optiwms.coreapp.slotting.SlottingPlanService;
 import com.optiwms.infra.slotting.SlottingPlanEntity;
 import com.optiwms.infra.slotting.SlottingPlanLineEntity;
 import com.optiwms.infra.slotting.SlottingPlanReserveLineEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -18,25 +19,29 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/slotting/plans")
+@PreAuthorize("hasAnyRole('ADMIN','WAREHOUSE_MANAGER','MANAGER','SUPERVISOR')")
 public class SlottingPlanController {
 
     private final SlottingPlanService slottingPlanService;
+    private final AiProxyService aiProxyService;
 
-    public SlottingPlanController(SlottingPlanService slottingPlanService) {
+    public SlottingPlanController(SlottingPlanService slottingPlanService, AiProxyService aiProxyService) {
         this.slottingPlanService = slottingPlanService;
+        this.aiProxyService = aiProxyService;
     }
 
     @GetMapping
-    public List<SlottingPlanSummaryDto> listPlans(@RequestParam UUID warehouseId) {
-        return slottingPlanService.listPlans(warehouseId).stream()
+    public List<SlottingPlanSummaryDto> listPlans(@RequestParam UUID warehouseId, Authentication authentication) {
+        return slottingPlanService.listPlans(authorizedWarehouse(authentication, warehouseId)).stream()
                 .map(this::toSummary)
                 .toList();
     }
 
     @PostMapping
-    public ResponseEntity<SlottingPlanSummaryDto> createPlan(@RequestBody CreatePlanDto body) {
+    public ResponseEntity<SlottingPlanSummaryDto> createPlan(@RequestBody CreatePlanDto body, Authentication authentication) {
+        UUID warehouseId = authorizedWarehouse(authentication, UUID.fromString(body.warehouseId()));
         SlottingPlanEntity plan = slottingPlanService.createPlan(new SlottingPlanService.CreatePlanRequest(
-                UUID.fromString(body.warehouseId()),
+                warehouseId,
                 body.validMonths(),
                 body.validFrom() != null ? LocalDate.parse(body.validFrom()) : null,
                 body.planCode(),
@@ -48,19 +53,20 @@ public class SlottingPlanController {
     }
 
     @GetMapping("/active")
-    public ResponseEntity<SlottingPlanSummaryDto> getActivePlan(@RequestParam UUID warehouseId) {
-        return slottingPlanService.getActivePlan(warehouseId)
+    public ResponseEntity<SlottingPlanSummaryDto> getActivePlan(@RequestParam UUID warehouseId, Authentication authentication) {
+        return slottingPlanService.getActivePlan(authorizedWarehouse(authentication, warehouseId))
                 .map(p -> ResponseEntity.ok(toSummary(p)))
                 .orElse(ResponseEntity.notFound().build());
     }
 
     @GetMapping("/{id}")
-    public SlottingPlanSummaryDto getPlan(@PathVariable UUID id) {
-        return toSummary(slottingPlanService.getPlan(id));
+    public SlottingPlanSummaryDto getPlan(@PathVariable UUID id, Authentication authentication) {
+        return toSummary(authorizedPlan(id, authentication));
     }
 
     @GetMapping("/{id}/lines")
-    public List<SlottingPlanLineDto> getLines(@PathVariable UUID id) {
+    public List<SlottingPlanLineDto> getLines(@PathVariable UUID id, Authentication authentication) {
+        authorizedPlan(id, authentication);
         return slottingPlanService.getLines(id).stream().map(this::toLineDto).toList();
     }
 
@@ -68,7 +74,9 @@ public class SlottingPlanController {
     public SlottingPlanLineDto updateLine(
             @PathVariable UUID id,
             @PathVariable UUID lineId,
-            @RequestBody UpdateLineDto body) {
+            @RequestBody UpdateLineDto body,
+            Authentication authentication) {
+        authorizedPlan(id, authentication);
         SlottingPlanLineEntity line = slottingPlanService.updateLine(
                 id,
                 lineId,
@@ -81,7 +89,9 @@ public class SlottingPlanController {
     }
 
     @PostMapping("/{id}/reoptimize")
-    public SlottingPlanSummaryDto reoptimize(@PathVariable UUID id, @RequestBody ReoptimizeDto body) {
+    public SlottingPlanSummaryDto reoptimize(@PathVariable UUID id, @RequestBody ReoptimizeDto body,
+            Authentication authentication) {
+        authorizedPlan(id, authentication);
         SlottingPlanEntity plan = slottingPlanService.reoptimize(
                 id,
                 new SlottingPlanService.ReoptimizeRequest(
@@ -97,25 +107,35 @@ public class SlottingPlanController {
             @PathVariable UUID id,
             @RequestBody ApprovePlanDto body,
             Authentication authentication) {
-        if (Boolean.TRUE.equals(body.directApply()) && !isAdmin(authentication)) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN, "Direct location apply is restricted to administrators");
-        }
+        authorizedPlan(id, authentication);
         return toSummary(slottingPlanService.approve(
                 id, new SlottingPlanService.ApprovePlanRequest(body.approvedBy(), body.directApply())));
     }
 
-    private boolean isAdmin(Authentication authentication) {
-        if (authentication == null || authentication.getAuthorities() == null) {
-            return false;
+    @PostMapping("/{id}/schedule")
+    public SlottingPlanSummaryDto schedule(@PathVariable UUID id, @RequestBody SchedulePlanDto body,
+            Authentication authentication) {
+        authorizedPlan(id, authentication);
+        return toSummary(slottingPlanService.schedule(id,
+                body.scheduledFor() != null ? java.time.OffsetDateTime.parse(body.scheduledFor()) : null));
+    }
+
+    private SlottingPlanEntity authorizedPlan(UUID id, Authentication authentication) {
+        SlottingPlanEntity plan = slottingPlanService.getPlan(id);
+        authorizedWarehouse(authentication, plan.getWarehouseId());
+        return plan;
+    }
+
+    private UUID authorizedWarehouse(Authentication authentication, UUID requested) {
+        String scoped = aiProxyService.resolveWarehouseScope(authentication, requested != null ? requested.toString() : null);
+        if (scoped == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No authorized warehouse assignment");
+        UUID authorized;
+        try { authorized = UUID.fromString(scoped); }
+        catch (IllegalArgumentException ex) { throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid warehouse assignment"); }
+        if (!authorized.equals(requested)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Warehouse is outside the signed-in user's assignment");
         }
-        for (GrantedAuthority authority : authentication.getAuthorities()) {
-            String role = authority.getAuthority();
-            if ("ROLE_ADMIN".equals(role) || "admin".equalsIgnoreCase(role)) {
-                return true;
-            }
-        }
-        return false;
+        return authorized;
     }
 
     private SlottingPlanSummaryDto toSummary(SlottingPlanEntity plan) {
@@ -211,6 +231,7 @@ public class SlottingPlanController {
     public record ReoptimizeDto(Integer expectedVersion, List<String> lockedLineIds) {}
 
     public record ApprovePlanDto(String approvedBy, Boolean directApply) {}
+    public record SchedulePlanDto(String scheduledFor) {}
 
     public record SlottingPlanSummaryDto(
             String id,

@@ -19,6 +19,7 @@ export type SOP = {
   createdBy: string;
   applicableRoles?: string[];
   status: "active" | "draft" | "archived";
+  isSystem?: boolean;
 };
 
 export const SOP_CATEGORIES: Record<SOPCategory, string> = {

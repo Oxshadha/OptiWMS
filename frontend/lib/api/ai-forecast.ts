@@ -365,7 +365,29 @@ export interface ForecastSkuItem {
   horizon_count: number;
 }
 
+export interface CanonicalForecastReadiness {
+  ready: boolean;
+  errors: string[];
+  dataset: string;
+  datasetVersion: string;
+  modelName: string;
+  modelStatus: string;
+  forecastRowCount: number;
+  decisionEligibleRowCount: number;
+  materialCount: number;
+  forecastMaterialCount: number;
+  forecastFreshness?: string | null;
+  datasetLoadedAt?: string | null;
+  datasetChecksum?: string | null;
+  checksumMatches: boolean;
+  buildCommit: string;
+}
+
 export const aiForecastApi = {
+  getCanonicalReadiness(warehouseId?: string) {
+    const query = buildQuery({ warehouseId });
+    return apiClient.get<CanonicalForecastReadiness>(`/ai/forecast-readiness${query}`);
+  },
   getForecastSkus(params: { model?: string; warehouseId?: string } = {}) {
     const query = buildQuery(params);
     return apiClient.get<PagedResponse<ForecastSkuItem>>(`/ai/forecast-skus${query}`);

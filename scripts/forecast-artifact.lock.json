@@ -1,0 +1,8 @@
+{
+  "dataset": "PROJECT_OPS_RM_PM",
+  "datasetVersion": "PROJECT_OPERATIONAL_SIMULATION_V8",
+  "model": "PROJECT_OPS_EXTRA_TREES_CAUSAL",
+  "loaderDatasetSha256": "4c0e2e4f4166249456061fbf94facf41eaa36ccb6b2352f06954839e11d32619",
+  "trainingSourceSha256": "39c08f7a831e59bcf23224d519e80281d400c0f0e19910772718d627b3df3fa3",
+  "modelSha256": "3ebdf3dbe8410f06cefd7db33a2e8d6a27f4592a266be7c10bc210cd1f11d1d0"
+}

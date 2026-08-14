@@ -52,6 +52,7 @@ export const ADMIN_ROUTES = {
   DOCK_MANAGEMENT: '/admin/dock-management',
   LABOR_PRODUCTIVITY: '/admin/labor-productivity',
   DATA_QUALITY: '/admin/data-quality',
+  INVENTORY_INTELLIGENCE: '/admin/inventory-intelligence',
   REPLENISHMENT: '/admin/replenishment',
   STORAGE_OPTIMIZER: '/admin/replenishment/storage',
   SLOTTING_PLANS: '/admin/slotting-plans',
@@ -100,6 +101,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.DOCK_MANAGEMENT]: new Set([]),
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.DATA_QUALITY]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
     [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'delete', 'approve']),
@@ -142,6 +144,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view', 'create', 'edit']), // Primary access for warehouse manager
     [ADMIN_ROUTES.DATA_QUALITY]: new Set([]), // Admin-only repair workflow
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view', 'create', 'edit', 'approve']), // Can review and approve replenishment plans
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view', 'create', 'edit', 'approve']),
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view', 'create', 'edit', 'approve']), // Can execute moves
     [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view', 'create', 'edit', 'approve']),
     [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view', 'create', 'edit', 'approve']),
@@ -182,6 +185,7 @@ const PERMISSION_MATRIX: Record<AdminRole, Record<string, Set<Permission>>> = {
     [ADMIN_ROUTES.LABOR_PRODUCTIVITY]: new Set(['view']), // View only for inbound coordinator
     [ADMIN_ROUTES.DATA_QUALITY]: new Set([]), // Admin-only repair workflow
     [ADMIN_ROUTES.REPLENISHMENT]: new Set(['view']), // View only
+    [ADMIN_ROUTES.INVENTORY_INTELLIGENCE]: new Set(['view']),
     [ADMIN_ROUTES.STORAGE_OPTIMIZER]: new Set(['view']), // View only
     [ADMIN_ROUTES.SLOTTING_PLANS]: new Set(['view']),
     [ADMIN_ROUTES.AI_SLOTTING]: new Set(['view']),
