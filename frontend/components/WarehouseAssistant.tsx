@@ -162,7 +162,20 @@ export function WarehouseAssistant({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Chat History states
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
+  // The popup and the full-page view are separate component instances, so the
+  // active thread is kept in storage. Without this, opening full screen while
+  // mid-conversation silently started a new chat.
+  const sessionStorageKey = userId ? `optiwms:assistant-session:${userId}` : null;
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(() => {
+    if (typeof window === "undefined" || !sessionStorageKey) return undefined;
+    return window.localStorage.getItem(sessionStorageKey) ?? undefined;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !sessionStorageKey) return;
+    if (currentSessionId) window.localStorage.setItem(sessionStorageKey, currentSessionId);
+    else window.localStorage.removeItem(sessionStorageKey);
+  }, [currentSessionId, sessionStorageKey]);
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -237,6 +250,17 @@ export function WarehouseAssistant({
       setLoading(false);
     }
   };
+
+  // Restore the thread that was open in the other view. Runs once, and only
+  // when there is a stored session but nothing rendered yet, so it never
+  // clobbers a conversation already in progress.
+  const restoredSession = useRef(false);
+  useEffect(() => {
+    if (restoredSession.current || !currentSessionId || chatHistory.length > 0) return;
+    restoredSession.current = true;
+    void handleSelectSession(currentSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId]);
 
   const handleNewChat = () => {
     setChatHistory([]);
