@@ -29,7 +29,13 @@ const MOCK_RESULTS: SearchItem[] = [
   { type: "Customer", label: "Acme Corp", extra: "42 orders", id: "cust-1" },
 ];
 
-export function Topbar() {
+export function Topbar({
+  onToggleSidebar,
+  showToggle = false,
+}: {
+  onToggleSidebar?: () => void;
+  showToggle?: boolean;
+}) {
   const { admin, role, clearAdmin } = useAdmin();
   const router = useRouter();
   const { isDark, toggleTheme, mounted } = useTheme();
@@ -44,10 +50,9 @@ export function Topbar() {
     const q = query.toLowerCase();
     return MOCK_RESULTS.filter(
       (r) =>
-        r.label.toLowerCase().includes(q) || r.extra?.toLowerCase().includes(q)
+        r.label.toLowerCase().includes(q) || r.extra?.toLowerCase().includes(q),
     );
   }, [query]);
-
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -89,7 +94,7 @@ export function Topbar() {
         // Navigate to warehouses page with search query
         // Future: if result.id exists, could navigate to /admin/warehouses/[id]
         router.push(
-          `/admin/warehouses?search=${encodeURIComponent(result.label)}`
+          `/admin/warehouses?search=${encodeURIComponent(result.label)}`,
         );
         break;
       case "Order":
@@ -98,11 +103,11 @@ export function Topbar() {
         // Future: if result.id exists, could navigate to /admin/orders/[id]
         if (result.label.startsWith("SO-")) {
           router.push(
-            `/admin/orders/outbound?search=${encodeURIComponent(result.label)}`
+            `/admin/orders/outbound?search=${encodeURIComponent(result.label)}`,
           );
         } else {
           router.push(
-            `/admin/orders?search=${encodeURIComponent(result.label)}`
+            `/admin/orders?search=${encodeURIComponent(result.label)}`,
           );
         }
         break;
@@ -110,7 +115,7 @@ export function Topbar() {
         // Navigate to customers page with search query
         // Future: if result.id exists, could navigate to /admin/customers/[id]
         router.push(
-          `/admin/customers?search=${encodeURIComponent(result.label)}`
+          `/admin/customers?search=${encodeURIComponent(result.label)}`,
         );
         break;
       default:
@@ -150,8 +155,14 @@ export function Topbar() {
       try {
         setLoadingNotifications(true);
         const [notifs, count] = await Promise.all([
-          notificationsApi.getAll(admin.id, undefined, { role: role || undefined, warehouseId: admin.warehouseId }),
-          notificationsApi.getUnreadCount(admin.id, { role: role || undefined, warehouseId: admin.warehouseId }),
+          notificationsApi.getAll(admin.id, undefined, {
+            role: role || undefined,
+            warehouseId: admin.warehouseId,
+          }),
+          notificationsApi.getUnreadCount(admin.id, {
+            role: role || undefined,
+            warehouseId: admin.warehouseId,
+          }),
         ]);
         setNotifications(notifs.slice(0, 10)); // Show latest 10
         setUnreadCount(count);
@@ -178,8 +189,10 @@ export function Topbar() {
     const diffDays = Math.floor(diffHours / 24);
 
     if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+    if (diffMins < 60)
+      return `${diffMins} minute${diffMins > 1 ? "s" : ""} ago`;
+    if (diffHours < 24)
+      return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
     return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
   };
 
@@ -187,9 +200,11 @@ export function Topbar() {
     if (!notification.read) {
       try {
         await notificationsApi.markAsRead(notification.id);
-        setNotifications(notifications.map(n => 
-          n.id === notification.id ? { ...n, read: true } : n
-        ));
+        setNotifications(
+          notifications.map((n) =>
+            n.id === notification.id ? { ...n, read: true } : n,
+          ),
+        );
         setUnreadCount(Math.max(0, unreadCount - 1));
       } catch (error) {
         logger.error("Error marking notification as read:", error);
@@ -231,8 +246,21 @@ export function Topbar() {
   return (
     <header className="relative flex items-center justify-between gap-2 px-3 py-4 sm:gap-4 sm:px-6 bg-base-100 border-b border-base-200">
       {/* Search Bar - Left Aligned */}
-      <div className="relative min-w-0 flex-1 max-w-xl search-dropdown">
-        <label className="input input-bordered flex items-center gap-2 w-full">
+      <div className="flex items-center gap-2 sm:gap-4 flex-1 max-w-xl">
+        {showToggle && onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="btn btn-ghost btn-circle text-base-content/70 hover:text-base-content flex-shrink-0"
+            title="Expand Sidebar"
+          >
+            <span className="material-symbols-outlined">menu</span>
+          </button>
+        )}
+        <div className="relative min-w-0 flex-1 search-dropdown">
+        <label
+          className="input input-bordered flex items-center gap-2 w-full"
+          data-tour-target="topbar-search"
+        >
           <span className="material-symbols-outlined text-base-content/60">
             search
           </span>
@@ -287,6 +315,7 @@ export function Topbar() {
           </div>
         )}
       </div>
+      </div>
 
       {/* Icons - Right Aligned */}
       <div className="flex shrink-0 items-center gap-1 sm:gap-3">
@@ -304,6 +333,7 @@ export function Topbar() {
           <button
             className="btn btn-ghost btn-circle relative"
             title="Notifications"
+            data-tour-target="topbar-notifications"
             onClick={() => {
               setOpenNotifications((v) => !v);
               setOpenCalendar(false);
@@ -438,7 +468,7 @@ export function Topbar() {
                       >
                         {day}
                       </div>
-                    )
+                    ),
                   )}
                 </div>
                 <div className="grid grid-cols-7 gap-1">
@@ -510,6 +540,7 @@ export function Topbar() {
           </button>
         )}
 
+        <WarehouseAssistant userRole="manager" userId={admin?.id} />
         <div className="hidden md:block">
           <WarehouseAssistant userRole="manager" />
         </div>
