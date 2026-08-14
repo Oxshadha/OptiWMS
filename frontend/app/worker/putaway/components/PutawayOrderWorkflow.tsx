@@ -5,6 +5,11 @@ import { LocationPicker } from "@/components/LocationPicker";
 import { WorkerRouteGuide } from "@/components/WorkerRouteGuide";
 import { PutawayItem } from "@/lib/api/orderItems";
 import { ItemDetailsDisplay } from "./ItemDetailsDisplay";
+import {
+  QUANTITY_INPUT_PROPS,
+  parseQuantityInput,
+  quantityInputValue,
+} from "@/lib/utils/quantity-input";
 
 type SelectedOrder = { id: string; orderNumber: string };
 
@@ -149,12 +154,15 @@ export function PutawayOrderWorkflow({
                 <span className="label-text font-medium">Putaway Quantity (this location)</span>
               </label>
               <input
-                type="number"
-                min={1}
-                max={Math.max(remainingQuantity, 1)}
+                {...QUANTITY_INPUT_PROPS}
                 className="input input-bordered"
-                value={allocationQuantity}
-                onChange={(e) => onAllocationQuantityChange(Number(e.target.value) || 0)}
+                value={quantityInputValue(allocationQuantity)}
+                onChange={(e) =>
+                  onAllocationQuantityChange(
+                    Math.min(Math.max(remainingQuantity, 1), parseQuantityInput(e.target.value))
+                  )
+                }
+                placeholder="0"
               />
             </div>
           </div>
