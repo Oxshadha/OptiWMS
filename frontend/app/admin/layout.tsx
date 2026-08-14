@@ -46,7 +46,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div
             className={clsx(
               "flex min-h-screen flex-1 flex-col transition-all duration-300",
-              sidebarCollapsed ? "lg:ml-0" : "lg:ml-64",
+              sidebarCollapsed ? "lg:ml-0" : "lg:ml-72",
             )}
           >
             <Topbar

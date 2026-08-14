@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from agent import AIQuotaExceeded, _generate_content_with_fallback
+
 load_dotenv()  # load .env file in the same directory or parent
 # Trigger uvicorn reload to pick up env changes
 
@@ -177,13 +179,18 @@ async def explain_forecast(req: ForecastExplainRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY / GOOGLE_API_KEY not configured on server")
 
     system_prompt = _build_prompt(req)
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=system_prompt + f"\n\nUser question: {req.userMessage}"
-    )
+    try:
+        text, _ = _generate_content_with_fallback(
+            system_prompt + f"\n\nUser question: {req.userMessage}",
+            "gemini-2.5-flash",
+        )
+    except AIQuotaExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "AI_QUOTA_EXCEEDED", "message": str(exc)},
+        ) from exc
 
-    return {"reply": response.text}
+    return {"reply": text}
 
 
 @router.post("/forecast/stream")
@@ -192,13 +199,18 @@ async def explain_forecast_stream(req: ForecastExplainRequest):
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY / GOOGLE_API_KEY not configured on server")
 
     system_prompt = _build_prompt(req)
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=system_prompt + f"\n\nUser question: {req.userMessage}"
-    )
+    try:
+        generated, _ = _generate_content_with_fallback(
+            system_prompt + f"\n\nUser question: {req.userMessage}",
+            "gemini-2.5-flash",
+        )
+    except AIQuotaExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "AI_QUOTA_EXCEEDED", "message": str(exc)},
+        ) from exc
 
-    text = response.text or ""
+    text = generated or ""
 
     async def streamer():
         # Stream word-by-word so the frontend can render incrementally

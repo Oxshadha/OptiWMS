@@ -281,34 +281,68 @@ def _fig_to_bytes(fig) -> bytes:
     return buf.read()
 
 
-# ── Groq API Fallback Helper ─────────────────────────────────────────────────
+# ── Provider quota handling and Groq fallback ────────────────────────────────
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+class AIQuotaExceeded(Exception):
+    """Every configured model provider is rate limited or out of quota.
+
+    Raised so the API layer can answer 429 with a clear message instead of a
+    generic 500.
+    """
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    """Detect a rate-limit/quota error across the shapes providers use.
+
+    google-genai raises ResourceExhausted in some paths and a ClientError
+    carrying HTTP 429 in others, and httpx raises HTTPStatusError. Checking the
+    text as a last resort keeps this working across SDK versions.
+    """
+    if isinstance(exc, ResourceExhausted):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        return True
+    if getattr(exc, "code", None) == 429 or getattr(exc, "status_code", None) == 429:
+        return True
+    text = str(exc).upper()
+    return "RESOURCE_EXHAUSTED" in text or "429" in text or "QUOTA" in text or "RATE LIMIT" in text
+
+
+def _generate_with_groq(prompt: str) -> str:
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise AIQuotaExceeded(
+            "The Gemini quota is exhausted and no GROQ_API_KEY fallback is configured."
+        )
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}]},
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception as exc:
+        if _is_quota_error(exc):
+            raise AIQuotaExceeded("Both Gemini and Groq are rate limited right now.") from exc
+        raise
+
+
 def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-lite") -> tuple[str, bool]:
+    """Return (text, used_fallback). Falls back to Groq on any Gemini quota error."""
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-        response = client.models.generate_content(
-            model=model,
-            contents=prompt,
-        )
+        response = client.models.generate_content(model=model, contents=prompt)
         return response.text, False
-    except ResourceExhausted:
-        print("Gemini quota exhausted. Falling back to Groq...")
-        groq_key = os.getenv("GROQ_API_KEY")
-        if not groq_key:
-            raise ResourceExhausted("Google Gemini quota exhausted and GROQ_API_KEY not found.")
-        
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {groq_key}",
-            "Content-Type": "application/json"
-        }
-        data = {
-            "model": "llama3-70b-8192",
-            "messages": [{"role": "user", "content": prompt}]
-        }
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.post(url, headers=headers, json=data)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"], True
+    except Exception as exc:
+        if not _is_quota_error(exc):
+            raise
+        print(f"Gemini quota exhausted ({exc}). Falling back to Groq [{GROQ_MODEL}]...")
+        return _generate_with_groq(prompt), True
 
 # ── SQL generation ────────────────────────────────────────────────────────────
 def generate_sql(question: str, schema: str) -> tuple[str, bool]:
@@ -786,6 +820,9 @@ def ask_database(question: str):
     try:
         sql, sql_fb = generate_sql(question, schema)
         fallback_used = fallback_used or sql_fb
+    except AIQuotaExceeded:
+        # Surface as 429 at the API layer rather than an in-chat error string.
+        raise
     except ResourceExhausted as e:
         return None, None, None, str(e), None, None
     except Exception as e:
@@ -891,7 +928,6 @@ def classify_question(question: str) -> str:
         return "TOUR"
 
     try:
-        client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         prompt = f"""You are a query classifier for a Warehouse Management System (WMS).
 Classify the user question into one of these three classes:
 - 'SOP': Standard Operating Procedures, safety instructions, return policies, operational rules, or physical warehouse locations/equipment.
@@ -913,17 +949,18 @@ CRITICAL CLASSIFICATION RULES:
 User Question: "{question}"
 
 Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other text."""
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=prompt,
-        )
-        res = response.text.strip().upper()
+        text, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
+        res = (text or "").strip().upper()
         if "TOUR" in res:
             return "TOUR"
         elif "SOP" in res:
             return "SOP"
         elif "DATA" in res:
             return "DATA"
+    except AIQuotaExceeded:
+        # No provider left. Let the caller answer 429 rather than silently
+        # misclassifying via keywords.
+        raise
     except Exception as e:
         print(f"Classifier error: {e}")
 
@@ -1005,11 +1042,24 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "tourId": tour_id
         }
     elif mode == "SOP":
-        result = chain.invoke({"query": question})
-        answer = result["result"]
+        try:
+            result = chain.invoke({"query": question})
+            answer = result["result"]
+            source_docs = result["source_documents"]
+        except Exception as exc:
+            if not _is_quota_error(exc):
+                raise
+            # Retrieval is local (Chroma); only generation needs a model. Pull the
+            # same context and answer with the fallback provider.
+            print(f"Gemini quota exhausted on SOP chain ({exc}). Falling back to Groq...")
+            source_docs = chain.retriever.invoke(question)
+            context = "\n\n".join(doc.page_content for doc in source_docs)
+            answer, _ = _generate_content_with_fallback(
+                PROMPT_TEMPLATE.format(context=context, question=question)
+            )
         sources = list(set([
             doc.metadata.get("title") or doc.metadata.get("source") or os.path.basename(doc.metadata.get("source", "Unknown"))
-            for doc in result["source_documents"]
+            for doc in source_docs
         ]))
         res = {
             "mode": "SOP",

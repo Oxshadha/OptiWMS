@@ -43,11 +43,6 @@ const allNavItems = [
     label: "Inventory Intelligence",
     icon: "psychology",
     tourTarget: "nav-intelligent-engine",
-    subItems: [
-      { href: "/admin/replenishment", label: "Action Center", tourTarget: "nav-action-center" },
-      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner", tourTarget: "nav-forecast-space" },
-      { href: "/admin/slotting-plans", label: "Slotting Planner", tourTarget: "nav-slotting" },
-    ],
   },
   { href: "/admin/tasks", label: "Tasks", icon: "task", tourTarget: "nav-tasks" },
 
@@ -208,38 +203,30 @@ export function Sidebar({
   return (
     <aside className={clsx(
       "hidden lg:flex flex-col bg-neutral text-neutral-content fixed h-screen transition-all duration-300 z-50 overflow-hidden",
-      collapsed ? "w-0 -translate-x-full" : "w-64 translate-x-0"
+      collapsed ? "w-0 -translate-x-full" : "w-72 translate-x-0"
     )}>
-      <div className="p-4 border-b border-white/10">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
-              style={{ backgroundColor: "#EEEEEE" }}
-            >
-              <Image
-                src="/assets/logos/OptiWMS Logo.JPG"
-                alt="OptiWMS Logo"
-                width={56}
-                height={56}
-                className="object-contain w-full h-full"
-                style={{ objectFit: "contain" }}
-              />
-            </div>
-            <span className="text-xl font-bold truncate">OptiWMS</span>
-          </div>
-          {onToggleCollapse && (
-            <button
-              onClick={onToggleCollapse}
-              className="btn btn-ghost btn-xs btn-circle text-neutral-content/70 hover:text-neutral-content flex-shrink-0"
-              title="Collapse Sidebar"
-            >
-              <span className="material-symbols-outlined text-lg">menu_open</span>
-            </button>
-          )}
-        </div>
+      {/* Wide brand logo across the full sidebar width, with the collapse
+          control floated over it so it does not crowd the artwork. */}
+      <div className="relative px-4 pb-4 pt-2 border-b border-white/10 flex justify-center items-center overflow-hidden">
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="btn btn-ghost btn-sm btn-circle text-neutral-content/70 hover:text-neutral-content absolute right-2 top-2 z-10"
+            title="Collapse Sidebar"
+          >
+            <span className="material-symbols-outlined text-xl">menu_open</span>
+          </button>
+        )}
+        <Image
+          src="/assets/logos/OptiWMS Logo.png?v=5"
+          alt="OptiWMS Logo"
+          width={150}
+          height={150}
+          className="object-contain w-[150px] h-auto scale-150 mt-2"
+          priority
+        />
       </div>
-      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto dark-scrollbar">
         {navItems.map((item) => {
           const hasSubItems = item.subItems && item.subItems.length > 0;
           // Exact match (or a true sub-path) so that sibling routes sharing a
