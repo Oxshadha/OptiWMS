@@ -225,7 +225,7 @@ def load_locations(cur, locations: pd.DataFrame, warehouse_id: str, digest: str)
     locations = align_velocity_zones_to_doors(locations)
     rows = [(
         row.location_id, warehouse_id, row.location_code, row.area,
-        str(row.row_number).zfill(2), str(row.bay_number).zfill(2),
+        str(row.row_number).zfill(2), str(row.bay_number).zfill(3),
         int(row.level_number), row.bin_position, row.location_type, row.zone_type,
         float(row.capacity), True, int(row.accessibility_rating),
         float(row.coordinate_x), float(row.coordinate_y), float(row.coordinate_z),
@@ -791,6 +791,18 @@ def run(db_url: str, warehouse_code: str, dry_run: bool) -> dict:
         raise RuntimeError(f"missing v8 artifacts: {missing}")
     digest = dataset_hash(list(files.values()))
     frames = {name: pd.read_csv(path) for name, path in files.items()}
+
+    def fix_loc(code):
+        if pd.isna(code): return code
+        parts = str(code).split('-')
+        if len(parts) == 5 and len(parts[2]) == 2:
+            parts[2] = parts[2].zfill(3)
+        return '-'.join(parts)
+
+    for k in ["layout", "assignments", "physical_inventory", "slotting_validation"]:
+        if k in frames and "location_code" in frames[k].columns:
+            frames[k]["location_code"] = frames[k]["location_code"].apply(fix_loc)
+
     # Keep display names stable even when loading older statistical artifacts
     # whose immutable codes still carry the original synthetic descriptions.
     frames["physical"] = apply_catalog_names(frames["physical"])

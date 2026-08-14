@@ -23,46 +23,46 @@
     "model": "extra_trees_causal",
     "rows": 720,
     "materials": 120,
-    "WAPE": 0.0810995644250875,
-    "MAE": 698.337999045157,
-    "RMSE": 1456.85484423038,
-    "Bias": -0.009952376486637864,
+    "WAPE": 0.08109956442508746,
+    "MAE": 698.3379990451566,
+    "RMSE": 1456.8548442303797,
+    "Bias": -0.009952376486637843,
     "under_forecast_rate": 0.4722222222222222,
-    "shock_WAPE": 0.09176384160838098
+    "shock_WAPE": 0.09176384160838075
   },
   "test_champion_metrics": {
     "model": "extra_trees_causal",
     "rows": 1440,
     "materials": 120,
-    "WAPE": 0.08335697840628727,
-    "MAE": 736.7584634403185,
-    "RMSE": 1408.4608905558036,
-    "Bias": -0.0015093530870204453,
+    "WAPE": 0.08334191761804745,
+    "MAE": 736.625347252401,
+    "RMSE": 1408.242290716569,
+    "Bias": -0.0014800055677584615,
     "under_forecast_rate": 0.4826388888888889,
-    "shock_WAPE": 0.08567139890507648
+    "shock_WAPE": 0.08565897302095643
   },
   "test_leaderboard": [
     {
       "model": "random_forest_causal",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.08237960017197607,
-      "MAE": 728.119814344842,
-      "RMSE": 1368.4013808969455,
-      "Bias": 0.00701296043025806,
-      "under_forecast_rate": 0.46875,
-      "shock_WAPE": 0.0808451778189336
+      "WAPE": 0.08220520881290795,
+      "MAE": 726.5784399788224,
+      "RMSE": 1365.7243971896025,
+      "Bias": 0.006870114027903904,
+      "under_forecast_rate": 0.4673611111111111,
+      "shock_WAPE": 0.08022623207198444
     },
     {
       "model": "extra_trees_causal",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.08335697840628727,
-      "MAE": 736.7584634403185,
-      "RMSE": 1408.4608905558036,
-      "Bias": -0.0015093530870204453,
+      "WAPE": 0.08334191761804745,
+      "MAE": 736.625347252401,
+      "RMSE": 1408.242290716569,
+      "Bias": -0.0014800055677584615,
       "under_forecast_rate": 0.4826388888888889,
-      "shock_WAPE": 0.08567139890507648
+      "shock_WAPE": 0.08565897302095643
     },
     {
       "model": "bom_plan",
@@ -79,45 +79,45 @@
       "model": "lightgbm_causal_tweedie",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.08628920514107127,
-      "MAE": 762.6752241588804,
-      "RMSE": 1530.0233640760296,
-      "Bias": -0.0072433222638699475,
-      "under_forecast_rate": 0.5145833333333333,
-      "shock_WAPE": 0.08690520552848972
+      "WAPE": 0.08623735041938388,
+      "MAE": 762.2169013429271,
+      "RMSE": 1530.5918269983945,
+      "Bias": -0.006966042623410528,
+      "under_forecast_rate": 0.5138888888888888,
+      "shock_WAPE": 0.08643519255976066
     },
     {
       "model": "lightgbm_causal_ratio",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.0916373138155594,
-      "MAE": 809.944983747845,
-      "RMSE": 1541.0991800869785,
-      "Bias": 0.0020198501436794257,
-      "under_forecast_rate": 0.49236111111111114,
-      "shock_WAPE": 0.08785580523114418
+      "WAPE": 0.0916497819606822,
+      "MAE": 810.0551846166655,
+      "RMSE": 1539.1735848054866,
+      "Bias": 0.001753282101577361,
+      "under_forecast_rate": 0.49375,
+      "shock_WAPE": 0.08719407382171589
     },
     {
       "model": "lightgbm_direct_ratio",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.10302958893767193,
-      "MAE": 910.6366747679687,
-      "RMSE": 1662.3960807248675,
-      "Bias": 0.0012262370505165814,
-      "under_forecast_rate": 0.4826388888888889,
-      "shock_WAPE": 0.09768518939664395
+      "WAPE": 0.10323779267080455,
+      "MAE": 912.4769029700715,
+      "RMSE": 1665.7832180276268,
+      "Bias": 0.0011598178878647193,
+      "under_forecast_rate": 0.48333333333333334,
+      "shock_WAPE": 0.09798199413952415
     },
     {
       "model": "holt_damped",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.106812027858266,
-      "MAE": 944.0681155480193,
-      "RMSE": 1798.6974750630468,
-      "Bias": -0.012142922281217862,
-      "under_forecast_rate": 0.5277777777777778,
-      "shock_WAPE": 0.10543450258864763
+      "WAPE": 0.10758518659522046,
+      "MAE": 950.9017514825848,
+      "RMSE": 1815.0231265355487,
+      "Bias": -0.012109754222873574,
+      "under_forecast_rate": 0.5326388888888889,
+      "shock_WAPE": 0.10603903604778911
     },
     {
       "model": "seasonal_naive",
@@ -156,23 +156,23 @@
       "model": "elastic_net_causal",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.3531679188616978,
-      "MAE": 3121.507739504792,
-      "RMSE": 19988.105967958298,
-      "Bias": 0.24344060997235986,
+      "WAPE": 0.35316791886169746,
+      "MAE": 3121.507739504789,
+      "RMSE": 19988.105967958272,
+      "Bias": 0.24344060997235945,
       "under_forecast_rate": 0.5368055555555555,
-      "shock_WAPE": 0.2862117627586628
+      "shock_WAPE": 0.2862117627586629
     },
     {
       "model": "ridge_causal",
       "rows": 1440,
       "materials": 120,
-      "WAPE": 0.40274367208738304,
-      "MAE": 3559.6876791905297,
-      "RMSE": 23671.253444528247,
-      "Bias": 0.2682472668084488,
-      "under_forecast_rate": 0.5611111111111111,
-      "shock_WAPE": 0.2955244940675145
+      "WAPE": 0.40238915661804453,
+      "MAE": 3556.554260999882,
+      "RMSE": 23622.055442434717,
+      "Bias": 0.26799964111530356,
+      "under_forecast_rate": 0.5625,
+      "shock_WAPE": 0.2950650824442448
     }
   ],
   "interval_calibration": {
@@ -180,9 +180,39 @@
     "nominal_coverage": 0.9,
     "empirical_coverage": 0.9208333333333333,
     "normalized_error_quantile": 0.19162892427248662,
-    "average_interval_width": 3382.3475283500206,
+    "average_interval_width": 3382.446941909422,
     "calibration_rows": 720,
     "test_rows": 1440
   },
-  "claim_limit": "Synthetic recovery validates the pipeline and experimental method, not real-world production accuracy or exclusive data causation."
+  "claim_limit": "Decision-eligible for the declared OptiWMS synthetic project population; external real-world population validity remains UNVERIFIED.",
+  "operational_serving": {
+    "status": "ready",
+    "dataset": "PROJECT_OPS_RM_PM",
+    "model_name": "PROJECT_OPS_EXTRA_TREES_CAUSAL",
+    "forecast_rows": 1440,
+    "materials": 120,
+    "horizons": 12,
+    "forecast_origin": "2026-01-01",
+    "recursive_test_WAPE": 0.08749893064777609,
+    "recursive_test_Bias": -0.004972174951610148,
+    "neural_challenger_decision": "RETAIN_EXTRA_TREES",
+    "forecast_file": "C:\\Users\\User\\Documents\\GitHub\\OptiWMS\\Ai miroservices\\modeling\\v8_controlled_synthetic_validation\\outputs\\operational_forecasts.csv",
+    "model_bundle": "C:\\Users\\User\\Documents\\GitHub\\OptiWMS\\Ai miroservices\\modeling\\v8_controlled_synthetic_validation\\outputs\\serving_bundle\\production"
+  },
+  "physical_population": {
+    "status": "PASSED",
+    "seed": 20260711,
+    "layout_version": "CMB_METRIC_AISLE_V8_EXPANSION",
+    "materials": 144,
+    "storage_locations": 4200,
+    "layout_rows": 4206,
+    "assignment_rows": 3257,
+    "inventory_rows": 2921,
+    "required_capacity_positions": 3257,
+    "unused_storage_positions": 943,
+    "checks_passed": 14,
+    "checks_total": 14,
+    "external_physical_survey": "UNVERIFIED",
+    "decision_scope": "PROJECT_OPERATIONAL_SYNTHETIC_BASELINE"
+  }
 }

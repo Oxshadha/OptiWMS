@@ -10,12 +10,14 @@ export interface TourStep {
 
 export interface TourConfig {
   showProgress?: boolean;
+  path?: string;
   steps: TourStep[];
 }
 
 export const tours: Record<string, TourConfig> = {
   dashboard_overview_tour: {
     showProgress: true,
+    path: "/admin/dashboard",
     steps: [
       {
         element: '[data-tour-target="nav-dashboard"]',
@@ -77,6 +79,7 @@ export const tours: Record<string, TourConfig> = {
 
   inventory_management_tour: {
     showProgress: true,
+    path: "/admin/inventory",
     steps: [
       {
         element: '[data-tour-target="nav-inventory"]',
@@ -137,6 +140,7 @@ export const tours: Record<string, TourConfig> = {
 
   orders_and_shipments_tour: {
     showProgress: true,
+    path: "/admin/orders",
     steps: [
       {
         element: '[data-tour-target="nav-orders"]',
@@ -188,6 +192,7 @@ export const tours: Record<string, TourConfig> = {
 
   warehouse_layout_tour: {
     showProgress: true,
+    path: "/admin/warehouses",
     steps: [
       {
         element: '[data-tour-target="nav-warehouses"]',
@@ -230,6 +235,7 @@ export const tours: Record<string, TourConfig> = {
 
   reports_analytics_tour: {
     showProgress: true,
+    path: "/admin/forecasts",
     steps: [
       {
         element: '[data-tour-target="nav-forecasts"]',
@@ -282,6 +288,7 @@ export const tours: Record<string, TourConfig> = {
 
   workforce_tasks_tour: {
     showProgress: true,
+    path: "/admin/tasks",
     steps: [
       {
         element: '[data-tour-target="nav-tasks"]',
@@ -333,6 +340,7 @@ export const tours: Record<string, TourConfig> = {
 
   sop_help_tour: {
     showProgress: true,
+    path: "/admin/sops",
     steps: [
       {
         element: '[data-tour-target="nav-sops"]',

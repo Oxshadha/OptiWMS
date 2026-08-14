@@ -35,6 +35,7 @@ import {
   downloadReport,
 } from "@/services/aiService";
 import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
+import { tours } from "@/lib/tours/tourConfig";
 import { startProductTour } from "@/lib/tours/tourEngine";
 
 type ChatMessage = {
@@ -171,7 +172,17 @@ export function WarehouseAssistant({
     if (chatHistory.length > 0) {
       const lastMsg = chatHistory[chatHistory.length - 1];
       if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
-        startProductTour(lastMsg.tourId);
+        const tourConfig = tours[lastMsg.tourId as keyof typeof tours];
+        if (tourConfig && tourConfig.path && window.location.pathname !== tourConfig.path) {
+          router.push(tourConfig.path);
+          // Allow time for route to change before starting tour
+          setTimeout(() => {
+            startProductTour(lastMsg.tourId!);
+          }, 800);
+        } else {
+          startProductTour(lastMsg.tourId);
+        }
+        setIsOpen(false);
       }
     }
   }, [chatHistory]);

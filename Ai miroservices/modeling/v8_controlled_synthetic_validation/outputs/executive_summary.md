@@ -2,7 +2,7 @@
 
 ## Experimental Position
 
-This benchmark tests whether the forecasting pipeline can recover a known causal RM/PM demand-generating process. It does not claim production accuracy because every row is controlled synthetic ground truth.
+This benchmark tests whether the forecasting pipeline can recover the declared project-operational synthetic RM/PM demand-generating process. Its rows may drive OptiWMS project decisions with explicit provenance; they do not establish accuracy for an external real-world population.
 
 ## Protocol
 
@@ -17,9 +17,9 @@ This benchmark tests whether the forecasting pipeline can recover a known causal
 
 ## Final Test Result
 
-- WAPE: `8.34%`
-- MAE: `736.76`
-- RMSE: `1408.46`
+- WAPE: `8.33%`
+- MAE: `736.63`
+- RMSE: `1408.24`
 - Bias: `-0.15%`
 - Under-forecast rate: `48.26%`
 

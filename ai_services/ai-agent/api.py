@@ -31,7 +31,7 @@ from explain_router import router as explain_router
 from ingest import ingest
 
 app = FastAPI(title="OptiWMS Agent API")
-chain = load_agent()
+chain = None
 bearer = HTTPBearer(auto_error=True)
 logger = logging.getLogger("optiwms.assistant")
 
@@ -73,6 +73,7 @@ REPORTS_DIR.mkdir(exist_ok=True)
 
 @app.on_event("startup")
 def startup_event():
+    global chain
     init_chat_db()
     # Keep the Chroma index current. Ingestion at startup rather than at import
     # so a database blip cannot break module loading.
@@ -80,6 +81,9 @@ def startup_event():
         ingest()
     except Exception as exc:  # pragma: no cover - startup best effort
         logger.warning("SOP ingestion at startup failed: %s", exc)
+    
+    # Load the agent chain AFTER ingestion so ChromaDB isn't locked
+    chain = load_agent()
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────

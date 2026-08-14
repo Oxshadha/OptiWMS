@@ -178,3 +178,12 @@ body {
 .dark-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+/* Fix for driver.js transparent/blurred active elements */
+.driver-active-element {
+  background-color: var(--fallback-b1,oklch(var(--b1)/1)) !important;
+  color: var(--fallback-bc,oklch(var(--bc)/1)) !important;
+  backdrop-filter: none !important;
+  isolation: isolate;
+}
+
