@@ -189,8 +189,8 @@ export function Sidebar() {
   };
 
   const renderNavItem = (item: typeof allNavItems[0]) => {
-    const active = pathname.startsWith(item.href);
     const hasSubItems = item.subItems && item.subItems.length > 0;
+    const active = pathname === item.href || Boolean(hasSubItems && pathname.startsWith(`${item.href}/`));
     const isExpanded = expandedItems.includes(item.href);
     const hasActiveSubItem =
       hasSubItems &&
@@ -227,7 +227,7 @@ export function Sidebar() {
             {isExpanded && (
               <div className="ml-4 space-y-1 border-l-2 border-white/10 pl-2">
                 {item.subItems?.map((subItem) => {
-                  const subActive = pathname.startsWith(subItem.href);
+                  const subActive = pathname === subItem.href || pathname.startsWith(`${subItem.href}/`);
                   return (
                     <Link
                       key={subItem.href}

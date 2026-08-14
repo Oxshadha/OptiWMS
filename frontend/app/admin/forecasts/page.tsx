@@ -141,13 +141,13 @@ function InventoryPlanTooltip({ active, payload, label }: any) {
       <p className="text-primary font-bold mb-2">{label}</p>
       <div className="space-y-1 text-base-content/75">
         <p className="flex justify-between gap-5"><span>Beginning stock</span><strong className="text-base-content tabular-nums">{Number(row.beginning).toLocaleString()}</strong></p>
-        <p className="flex justify-between gap-5"><span>Forecast demand (P50)</span><strong className="text-base-content tabular-nums">−{Number(row.demandP50).toLocaleString()}</strong></p>
-        <p className="flex justify-between gap-5"><span>Simulated policy receipt</span><strong className="text-base-content tabular-nums">{row.receipt ? `+${Number(row.receipt).toLocaleString()}` : "None"}</strong></p>
+        <p className="flex justify-between gap-5"><span>Expected demand</span><strong className="text-base-content tabular-nums">−{Number(row.demandP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Planned receipt</span><strong className="text-base-content tabular-nums">{row.receipt ? `+${Number(row.receipt).toLocaleString()}` : "None"}</strong></p>
         <div className="border-t border-base-300 my-1.5" />
-        <p className="flex justify-between gap-5"><span>Projected ending (P50)</span><strong className="text-blue-700 tabular-nums">{Number(row.endingP50).toLocaleString()}</strong></p>
-        <p className="flex justify-between gap-5"><span>Upper-demand ending (P90)</span><strong className="text-error tabular-nums">{Number(row.endingP90).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Expected ending stock</span><strong className="text-blue-700 tabular-nums">{Number(row.endingP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>High-demand ending stock</span><strong className="text-error tabular-nums">{Number(row.endingP90).toLocaleString()}</strong></p>
       </div>
-      {row.receipt > 0 && <p className="mt-2 pt-2 border-t border-base-300 text-[10px] leading-4 text-base-content/55">Policy simulation only—not a confirmed purchase order.</p>}
+      {row.receipt > 0 && <p className="mt-2 pt-2 border-t border-base-300 text-[10px] leading-4 text-base-content/55">Planning proposal only. Procurement has not released a purchase order.</p>}
     </div>
   );
 }
@@ -1402,7 +1402,7 @@ export default function ForecastsPage() {
   const finalInventory = inventoryPlan.rows;
   const inventoryChartData = finalInventory.map((row) => ({
     ...row,
-    receiptEvent: row.receipt > 0 ? row.endingP50 : null,
+    plannedReceipt: row.receipt,
   }));
   const hasLiveForecastData = aggregatedForecastData.length > 0;
   const hasBacktestActuals = useMemo(
@@ -1804,7 +1804,7 @@ export default function ForecastsPage() {
 
             {/* Lead-time inventory plan */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Projected Stock Under Current Policy" sub="Month-end stock after forecast demand; diamonds mark simulated replenishment receipts—not confirmed purchase orders" color={C.accent3} />
+              <SectionHeader title="Projected Stock Under Current Policy" sub="Month-end available stock and planned receipts after supplier lead time" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 {finalInventory.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">No item plan is available.</div>
@@ -1816,9 +1816,9 @@ export default function ForecastsPage() {
                       <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                       <Tooltip content={<InventoryPlanTooltip />} />
                       <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="4 3" />
-                      <Area type="monotone" dataKey="endingP50" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={2.5} dot={{ r: 2 }} name="Projected ending (P50)" />
-                      <Line type="monotone" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="Upper-demand ending (P90)" />
-                      <Scatter dataKey="receiptEvent" fill={C.accent2} name="Simulated receipt" shape="diamond" />
+                      <Bar dataKey="plannedReceipt" fill={C.accent3} fillOpacity={0.22} name="Planned receipt" radius={[4, 4, 0, 0]} />
+                      <Line type="linear" dataKey="endingP50" stroke={C.accent3} strokeWidth={2.5} dot={{ r: 2 }} name="Expected ending stock" />
+                      {showCI && <Line type="linear" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="High-demand ending stock" />}
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
@@ -2080,13 +2080,13 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <KpiCard title="Selected On-hand" value={(selectedSkuRecommendation?.on_hand_inventory ?? 0).toLocaleString()} sub={`${selectedSku || "Item"} available before forecast demand`} color={C.accent} icon="package_2" />
-            <KpiCard title="Proposed Releases" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} simulated receipt units within horizon`} color={C.danger} icon="shopping_cart_checkout" />
-            <KpiCard title="Projected P50 Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Forecast demand fulfilled by the policy plan" color={C.ok} icon="check_circle" />
-            <KpiCard title="Projected P90 Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Upper-demand stress case with the same receipts" color={C.accent4} icon="shield" />
+            <KpiCard title="Planned Orders" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} units due within the horizon`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Expected Demand Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Demand fulfilled by the current policy plan" color={C.ok} icon="check_circle" />
+            <KpiCard title="High-Demand Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Stress check using the same planned receipts" color={C.accent4} icon="shield" />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Stock & Replenishment Events" sub="Monthly stock after forecast consumption; receipt markers come from the current replenishment policy simulation" color={C.accent3} />
+            <SectionHeader title="Projected Available Stock and Planned Receipts" sub="Orders are triggered when inventory position crosses the reorder point; receipts arrive after supplier lead time" color={C.accent3} />
             <div className="h-72 w-full mt-3">
               {finalInventory.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60 text-center px-6">
@@ -2102,21 +2102,13 @@ export default function ForecastsPage() {
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideTopRight" }} />
                   <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideBottomRight" }} />
-                  <Area type="monotone" dataKey="endingP50" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={3} dot={{ r: 3 }} name="Projected ending (P50 demand)" />
-                  <Line type="monotone" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="Upper-demand ending (P90)" />
-                  <Scatter dataKey="receiptEvent" fill={C.accent2} name="Simulated receipt event" shape="diamond" />
-                  <Brush startIndex={Math.max(0, finalInventory.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
+                  <Bar dataKey="plannedReceipt" fill={C.accent3} fillOpacity={0.22} name="Planned receipt" radius={[4, 4, 0, 0]} />
+                  <Line type="linear" dataKey="endingP50" stroke={C.accent3} strokeWidth={3} dot={{ r: 3 }} name="Expected ending stock" />
+                  {showCI && <Line type="linear" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="High-demand ending stock" />}
                 </ComposedChart>
               </ResponsiveContainer>
               )}
             </div>
-            {finalInventory.length > 0 && (
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2 text-blue-950"><strong>Blue:</strong> expected month-end stock after P50 forecast demand.</div>
-                <div className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2 text-rose-950"><strong>Red dashed:</strong> stock remaining under the P90 high-demand case.</div>
-                <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-emerald-950"><strong>Green diamond:</strong> simulated policy receipt. No marker means no receipt is due—not zero stock.</div>
-              </div>
-            )}
           </div>
 
           {/* Stock Coverage Heatmap */}
