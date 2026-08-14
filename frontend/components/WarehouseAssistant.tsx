@@ -346,11 +346,11 @@ export function WarehouseAssistant({
         style={{
           margin: "10px 14px 0",
           padding: "9px 12px",
-          background: T.accentBg,
-          border: `1px solid rgba(207, 15, 71, 0.14)`,
+          background: T.bgSub,
+          border: `1px solid ${T.borderSub}`,
           borderRadius: 10,
           fontSize: 11.5,
-          color: T.textDim,
+          color: T.textMuted,
           display: "flex",
           flexWrap: "wrap",
           gap: "4px 16px",
@@ -437,10 +437,11 @@ export function WarehouseAssistant({
                   userRole={userRole}
                   chatHistory={chatHistory}
                   loading={loading}
+                  fullPage={fullPage}
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
-              <div style={{ flexShrink: 0, background: T.bg }}>
+              <div style={{ flexShrink: 0, background: T.bg, paddingBottom: (chatHistory.length === 0 && !loading && fullPage) ? "10vh" : 0, transition: "padding 0.4s cubic-bezier(0.4, 0, 0.2, 1)" }}>
                 <AssistantComposer
                   inputRef={inputRef}
                   query={query}
@@ -452,6 +453,7 @@ export function WarehouseAssistant({
                   }
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
+                  fullPage={fullPage}
                 />
               </div>
             </div>
@@ -612,6 +614,7 @@ export function WarehouseAssistant({
                     userRole={userRole}
                     chatHistory={chatHistory}
                     loading={loading}
+                    fullPage={false}
                     onSuggestionClick={handleSuggestionClick}
                   />
                 </div>
@@ -770,6 +773,7 @@ export function WarehouseAssistant({
                   userRole={userRole}
                   chatHistory={chatHistory}
                   loading={loading}
+                  fullPage={false}
                   onSuggestionClick={handleSuggestionClick}
                 />
               </div>
@@ -1263,11 +1267,13 @@ function AssistantBody({
   userRole,
   chatHistory,
   loading,
+  fullPage,
   onSuggestionClick,
 }: {
   userRole: WarehouseAIRole;
   chatHistory: ChatMessage[];
   loading: boolean;
+  fullPage: boolean;
   onSuggestionClick: (suggestion: string) => void;
 }) {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -1277,42 +1283,103 @@ function AssistantBody({
   }, [chatHistory, loading]);
 
   const managerSuggestions = [
-    { icon: "📦", text: "Show me current stock levels for SKU-300001" },
-    { icon: "⚠️", text: "List products with stock below reorder level" },
-    { icon: "📊", text: "Generate report for top 10 products by movement" },
-    { icon: "🛡️", text: "What are the safety SOPs for forklift operating?" },
+    { icon: "inventory_2", title: "Stock Levels", text: "Show me current stock levels for SKU-300001" },
+    { icon: "warning", title: "Reorder Alerts", text: "List products with stock below reorder level" },
+    { icon: "bar_chart", title: "Generate Report", text: "Generate report for top 10 products by movement" },
+    { icon: "security", title: "Safety SOPs", text: "What are the safety SOPs for forklift operating?" },
   ];
 
   const workerSuggestions = [
-    { icon: "📍", text: "Where is SKU-001 stored?" },
-    { icon: "📦", text: "What is the damaged product SOP?" },
-    { icon: "🔄", text: "What are the steps for shift handover?" },
+    { icon: "location_on", title: "Find Item", text: "Where is SKU-001 stored?" },
+    { icon: "inventory_2", title: "Damage Control", text: "What is the damaged product SOP?" },
+    { icon: "autorenew", title: "Shift Handover", text: "What are the steps for shift handover?" },
   ];
 
   const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
 
   return (
-    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
+    <div style={{ padding: chatHistory.length === 0 ? 0 : 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff", height: chatHistory.length === 0 ? "100%" : "auto" }}>
       {chatHistory.length === 0 && !loading && (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
-          {/* <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} /> */}
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
-            How can I help you today?
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px", textAlign: "center", flex: 1 }}>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .wa-bot-avatar {
+              transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            }
+            .wa-bot-container {
+              transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            .wa-bot-container:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 0 0 6px ${T.accent}40, 0 16px 32px rgba(207,15,71,0.2), inset 0 4px 6px rgba(255,255,255,1), inset 0 -6px 8px rgba(0,0,0,0.05), inset 0 0 0 1px #d1d5db !important;
+            }
+            .wa-bot-container:hover .wa-bot-avatar {
+              transform: rotate(45deg) scale(1.15);
+            }
+          `}} />
+          <div style={{ position: "relative", marginBottom: fullPage ? 24 : 16 }}>
+            <div 
+              className="wa-bot-container"
+              style={{
+                width: fullPage ? 88 : 64,
+                height: fullPage ? 88 : 64,
+                borderRadius: fullPage ? 28 : 20,
+                background: "linear-gradient(135deg, #ffffff 0%, #f3f4f6 50%, #e5e7eb 100%)",
+                border: "1px solid rgba(255,255,255,0.8)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: `
+                  0 0 0 4px ${T.accent}20,
+                  0 12px 24px rgba(207,15,71,0.08), 
+                  0 4px 8px rgba(207,15,71,0.04), 
+                  inset 0 4px 6px rgba(255,255,255,1), 
+                  inset 0 -6px 8px rgba(0,0,0,0.05),
+                  inset 0 0 0 1px #d1d5db
+                `,
+                position: "relative",
+                cursor: "pointer",
+              }}
+            >
+              <Bot 
+                className="wa-bot-avatar"
+                style={{ 
+                  width: fullPage ? 42 : 30, 
+                  height: fullPage ? 42 : 30, 
+                  color: "#475569",
+                  filter: "drop-shadow(0px 3px 4px rgba(0,0,0,0.15))"
+                }} 
+              />
+            </div>
+          </div>
+          <h3 style={{ fontSize: fullPage ? 24 : 18, fontWeight: 500, color: T.textMuted, margin: "0 0 4px 0" }}>
+            Hello there,
           </h3>
-          <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 24px 0", maxWidth: 320, lineHeight: 1.5 }}>
-            {userRole === "manager"
-              ? "Ask about SOPs, inventory counts, pending orders, or request reports."
-              : "Ask about SKU locations, safety protocols, or task steps."}
-          </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxWidth: 360 }}>
+          <h4 style={{ fontSize: fullPage ? 36 : 22, fontWeight: 700, color: T.text, margin: "0 0 24px 0", letterSpacing: "-0.02em" }}>
+            How can I assist you today?
+          </h4>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: fullPage ? 16 : 8, justifyContent: "center", maxWidth: fullPage ? 900 : 380, width: "100%" }}>
             {suggestions.map((suggestion, i) => (
               <button
                 key={i}
                 onClick={() => onSuggestionClick(suggestion.text)}
-                className="wa-quick-chip"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-start",
+                  textAlign: "left",
+                  padding: fullPage ? "20px" : "12px",
+                  borderRadius: fullPage ? "16px" : "12px",
+                  border: `1px solid ${T.border}`,
+                  background: T.bgSub,
+                  width: fullPage ? "240px" : "calc(50% - 4px)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease"
+                }}
+                className="hover:border-primary hover:shadow-md wa-card"
               >
-                <span style={{ fontSize: 13 }}>{suggestion.icon}</span>
-                {suggestion.text}
+                <span className="material-symbols-outlined" style={{ fontSize: fullPage ? 24 : 20, color: T.textMuted, marginBottom: 8 }}>{suggestion.icon}</span>
+                <span style={{ fontSize: fullPage ? 14 : 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>{suggestion.title}</span>
+                <span style={{ fontSize: fullPage ? 13 : 11, color: T.textMuted, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{suggestion.text}</span>
               </button>
             ))}
           </div>
@@ -1730,6 +1797,7 @@ function AssistantComposer({
   loading,
   placeholder,
   mobile = false,
+  fullPage = false,
   onQueryChange,
   onSubmit,
 }: {
@@ -1738,13 +1806,20 @@ function AssistantComposer({
   loading: boolean;
   placeholder: string;
   mobile?: boolean;
+  fullPage?: boolean;
   onQueryChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      style={{
+      style={fullPage ? {
+        background: T.bg,
+        padding: "0 24px 24px",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      } : {
         borderTop: `1px solid ${T.border}`,
         background: "#ffffff",
         padding: "10px 14px",
@@ -1754,7 +1829,18 @@ function AssistantComposer({
       }}
     >
       <div
-        style={{
+        style={fullPage ? {
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 12,
+          background: T.bgSub,
+          border: `1px solid ${T.border}`,
+          borderRadius: 24,
+          padding: "8px 16px",
+          width: "100%",
+          maxWidth: 900,
+          boxShadow: "0 12px 40px rgba(0,0,0,0.06)",
+        } : {
           display: "flex",
           alignItems: "flex-end",
           gap: 8,
