@@ -414,6 +414,27 @@ cd /Users/k.e.oshada/Documents/OptiWMS
 
 ## Build and Run
 
+### Fast local development (Docker database only)
+
+For day-to-day UI and Spring work, keep only PostgreSQL in Docker and run the
+application processes locally. This avoids rebuilding containers after every
+source change:
+
+```bash
+docker compose -f infra/docker-compose.db.yml up -d db
+
+cd backend
+./gradlew :core-api:bootRun
+
+# In a second terminal
+cd frontend
+npm run dev
+```
+
+The local Spring profile connects to `localhost:5434`; Next.js connects to the
+local Spring API using `frontend/.env.local`. Use the complete bootstrap below
+for clean clones, dataset refreshes, CI acceptance, or deployment packaging.
+
 ### First-time complete project sequence
 
 For a clean developer clone, copy and review the AI environment and run the

@@ -1,6 +1,6 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-08-13
+> Last updated: 2026-08-14
 > Scope: v8 project-operational synthetic population, evaluator-grade forecasting, inventory policy, physical warehouse geometry, PostgreSQL publication, ABC/FMS, multi-bin slotting, Docker runtime, and application evidence.
 
 ## Executive Status
@@ -1360,3 +1360,84 @@ Validated local recovery copies were created under the ignored
 
 Do not run `docker compose down -v`, `docker volume prune`, or another command
 that removes named volumes unless a verified external backup exists.
+
+## 2026-08-14 Inventory Intelligence Manager Workflow
+
+The daily manager surface is now the unified `/admin/inventory-intelligence`
+workspace. It intentionally separates calculation from authority:
+
+- the promoted demand forecast supplies the demand distribution;
+- the Spring policy service calculates dynamic minimum stock, reorder trigger,
+  target maximum, MOQ/order-multiple rounding, receipt timing and pallet impact;
+- ABC/FMS remains a statistical value/movement classification input;
+- the six-month slotting plan remains a constrained MILP decision whose result
+  must be `OPTIMAL` or explicitly accepted `FEASIBLE` before approval;
+- approval creates controlled policy changes and draft replenishments only;
+  procurement release and physical relocation execution remain separate.
+
+The manager UI no longer exposes raw P50/P90 labels, long generated rationale,
+the old approval-boundary panel or unchanged policy rows. The review table is
+searchable and filterable by change type, ABC and FMS class. It has a sticky
+header, selectable page size and real previous/next pagination. Product and
+approval reviews open as centered, height-bounded dialogs on desktop instead
+of side drawers. The product dialog exposes deterministic inputs and before /
+after calculation while distinguishing currently occupied pallet positions
+from future policy capacity.
+
+Policy capacity is now calculated as a count of whole pallet positions. The
+current and proposed target quantities are each divided by units per pallet
+and rounded up independently; the displayed change is the difference between
+those two whole-position values. This removes fractional negative zero and
+prevents a future policy reduction from being presented as immediately empty
+physical bins. Released and required future positions are separate positive
+KPIs.
+
+The manager can explicitly recalculate the six-month min/max policy and, after
+policy approval, generate or review the constrained ABC/FMS location plan.
+The location step continues to use demand/value class, movement frequency,
+weight, volume, temperature, hazard compatibility and a relocation cap. A
+policy approval creates draft replenishment suggestions only; procurement
+release and worker-confirmed relocation remain separate controlled steps.
+
+The Forecast Inventory simulation now evaluates the reorder trigger daily
+inside each monthly forecast bucket. Demand is distributed across the days of
+the month, a supply proposal is released when stock plus open supply reaches
+the reorder point, and the receipt becomes available on the actual lead-time
+due date after MOQ/order-multiple rounding. Reorder point is normalized to at
+least safety stock and target maximum to at least reorder point. The chart uses
+the existing blue visual language: planned receipts are bars and projected
+available stock is a line. The decorative area fill, luminous green receipt
+diamonds and duplicate explanation cards were removed.
+
+Approve, defer and reject operations now write append-only
+`planning_decision_events` records (Flyway V90). Deferral requires a reason and
+return time; rejection requires a reason. A deferred item is removed from the
+active queue until its return time, while the Decision history tab retains the
+actor, timestamp, reason and status transition. An ineligible `NOT_RUN`
+slotting draft is visible for diagnosis but its Approve action is disabled.
+
+### Local Integration Verification
+
+- PostgreSQL 16 remains the Docker-backed business database on port `5434`;
+  Spring and Next.js are designed to run locally for the development loop.
+- Flyway previously validated 90 migrations and applied V90 successfully.
+- The frontend forecast-planning test passes with daily trigger timing,
+  lead-time receipt timing, MOQ/order-multiple rounding and the safety-stock /
+  reorder-point invariant.
+- The Next.js production build succeeds and generates all 69 routes. Existing
+  repository-wide lint and font warnings remain non-blocking.
+- `git diff --check` passes for the current workspace changes.
+- The Spring/Gradle suite could not be rerun after the latest whole-pallet and
+  risk-threshold changes because this session's execution approval quota
+  rejected Gradle access to its user cache. The restriction was not bypassed.
+- A new localhost browser inspection was also denied by the in-app browser
+  security review. The restriction was not bypassed, so this checkpoint does
+  not claim a fresh visual browser acceptance run.
+- Existing policy rows were calculated with the previous capacity arithmetic.
+  Rebuild Spring and use `Recalculate policies` before evaluating the new
+  released/required-position KPIs or approving a plan.
+
+The generated project-operational dataset is the canonical demo/evaluator
+population for this environment. These checks validate system integration and
+decision arithmetic on that population; they do not claim measured accuracy on
+an external customer's future demand.
