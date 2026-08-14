@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import clsx from "clsx";
@@ -16,13 +16,26 @@ import {
   Sparkles,
   Warehouse,
   X,
+  FileSpreadsheet,
+  Download,
+  AlertCircle,
+  Trash2,
+  PanelLeftClose,
+  Clock
 } from "lucide-react";
 import {
   askWarehouseAI,
   askInventoryIntelligence,
+  getChatHistory,
+  getSessionMessages,
+  deleteChatSession,
   WarehouseAIRole,
   WarehouseAISource,
+  normalizeSources,
+  downloadReport,
 } from "@/services/aiService";
+import { T, SHARED_KEYFRAMES, TypingDots } from "./designTokens";
+import { startProductTour } from "@/lib/tours/tourEngine";
 
 type ChatMessage = {
   id: string;
@@ -33,55 +46,135 @@ type ChatMessage = {
   data?: Record<string, unknown>[];
   chart?: string;
   error?: string;
+  answer?: string;       // Conversational summary or download-link markdown
+  download_url?: string; // Report mode: PDF link
+  timestamp?: string | Date;
+  action?: string;
+  tourId?: string;
 };
+
+const getBaseUrl = () => {
+  const envUrl = process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL;
+  if (envUrl) {
+    try {
+      const urlObj = new URL(envUrl);
+      return `${urlObj.protocol}//${urlObj.host}`;
+    } catch (e) {
+      // fallback
+    }
+  }
+  return "http://localhost:8094";
+};
+
+/**
+ * Reports are behind the authenticated /download route, so the file is fetched
+ * with the bearer token and handed to the browser as an object URL.
+ */
+async function handleDownloadReport(downloadUrl: string) {
+  try {
+    const blob = await downloadReport(downloadUrl);
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = downloadUrl.split("/").pop() || "report.pdf";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error("Report download failed", error);
+  }
+}
 
 type WarehouseAssistantProps = {
   userRole: WarehouseAIRole;
   managerOffsetClassName?: string;
   onManagerOpenChange?: (isOpen: boolean) => void;
   fullPage?: boolean;
+  userId?: string;
 };
+
+function formatRelativeTime(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatMessageTime(timestamp?: string | Date) {
+  if (!timestamp) return "";
+  const date = new Date(timestamp);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function getGroupedSessions(sessions: any[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const groups: { [key: string]: any[] } = {
+    "Today": [],
+    "Yesterday": [],
+    "Last 7 Days": [],
+    "Older": []
+  };
+
+  sessions.forEach((s) => {
+    const date = new Date(s.created_at);
+    if (date >= today) {
+      groups["Today"].push(s);
+    } else if (date >= yesterday) {
+      groups["Yesterday"].push(s);
+    } else if (date >= sevenDaysAgo) {
+      groups["Last 7 Days"].push(s);
+    } else {
+      groups["Older"].push(s);
+    }
+  });
+
+  return Object.entries(groups).filter(([_, items]) => items.length > 0);
+}
 
 export function WarehouseAssistant({
   userRole,
   managerOffsetClassName,
   onManagerOpenChange,
   fullPage = false,
+  userId,
 }: WarehouseAssistantProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [loading, setLoading] = useState<{ sop: boolean; data: boolean }>({
-    sop: false,
-    data: false,
-  });
-  const [currentTab, setCurrentTab] = useState<"sop" | "data">("sop");
-  const [chatHistories, setChatHistories] = useState<{
-    sop: ChatMessage[];
-    data: ChatMessage[];
-  }>({
-    sop: [
-      {
-        id: "assistant-welcome-sop",
-        role: "assistant",
-        content:
-          userRole === "manager"
-            ? "Hello! I can help with SOP lookups, operational summaries, and source-backed answers. What would you like to know?"
-            : "Hello! Ask me about tasks, SOP steps, or SKU locations.",
-      },
-    ],
-    data: [
-      {
-        id: "assistant-welcome-data",
-        role: "assistant",
-        content:
-          "I can explain a SKU outlook, list inventory risks, explain a recommendation, or report a planning-cycle status using authorized business tools.",
-      },
-    ],
-  });
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const chatHistory = chatHistories[currentTab];
+  // Chat History states
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (chatHistory.length > 0) {
+      const lastMsg = chatHistory[chatHistory.length - 1];
+      if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
+        startProductTour(lastMsg.tourId);
+      }
+    }
+  }, [chatHistory]);
 
   useEffect(() => {
     if (userRole === "manager") {
@@ -95,71 +188,143 @@ export function WarehouseAssistant({
     }
   }, [isOpen]);
 
+  // Load chat session history when history drawer is opened
+  useEffect(() => {
+    if (userId && showHistory) {
+      const loadHistory = async () => {
+        try {
+          setLoadingHistory(true);
+          const history = await getChatHistory(userId);
+          setHistoryList(history);
+        } catch (err) {
+          console.error("Failed to load chat history", err);
+        } finally {
+          setLoadingHistory(false);
+        }
+      };
+      void loadHistory();
+    }
+  }, [userId, showHistory, currentSessionId]);
+
+  const handleSelectSession = async (sessionId: string) => {
+    try {
+      setLoading(true);
+      const messages = await getSessionMessages(sessionId);
+
+      const formattedHistory = messages.map((m: any) => {
+        const metadata = m.metadata || {};
+        return {
+          id: m.id,
+          role: m.sender === "user" ? ("user" as const) : ("assistant" as const),
+          content: m.text_content || "",
+          sources: normalizeSources(metadata.sources, userRole),
+          sql: metadata.sql,
+          data: metadata.data,
+          chart: metadata.chart,
+          error: metadata.error,
+          download_url: metadata.download_url,
+          timestamp: m.timestamp,
+          action: metadata.action,
+          tourId: metadata.tourId,
+        };
+      });
+
+      setChatHistory(formattedHistory);
+      setCurrentSessionId(sessionId);
+    } catch (err) {
+      console.error("Failed to load session messages", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleNewChat = () => {
+    setChatHistory([]);
+    setCurrentSessionId(undefined);
+    setShowHistory(false);
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      await deleteChatSession(sessionId);
+      setHistoryList((prev) => prev.filter((s) => s.id !== sessionId));
+      if (currentSessionId === sessionId) {
+        handleNewChat();
+      }
+    } catch (err) {
+      console.error("Failed to delete chat session", err);
+    }
+  };
+
   const submitQuery = async (nextQuery: string) => {
     const trimmedQuery = nextQuery.trim();
-    if (!trimmedQuery || loading[currentTab]) return;
+    if (!trimmedQuery || loading) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
       content: trimmedQuery,
+      timestamp: new Date().toISOString(),
     };
 
-    setChatHistories((prev) => ({
-      ...prev,
-      [currentTab]: [...prev[currentTab], userMessage],
-    }));
+    setChatHistory((prev) => [...prev, userMessage]);
     setQuery("");
-    setLoading((prev) => ({ ...prev, [currentTab]: true }));
+    setLoading(true);
 
     try {
-      if (currentTab === "sop") {
-        const response = await askWarehouseAI(trimmedQuery, userRole);
-        setChatHistories((prev) => ({
-          ...prev,
-          sop: [
-            ...prev.sop,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: response.answer,
-              sources: response.sources,
-            },
-          ],
-        }));
-      } else {
-        const response = await askInventoryIntelligence(trimmedQuery);
+      let response = await askWarehouseAI(trimmedQuery, userRole, currentSessionId);
 
-        setChatHistories((prev) => ({
-          ...prev,
-          data: [
-            ...prev.data,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: response.answer,
-              sources: response.sources,
-            },
-          ],
-        }));
+      // Generated-SQL analytics is limited to elevated roles. Everyone else can
+      // still get live figures through the typed, read-only Spring tools.
+      if (response.mode === "DENIED") {
+        response = await askInventoryIntelligence(trimmedQuery);
+      }
+
+      // Derive text content for message bubble
+      const content = response.error
+        ? response.error
+        : response.answer
+          ? response.answer
+          : response.chart || (response.data && response.data.length > 0)
+            ? ""
+            : "No details returned.";
+
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content,
+          sources: response.sources,
+          sql: response.sql,
+          data: response.data,
+          chart: response.chart,
+          error: response.error,
+          download_url: response.download_url,
+          timestamp: new Date().toISOString(),
+          action: response.action,
+          tourId: response.tourId,
+        },
+      ]);
+
+      if (response.session_id) {
+        setCurrentSessionId(response.session_id);
       }
     } catch (error) {
-      setChatHistories((prev) => ({
+      setChatHistory((prev) => [
         ...prev,
-        [currentTab]: [
-          ...prev[currentTab],
-          {
-            id: `assistant-error-${Date.now()}`,
-            role: "assistant",
-            content:
-              error instanceof Error
-                ? error.message
-                : "Something went wrong. Please try again.",
-          },
-        ],
-      }));
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content:
+            error instanceof Error
+              ? error.message
+              : "Something went wrong. Please try again.",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
     } finally {
-      setLoading((prev) => ({ ...prev, [currentTab]: false }));
+      setLoading(false);
     }
   };
 
@@ -168,40 +333,128 @@ export function WarehouseAssistant({
     await submitQuery(query);
   };
 
+  const handleSuggestionClick = async (suggestion: string) => {
+    await submitQuery(suggestion);
+  };
+
+  // Shared context banner layout helper
+  const ContextBanner = () => {
+    const activeSession = historyList.find((s) => s.id === currentSessionId);
+    const sessionTitle = activeSession ? activeSession.title : "New Chat";
+    return (
+      <div
+        style={{
+          margin: "10px 14px 0",
+          padding: "9px 12px",
+          background: T.accentBg,
+          border: `1px solid rgba(207, 15, 71, 0.14)`,
+          borderRadius: 10,
+          fontSize: 11.5,
+          color: T.textDim,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: "4px 16px",
+          flexShrink: 0,
+        }}
+      >
+        <span>
+          <span style={{ color: T.textMuted }}>Mode: </span>
+          <strong style={{ color: T.accent, textTransform: "capitalize" }}>
+            {userRole}
+          </strong>
+        </span>
+        <span>
+          <span style={{ color: T.textMuted }}>Session: </span>
+          <strong style={{ color: T.text }}>{sessionTitle}</strong>
+        </span>
+      </div>
+    );
+  };
+
   // ── Full page ─────────────────────────────────────────────────────────────
   if (fullPage) {
     return (
-      <div className="flex flex-col h-full overflow-hidden bg-base-100 p-6">
-        <div className="flex flex-col flex-1 min-h-0 rounded-2xl border border-base-200 bg-white shadow-lg overflow-hidden">
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          height: "calc(100vh - 73px)",
+          overflow: "hidden",
+          background: T.bg,
+          padding: 0,
+          margin: "-24px",
+          position: "relative",
+          fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+          fontSize: 13,
+        }}
+      >
+        <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            flex: "1 1 0%",
+            minHeight: 0,
+            background: T.bg,
+            color: T.text,
+            overflow: "hidden",
+            position: "relative",
+          }}
+        >
           <AssistantHeader
-            title="Warehouse Assist"
-            subtitle="Full-screen assistant"
-            icon={<Warehouse className="h-5 w-5" />}
+            title="Warehouse Assistant"
+            subtitle="Operations Copilot & Analytics"
             onClose={() => router.back()}
-            currentTab={currentTab}
-            onTabChange={setCurrentTab}
+            userId={userId}
+            onToggleHistory={() => setShowHistory(!showHistory)}
+            isPopUp={false}
+            isHistoryOpen={showHistory}
           />
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <AssistantBody
-              userRole={userRole}
-              chatHistory={chatHistory}
-              loading={loading[currentTab]}
-              currentTab={currentTab}
+
+          <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
+            <HistorySidebar
+              isOpen={showHistory}
+              onClose={() => setShowHistory(false)}
+              loading={loadingHistory}
+              historyList={historyList}
+              currentSessionId={currentSessionId}
+              onSelectSession={handleSelectSession}
+              onNewChat={handleNewChat}
+              onDeleteSession={handleDeleteSession}
+              isPopUp={false}
             />
-          </div>
-          <div className="shrink-0">
-            <AssistantComposer
-              inputRef={inputRef}
-              query={query}
-              loading={loading[currentTab]}
-              placeholder={
-                currentTab === "sop"
-                  ? "Ask about SOPs, safety checks, or warehouse exceptions…"
-                  : "Ask about a SKU, risk, recommendation, or planning cycle…"
-              }
-              onQueryChange={setQuery}
-              onSubmit={handleSubmit}
-            />
+
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+              <ContextBanner />
+              <div
+                style={{
+                  flex: "1 1 0%",
+                  minHeight: 0,
+                  overflowY: "auto",
+                }}
+              >
+                <AssistantBody
+                  userRole={userRole}
+                  chatHistory={chatHistory}
+                  loading={loading}
+                  onSuggestionClick={handleSuggestionClick}
+                />
+              </div>
+              <div style={{ flexShrink: 0, background: T.bg }}>
+                <AssistantComposer
+                  inputRef={inputRef}
+                  query={query}
+                  loading={loading}
+                  placeholder={
+                    userRole === "manager"
+                      ? "Ask about SOPs, inventory counts, pending orders, or request reports..."
+                      : "Ask about SKU locations, safety protocols, or task steps..."
+                  }
+                  onQueryChange={setQuery}
+                  onSubmit={handleSubmit}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -211,20 +464,42 @@ export function WarehouseAssistant({
   // ── Manager drawer ────────────────────────────────────────────────────────
   const managerDrawer = (
     <>
+      <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
       <button
         type="button"
-        aria-label="Open warehouse assistant"
+        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
         onClick={() => setIsOpen((current) => !current)}
-        className={clsx(
-          "btn btn-ghost btn-circle border border-base-300 bg-base-100/80 text-base-content shadow-sm backdrop-blur",
-          isOpen && "border-primary/40 bg-primary/10 text-primary",
-        )}
+        data-tour-target="ai-assistant-btn"
+        style={{
+          position: "fixed",
+          right: 22,
+          bottom: 22,
+          width: 54,
+          height: 54,
+          borderRadius: "50%",
+          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
+          color: isOpen ? T.textMuted : "white",
+          background: isOpen
+            ? "#ffffff"
+            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+          boxShadow: isOpen
+            ? `0 4px 20px rgba(0,0,0,0.15)`
+            : `0 6px 24px rgba(207,15,71,0.35)`,
+          cursor: "pointer",
+          zIndex: 1100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+          transform: isOpen ? "rotate(45deg)" : "scale(1)",
+          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
+        }}
         title="Warehouse assistant"
       >
         {isOpen ? (
-          <ChevronRight className="h-5 w-5" />
+          <X style={{ width: 18, height: 18 }} />
         ) : (
-          <Sparkles className="h-5 w-5" />
+          <Sparkles style={{ width: 22, height: 22 }} />
         )}
       </button>
 
@@ -233,48 +508,124 @@ export function WarehouseAssistant({
           <button
             type="button"
             aria-label="Close warehouse assistant overlay"
-            className="fixed inset-0 z-40 hidden bg-neutral/10 backdrop-blur-[1px] lg:block"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 1090,
+              background: "rgba(17, 24, 39, 0.1)",
+              backdropFilter: "blur(1px)",
+              border: "none",
+              cursor: "default",
+            }}
             onClick={() => setIsOpen(false)}
           />
           <div
-            className={clsx(
-              "fixed bottom-6 right-6 z-50 hidden w-[26rem] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 text-base-content shadow-[0_24px_80px_rgba(15,23,42,0.18)] lg:flex lg:h-[42rem] lg:flex-col",
-              managerOffsetClassName,
-            )}
+            className={managerOffsetClassName}
+            style={{
+              position: "fixed",
+              bottom: 90,
+              right: 22,
+              zIndex: 1099,
+              overflow: "hidden",
+              borderRadius: 16,
+              border: `1px solid ${T.border}`,
+              borderTop: `2px solid ${T.accent}`,
+              background: T.bg,
+              color: T.text,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)",
+              display: "flex",
+              height: "44rem",
+              maxHeight: "78vh",
+              flexDirection: "column",
+              transition: "width 0.3s ease-in-out",
+              width: showHistory ? "42rem" : "28rem",
+              maxWidth: "calc(100vw - 44px)",
+              fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+              animation: "fcb-slide-up 0.28s cubic-bezier(0.34,1.56,0.64,1)",
+            }}
           >
             <AssistantHeader
-              title="Warehouse Assist"
-              subtitle="SOP and warehouse queries"
-              icon={<Warehouse className="h-5 w-5" />}
+              title="Warehouse Assistant"
+              subtitle="Operations Copilot & Analytics"
               onClose={() => setIsOpen(false)}
-              currentTab={currentTab}
-              onTabChange={setCurrentTab}
+              userId={userId}
+              onToggleHistory={() => setShowHistory(!showHistory)}
+              isPopUp={true}
+              isHistoryOpen={showHistory}
             />
-            <div className="shrink-0 px-4 pt-2 pb-1">
-              <Link
-                href="/admin/assistant"
-                className="text-xs text-primary hover:underline"
-              >
-                Open full screen ↗
-              </Link>
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <AssistantBody
-                userRole={userRole}
-                chatHistory={chatHistory}
-                loading={loading[currentTab]}
-                currentTab={currentTab}
+
+            <div style={{ display: "flex", flex: "1 1 0%", minHeight: 0, position: "relative" }}>
+              <HistorySidebar
+                isOpen={showHistory}
+                onClose={() => setShowHistory(false)}
+                loading={loadingHistory}
+                historyList={historyList}
+                currentSessionId={currentSessionId}
+                onSelectSession={handleSelectSession}
+                onNewChat={handleNewChat}
+                onDeleteSession={handleDeleteSession}
+                isPopUp={true}
               />
-            </div>
-            <div className="shrink-0">
-              <AssistantComposer
-                inputRef={inputRef}
-                query={query}
-                loading={loading[currentTab]}
-                placeholder="Ask about SOPs, safety checks, or warehouse exceptions…"
-                onQueryChange={setQuery}
-                onSubmit={handleSubmit}
-              />
+
+              <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0, background: T.bg }}>
+                <div
+                  style={{
+                    flexShrink: 0,
+                    padding: "10px 16px 6px",
+                    background: T.bgSub,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    borderBottom: `1px solid ${T.border}`,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: T.textFaint,
+                    }}
+                  >
+                    AI Operations Hub
+                  </span>
+                  <Link
+                    href="/admin/assistant"
+                    onClick={() => setIsOpen(false)}
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: T.accent,
+                      textDecoration: "none",
+                    }}
+                    className="wa-link"
+                  >
+                    Full screen ↗
+                  </Link>
+                </div>
+
+                <ContextBanner />
+
+                <div style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto", background: T.bg }}>
+                  <AssistantBody
+                    userRole={userRole}
+                    chatHistory={chatHistory}
+                    loading={loading}
+                    onSuggestionClick={handleSuggestionClick}
+                  />
+                </div>
+                <div style={{ flexShrink: 0, background: T.bg }}>
+                  <AssistantComposer
+                    inputRef={inputRef}
+                    query={query}
+                    loading={loading}
+                    placeholder="Ask about SOPs, database metrics, or reports..."
+                    onQueryChange={setQuery}
+                    onSubmit={handleSubmit}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </>
@@ -285,58 +636,180 @@ export function WarehouseAssistant({
   // ── Worker overlay ────────────────────────────────────────────────────────
   const workerOverlay = (
     <>
+      <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
       <button
         type="button"
-        aria-label="Open warehouse assistant"
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-24 right-4 z-[60] flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-gradient-to-br from-primary to-accent text-white shadow-[0_18px_40px_rgba(207,15,71,0.32)] ring-4 ring-white/30 transition-transform active:scale-95"
+        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
+        onClick={() => setIsOpen((current) => !current)}
+        data-tour-target="ai-assistant-btn"
+        style={{
+          position: "fixed",
+          right: 22,
+          bottom: 22,
+          width: 54,
+          height: 54,
+          borderRadius: "50%",
+          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
+          color: isOpen ? T.textMuted : "white",
+          background: isOpen
+            ? "#ffffff"
+            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+          boxShadow: isOpen
+            ? `0 4px 20px rgba(0,0,0,0.15)`
+            : `0 6px 24px rgba(207,15,71,0.35)`,
+          cursor: "pointer",
+          zIndex: 1100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+          transform: isOpen ? "rotate(45deg)" : "scale(1)",
+          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
+        }}
       >
-        <MessageSquare className="h-7 w-7" />
+        {isOpen ? (
+          <X style={{ width: 18, height: 18 }} />
+        ) : (
+          <MessageSquare style={{ width: 22, height: 22 }} />
+        )}
       </button>
 
       {isOpen && (
-        <div className="fixed inset-0 z-[70] flex flex-col overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(207,15,71,0.10),_transparent_35%),linear-gradient(180deg,_#fff6f8_0%,_#fff1f4_100%)] text-base-content">
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1099,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            background: T.bgSub,
+            fontFamily: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
+            fontSize: 13,
+          }}
+        >
           <AssistantHeader
-            title="Warehouse Assist"
-            subtitle="SOP and warehouse queries"
-            icon={<Bot className="h-5 w-5" />}
+            title="Warehouse Assistant"
+            subtitle="Operations Copilot & Analytics"
             onClose={() => setIsOpen(false)}
-            currentTab={currentTab}
-            onTabChange={setCurrentTab}
+            userId={userId}
+            onToggleHistory={() => setShowHistory(!showHistory)}
+            isPopUp={true}
+            isHistoryOpen={showHistory}
           />
-          <div className="shrink-0 flex items-center gap-3 px-4 pt-2 pb-1">
-            <button
-              type="button"
-              className="flex h-12 flex-1 items-center justify-center gap-3 rounded-2xl border border-primary/20 bg-primary/10 text-primary font-semibold shadow"
-            >
-              <Mic className="h-5 w-5" />
-              Voice input
-            </button>
-            <Link
-              href="/admin/assistant"
-              className="text-sm text-primary font-medium hover:underline whitespace-nowrap"
-            >
-              Full screen ↗
-            </Link>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <AssistantBody
-              userRole={userRole}
-              chatHistory={chatHistory}
-              loading={loading[currentTab]}
-              currentTab={currentTab}
+
+          <div
+            style={{
+              display: "flex",
+              flex: "1 1 0%",
+              minHeight: 0,
+              position: "relative",
+              background: T.bg,
+              border: `1px solid ${T.border}`,
+              borderTop: `2px solid ${T.accent}`,
+              borderRadius: 16,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.10)",
+              margin: 10,
+              overflow: "hidden",
+            }}
+          >
+            <HistorySidebar
+              isOpen={showHistory}
+              onClose={() => setShowHistory(false)}
+              loading={loadingHistory}
+              historyList={historyList}
+              currentSessionId={currentSessionId}
+              onSelectSession={handleSelectSession}
+              onNewChat={handleNewChat}
+              onDeleteSession={handleDeleteSession}
+              isPopUp={true}
             />
-          </div>
-          <div className="shrink-0">
-            <AssistantComposer
-              inputRef={inputRef}
-              query={query}
-              loading={loading[currentTab]}
-              placeholder="Ask about SKU location, SOP steps, or a task…"
-              onQueryChange={setQuery}
-              onSubmit={handleSubmit}
-              mobile
-            />
+
+            <div style={{ display: "flex", flexDirection: "column", flex: "1 1 0%", minHeight: 0 }}>
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 16px 6px",
+                  borderBottom: `1px solid ${T.border}`,
+                  background: T.bgSub,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: T.accent,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  Worker Support
+                </span>
+                <Link
+                  href="/admin/assistant"
+                  onClick={() => setIsOpen(false)}
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 605,
+                    color: T.accent,
+                    textDecoration: "none",
+                  }}
+                  className="wa-link"
+                >
+                  Full screen ↗
+                </Link>
+              </div>
+
+              <ContextBanner />
+
+              <div style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto", background: T.bg }}>
+                <AssistantBody
+                  userRole={userRole}
+                  chatHistory={chatHistory}
+                  loading={loading}
+                  onSuggestionClick={handleSuggestionClick}
+                />
+              </div>
+              <div style={{ flexShrink: 0, background: T.bg, paddingBottom: "env(safe-area-inset-bottom)" }}>
+                <div style={{ padding: "8px 16px 0" }}>
+                  <button
+                    type="button"
+                    style={{
+                      display: "flex",
+                      height: 40,
+                      width: "100%",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      borderRadius: 9,
+                      border: `1px solid ${T.accentBorder}`,
+                      background: T.accentBg,
+                      color: T.accent,
+                      fontWeight: 600,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      transition: "all 0.15s ease",
+                    }}
+                    className="wa-voice-btn"
+                  >
+                    <Mic style={{ width: 18, height: 18 }} />
+                    Voice input
+                  </button>
+                </div>
+                <AssistantComposer
+                  inputRef={inputRef}
+                  query={query}
+                  loading={loading}
+                  placeholder="Ask about SKU locations, protocols..."
+                  onQueryChange={setQuery}
+                  onSubmit={handleSubmit}
+                  mobile
+                />
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -351,62 +824,437 @@ export function WarehouseAssistant({
 function AssistantHeader({
   title,
   subtitle,
-  icon,
   onClose,
-  currentTab,
-  onTabChange,
+  userId,
+  onToggleHistory,
+  isPopUp = false,
+  isHistoryOpen = false,
 }: {
   title: string;
   subtitle: string;
-  icon: React.ReactNode;
   onClose: () => void;
-  currentTab: "sop" | "data";
-  onTabChange: (tab: "sop" | "data") => void;
+  userId?: string;
+  onToggleHistory?: () => void;
+  isPopUp?: boolean;
+  isHistoryOpen?: boolean;
 }) {
   return (
-    <div className="shrink-0 border-b border-base-200 bg-white/85 px-4 py-4 backdrop-blur">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/20">
-            {icon}
-          </div>
-          <div>
-            <h2 className="text-base font-semibold">{title}</h2>
-            <p className="text-xs text-slate-500">{subtitle}</p>
-          </div>
+    <div
+      style={{
+        flexShrink: 0,
+        borderBottom: `1px solid ${T.border}`,
+        background: "#ffffff",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div>
+          <h2
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: T.text,
+              margin: 0,
+              lineHeight: 1.3,
+            }}
+          >
+            {title}
+          </h2>
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 400,
+              color: T.textMuted,
+              margin: "2px 0 0",
+              lineHeight: 1.3,
+            }}
+          >
+            {subtitle}
+          </p>
         </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {userId && onToggleHistory && (
+          <button
+            onClick={onToggleHistory}
+            style={{
+              display: "flex",
+              width: 34,
+              height: 34,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 6,
+              border: `1px solid ${isHistoryOpen ? T.accentBorder : T.border}`,
+              background: isHistoryOpen ? T.accentBg : "#ffffff",
+              color: isHistoryOpen ? T.accent : T.textMuted,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            className="wa-ghost-btn"
+            title="Chat History"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" style={{ width: 18, height: 18 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+          style={{
+            display: "flex",
+            width: 34,
+            height: 34,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 6,
+            border: `1px solid ${T.border}`,
+            background: "#ffffff",
+            color: T.textMuted,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          className="wa-ghost-btn"
         >
-          <X className="h-5 w-5" />
+          <X style={{ width: 16, height: 16 }} />
         </button>
       </div>
-      <div className="mt-4 flex gap-2">
-        <button
-          onClick={() => onTabChange("sop")}
-          className={clsx(
-            "rounded-lg px-3 py-1 text-sm font-medium transition",
-            currentTab === "sop"
-              ? "bg-primary text-primary-content"
-              : "bg-base-200 text-base-content hover:bg-base-300",
-          )}
+    </div>
+  );
+}
+
+function HistorySidebar({
+  isOpen,
+  onClose,
+  loading,
+  historyList,
+  currentSessionId,
+  onSelectSession,
+  onNewChat,
+  onDeleteSession,
+  isPopUp,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  loading: boolean;
+  historyList: any[];
+  currentSessionId?: string;
+  onSelectSession: (id: string) => void;
+  onNewChat: () => void;
+  onDeleteSession: (id: string) => Promise<void>;
+  isPopUp: boolean;
+}) {
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const grouped = getGroupedSessions(historyList);
+
+  const sidebarContent = (
+    <div
+      style={{
+        width: 260,
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        flexShrink: 0,
+        background: T.bgSub,
+        borderRight: `1px solid ${T.border}`,
+        position: "relative",
+      }}
+    >
+      {/* Sidebar Header */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: `1px solid ${T.border}`,
+          background: T.bgSub,
+        }}
+      >
+        <span
+          style={{
+            color: T.textFaint,
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
         >
-          SOP Assistant
-        </button>
+          CHAT HISTORY
+        </span>
         <button
-          onClick={() => onTabChange("data")}
-          className={clsx(
-            "rounded-lg px-3 py-1 text-sm font-medium transition",
-            currentTab === "data"
-              ? "bg-primary text-primary-content"
-              : "bg-base-200 text-base-content hover:bg-base-300",
-          )}
+          onClick={onClose}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: T.textMuted,
+            cursor: "pointer",
+            display: "flex",
+            padding: 4,
+            borderRadius: 4,
+          }}
+          title="Collapse Sidebar"
         >
-          Inventory Intelligence
+          <PanelLeftClose style={{ width: 16, height: 16 }} />
         </button>
       </div>
+
+      {/* New Chat Button */}
+      <div style={{ padding: "12px 16px", flexShrink: 0 }}>
+        <button
+          onClick={onNewChat}
+          style={{
+            display: "flex",
+            width: "100%",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            background: "#ffffff",
+            border: `1px solid ${T.border}`,
+            color: T.textMuted,
+            borderRadius: 9,
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "8px 12px",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          className="wa-ghost-btn"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" style={{ width: 16, height: 16 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          New Chat
+        </button>
+      </div>
+
+      {/* Session List */}
+      <div
+        style={{
+          flex: "1 1 0%",
+          minHeight: 0,
+          overflowY: "auto",
+          padding: "0 16px 16px",
+        }}
+      >
+        {loading ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 8 }}>
+            <Loader2 style={{ width: 24, height: 24, color: T.accent }} className="animate-spin" />
+            <span style={{ fontSize: 11, color: T.textFaint, fontWeight: 600 }}>Loading history...</span>
+          </div>
+        ) : historyList.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 8 }}>
+            <Clock style={{ width: 32, height: 32, color: T.textFaint }} />
+            <span style={{ fontSize: 12, color: T.textFaint, textAlign: "center", fontWeight: 500 }}>No conversations yet</span>
+          </div>
+        ) : (
+          grouped.map(([groupName, sessions]) => (
+            <div key={groupName} style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: T.textFaint,
+                  paddingBottom: 4,
+                  borderBottom: `1px solid ${T.border}`,
+                  marginBottom: 8,
+                }}
+              >
+                {groupName}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className={clsx("wa-history-item", currentSessionId === session.id && "active")}
+                    onClick={() => onSelectSession(session.id)}
+                  >
+                    <div style={{ flex: "1 1 0%", minWidth: 0, paddingRight: 24 }}>
+                      <p style={{ margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>
+                        {session.title}
+                      </p>
+                      <p
+                        style={{
+                          margin: "2px 0 0",
+                          fontSize: 10,
+                          color: currentSessionId === session.id ? "rgba(255,255,255,0.8)" : T.textFaint,
+                        }}
+                      >
+                        {formatRelativeTime(session.created_at)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingSessionId(session.id);
+                      }}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 6,
+                        borderRadius: 4,
+                      }}
+                      className="wa-delete-btn"
+                      title="Delete Conversation"
+                    >
+                      <Trash2 style={{ width: 14, height: 14 }} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {deletingSessionId && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            backgroundColor: "rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+            animation: "fcb-fadein 0.2s ease-out",
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDeletingSessionId(null);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: T.bg,
+              border: `1px solid ${T.borderSub}`,
+              borderRadius: 12,
+              padding: 20,
+              width: "85%",
+              maxWidth: 280,
+              boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+              animation: "fcb-slide-up 0.2s ease-out",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <AlertCircle style={{ width: 22, height: 22, color: T.error }} />
+              <span style={{ fontWeight: 600, fontSize: 15, color: T.text, fontFamily: "'Inter', sans-serif" }}>Delete Chat?</span>
+            </div>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textMuted, lineHeight: "1.4", fontFamily: "'Inter', sans-serif" }}>
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeletingSessionId(null)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${T.borderSub}`,
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: T.textDim,
+                  cursor: "pointer",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (deletingSessionId) {
+                    await onDeleteSession(deletingSessionId);
+                    setDeletingSessionId(null);
+                  }
+                }}
+                style={{
+                  background: T.error,
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontFamily: "'Inter', sans-serif",
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (isPopUp) {
+    return (
+      <>
+        {isOpen && (
+          <div
+            onClick={onClose}
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(17, 24, 39, 0.1)",
+              backdropFilter: "blur(1px)",
+              zIndex: 30,
+              transition: "opacity 0.3s",
+            }}
+          />
+        )}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            zIndex: 40,
+            display: "flex",
+            flexDirection: "column",
+            width: 260,
+            background: T.bgSub,
+            borderRight: `1px solid ${T.border}`,
+            transition: "transform 0.3s ease-in-out",
+            transform: isOpen ? "translateX(0)" : "translateX(-100%)",
+          }}
+        >
+          {sidebarContent}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        background: T.bgSub,
+        transition: "width 0.3s ease-in-out, opacity 0.3s ease-in-out",
+        overflow: "hidden",
+        width: isOpen ? 260 : 0,
+        opacity: isOpen ? 1 : 0,
+        borderRight: isOpen ? `1px solid ${T.border}` : "none",
+      }}
+    >
+      {sidebarContent}
     </div>
   );
 }
@@ -415,12 +1263,12 @@ function AssistantBody({
   userRole,
   chatHistory,
   loading,
-  currentTab,
+  onSuggestionClick,
 }: {
   userRole: WarehouseAIRole;
   chatHistory: ChatMessage[];
   loading: boolean;
-  currentTab: "sop" | "data";
+  onSuggestionClick: (suggestion: string) => void;
 }) {
   const messageEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -428,186 +1276,445 @@ function AssistantBody({
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, loading]);
 
+  const managerSuggestions = [
+    { icon: "📦", text: "Show me current stock levels for SKU-300001" },
+    { icon: "⚠️", text: "List products with stock below reorder level" },
+    { icon: "📊", text: "Generate report for top 10 products by movement" },
+    { icon: "🛡️", text: "What are the safety SOPs for forklift operating?" },
+  ];
+
+  const workerSuggestions = [
+    { icon: "📍", text: "Where is SKU-001 stored?" },
+    { icon: "📦", text: "What is the damaged product SOP?" },
+    { icon: "🔄", text: "What are the steps for shift handover?" },
+  ];
+
+  const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
+
   return (
-    <div className="px-4 py-4 space-y-4">
+    <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
+      {chatHistory.length === 0 && !loading && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
+          {/* <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} /> */}
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
+            How can I help you today?
+          </h3>
+          <p style={{ fontSize: 12, color: T.textMuted, margin: "0 0 24px 0", maxWidth: 320, lineHeight: 1.5 }}>
+            {userRole === "manager"
+              ? "Ask about SOPs, inventory counts, pending orders, or request reports."
+              : "Ask about SKU locations, safety protocols, or task steps."}
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxWidth: 360 }}>
+            {suggestions.map((suggestion, i) => (
+              <button
+                key={i}
+                onClick={() => onSuggestionClick(suggestion.text)}
+                className="wa-quick-chip"
+              >
+                <span style={{ fontSize: 13 }}>{suggestion.icon}</span>
+                {suggestion.text}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {chatHistory.map((message) => (
         <div
           key={message.id}
-          className={clsx(
-            "flex",
-            message.role === "user" ? "justify-end" : "justify-start",
-          )}
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "flex-start",
+            justifyContent: message.role === "user" ? "flex-end" : "flex-start",
+            animation: "fcb-fadein 0.22s ease",
+          }}
         >
-          <div
-            className={clsx(
-              "max-w-[90%] rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm",
-              message.role === "user"
-                ? "bg-primary text-primary-content"
-                : "border border-base-200 bg-base-100 text-base-content",
-            )}
-          >
-            {/* Text content — skip if empty (chart/data-only messages) */}
-            {message.content &&
-              (message.role === "assistant" ? (
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    p: ({ children }) => (
-                      <p className="mb-2 last:mb-0 whitespace-pre-wrap">
-                        {children}
-                      </p>
-                    ),
-                    ul: ({ children }) => (
-                      <ul className="mb-2 list-disc space-y-1 pl-5 last:mb-0">
-                        {children}
-                      </ul>
-                    ),
-                    ol: ({ children }) => (
-                      <ol className="mb-2 list-decimal space-y-1 pl-5 last:mb-0">
-                        {children}
-                      </ol>
-                    ),
-                    li: ({ children }) => <li>{children}</li>,
-                    strong: ({ children }) => (
-                      <strong className="font-semibold text-slate-900">
-                        {children}
-                      </strong>
-                    ),
+
+          <div style={{ display: "flex", flexDirection: "column", maxWidth: "80%", alignItems: message.role === "user" ? "flex-end" : "flex-start" }}>
+            <div
+              style={
+                message.role === "user"
+                  ? {
+                    background: T.userBubble,
+                    color: T.userText,
+                    borderRadius: "14px 14px 3px 14px",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    padding: "9px 13px",
+                    wordBreak: "break-word",
+                    whiteSpace: "pre-wrap",
+                  }
+                  : {
+                    background: T.aiBubble,
+                    color: T.text,
+                    borderRadius: "3px 14px 14px 14px",
+                    borderLeft: `2px solid ${T.accent}`,
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+                    fontSize: 13,
+                    lineHeight: 1.6,
+                    padding: "10px 14px",
+                    wordBreak: "break-word",
+                  }
+              }
+            >
+              {/* Text content */}
+              {message.content &&
+                (message.role === "assistant" ? (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => (
+                        <p style={{ margin: "0 0 10px 0", fontSize: 13, lineHeight: 1.6, color: T.text }} className="last:mb-0">
+                          {children}
+                        </p>
+                      ),
+                      ul: ({ children }) => (
+                        <ul style={{ margin: "0 0 10px 0", paddingLeft: 20, listStyleType: "disc", color: T.textDim }}>
+                          {children}
+                        </ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol style={{ margin: "0 0 10px 0", paddingLeft: 20, listStyleType: "decimal", color: T.textDim }}>
+                          {children}
+                        </ol>
+                      ),
+                      li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
+                      strong: ({ children }) => (
+                        <strong style={{ color: T.accent, background: T.accentBg, padding: "0 4px", borderRadius: 4, fontWeight: 650 }}>
+                          {children}
+                        </strong>
+                      ),
+                      code: ({ children }) => (
+                        <code style={{ background: T.bgMuted, color: T.text, fontFamily: "monospace", fontSize: 12, padding: "2px 4px", borderRadius: 4, border: `1px solid ${T.border}` }}>
+                          {children}
+                        </code>
+                      ),
+                    }}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                ) : (
+                  <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{message.content}</p>
+                ))}
+
+              {/* Citations/Sources */}
+              {message.sources && message.sources.length > 0 && (
+                <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                  <p style={{ margin: "0 0 8px 0", fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textFaint }}>
+                    Verifiable SOP Documents
+                  </p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {message.sources.map((source) =>
+                      source.href ? (
+                        <Link
+                          key={`${message.id}-${source.label}`}
+                          href={source.href}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            borderRadius: 999,
+                            background: T.accentBg,
+                            border: `1px solid ${T.accentBorder}`,
+                            color: T.accent,
+                            padding: "4px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                            textDecoration: "none",
+                            transition: "all 0.15s ease",
+                          }}
+                          className="wa-source-pill"
+                        >
+                          {source.label}
+                        </Link>
+                      ) : (
+                        <span
+                          key={`${message.id}-${source.label}`}
+                          style={{
+                            borderRadius: 999,
+                            background: T.bgSub,
+                            border: `1px solid ${T.borderSub}`,
+                            color: T.textMuted,
+                            padding: "4px 10px",
+                            fontSize: 11,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {source.label}
+                        </span>
+                      ),
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Generated SQL Accordion */}
+              {message.sql && (
+                <details
+                  className="group"
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
                   }}
                 >
-                  {message.content}
-                </ReactMarkdown>
-              ) : (
-                <p className="whitespace-pre-wrap">{message.content}</p>
-              ))}
+                  <summary
+                    style={{
+                      display: "flex",
+                      cursor: "pointer",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 12px",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                      color: T.textFaint,
+                      userSelect: "none",
+                      background: T.bgSub,
+                      borderBottom: `1px solid ${T.border}`,
+                    }}
+                  >
+                    <span>WMS DATABASE QUERY LOG</span>
+                    <ChevronRight
+                      style={{
+                        width: 14,
+                        height: 14,
+                        transition: "transform 0.2s",
+                      }}
+                      className="group-open:rotate-90"
+                    />
+                  </summary>
+                  <div style={{ padding: 12, overflowX: "auto" }}>
+                    <pre
+                      style={{
+                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                        fontSize: 12,
+                        color: T.text,
+                        margin: 0,
+                        whiteSpace: "pre",
+                      }}
+                    >
+                      <code>{message.sql}</code>
+                    </pre>
+                  </div>
+                </details>
+              )}
 
-            {/* Sources */}
-            {message.sources && message.sources.length > 0 && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                  Sources
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {message.sources.map((source) =>
-                    source.href ? (
-                      <Link
-                        key={`${message.id}-${source.label}`}
-                        href={source.href}
-                        className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition hover:bg-primary/15"
-                      >
-                        {source.label}
-                      </Link>
-                    ) : (
-                      <span
-                        key={`${message.id}-${source.label}`}
-                        className="rounded-full border border-base-200 bg-base-200 px-3 py-1 text-xs font-medium text-base-content"
-                      >
-                        {source.label}
-                      </span>
-                    ),
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Data table */}
-            {message.data && message.data.length > 0 && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-slate-500">
-                  Results
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-xs">
-                    <thead>
-                      <tr className="bg-base-200">
-                        {Object.keys(message.data[0]).map((key) => (
-                          <th
-                            key={key}
-                            className="px-2 py-1 text-left font-medium"
-                          >
-                            {key}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {message.data.slice(0, 10).map((row, index) => (
-                        <tr key={index} className="border-t border-base-200">
-                          {Object.values(row).map((value, i) => (
-                            <td key={i} className="px-2 py-1">
-                              {String(value)}
-                            </td>
+              {/* Database Output Records Table */}
+              {message.data && message.data.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "8px 12px",
+                      background: T.bgSub,
+                      borderBottom: `1px solid ${T.border}`,
+                    }}
+                  >
+                    <FileSpreadsheet style={{ width: 14, height: 14, color: T.textFaint }} />
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: T.textFaint,
+                      }}
+                    >
+                      WMS Database Records ({message.data.length} rows)
+                    </span>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table style={{ minWidth: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead style={{ background: T.bgSub }}>
+                        <tr>
+                          {Object.keys(message.data?.[0] || {}).map((key) => (
+                            <th
+                              key={key}
+                              style={{
+                                padding: "6px 12px",
+                                textAlign: "left",
+                                fontWeight: 650,
+                                textTransform: "uppercase",
+                                fontSize: 10,
+                                color: T.textFaint,
+                                borderBottom: `1px solid ${T.border}`,
+                              }}
+                            >
+                              {key}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {message.data.length > 10 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Showing 10 of {message.data.length} rows.
-                    </p>
+                      </thead>
+                      <tbody>
+                        {(message.data || []).slice(0, 8).map((row, index) => (
+                          <tr
+                            key={index}
+                            className="wa-table-row"
+                            style={{
+                              borderBottom: index === Math.min(message.data?.length || 0, 8) - 1 ? "none" : `1px solid ${T.border}`,
+                              transition: "background-color 0.15s",
+                            }}
+                          >
+                            {Object.values(row).map((value, i) => (
+                              <td key={i} style={{ padding: "6px 12px", color: T.textDim }}>
+                                {value === null ? (
+                                  <span style={{ color: T.textFaint }}>null</span>
+                                ) : (
+                                  String(value)
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {(message.data?.length || 0) > 8 && (
+                    <div
+                      style={{
+                        borderTop: `1px solid ${T.border}`,
+                        background: T.bgSub,
+                        padding: "6px 12px",
+                        textAlign: "center",
+                        fontSize: 10,
+                        color: T.textFaint,
+                      }}
+                    >
+                      Showing top 8 of {message.data.length} records.
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Chart */}
-            {message.chart && (
-              <div
-                className={clsx(
-                  "border-t border-slate-100 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <div className="overflow-hidden rounded-2xl border border-base-200 bg-base-200 p-2">
+              {/* Auto Generated Charts */}
+              {message.chart && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    borderRadius: 10,
+                    border: `1px solid ${T.border}`,
+                    background: T.bgSub,
+                    overflow: "hidden",
+                    padding: 8,
+                  }}
+                >
                   <img
                     src={message.chart}
-                    alt="Analytics chart"
-                    className="w-full rounded-lg"
+                    alt="Auto-generated WMS Analytics Chart"
+                    style={{
+                      width: "100%",
+                      borderRadius: 8,
+                      display: "block",
+                    }}
                   />
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Error */}
-            {message.error && (
-              <div
-                className={clsx(
-                  "border-t border-red-200 pt-3",
-                  message.content && "mt-3",
-                )}
-              >
-                <p className="text-xs text-red-600">{message.error}</p>
-              </div>
+              {/* Report Build error block */}
+              {message.error && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "flex-start",
+                    background: T.errorBg,
+                    border: "1px solid #fecaca",
+                    borderLeft: `3px solid ${T.error}`,
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <AlertCircle style={{ width: 16, height: 16, color: T.error, flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        textTransform: "uppercase",
+                        color: T.error,
+                      }}
+                    >
+                      Operational Error
+                    </p>
+                    <p style={{ margin: "2px 0 0", fontSize: 12, color: T.error, fontWeight: 500 }}>
+                      {message.error}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Report PDF download widget */}
+              {message.download_url && (
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadReport(message.download_url!)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      borderRadius: 9,
+                      background: `linear-gradient(135deg, #16a34a, #22c55e)`,
+                      color: "#ffffff",
+                      border: "none",
+                      padding: "8px 16px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      boxShadow: "0 4px 14px rgba(22, 163, 74, 0.18)",
+                      transition: "all 0.15s",
+                    }}
+                    className="wa-download-btn"
+                  >
+                    <Download style={{ width: 14, height: 14 }} />
+                    Download
+                  </button>
+                </div>
+              )}
+            </div>
+            {message.timestamp && (
+              <span style={{ fontSize: 10, color: T.textFaint, marginTop: 4, padding: "0 4px" }}>
+                {formatMessageTime(message.timestamp)}
+              </span>
             )}
           </div>
         </div>
       ))}
 
       {loading && (
-        <div className="flex justify-start">
-          <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-100 px-4 py-3 text-sm text-slate-500 shadow-sm">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <div className="flex gap-1">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:120ms]" />
-              <span className="h-2 w-2 animate-pulse rounded-full bg-primary [animation-delay:240ms]" />
-            </div>
-            <span>
-              {currentTab === "sop"
-                ? "Looking through the SOPs…"
-                : "Reading authorized facts…"}
-            </span>
+        <div style={{ display: "flex", justifyContent: "flex-start", alignItems: "flex-end", gap: 12 }}>
+
+          <div
+            style={{
+              background: T.aiBubble,
+              border: `1px solid ${T.borderSub}`,
+              borderLeft: `2px solid ${T.accent}`,
+              borderRadius: "3px 14px 14px 14px",
+              padding: "10px 14px",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+              display: "flex",
+              alignItems: "center",
+              height: 38,
+            }}
+          >
+            <TypingDots />
           </div>
         </div>
       )}
@@ -626,7 +1733,7 @@ function AssistantComposer({
   onQueryChange,
   onSubmit,
 }: {
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLTextAreaElement>;
   query: string;
   loading: boolean;
   placeholder: string;
@@ -637,28 +1744,129 @@ function AssistantComposer({
   return (
     <form
       onSubmit={(event) => void onSubmit(event)}
-      className={clsx(
-        "border-t border-base-200 bg-base-100/90 p-4 backdrop-blur",
-        mobile && "bg-base-100/95",
-      )}
+      style={{
+        borderTop: `1px solid ${T.border}`,
+        background: "#ffffff",
+        padding: "10px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
     >
-      <div className="flex items-center gap-3 rounded-3xl border border-base-200 bg-base-200 p-2 shadow-sm">
-        <input
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: 8,
+          background: "#ffffff",
+        }}
+      >
+        <textarea
           ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          disabled={loading}
+          rows={1}
           placeholder={placeholder}
-          className="w-full bg-transparent px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400"
+          value={query}
+          onChange={(e) => {
+            onQueryChange(e.target.value);
+            // Auto-grow
+            e.target.style.height = "auto";
+            e.target.style.height =
+              Math.min(e.target.scrollHeight, 96) + "px";
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              const form = e.currentTarget.form;
+              if (form) {
+                const event = new Event("submit", { cancelable: true, bubbles: true });
+                form.dispatchEvent(event);
+              }
+            }
+          }}
+          disabled={loading}
+          style={{
+            flex: 1,
+            resize: "none",
+            background: T.inputBg,
+            border: `1px solid ${T.inputBorder}`,
+            borderRadius: 9,
+            color: T.text,
+            fontSize: 13,
+            padding: "8px 12px",
+            outline: "none",
+            fontFamily: "inherit",
+            lineHeight: 1.5,
+            transition: "border-color 0.15s",
+            height: 38,
+            overflow: "hidden",
+          }}
+          className="wa-textarea"
+          onFocus={(e) =>
+            (e.target.style.borderColor = "rgba(207, 15, 71, 0.45)")
+          }
+          onBlur={(e) => (e.target.style.borderColor = T.inputBorder)}
         />
         <button
           type="submit"
           disabled={loading || !query.trim()}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-content shadow transition disabled:cursor-not-allowed disabled:opacity-50"
+          title="Send (Enter)"
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: 9,
+            background:
+              loading || !query.trim()
+                ? T.accentBg
+                : `linear-gradient(135deg, ${T.accent}, #ff6b35)`,
+            border: "none",
+            color: loading || !query.trim() ? T.textMuted : "#ffffff",
+            cursor: loading || !query.trim() ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            transition: "all 0.15s",
+          }}
+          className="wa-send-btn"
         >
-          <SendHorizonal className="h-4 w-4" />
+          <SendHorizonal style={{ width: 16, height: 16 }} />
         </button>
+      </div>
+
+      <div
+        style={{
+          padding: "5px 14px 2px",
+          textAlign: "center",
+          fontSize: 10,
+          color: T.textMuted,
+          flexShrink: 0,
+        }}
+      >
+        Press{" "}
+        <kbd
+          style={{
+            background: T.inputBg,
+            border: `1px solid ${T.borderSub}`,
+            borderRadius: 3,
+            padding: "0 3px",
+            fontSize: 9,
+          }}
+        >
+          Enter
+        </kbd>{" "}
+        to send ·{" "}
+        <kbd
+          style={{
+            background: T.inputBg,
+            border: `1px solid ${T.borderSub}`,
+            borderRadius: 3,
+            padding: "0 3px",
+            fontSize: 9,
+          }}
+        >
+          Shift+Enter
+        </kbd>{" "}
+        for new line
       </div>
     </form>
   );
@@ -666,8 +1874,10 @@ function AssistantComposer({
 
 export function WarehouseAssistantFullPage({
   userRole,
+  userId,
 }: {
   userRole: WarehouseAIRole;
+  userId?: string;
 }) {
-  return <WarehouseAssistant userRole={userRole} fullPage />;
+  return <WarehouseAssistant userRole={userRole} fullPage userId={userId} />;
 }
