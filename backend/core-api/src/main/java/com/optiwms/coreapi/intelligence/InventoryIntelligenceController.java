@@ -7,6 +7,8 @@ import com.optiwms.coreapp.intelligence.ActionCenterService;
 import com.optiwms.coreapp.slotting.SlottingPlanService;
 import com.optiwms.infra.forecastspace.*;
 import com.optiwms.infra.intelligence.PlanningCycleRepository;
+import com.optiwms.infra.intelligence.PlanningDecisionEventEntity;
+import com.optiwms.infra.intelligence.PlanningDecisionEventRepository;
 import com.optiwms.infra.slotting.SlottingPlanEntity;
 import com.optiwms.infra.slotting.SlottingPlanRepository;
 import org.springframework.http.HttpStatus;
@@ -30,6 +32,7 @@ public class InventoryIntelligenceController {
     private final SpaceOptimizationRunRepository spaceRuns;
     private final SlottingPlanRepository slottingPlans;
     private final PlanningCycleRepository planningCycles;
+    private final PlanningDecisionEventRepository decisionEvents;
     private final AiProxyService aiProxyService;
 
     public InventoryIntelligenceController(ActionCenterService actionCenterService,
@@ -40,6 +43,7 @@ public class InventoryIntelligenceController {
             SpaceOptimizationRunRepository spaceRuns,
             SlottingPlanRepository slottingPlans,
             PlanningCycleRepository planningCycles,
+            PlanningDecisionEventRepository decisionEvents,
             AiProxyService aiProxyService) {
         this.actionCenterService = actionCenterService;
         this.policyService = policyService;
@@ -49,6 +53,7 @@ public class InventoryIntelligenceController {
         this.spaceRuns = spaceRuns;
         this.slottingPlans = slottingPlans;
         this.planningCycles = planningCycles;
+        this.decisionEvents = decisionEvents;
         this.aiProxyService = aiProxyService;
     }
 
@@ -73,6 +78,15 @@ public class InventoryIntelligenceController {
                         "Recommendation is not active for the authorized warehouse"));
     }
 
+    @GetMapping("/decisions")
+    public List<DecisionEventDto> decisions(Authentication auth,
+            @RequestParam(required = false) String warehouseId) {
+        UUID warehouse = authorizedWarehouse(auth, warehouseId);
+        return decisionEvents.findByWarehouseIdOrderByCreatedAtDesc(warehouse).stream()
+                .map(this::decisionDto)
+                .toList();
+    }
+
     @PostMapping("/recommendations/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN','WAREHOUSE_MANAGER','MANAGER','SUPERVISOR')")
     public Map<String, Object> approve(Authentication auth, @PathVariable UUID id,
@@ -81,18 +95,30 @@ public class InventoryIntelligenceController {
         String actor = actor(auth, body.actor());
         return switch (body.type()) {
             case "APPROVE_POLICY" -> {
-                requireWarehouse(policyRuns.findById(id).map(InventoryPolicyRecommendationRunEntity::getWarehouseId), warehouse);
+                InventoryPolicyRecommendationRunEntity before = policyRuns.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(before.getWarehouseId()), warehouse);
+                String previous = before.getStatus();
                 var run = policyService.approveRun(id, actor);
+                recordDecision(warehouse, run.getPlanningCycleId(), id, body.type(), "APPROVED", actor,
+                        body.reason(), null, previous, run.getStatus());
                 yield result(id, body.type(), run.getStatus(), run.getPlanningCycleId());
             }
             case "APPROVE_SPACE" -> {
-                requireWarehouse(spaceRuns.findById(id).map(SpaceOptimizationRunEntity::getWarehouseId), warehouse);
+                SpaceOptimizationRunEntity before = spaceRuns.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(before.getWarehouseId()), warehouse);
+                String previous = before.getStatus();
                 var run = spaceService.approveRun(id, actor);
+                recordDecision(warehouse, run.getPlanningCycleId(), id, body.type(), "APPROVED", actor,
+                        body.reason(), null, previous, run.getStatus());
                 yield result(id, body.type(), run.getStatus(), run.getPlanningCycleId());
             }
             case "APPROVE_SLOTTING_PLAN" -> {
-                requireWarehouse(slottingPlans.findById(id).map(SlottingPlanEntity::getWarehouseId), warehouse);
+                SlottingPlanEntity before = slottingPlans.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(before.getWarehouseId()), warehouse);
+                String previous = before.getStatus();
                 var plan = slottingService.approve(id, new SlottingPlanService.ApprovePlanRequest(actor, false));
+                recordDecision(warehouse, plan.getPlanningCycleId(), id, body.type(), "APPROVED", actor,
+                        body.reason(), null, previous, plan.getStatus());
                 yield result(id, body.type(), plan.getStatus(), plan.getPlanningCycleId());
             }
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported approval action");
@@ -104,10 +130,14 @@ public class InventoryIntelligenceController {
     public Map<String, Object> schedule(Authentication auth, @PathVariable UUID id,
             @RequestBody DecisionRequest body) {
         UUID warehouse = authorizedWarehouse(auth, body.warehouseId());
-        requireWarehouse(slottingPlans.findById(id).map(SlottingPlanEntity::getWarehouseId), warehouse);
+        SlottingPlanEntity before = slottingPlans.findById(id).orElseThrow();
+        requireWarehouse(Optional.of(before.getWarehouseId()), warehouse);
+        String previous = before.getStatus();
         OffsetDateTime when = body.scheduledFor() != null ? OffsetDateTime.parse(body.scheduledFor()) : nextOffPeak();
         SlottingPlanEntity plan = slottingService.schedule(id, when);
         updateCycle(plan.getPlanningCycleId(), "SCHEDULED", when);
+        recordDecision(warehouse, plan.getPlanningCycleId(), id, "SCHEDULE_SLOTTING_PLAN", "SCHEDULED",
+                actor(auth, body.actor()), body.reason(), when, previous, plan.getStatus());
         return result(id, "SCHEDULE_SLOTTING_PLAN", plan.getStatus(), plan.getPlanningCycleId());
     }
 
@@ -116,8 +146,19 @@ public class InventoryIntelligenceController {
     public Map<String, Object> defer(Authentication auth, @PathVariable UUID id,
             @RequestBody DecisionRequest body) {
         UUID warehouse = authorizedWarehouse(auth, body.warehouseId());
+        String reason = requiredReason(body.reason(), "A reason is required when deferring a recommendation");
+        if (body.scheduledFor() == null || body.scheduledFor().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose when the recommendation should return to the review queue");
+        }
+        OffsetDateTime until = OffsetDateTime.parse(body.scheduledFor());
+        if (!until.isAfter(OffsetDateTime.now())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The defer-until time must be in the future");
+        }
+        String previous = sourceStatus(id, body.type(), warehouse);
         UUID cycle = cycleFor(id, body.type(), warehouse);
-        updateCycle(cycle, "DEFERRED", body.scheduledFor() != null ? OffsetDateTime.parse(body.scheduledFor()) : null);
+        updateCycle(cycle, "DEFERRED", until);
+        recordDecision(warehouse, cycle, id, body.type(), "DEFERRED", actor(auth, body.actor()),
+                reason, until, previous, "DEFERRED");
         return result(id, body.type(), "DEFERRED", cycle);
     }
 
@@ -126,6 +167,9 @@ public class InventoryIntelligenceController {
     public Map<String, Object> reject(Authentication auth, @PathVariable UUID id,
             @RequestBody DecisionRequest body) {
         UUID warehouse = authorizedWarehouse(auth, body.warehouseId());
+        String reason = requiredReason(body.reason(), "A reason is required when rejecting a recommendation");
+        String previous = sourceStatus(id, body.type(), warehouse);
+        String actor = actor(auth, body.actor());
         UUID cycle;
         switch (body.type()) {
             case "APPROVE_POLICY" -> {
@@ -147,7 +191,29 @@ public class InventoryIntelligenceController {
             default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported rejection action");
         }
         updateCycle(cycle, "REJECTED", null);
+        recordDecision(warehouse, cycle, id, body.type(), "REJECTED", actor, reason, null,
+                previous, "REJECTED");
         return result(id, body.type(), "REJECTED", cycle);
+    }
+
+    private String sourceStatus(UUID id, String type, UUID warehouse) {
+        return switch (type) {
+            case "APPROVE_POLICY", "CREATE_SPACE_RUN" -> {
+                var run = policyRuns.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(run.getWarehouseId()), warehouse);
+                yield run.getStatus();
+            }
+            case "APPROVE_SPACE" -> {
+                var run = spaceRuns.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(run.getWarehouseId()), warehouse);
+                yield run.getStatus();
+            }
+            default -> {
+                var plan = slottingPlans.findById(id).orElseThrow();
+                requireWarehouse(Optional.of(plan.getWarehouseId()), warehouse);
+                yield plan.getStatus();
+            }
+        };
     }
 
     private UUID cycleFor(UUID id, String type, UUID warehouse) {
@@ -174,6 +240,37 @@ public class InventoryIntelligenceController {
             if (scheduledFor != null) cycle.setScheduledFor(scheduledFor);
             planningCycles.save(cycle);
         });
+    }
+
+    private void recordDecision(UUID warehouseId, UUID cycleId, UUID recommendationId, String type,
+            String action, String actor, String reason, OffsetDateTime deferredUntil,
+            String previousStatus, String newStatus) {
+        PlanningDecisionEventEntity event = new PlanningDecisionEventEntity();
+        event.setWarehouseId(warehouseId);
+        event.setPlanningCycleId(cycleId);
+        event.setRecommendationId(recommendationId);
+        event.setRecommendationType(type);
+        event.setAction(action);
+        event.setActor(actor);
+        event.setReason(reason);
+        event.setDeferredUntil(deferredUntil);
+        event.setPreviousStatus(previousStatus);
+        event.setNewStatus(newStatus);
+        decisionEvents.save(event);
+    }
+
+    private String requiredReason(String reason, String message) {
+        if (reason == null || reason.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);
+        }
+        return reason.trim();
+    }
+
+    private DecisionEventDto decisionDto(PlanningDecisionEventEntity event) {
+        return new DecisionEventDto(
+                event.getId(), event.getPlanningCycleId(), event.getRecommendationId(),
+                event.getRecommendationType(), event.getAction(), event.getActor(), event.getReason(),
+                event.getDeferredUntil(), event.getPreviousStatus(), event.getNewStatus(), event.getCreatedAt());
     }
 
     private UUID authorizedWarehouse(Authentication auth, String requested) {
@@ -206,4 +303,17 @@ public class InventoryIntelligenceController {
     }
 
     public record DecisionRequest(String type, String actor, String warehouseId, String reason, String scheduledFor) {}
+
+    public record DecisionEventDto(
+            UUID id,
+            UUID planningCycleId,
+            UUID recommendationId,
+            String recommendationType,
+            String action,
+            String actor,
+            String reason,
+            OffsetDateTime deferredUntil,
+            String previousStatus,
+            String newStatus,
+            OffsetDateTime createdAt) {}
 }
