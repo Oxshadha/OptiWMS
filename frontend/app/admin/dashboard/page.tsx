@@ -272,7 +272,7 @@ export default function DashboardPage() {
       icon: "psychology",
       title: "AI service health moved",
       message: "Forecasting and solver health belong in Intelligent Engine, away from the daily dashboard.",
-      href: "/admin/replenishment",
+      href: "/admin/inventory-intelligence",
       action: "Open engine",
     });
     return insights.slice(0, 4);
@@ -371,7 +371,10 @@ export default function DashboardPage() {
       )}
 
       <div className={gridClass}>
-        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
+        <div
+          className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300"
+          data-tour-target="kpi-orders-card"
+        >
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Orders in {selectedPeriodLabel}</div>
             <span className="material-symbols-outlined text-primary">inventory_2</span>
@@ -385,7 +388,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300">
+        <div
+          className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 hover:-translate-y-1 transition-transform duration-300"
+          data-tour-target="kpi-orders-chart"
+        >
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-base-content/70 font-medium">Order Statistics</div>
             <span className="material-symbols-outlined text-info">bar_chart</span>
@@ -491,7 +497,10 @@ export default function DashboardPage() {
       </div>
 
       <div className={gridClass}>
-        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 lg:col-span-2">
+        <div
+          className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 lg:col-span-2"
+          data-tour-target="inventory-overview"
+        >
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-base-content">Inventory Overview</h3>
             <button className="btn btn-ghost btn-sm" onClick={() => reload()}>
@@ -532,7 +541,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6">
+        <div
+          className="card bg-base-100 shadow-sm border-none rounded-2xl p-6"
+          data-tour-target="top-products"
+        >
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-base-content">Top Moving Products</h3>
             <button className="btn btn-ghost btn-sm" onClick={() => reload()}>

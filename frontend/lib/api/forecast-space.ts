@@ -33,6 +33,7 @@ export interface PolicyRecommendationLine {
   runId: string;
   materialId: string;
   materialCode: string;
+  materialName: string;
   materialType?: string | null;
   currentStock: number;
   currentAvailableStock: number;
@@ -57,6 +58,7 @@ export interface PolicyRecommendationLine {
   proposedReorderPoint?: number | null;
   proposedTargetStock?: number | null;
   proposedOrderQty?: number | null;
+  targetPalletPositions?: number | null;
   stockDelta: number;
   palletPositionsDelta: number;
   holdingCostDelta: number;
@@ -69,6 +71,17 @@ export interface PolicyRecommendationLine {
   approvalSnapshot?: string | null;
   managerOverride?: boolean;
   overrideReason?: string | null;
+  abcClass?: string | null;
+  fmsClass?: string | null;
+  meaningfulChange?: boolean;
+  actionSummary?: string | null;
+  reasonCodes?: string[];
+  netOrderBeforeRounding?: number | null;
+  daysCoverBefore?: number | null;
+  daysCoverAfter?: number | null;
+  projectedTriggerDate?: string | null;
+  orderByDate?: string | null;
+  expectedReceiptDate?: string | null;
 }
 
 export interface SpaceOptimizationRun {

@@ -24,6 +24,9 @@ public class StockTransferEntity {
     @Column(name = "transfer_type", nullable = false, length = 20)
     private String transferType; // intra_warehouse, inter_warehouse
 
+    @Column(name = "planning_cycle_id", columnDefinition = "UUID")
+    private UUID planningCycleId;
+
     @Column(name = "material_id", columnDefinition = "UUID", nullable = false)
     private UUID materialId;
 
@@ -96,6 +99,8 @@ public class StockTransferEntity {
     public void setTransferNumber(String transferNumber) { this.transferNumber = transferNumber; }
     public String getTransferType() { return transferType; }
     public void setTransferType(String transferType) { this.transferType = transferType; }
+    public UUID getPlanningCycleId() { return planningCycleId; }
+    public void setPlanningCycleId(UUID planningCycleId) { this.planningCycleId = planningCycleId; }
     public UUID getMaterialId() { return materialId; }
     public void setMaterialId(UUID materialId) { this.materialId = materialId; }
     public UUID getSourceWarehouseId() { return sourceWarehouseId; }

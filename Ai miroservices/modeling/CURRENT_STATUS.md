@@ -1,6 +1,6 @@
 # OptiWMS Forecast - Current Status
 
-> Last updated: 2026-08-10
+> Last updated: 2026-08-14
 > Scope: v8 project-operational synthetic population, evaluator-grade forecasting, inventory policy, physical warehouse geometry, PostgreSQL publication, ABC/FMS, multi-bin slotting, Docker runtime, and application evidence.
 
 ## Executive Status
@@ -13,8 +13,96 @@
 - The Conv1D-attention challenger has WAPE `9.8996%`. Extra Trees is retained with an `11.66%` relative WAPE advantage, circular block-bootstrap monthly absolute-error CI `[-178.72, -16.07]`, and HAC/Holm `p=0.0197`.
 - The v8 business population contains `144` active materials: `90` RM, `30` PM and `24` FG. It contains `24` BOM headers, `211` effective component rows, `10,368` monthly RM/PM/FG demand rows, `1,440` forward H1-H12 RM/PM forecasts, `15` model-evidence rows, `120` supplier-material links and `144` ABC/FMS rollups.
 - Location-level inventory contains `2,921` occupied rows for all `144` materials and `2,426,780` rounded database units. There are no aggregate/null-location v8 inventory rows.
-- The committed dataset hash is `558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`.
+- The original generator evidence hash is `558c6ca5cea3c59a2014febb0a479893710ef37d69ebca71ace982a864122175`. The exact loader input-package hash used by bootstrap/runtime verification is `4c0e2e4f4166249456061fbf94facf41eaa36ccb6b2352f06954839e11d32619`; both meanings are kept explicit rather than conflated.
 - Synthetic provenance is mandatory on the project evidence. External forecast population validity and confirmation by a physical warehouse survey remain `UNVERIFIED`; that boundary does not block using the internally consistent v8 population as the declared project dataset.
+
+## 2026-08-13 Forecast Distribution And Inventory Intelligence Contract
+
+The runtime and application now implement one governed path from a canonical
+forecast through manager approval to worker-confirmed physical execution.
+
+- `scripts/dev-bootstrap.sh` is the clean-clone entry point. It waits for
+  PostgreSQL/Flyway, runs the transactional one-shot forecast bootstrap and
+  verifies 144 materials, 1,440 H1-H12 rows, decision eligibility, the promoted
+  `PROJECT_OPS_EXTRA_TREES_CAUSAL` registry row, 4,206 locations and the v8
+  checksum before starting the remaining services and a clean frontend build.
+- Spring's authenticated canonical-readiness and model-binding endpoints are
+  the frontend source of truth. The ordinary UI no longer falls back to a
+  legacy `XGBOOST`/Python result when canonical PostgreSQL data is absent. It
+  reports the exact missing-population, registration, stale-publish or checksum
+  failure and displays commit/dataset identity in development.
+- GitHub Actions verifies the artifact/dataset/frontend binding contract and
+  publishes versioned backend, frontend, forecast, slotting, orchestrator and assistant
+  images to GHCR. The promoted model and deterministic loader are packaged in
+  the forecast image; no PostgreSQL volume or dump is distributed.
+- `/admin/inventory-intelligence` replaces the three exposed planning menus.
+  Managers see ranked actions, current/proposed product policy, P50/P90 demand,
+  MOQ/order multiples, draft-order quantity, target pallet positions, storage
+  impact and execution status. Solver details are in an administrator
+  disclosure rather than the normal decision path.
+- Failed or rolled-back runs are excluded from pending work. Pallet capacity is
+  persisted as an absolute target, not `abs(delta)`. Only `OPTIMAL` or accepted
+  `FEASIBLE` slotting plans can be approved. Direct apply is removed: approval,
+  scheduling, transfer release and worker completion are distinct states.
+- `planning_cycle_id` links policy, space, slotting, transfer and worker work.
+  Transfer lines explicitly reference slotting lines; scan completion updates
+  transfer/slotting/cycle state. Estimated distance is not confirmed until the
+  associated relocation lines complete.
+- The default cadence generates a review-only forecast/policy refresh daily at
+  02:15 Asia/Colombo and a 5% move-cap, low-disruption slotting review monthly.
+  Neither scheduler approves a decision; major 3/6-month restructures remain a
+  manager-initiated planning cycle.
+- Live assistant data is read-only and Spring-owned. Authenticated typed tools
+  expose SKU outlook, inventory risk, deterministic recommendation explanation
+  and planning-cycle status with dataset/model identity, units, warnings,
+  source references and correlation IDs. `/ask-data`, `/query-sql`, schema
+  inspection and model-generated database access were removed. SOP RAG remains
+  a separate Python document-answering concern; it validates the forwarded JWT
+  against Spring, is rate-limited, and returns the same traceable assistant
+  response contract.
+- Canonical readiness distinguishes the full 144-material catalog from the
+  120 RM/PM materials with published H1-H12 forecasts. A ready response now
+  reports 1,440 rows, 1,440 decision-eligible rows, 144 catalog materials, 120
+  forecast materials, matching dataset/model checksums and build identity.
+
+The local implementation does not create a public/team cloud URL or a teammate
+account by itself; `infra/deploy` contains the versioned Compose/Caddy template
+for an operator with VM, DNS, GHCR and secret-management access.
+
+## 2026-08-13 Forecast Decision-UI Clarification
+
+The Forecasts surface was tightened so an operator cannot mistake a policy
+simulation for confirmed purchasing or observed future stock.
+
+- Both per-SKU WAPE views now label the `10%` planner-review threshold. The
+  threshold text is black for readable contrast; bar colors use the same
+  `<=10%`, `10-15%`, and `>15%` decision bands as the attention matrix.
+- The former receipt bars and digital-looking step signals were replaced with
+  continuous P50/P90 month-end stock curves and discrete green receipt-event
+  diamonds. A missing diamond means no simulated receipt is due in that month,
+  not zero stock.
+- Receipt quantities are explicitly described as policy-simulation outputs.
+  They are created by forecast consumption, reorder-point triggering, supplier
+  lead time, and MOQ/order-multiple rounding. They are not confirmed purchase
+  orders, observed future inventory, or arbitrary chart data.
+- Inventory wording now uses `Proposed Releases`, `Simulated receipt`, and
+  `Order proposed`. The monthly ledger remains the auditable source for the
+  chart, projected P50/P90 fill, forward coverage, and release timing.
+- Model Performance now uses four responsive KPI cards, a compact promoted
+  model strip (`Extra Trees demand forecast`), and an operational-use panel.
+  The promoted P10/P50/P90 rows feed inventory-policy calculation; approved
+  policy runs may create manager-gated draft purchase suggestions; P50, stock
+  delta, and pallet demand feed constrained slotting. Forecasts do not release
+  purchase orders automatically.
+- Authenticated in-app browser verification passed at `1440x900` and
+  `1024x800` against the local Next development runtime and Docker-backed API.
+  The SKU Analysis thresholds, Inventory simulation semantics, and responsive
+  Model Performance layout were inspected visually.
+- Frontend verification passed: `npx tsc --noEmit`,
+  `npm run test:forecast-planning`, `git diff --check`, and the production
+  build. All `69` routes were generated; `/admin/forecasts` compiled to a
+  `28.8 kB` route (`231 kB` first load). Existing repository-wide lint/font
+  warnings remain non-blocking.
 
 ## 2026-08-10 Forecast Planning Completion And Docker Database Consolidation
 
@@ -71,10 +159,10 @@ make an unsupported external-customer claim.
   release quantity, receipt month, forward days of supply and action status.
   P50/P90 projected fill rates and coverage cards are derived from that ledger,
   not from unrelated decorative series.
-- Inventory charts use step lines for projected stock, receipt bars and
-  explicit reorder/safety references. The replenishment ledger can be exported
-  as CSV. Velocity/error visuals now use neutral action-oriented encoding and
-  reference lines instead of arbitrary green/yellow/grey bars.
+- Inventory charts use continuous P50/P90 projected-stock curves, discrete
+  simulated-receipt markers and explicit reorder/safety references. The
+  replenishment ledger can be exported as CSV. Velocity/error visuals use
+  action-oriented decision bands and labelled reference lines.
 - Ordinary planner wording is `Demand & Replenishment Planning`; technical run
   detail remains available in a collapsed `Forecast run details` disclosure.
 
@@ -1272,3 +1360,84 @@ Validated local recovery copies were created under the ignored
 
 Do not run `docker compose down -v`, `docker volume prune`, or another command
 that removes named volumes unless a verified external backup exists.
+
+## 2026-08-14 Inventory Intelligence Manager Workflow
+
+The daily manager surface is now the unified `/admin/inventory-intelligence`
+workspace. It intentionally separates calculation from authority:
+
+- the promoted demand forecast supplies the demand distribution;
+- the Spring policy service calculates dynamic minimum stock, reorder trigger,
+  target maximum, MOQ/order-multiple rounding, receipt timing and pallet impact;
+- ABC/FMS remains a statistical value/movement classification input;
+- the six-month slotting plan remains a constrained MILP decision whose result
+  must be `OPTIMAL` or explicitly accepted `FEASIBLE` before approval;
+- approval creates controlled policy changes and draft replenishments only;
+  procurement release and physical relocation execution remain separate.
+
+The manager UI no longer exposes raw P50/P90 labels, long generated rationale,
+the old approval-boundary panel or unchanged policy rows. The review table is
+searchable and filterable by change type, ABC and FMS class. It has a sticky
+header, selectable page size and real previous/next pagination. Product and
+approval reviews open as centered, height-bounded dialogs on desktop instead
+of side drawers. The product dialog exposes deterministic inputs and before /
+after calculation while distinguishing currently occupied pallet positions
+from future policy capacity.
+
+Policy capacity is now calculated as a count of whole pallet positions. The
+current and proposed target quantities are each divided by units per pallet
+and rounded up independently; the displayed change is the difference between
+those two whole-position values. This removes fractional negative zero and
+prevents a future policy reduction from being presented as immediately empty
+physical bins. Released and required future positions are separate positive
+KPIs.
+
+The manager can explicitly recalculate the six-month min/max policy and, after
+policy approval, generate or review the constrained ABC/FMS location plan.
+The location step continues to use demand/value class, movement frequency,
+weight, volume, temperature, hazard compatibility and a relocation cap. A
+policy approval creates draft replenishment suggestions only; procurement
+release and worker-confirmed relocation remain separate controlled steps.
+
+The Forecast Inventory simulation now evaluates the reorder trigger daily
+inside each monthly forecast bucket. Demand is distributed across the days of
+the month, a supply proposal is released when stock plus open supply reaches
+the reorder point, and the receipt becomes available on the actual lead-time
+due date after MOQ/order-multiple rounding. Reorder point is normalized to at
+least safety stock and target maximum to at least reorder point. The chart uses
+the existing blue visual language: planned receipts are bars and projected
+available stock is a line. The decorative area fill, luminous green receipt
+diamonds and duplicate explanation cards were removed.
+
+Approve, defer and reject operations now write append-only
+`planning_decision_events` records (Flyway V90). Deferral requires a reason and
+return time; rejection requires a reason. A deferred item is removed from the
+active queue until its return time, while the Decision history tab retains the
+actor, timestamp, reason and status transition. An ineligible `NOT_RUN`
+slotting draft is visible for diagnosis but its Approve action is disabled.
+
+### Local Integration Verification
+
+- PostgreSQL 16 remains the Docker-backed business database on port `5434`;
+  Spring and Next.js are designed to run locally for the development loop.
+- Flyway previously validated 90 migrations and applied V90 successfully.
+- The frontend forecast-planning test passes with daily trigger timing,
+  lead-time receipt timing, MOQ/order-multiple rounding and the safety-stock /
+  reorder-point invariant.
+- The Next.js production build succeeds and generates all 69 routes. Existing
+  repository-wide lint and font warnings remain non-blocking.
+- `git diff --check` passes for the current workspace changes.
+- The Spring/Gradle suite could not be rerun after the latest whole-pallet and
+  risk-threshold changes because this session's execution approval quota
+  rejected Gradle access to its user cache. The restriction was not bypassed.
+- A new localhost browser inspection was also denied by the in-app browser
+  security review. The restriction was not bypassed, so this checkpoint does
+  not claim a fresh visual browser acceptance run.
+- Existing policy rows were calculated with the previous capacity arithmetic.
+  Rebuild Spring and use `Recalculate policies` before evaluating the new
+  released/required-position KPIs or approving a plan.
+
+The generated project-operational dataset is the canonical demo/evaluator
+population for this environment. These checks validate system integration and
+decision arithmetic on that population; they do not claim measured accuracy on
+an external customer's future demand.

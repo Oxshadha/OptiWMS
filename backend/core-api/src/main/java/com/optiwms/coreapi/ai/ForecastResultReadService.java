@@ -23,6 +23,7 @@ public class ForecastResultReadService {
     private static final String CANONICAL_MODEL = "PROJECT_OPS_EXTRA_TREES_CAUSAL";
     private static final String CANONICAL_QUALITY_TIER = "PROJECT_OPERATIONAL_SIMULATION";
     private static final String CANONICAL_TRAINING_SOURCE = "project_ops_v8";
+    private static final String LEGACY_TRAINING_SOURCE = "PROJECT_OPERATIONAL_BASELINE_V3";
     private static final String CANONICAL_VERSION = "PROJECT_OPERATIONAL_SIMULATION_V8";
     private static final String CANONICAL_EVIDENCE_SPLIT = "test";
 
@@ -33,11 +34,90 @@ public class ForecastResultReadService {
         Number count = (Number) entityManager
                 .createNativeQuery("""
                         SELECT COUNT(*) FROM forecast_results
-                        WHERE training_source = :source
-                        """)
+                                WHERE training_source IN (:source, :legacySource)
+                                """)
                 .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE)
                 .getSingleResult();
         return count != null && count.longValue() > 0;
+    }
+
+    public ResponseEntity<Object> getCanonicalReadiness(String warehouseId, String buildCommit) {
+        String warehouseFilter = warehouseId != null && !warehouseId.isBlank()
+                ? " AND fr.warehouse_id::text = :warehouseId" : "";
+        Query forecastQuery = entityManager.createNativeQuery("""
+                SELECT COUNT(*), COUNT(*) FILTER (WHERE decision_eligible=TRUE),
+                       COUNT(DISTINCT material_id), MAX(created_at),
+                       (SELECT COUNT(*) FROM materials
+                        WHERE data_quality_tier=:qualityTier)
+                FROM forecast_results fr
+                WHERE training_source=:source AND model_name=:model
+                """ + warehouseFilter)
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("model", CANONICAL_MODEL)
+                .setParameter("qualityTier", CANONICAL_QUALITY_TIER);
+        if (!warehouseFilter.isBlank()) forecastQuery.setParameter("warehouseId", warehouseId);
+        Object[] forecast = (Object[]) forecastQuery.getSingleResult();
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> registryRows = entityManager.createNativeQuery("""
+                SELECT status, promotion_eligible,
+                       COALESCE(source_lineage->>'dataset_hash','')
+                FROM forecast_model_registry
+                WHERE dataset=:dataset AND model_name=:model AND version=:version
+                ORDER BY updated_at DESC LIMIT 1
+                """).setParameter("dataset", CANONICAL_DATASET).setParameter("model", CANONICAL_MODEL)
+                .setParameter("version", CANONICAL_VERSION).getResultList();
+        @SuppressWarnings("unchecked")
+        List<Object[]> auditRows = entityManager.createNativeQuery("""
+                SELECT dataset_hash, finished_at
+                FROM project_dataset_load_audit
+                WHERE dataset_version=:version AND status='ok'
+                ORDER BY finished_at DESC LIMIT 1
+                """).setParameter("version", CANONICAL_VERSION).getResultList();
+
+        long rows = ((Number) forecast[0]).longValue();
+        long eligible = ((Number) forecast[1]).longValue();
+        long forecastMaterials = ((Number) forecast[2]).longValue();
+        long catalogMaterials = ((Number) forecast[4]).longValue();
+        Object[] registry = registryRows.isEmpty() ? null : registryRows.get(0);
+        Object[] audit = auditRows.isEmpty() ? null : auditRows.get(0);
+        String registryHash = registry != null ? String.valueOf(registry[2]) : "";
+        String auditHash = audit != null ? String.valueOf(audit[0]) : "";
+        boolean checksumMatches = !auditHash.isBlank() && !registryHash.isBlank() && auditHash.equals(registryHash);
+        boolean ready = rows == 1440 && eligible == 1440
+                && forecastMaterials == 120 && catalogMaterials == 144
+                && registry != null && "PROMOTED".equals(registry[0])
+                && Boolean.TRUE.equals(registry[1]) && checksumMatches;
+
+        List<String> errors = new ArrayList<>();
+        if (rows == 0) errors.add("MISSING_DATABASE_POPULATION");
+        else if (rows != 1440 || forecastMaterials != 120 || catalogMaterials != 144) {
+            errors.add("INCOMPLETE_FORECAST_POPULATION");
+        }
+        if (eligible != rows) errors.add("STALE_OR_UNAPPROVED_PUBLISH");
+        if (registry == null) errors.add("MISSING_MODEL_REGISTRATION");
+        else if (!"PROMOTED".equals(registry[0])) errors.add("MODEL_NOT_PROMOTED");
+        if (audit == null) errors.add("MISSING_DATASET_LOAD_AUDIT");
+        if (audit != null && registry != null && !checksumMatches) errors.add("MODEL_DATASET_CHECKSUM_MISMATCH");
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("ready", ready);
+        response.put("errors", errors);
+        response.put("dataset", CANONICAL_DATASET);
+        response.put("datasetVersion", CANONICAL_VERSION);
+        response.put("modelName", CANONICAL_MODEL);
+        response.put("modelStatus", registry != null ? registry[0] : "MISSING");
+        response.put("forecastRowCount", rows);
+        response.put("decisionEligibleRowCount", eligible);
+        response.put("materialCount", catalogMaterials);
+        response.put("forecastMaterialCount", forecastMaterials);
+        response.put("forecastFreshness", forecast[3]);
+        response.put("datasetLoadedAt", audit != null ? audit[1] : null);
+        response.put("datasetChecksum", auditHash);
+        response.put("checksumMatches", checksumMatches);
+        response.put("buildCommit", buildCommit == null || buildCommit.isBlank() ? "development" : buildCommit);
+        return ResponseEntity.ok(response);
     }
 
     public ResponseEntity<Object> getGatewayModels() {
@@ -53,8 +133,7 @@ public class ForecastResultReadService {
                         "is_champion", Boolean.TRUE.equals(row.get("is_champion")),
                         "source", "wms_forecast_results",
                         "data_quality_tier", CANONICAL_QUALITY_TIER,
-                        "training_source", CANONICAL_TRAINING_SOURCE
-                ))
+                        "training_source", CANONICAL_TRAINING_SOURCE))
                 .orElse(null);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("champion", champion);
@@ -74,7 +153,8 @@ public class ForecastResultReadService {
                 .setParameter("model", model).executeUpdate();
         if (registryUpdated == 0) {
             return ResponseEntity.badRequest().body(Map.of(
-                    "status", "rejected", "message", "Model is absent or has not passed the statistical promotion gate"));
+                    "status", "rejected", "message",
+                    "Model is absent or has not passed the statistical promotion gate"));
         }
         entityManager.createNativeQuery("""
                 UPDATE forecast_model_registry SET status = 'CHALLENGER', updated_at = now()
@@ -92,7 +172,8 @@ public class ForecastResultReadService {
                 WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model)
                 """).setParameter("dataset", CANONICAL_DATASET).setParameter("model", model).executeUpdate();
         return ResponseEntity.ok(Map.of(
-                "status", "PROMOTED", "model", model, "approved_by", approvedBy, "forecast_rows_approved", forecastRows));
+                "status", "PROMOTED", "model", model, "approved_by", approvedBy, "forecast_rows_approved",
+                forecastRows));
     }
 
     public ResponseEntity<Object> getForecasts(
@@ -101,19 +182,18 @@ public class ForecastResultReadService {
             String dataset,
             String model,
             Integer runId,
-            String warehouseId
-    ) {
+            String warehouseId) {
         return getForecasts(sku, horizon, dataset, model, runId, warehouseId, 0, 100);
     }
 
     public ResponseEntity<Object> getForecasts(
             String sku, Integer horizon, String dataset, String model, Integer runId,
-            String warehouseId, Integer page, Integer size
-    ) {
+            String warehouseId, Integer page, Integer size) {
         String selectedModel = resolveModel(model, warehouseId);
         int safePage = pageNumber(page);
         int safeSize = pageSize(size);
-        List<Object[]> rows = fetchForecastRows(selectedModel, sku, horizon, warehouseId, safeSize, safePage * safeSize);
+        List<Object[]> rows = fetchForecastRows(selectedModel, sku, horizon, warehouseId, safeSize,
+                safePage * safeSize);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("items", rows.stream().map(this::forecastItem).toList());
         response.put("count", rows.size());
@@ -141,7 +221,7 @@ public class ForecastResultReadService {
                 FROM forecast_results fr
                 JOIN materials m ON m.id = fr.material_id
                 WHERE LOWER(fr.model_name) = LOWER(:model)
-                  AND fr.training_source = :source
+                  AND fr.training_source IN (:source, :legacySource)
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) {
             sql.append(" AND (fr.warehouse_id IS NULL OR fr.warehouse_id::text = :warehouseId)");
@@ -158,16 +238,17 @@ public class ForecastResultReadService {
                 """);
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("model", selectedModel)
-                .setParameter("source", CANONICAL_TRAINING_SOURCE);
-        if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE);
+        if (warehouseId != null && !warehouseId.isBlank())
+            query.setParameter("warehouseId", warehouseId);
         @SuppressWarnings("unchecked")
         List<Object[]> rows = query.getResultList();
         List<Map<String, Object>> items = rows.stream().map(row -> Map.<String, Object>of(
                 "sku", String.valueOf(row[0]),
                 "description", String.valueOf(row[1]),
                 "material_type", String.valueOf(row[2]),
-                "horizon_count", asInt(row[3])
-        )).toList();
+                "horizon_count", asInt(row[3]))).toList();
         return ResponseEntity.ok(Map.of("items", items, "count", items.size(), "model_used", selectedModel));
     }
 
@@ -177,8 +258,7 @@ public class ForecastResultReadService {
     }
 
     public ResponseEntity<Object> getForecastMetrics(
-            String split, Integer horizon, String dataset, String model, String warehouseId
-    ) {
+            String split, Integer horizon, String dataset, String model, String warehouseId) {
         String selectedModel = resolveModel(model, warehouseId);
         String requestedSplit = canonicalEvidenceSplit(split);
         StringBuilder sql = new StringBuilder("""
@@ -190,16 +270,21 @@ public class ForecastResultReadService {
                   AND LOWER(model_name) = LOWER(:model)
                   AND split = :split
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
-        if (horizon != null) sql.append(" AND horizon = :horizon");
+        if (warehouseId != null && !warehouseId.isBlank())
+            sql.append(" AND warehouse_id::text = :warehouseId");
+        if (horizon != null)
+            sql.append(" AND horizon = :horizon");
         sql.append(" ORDER BY horizon");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("dataset", CANONICAL_DATASET)
                 .setParameter("model", selectedModel)
                 .setParameter("split", requestedSplit);
-        if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
-        if (horizon != null) query.setParameter("horizon", horizon);
-        @SuppressWarnings("unchecked") List<Object[]> rows = query.getResultList();
+        if (warehouseId != null && !warehouseId.isBlank())
+            query.setParameter("warehouseId", warehouseId);
+        if (horizon != null)
+            query.setParameter("horizon", horizon);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("run_id", 0);
@@ -225,8 +310,7 @@ public class ForecastResultReadService {
                 "items", items,
                 "count", items.size(),
                 "source", "wms_forecast_model_evidence",
-                "canonical", true
-        ));
+                "canonical", true));
     }
 
     public ResponseEntity<Object> getInventoryRecommendations(String sku, String model, String warehouseId) {
@@ -290,7 +374,8 @@ public class ForecastResultReadService {
                 WHERE m.decision_eligible = TRUE
                   AND m.material_type IN ('raw_material', 'packaging_material')
                 """);
-        if (sku != null && !sku.isBlank()) sql.append(" AND m.material_code = :sku");
+        if (sku != null && !sku.isBlank())
+            sql.append(" AND m.material_code = :sku");
         sql.append(" ORDER BY m.material_code LIMIT 5000");
         Query q = entityManager.createNativeQuery(sql.toString())
                 .setParameter("quality", CANONICAL_QUALITY_TIER)
@@ -330,7 +415,8 @@ public class ForecastResultReadService {
             item.put("policy_source", "wms_inventory_min_max_plus_promoted_forecast");
             return item;
         }).toList();
-        return ResponseEntity.ok(Map.of("items", items, "count", items.size(), "source", "wms_inventory_policy", "canonical", true));
+        return ResponseEntity
+                .ok(Map.of("items", items, "count", items.size(), "source", "wms_inventory_policy", "canonical", true));
     }
 
     public ResponseEntity<Object> getRawMaterialRequirements(String rmSku, String model, String warehouseId) {
@@ -399,7 +485,8 @@ public class ForecastResultReadService {
             item.put("data_quality_tier", CANONICAL_QUALITY_TIER);
             return item;
         }).toList();
-        return ResponseEntity.ok(Map.of("items", items, "count", items.size(), "source", "wms_direct_rm_pm_plan", "canonical", true));
+        return ResponseEntity.ok(
+                Map.of("items", items, "count", items.size(), "source", "wms_direct_rm_pm_plan", "canonical", true));
     }
 
     public ResponseEntity<Object> getDemandHistory(String sku, String warehouseId, Integer page, Integer size) {
@@ -411,26 +498,36 @@ public class ForecastResultReadService {
                 FROM demand_history dh JOIN materials m ON m.id = dh.material_id
                 WHERE dh.data_quality_tier = :quality
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND dh.warehouse_id::text = :warehouseId");
-        if (sku != null && !sku.isBlank()) sql.append(" AND m.material_code = :sku");
+        if (warehouseId != null && !warehouseId.isBlank())
+            sql.append(" AND dh.warehouse_id::text = :warehouseId");
+        if (sku != null && !sku.isBlank())
+            sql.append(" AND m.material_code = :sku");
         sql.append(" ORDER BY dh.period DESC, m.material_code LIMIT :limit OFFSET :offset");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("quality", CANONICAL_QUALITY_TIER)
                 .setParameter("limit", safeSize).setParameter("offset", safePage * safeSize);
-        if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
-        if (sku != null && !sku.isBlank()) query.setParameter("sku", sku);
-        @SuppressWarnings("unchecked") List<Object[]> rows = query.getResultList();
+        if (warehouseId != null && !warehouseId.isBlank())
+            query.setParameter("warehouseId", warehouseId);
+        if (sku != null && !sku.isBlank())
+            query.setParameter("sku", sku);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("sku", row[0]); item.put("material_type", row[1]); item.put("month", toIsoDate(row[2]));
-            item.put("actual_demand", asDouble(row[3])); item.put("promotion_flag", row[4]);
-            item.put("holiday_flag", row[5]); item.put("lead_time_days", asNullableDouble(row[6]));
+            item.put("sku", row[0]);
+            item.put("material_type", row[1]);
+            item.put("month", toIsoDate(row[2]));
+            item.put("actual_demand", asDouble(row[3]));
+            item.put("promotion_flag", row[4]);
+            item.put("holiday_flag", row[5]);
+            item.put("lead_time_days", asNullableDouble(row[6]));
             return item;
         }).toList();
         return paged(items, safePage, safeSize, "wms_demand_history");
     }
 
-    public ResponseEntity<Object> getBacktests(String sku, String model, String warehouseId, Integer page, Integer size) {
+    public ResponseEntity<Object> getBacktests(String sku, String model, String warehouseId, Integer page,
+            Integer size) {
         String selectedModel = resolveModel(model, warehouseId);
         int safeSize = pageSize(size);
         int safePage = pageNumber(page);
@@ -443,23 +540,34 @@ public class ForecastResultReadService {
                 WHERE b.dataset = :dataset AND LOWER(b.model_name) = LOWER(:model)
                   AND b.split = :split
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND b.warehouse_id::text = :warehouseId");
-        if (sku != null && !sku.isBlank()) sql.append(" AND m.material_code = :sku");
+        if (warehouseId != null && !warehouseId.isBlank())
+            sql.append(" AND b.warehouse_id::text = :warehouseId");
+        if (sku != null && !sku.isBlank())
+            sql.append(" AND m.material_code = :sku");
         sql.append(" ORDER BY b.origin_month DESC, m.material_code LIMIT :limit OFFSET :offset");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("dataset", CANONICAL_DATASET).setParameter("model", selectedModel)
                 .setParameter("split", CANONICAL_EVIDENCE_SPLIT)
                 .setParameter("limit", safeSize).setParameter("offset", safePage * safeSize);
-        if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
-        if (sku != null && !sku.isBlank()) query.setParameter("sku", sku);
-        @SuppressWarnings("unchecked") List<Object[]> rows = query.getResultList();
+        if (warehouseId != null && !warehouseId.isBlank())
+            query.setParameter("warehouseId", warehouseId);
+        if (sku != null && !sku.isBlank())
+            query.setParameter("sku", sku);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
         List<Map<String, Object>> items = rows.stream().map(row -> {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("sku", row[0]); item.put("month", toIsoDate(row[1])); item.put("horizon", asInt(row[2]));
-            item.put("y_true", asDouble(row[3])); item.put("p10", asNullableDouble(row[4]));
-            item.put("p50", asDouble(row[5])); item.put("p90", asNullableDouble(row[6]));
-            item.put("residual", asDouble(row[7])); item.put("absolute_error", asDouble(row[8]));
-            item.put("interval_covered", row[9]); item.put("model", selectedModel);
+            item.put("sku", row[0]);
+            item.put("month", toIsoDate(row[1]));
+            item.put("horizon", asInt(row[2]));
+            item.put("y_true", asDouble(row[3]));
+            item.put("p10", asNullableDouble(row[4]));
+            item.put("p50", asDouble(row[5]));
+            item.put("p90", asNullableDouble(row[6]));
+            item.put("residual", asDouble(row[7]));
+            item.put("absolute_error", asDouble(row[8]));
+            item.put("interval_covered", row[9]);
+            item.put("model", selectedModel);
             return item;
         }).toList();
         return paged(items, safePage, safeSize, "wms_forecast_backtest_rows");
@@ -473,7 +581,8 @@ public class ForecastResultReadService {
                 FROM forecast_backtest_rows
                 WHERE dataset = :dataset AND LOWER(model_name) = LOWER(:model) AND split = :split
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
+        if (warehouseId != null && !warehouseId.isBlank())
+            sql.append(" AND warehouse_id::text = :warehouseId");
         sql.append(" GROUP BY horizon ORDER BY horizon");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("dataset", CANONICAL_DATASET).setParameter("model", selectedModel)
@@ -488,17 +597,23 @@ public class ForecastResultReadService {
     }
 
     public ResponseEntity<Object> getGenerationProvenance() {
-        @SuppressWarnings("unchecked") List<Object[]> rows = entityManager.createNativeQuery("""
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = entityManager.createNativeQuery("""
                 SELECT dataset_version, dataset_hash, status, row_counts, validation, started_at, finished_at
                 FROM project_dataset_load_audit WHERE dataset_version = :version
                 ORDER BY started_at DESC LIMIT 1
                 """).setParameter("version", CANONICAL_VERSION).getResultList();
-        if (rows.isEmpty()) return ResponseEntity.ok(Map.of("item", Map.of(), "source", "project_dataset_load_audit"));
+        if (rows.isEmpty())
+            return ResponseEntity.ok(Map.of("item", Map.of(), "source", "project_dataset_load_audit"));
         Object[] row = rows.get(0);
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("dataset_version", row[0]); item.put("dataset_hash", row[1]); item.put("status", row[2]);
-        item.put("row_counts", row[3]); item.put("validation", row[4]);
-        item.put("started_at", row[5]); item.put("finished_at", row[6]);
+        item.put("dataset_version", row[0]);
+        item.put("dataset_hash", row[1]);
+        item.put("status", row[2]);
+        item.put("row_counts", row[3]);
+        item.put("validation", row[4]);
+        item.put("started_at", row[5]);
+        item.put("finished_at", row[6]);
         return ResponseEntity.ok(Map.of("item", item, "source", "project_dataset_load_audit"));
     }
 
@@ -519,8 +634,7 @@ public class ForecastResultReadService {
             String warehouseId,
             String sku,
             Integer horizon,
-            Integer topN
-    ) {
+            Integer topN) {
         String selectedModel = resolveModel(model, warehouseId);
         List<Object[]> summaryRows = fetchForecastSummaryRows(selectedModel, warehouseId);
         if (summaryRows.isEmpty()) {
@@ -589,7 +703,8 @@ public class ForecastResultReadService {
                 """).setParameter("dataset", CANONICAL_DATASET)
                 .setParameter("version", CANONICAL_VERSION)
                 .getResultList();
-        if (!registry.isEmpty() && hasModelRows(registry.get(0), warehouseId)) return registry.get(0);
+        if (!registry.isEmpty() && hasModelRows(registry.get(0), warehouseId))
+            return registry.get(0);
         return normalized.isBlank() ? CANONICAL_MODEL : normalized;
     }
 
@@ -601,16 +716,21 @@ public class ForecastResultReadService {
                   AND LOWER(model_name) = LOWER(:model)
                   AND split = 'test'
                 """);
-        if (warehouseId != null && !warehouseId.isBlank()) sql.append(" AND warehouse_id::text = :warehouseId");
+        if (warehouseId != null && !warehouseId.isBlank())
+            sql.append(" AND warehouse_id::text = :warehouseId");
         sql.append(" ORDER BY created_at DESC LIMIT 1");
         Query query = entityManager.createNativeQuery(sql.toString())
                 .setParameter("dataset", CANONICAL_DATASET)
                 .setParameter("model", model);
-        if (warehouseId != null && !warehouseId.isBlank()) query.setParameter("warehouseId", warehouseId);
-        @SuppressWarnings("unchecked") List<Object[]> rows = query.getResultList();
-        if (rows.isEmpty()) return Map.of();
+        if (warehouseId != null && !warehouseId.isBlank())
+            query.setParameter("warehouseId", warehouseId);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = query.getResultList();
+        if (rows.isEmpty())
+            return Map.of();
         Object[] row = rows.get(0);
-        return Map.of("wape", asNullableDouble(row[0]), "rmse", asNullableDouble(row[1]), "abs_bias", asNullableDouble(row[2]));
+        return Map.of("wape", asNullableDouble(row[0]), "rmse", asNullableDouble(row[1]), "abs_bias",
+                asNullableDouble(row[2]));
     }
 
     private boolean hasModelRows(String model, String warehouseId) {
@@ -618,14 +738,15 @@ public class ForecastResultReadService {
                 SELECT COUNT(*)
                 FROM forecast_results fr
                 WHERE LOWER(fr.model_name) = LOWER(:model)
-                  AND fr.training_source = :source
+                  AND fr.training_source IN (:source, :legacySource)
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) {
             sql.append(" AND (fr.warehouse_id IS NULL OR fr.warehouse_id::text = :warehouse_id)");
         }
         Query q = entityManager.createNativeQuery(sql.toString())
                 .setParameter("model", model)
-                .setParameter("source", CANONICAL_TRAINING_SOURCE);
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE);
         if (warehouseId != null && !warehouseId.isBlank()) {
             q.setParameter("warehouse_id", warehouseId);
         }
@@ -638,12 +759,13 @@ public class ForecastResultReadService {
         List<Object[]> rows = entityManager.createNativeQuery("""
                 SELECT model_name, COUNT(*) AS forecast_rows, COUNT(DISTINCT material_id) AS materials
                 FROM forecast_results
-                WHERE training_source = :source
+                WHERE training_source IN (:source, :legacySource)
                 GROUP BY model_name
                 ORDER BY CASE WHEN model_name = :canonical THEN 0 ELSE 1 END, forecast_rows DESC, model_name ASC
                 """)
                 .setParameter("canonical", CANONICAL_MODEL)
                 .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE)
                 .getResultList();
         return rows.stream().map(row -> {
             Map<String, Object> item = new LinkedHashMap<>();
@@ -685,7 +807,7 @@ public class ForecastResultReadService {
                 FROM forecast_results fr
                 JOIN materials m ON m.id = fr.material_id
                 WHERE LOWER(fr.model_name) = LOWER(:model)
-                  AND fr.training_source = :source
+                  AND fr.training_source IN (:source, :legacySource)
                 """);
         if (sku != null && !sku.isBlank()) {
             sql.append(" AND m.material_code = :sku");
@@ -700,6 +822,7 @@ public class ForecastResultReadService {
         Query q = entityManager.createNativeQuery(sql.toString())
                 .setParameter("model", model)
                 .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE)
                 .setParameter("limit", limit)
                 .setParameter("offset", offset);
         if (sku != null && !sku.isBlank()) {
@@ -722,14 +845,15 @@ public class ForecastResultReadService {
                        COUNT(DISTINCT fr.horizon) AS horizon_count
                 FROM forecast_results fr
                 WHERE LOWER(fr.model_name) = LOWER(:model)
-                  AND fr.training_source = :source
+                  AND fr.training_source IN (:source, :legacySource)
                 """);
         if (warehouseId != null && !warehouseId.isBlank()) {
             sql.append(" AND (fr.warehouse_id IS NULL OR fr.warehouse_id::text = :warehouse_id)");
         }
         Query q = entityManager.createNativeQuery(sql.toString())
                 .setParameter("model", model)
-                .setParameter("source", CANONICAL_TRAINING_SOURCE);
+                .setParameter("source", CANONICAL_TRAINING_SOURCE)
+                .setParameter("legacySource", LEGACY_TRAINING_SOURCE);
         if (warehouseId != null && !warehouseId.isBlank()) {
             q.setParameter("warehouse_id", warehouseId);
         }

@@ -81,6 +81,8 @@ public class InventoryPolicyRecommendationLineEntity {
     private BigDecimal stockDelta;
     @Column(name = "pallet_positions_delta", nullable = false)
     private BigDecimal palletPositionsDelta;
+    @Column(name = "target_pallet_positions", nullable = false)
+    private BigDecimal targetPalletPositions;
     @Column(name = "holding_cost_delta", nullable = false)
     private BigDecimal holdingCostDelta;
     @Column(name = "stockout_risk_score", nullable = false)
@@ -117,6 +119,7 @@ public class InventoryPolicyRecommendationLineEntity {
         if (currentAvailableStock == null) currentAvailableStock = BigDecimal.ZERO;
         if (stockDelta == null) stockDelta = BigDecimal.ZERO;
         if (palletPositionsDelta == null) palletPositionsDelta = BigDecimal.ZERO;
+        if (targetPalletPositions == null) targetPalletPositions = BigDecimal.ZERO;
         if (holdingCostDelta == null) holdingCostDelta = BigDecimal.ZERO;
         if (stockoutRiskScore == null) stockoutRiskScore = BigDecimal.ZERO;
         if (expiryRiskScore == null) expiryRiskScore = BigDecimal.ZERO;
@@ -190,6 +193,8 @@ public class InventoryPolicyRecommendationLineEntity {
     public void setStockDelta(BigDecimal stockDelta) { this.stockDelta = stockDelta; }
     public BigDecimal getPalletPositionsDelta() { return palletPositionsDelta; }
     public void setPalletPositionsDelta(BigDecimal palletPositionsDelta) { this.palletPositionsDelta = palletPositionsDelta; }
+    public BigDecimal getTargetPalletPositions() { return targetPalletPositions; }
+    public void setTargetPalletPositions(BigDecimal targetPalletPositions) { this.targetPalletPositions = targetPalletPositions; }
     public BigDecimal getHoldingCostDelta() { return holdingCostDelta; }
     public void setHoldingCostDelta(BigDecimal holdingCostDelta) { this.holdingCostDelta = holdingCostDelta; }
     public BigDecimal getStockoutRiskScore() { return stockoutRiskScore; }

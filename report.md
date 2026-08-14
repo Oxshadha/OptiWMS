@@ -509,7 +509,8 @@ flowchart LR
     ADMIN --> AG
     AG --> V[("SOP vector store")]
     AG --> LLM["Gemini"]
-    AG -->|guarded SELECT| PG
+    AG -->|"JWT identity validation"| API
+    ADMIN -->|"typed read-only tools"| API
     FC --> PG
     SL --> API
     EVAL["Python/Jupyter evaluators"] --> ART["Versioned CSV/JSON/model artifacts"]
@@ -1124,19 +1125,20 @@ operation-specific:
   with MiniLM embeddings, Chroma and Gemini;
 - eight warehouse SOP text files cover forklift, stacker, powered pallet truck,
   unloading, safekeeping, cycle count, vehicle inspection and pallet purchasing;
-- [`db_agent.py`](ai_services/ai-agent/db_agent.py) converts natural-language
-  questions to PostgreSQL queries, accepts only `SELECT`, rejects DDL/DML terms
-  and returns data plus optional charts;
-- [`api.py`](ai_services/ai-agent/api.py) exposes `/health`, `/ask`,
-  `/ask-data` and `/query-sql`;
+- [`api.py`](ai_services/ai-agent/api.py) exposes the authenticated,
+  SOP-grounded `/ask` endpoint only; operational answers are supplied by
+  Spring-owned typed business tools rather than generated SQL;
+- [`AssistantToolController.java`](backend/core-api/src/main/java/com/optiwms/coreapi/assistant/AssistantToolController.java)
+  exposes read-only SKU outlook, inventory-risk, recommendation-explanation
+  and planning-cycle-status contracts with JWT warehouse scoping;
 - [`WarehouseAssistant.tsx`](frontend/components/WarehouseAssistant.tsx)
   provides the worker mobile overlay, manager drawer and full-screen interface
   with SOP and Data & Analytics tabs.
 
-The assistant currently runs as an optional standalone service. CORS and the
-SELECT-only guard exist, but Spring JWT, warehouse row-level scoping,
-role-specific data-tab enforcement, audit/rate limits and automated agent tests
-are still required before production exposure.
+The SOP assistant remains an optional standalone service. Live operational
+facts are returned only through authenticated Spring tools, which bind the
+request to the user's assigned warehouse and emit audit and correlation data.
+The LLM has no SQL or schema-inspection capability and no mutating tool.
 
 ## 6.5 Algorithms and Pseudocode
 
@@ -1232,7 +1234,8 @@ Integration contracts are explicit:
 - routing graph: `CMB_METRIC_AISLE_V8_ROUTING`;
 - slotting solver: `ORTOOLS_MILP_FLOW_V3`;
 - assistant SOP endpoint: `http://localhost:8000/ask`;
-- assistant analytics endpoints: `/ask-data` and `/query-sql`.
+- assistant business-tool contract:
+  [`docs/openapi/optiwms-assistant-tools.yaml`](docs/openapi/optiwms-assistant-tools.yaml).
 
 ## 6.8 Incremental Testing During Development
 
@@ -2022,10 +2025,10 @@ curl -fsS -X POST http://localhost:8000/ask \
   --data '{"message":"What are the forklift pre-operation checks?","context":"worker"}'
 ```
 
-Data analytics tests must use a controlled database and confirm that
-non-`SELECT` SQL is rejected. Do not expose `/ask-data` or `/query-sql`
-externally until JWT, role/warehouse scoping, audit and rate-limit controls are
-implemented.
+Assistant security tests confirm that no `/ask-data` or `/query-sql` route is
+registered. Typed operational tools require JWT authentication, derive the
+warehouse from the user assignment, remain read-only, and return deterministic
+facts with source references and correlation IDs.
 
 ## A.13 Required Core-WMS and PWA Regression Backlog
 
@@ -2176,7 +2179,8 @@ counts. Setup/import cells may correctly have no visible output.
 - [`aiService.ts`](frontend/services/aiService.ts)
 - [`ai-agent/api.py`](ai_services/ai-agent/api.py)
 - [`ai-agent/agent.py`](ai_services/ai-agent/agent.py)
-- [`ai-agent/db_agent.py`](ai_services/ai-agent/db_agent.py)
+- [`AssistantToolController.java`](backend/core-api/src/main/java/com/optiwms/coreapi/assistant/AssistantToolController.java)
+- [`assistant OpenAPI contract`](docs/openapi/optiwms-assistant-tools.yaml)
 - [`ai-agent/docs`](ai_services/ai-agent/docs)
 
 ## B.9 Core WMS and PWA Implementation

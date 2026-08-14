@@ -9,6 +9,8 @@ import com.optiwms.infra.master.MaterialDefaultLocationEntity;
 import com.optiwms.infra.master.MaterialDefaultLocationRepository;
 import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
+import com.optiwms.infra.intelligence.PlanningCycleEntity;
+import com.optiwms.infra.intelligence.PlanningCycleRepository;
 import com.optiwms.infra.slotting.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -41,6 +43,7 @@ public class SlottingPlanService {
     private final StockPlacementPlanner stockPlacementPlanner;
     private final DemandSpacePlanningService demandSpacePlanningService;
     private final SlottingPlanExecutionService executionService;
+    private final PlanningCycleRepository planningCycleRepository;
 
     public SlottingPlanService(
             SlottingPlanRepository planRepository,
@@ -57,7 +60,8 @@ public class SlottingPlanService {
             HandlingUnitCapacityService handlingUnitCapacityService,
             StockPlacementPlanner stockPlacementPlanner,
             DemandSpacePlanningService demandSpacePlanningService,
-            SlottingPlanExecutionService executionService) {
+            SlottingPlanExecutionService executionService,
+            PlanningCycleRepository planningCycleRepository) {
         this.planRepository = planRepository;
         this.lineRepository = lineRepository;
         this.reserveLineRepository = reserveLineRepository;
@@ -73,6 +77,7 @@ public class SlottingPlanService {
         this.stockPlacementPlanner = stockPlacementPlanner;
         this.demandSpacePlanningService = demandSpacePlanningService;
         this.executionService = executionService;
+        this.planningCycleRepository = planningCycleRepository;
     }
 
     @Transactional
@@ -91,8 +96,16 @@ public class SlottingPlanService {
 
         planCode = resolveUniquePlanCode(warehouseId, planCode);
 
+        PlanningCycleEntity cycle = new PlanningCycleEntity();
+        cycle.setWarehouseId(warehouseId);
+        cycle.setCreatedBy(request.createdBy());
+        cycle.setCadence(months >= 3 ? "MAJOR_RESTRUCTURE" : "MONTHLY_SLOTTING");
+        cycle.setLifecycleStatus("CALCULATING");
+        cycle = planningCycleRepository.save(cycle);
+
         SlottingPlanEntity plan = new SlottingPlanEntity();
         plan.setWarehouseId(warehouseId);
+        plan.setPlanningCycleId(cycle.getId());
         plan.setPlanCode(planCode);
         plan.setValidFrom(validFrom);
         plan.setValidTo(validTo);
@@ -109,6 +122,8 @@ public class SlottingPlanService {
 
         runOptimization(plan, Collections.emptySet(), Collections.emptyList(),
                 request.useMilpAClass() == null || request.useMilpAClass());
+        cycle.setLifecycleStatus("READY_FOR_REVIEW");
+        planningCycleRepository.save(cycle);
         return planRepository.findById(plan.getId()).orElse(plan);
     }
 
@@ -205,35 +220,75 @@ public class SlottingPlanService {
         if (!Set.of("DRAFT", "PENDING_APPROVAL").contains(plan.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot approve plan in status " + plan.getStatus());
         }
-        if ("HEURISTIC_FALLBACK_V1".equals(plan.getAlgorithm())
-                || (plan.getSolverStatus() != null
-                    && Set.of("INFEASIBLE", "UNAVAILABLE", "ABNORMAL", "NOT_SOLVED", "FALLBACK")
-                            .contains(plan.getSolverStatus()))) {
+        if (!Set.of("OPTIMAL", "FEASIBLE").contains(plan.getSolverStatus())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Cannot approve a solver fallback plan; resolve the optimization failure and generate a feasible plan");
+                    "Only OPTIMAL or manager-accepted FEASIBLE solver results can be approved");
         }
 
-        List<SlottingPlanLineEntity> lines = lineRepository.findByPlanIdOrderByMaterialCodeAsc(planId);
-        UUID warehouseId = plan.getWarehouseId();
-
         boolean directApply = Boolean.TRUE.equals(request.directApply());
-        SlottingPlanExecutionService.ExecutionResult execution =
-                executionService.executeApprovedPlan(plan, lines, directApply);
+        if (directApply) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Direct apply is disabled. Approved moves must be released as scan-confirmed worker transfers.");
+        }
+        plan.setStatus("APPROVED");
+        plan.setApprovedBy(request.approvedBy());
+        plan.setApprovedAt(OffsetDateTime.now());
+        plan.setExecutionStatus("PENDING_SCHEDULE");
+        plan = planRepository.save(plan);
+        updatePlanningCycle(plan, "APPROVED", null);
+        return plan;
+    }
 
-        planRepository.findFirstByWarehouseIdAndStatusOrderByApprovedAtDesc(warehouseId, "ACTIVE")
+    @Transactional
+    public SlottingPlanEntity schedule(UUID planId, OffsetDateTime scheduledFor) {
+        SlottingPlanEntity plan = getPlan(planId);
+        if (!Set.of("APPROVED", "SCHEDULED").contains(plan.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only an approved plan can be scheduled");
+        }
+        plan.setScheduledFor(scheduledFor != null ? scheduledFor : OffsetDateTime.now());
+        plan.setStatus("SCHEDULED");
+        plan.setExecutionStatus("SCHEDULED");
+        plan = planRepository.save(plan);
+        updatePlanningCycle(plan, "SCHEDULED", plan.getScheduledFor());
+        if (!plan.getScheduledFor().isAfter(OffsetDateTime.now())) {
+            return releaseScheduledPlan(plan.getId());
+        }
+        return plan;
+    }
+
+    @Transactional
+    public SlottingPlanEntity releaseScheduledPlan(UUID planId) {
+        SlottingPlanEntity plan = getPlan(planId);
+        if (!"SCHEDULED".equals(plan.getStatus())) return plan;
+        List<SlottingPlanLineEntity> lines = lineRepository.findByPlanIdOrderByMaterialCodeAsc(planId);
+        SlottingPlanExecutionService.ExecutionResult execution = executionService.executeApprovedPlan(plan, lines);
+        UUID currentPlanId = plan.getId();
+        planRepository.findFirstByWarehouseIdAndStatusOrderByApprovedAtDesc(plan.getWarehouseId(), "ACTIVE")
+                .filter(active -> !active.getId().equals(currentPlanId))
                 .ifPresent(active -> {
                     active.setStatus("SUPERSEDED");
                     planRepository.save(active);
                 });
-
         plan.setStatus("ACTIVE");
-        plan.setApprovedBy(request.approvedBy());
-        plan.setApprovedAt(OffsetDateTime.now());
         plan.setExecutionStatus(execution.executionStatus());
         plan.setExecutionTransferId(execution.transferId());
         plan.setTransfersCreated(execution.transfersCreated());
-        return planRepository.save(plan);
+        plan = planRepository.save(plan);
+        updatePlanningCycle(plan, "COMPLETED".equals(execution.executionStatus()) ? "COMPLETED" : "IN_EXECUTION", null);
+        return plan;
+    }
+
+    private void updatePlanningCycle(SlottingPlanEntity plan, String status, OffsetDateTime scheduledFor) {
+        if (plan.getPlanningCycleId() == null) return;
+        planningCycleRepository.findById(plan.getPlanningCycleId()).ifPresent(cycle -> {
+            cycle.setLifecycleStatus(status);
+            if (scheduledFor != null) cycle.setScheduledFor(scheduledFor);
+            if ("IN_EXECUTION".equals(status) && cycle.getStartedAt() == null) cycle.setStartedAt(OffsetDateTime.now());
+            if ("COMPLETED".equals(status)) cycle.setCompletedAt(OffsetDateTime.now());
+            planningCycleRepository.save(cycle);
+        });
     }
 
     private String resolveUniquePlanCode(UUID warehouseId, String baseCode) {
@@ -370,7 +425,6 @@ public class SlottingPlanService {
         }
 
         int movesProposed = 0;
-        int movesApplied = 0;
         BigDecimal totalDistance = BigDecimal.ZERO;
 
         for (SlottingPlanOptimizer.OptimizedLine opt : optimized) {
@@ -398,7 +452,9 @@ public class SlottingPlanService {
             line.setZoneUpgrade(opt.zoneUpgrade());
             line.setMoveReason(opt.moveReason());
             line.setGainScore(opt.gainScore());
-            line.setRelocationApplied(opt.relocationApplied());
+            // The optimizer selects a move; it is not physically applied until a
+            // worker completes the linked transfer line.
+            line.setRelocationApplied(false);
             line.setRelocationFlag(opt.relocationFlag());
             line.setObjectiveCost(opt.gainScore());
             line.setStatus(opt.status());
@@ -409,8 +465,7 @@ public class SlottingPlanService {
             if (opt.relocationFlag()) {
                 movesProposed++;
             }
-            if (opt.relocationApplied()) {
-                movesApplied++;
+            if (opt.relocationFlag()) {
                 totalDistance = totalDistance.add(
                         opt.distanceSavedMeters() != null ? opt.distanceSavedMeters() : BigDecimal.ZERO);
             }
@@ -431,7 +486,7 @@ public class SlottingPlanService {
         }
 
         plan.setTotalMovesProposed(movesProposed);
-        plan.setRelocationMovesApplied(movesApplied);
+        plan.setRelocationMovesApplied(0);
         plan.setTotalDistanceSavedMeters(totalDistance.setScale(2, RoundingMode.HALF_UP));
         planRepository.save(plan);
     }

@@ -40,6 +40,8 @@ import {
 } from "recharts";
 import { logger } from "@/lib/utils/logger";
 import { buildInventoryPlan } from "@/lib/forecast-planning";
+import ForecastChatButton from "@/components/ForecastChatButton";
+import { useForecastChat } from "@/hooks/useForecastChat";
 
 const DEFAULT_DATASET = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_DATASET || "PROJECT_OPS_RM_PM";
 const DEFAULT_MODEL = process.env.NEXT_PUBLIC_FORECAST_DEPLOYED_MODEL || "PROJECT_OPS_EXTRA_TREES_CAUSAL";
@@ -80,22 +82,38 @@ const ModernBrushHandle = (props: any) => {
   const handleWidth = 14;
   const handleHeight = 24;
   const top = (height - handleHeight) / 2;
-  
+
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <rect 
-        x={-handleWidth / 2} 
-        y={top} 
-        width={handleWidth} 
-        height={handleHeight} 
-        fill="#ffffff" 
-        stroke={C.textDim} 
-        strokeWidth={1} 
-        rx={4} 
+      <rect
+        x={-handleWidth / 2}
+        y={top}
+        width={handleWidth}
+        height={handleHeight}
+        fill="#ffffff"
+        stroke={C.textDim}
+        strokeWidth={1}
+        rx={4}
         className="cursor-ew-resize drop-shadow-sm hover:fill-base-200"
       />
-      <line x1={-2} y1={top + 7} x2={-2} y2={top + handleHeight - 7} stroke={C.textDim} strokeWidth={1.5} strokeLinecap="round" />
-      <line x1={2} y1={top + 7} x2={2} y2={top + handleHeight - 7} stroke={C.textDim} strokeWidth={1.5} strokeLinecap="round" />
+      <line
+        x1={-2}
+        y1={top + 7}
+        x2={-2}
+        y2={top + handleHeight - 7}
+        stroke={C.textDim}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <line
+        x1={2}
+        y1={top + 7}
+        x2={2}
+        y2={top + handleHeight - 7}
+        stroke={C.textDim}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
     </g>
   );
 };
@@ -113,21 +131,54 @@ interface KpiCardProps {
 function KpiCard({ title, value, sub, color, delta, icon }: KpiCardProps) {
   const up = delta !== undefined ? delta >= 0 : false;
   return (
-    <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-6 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300">
+    <div className="card bg-base-100 shadow-sm border-none rounded-2xl p-5 relative overflow-hidden hover:-translate-y-1 transition-transform duration-300 h-full min-w-0">
       <div className="absolute top-0 left-0 w-full h-1" style={{ background: color }} />
       <div className="flex justify-between items-center mb-1">
-        <span className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">{title}</span>
-        <span className="material-symbols-outlined text-base-content/70 text-lg" style={{ color }}>{icon}</span>
+        <span className="text-xs uppercase tracking-wider text-base-content/50 font-semibold">
+          {title}
+        </span>
+        <span
+          className="material-symbols-outlined text-base-content/70 text-lg"
+          style={{ color }}
+        >
+          {icon}
+        </span>
       </div>
-      <span className="text-3xl font-bold text-base-content leading-none mb-1">{value}</span>
+      <span className="text-3xl font-bold text-base-content leading-none mb-1">
+        {value}
+      </span>
       <div className="flex items-center gap-1 text-xs text-base-content/60 mt-1">
         {delta !== undefined && (
-          <span className={up ? "text-success font-semibold" : "text-error font-semibold"}>
+          <span
+            className={
+              up ? "text-success font-semibold" : "text-error font-semibold"
+            }
+          >
             {up ? "▲" : "▼"} {Math.abs(delta)}%
           </span>
         )}
         <span>{sub}</span>
       </div>
+    </div>
+  );
+}
+
+function InventoryPlanTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="bg-base-100 border border-base-300 rounded-lg p-3 shadow-lg text-xs min-w-64">
+      <p className="text-primary font-bold mb-2">{label}</p>
+      <div className="space-y-1 text-base-content/75">
+        <p className="flex justify-between gap-5"><span>Beginning stock</span><strong className="text-base-content tabular-nums">{Number(row.beginning).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Expected demand</span><strong className="text-base-content tabular-nums">−{Number(row.demandP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>Planned receipt</span><strong className="text-base-content tabular-nums">{row.receipt ? `+${Number(row.receipt).toLocaleString()}` : "None"}</strong></p>
+        <div className="border-t border-base-300 my-1.5" />
+        <p className="flex justify-between gap-5"><span>Expected ending stock</span><strong className="text-blue-700 tabular-nums">{Number(row.endingP50).toLocaleString()}</strong></p>
+        <p className="flex justify-between gap-5"><span>High-demand ending stock</span><strong className="text-error tabular-nums">{Number(row.endingP90).toLocaleString()}</strong></p>
+      </div>
+      {row.receipt > 0 && <p className="mt-2 pt-2 border-t border-base-300 text-[10px] leading-4 text-base-content/55">Planning proposal only. Procurement has not released a purchase order.</p>}
     </div>
   );
 }
@@ -142,10 +193,14 @@ function ChartTip({ active, payload, label }: any) {
         <p key={i} className="my-0.5 flex justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}:</span>
           <strong className="text-base-content">
-            {typeof p.value === "number" 
-              ? p.value.toLocaleString() 
+            {typeof p.value === "number"
+              ? p.value.toLocaleString()
               : Array.isArray(p.value)
-                ? p.value.map((v: any) => (typeof v === "number" ? v.toLocaleString() : v)).join(" – ")
+                ? p.value
+                  .map((v: any) =>
+                    typeof v === "number" ? v.toLocaleString() : v,
+                  )
+                  .join(" – ")
                 : String(p.value)}
           </strong>
         </p>
@@ -155,12 +210,22 @@ function ChartTip({ active, payload, label }: any) {
 }
 
 // ── Section Header ──────────────────────────────────────────────
-function SectionHeader({ title, sub, color = C.accent }: { title: string; sub?: string; color?: string }) {
+function SectionHeader({
+  title,
+  sub,
+  color = C.accent,
+}: {
+  title: string;
+  sub?: string;
+  color?: string;
+}) {
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2">
         <div className="w-1 h-5 rounded-full" style={{ background: color }} />
-        <span className="text-sm font-bold text-base-content uppercase tracking-wide">{title}</span>
+        <span className="text-sm font-bold text-base-content uppercase tracking-wide">
+          {title}
+        </span>
       </div>
       {sub && <p className="text-xs text-base-content/60 ml-3 mt-0.5">{sub}</p>}
     </div>
@@ -170,11 +235,11 @@ function SectionHeader({ title, sub, color = C.accent }: { title: string; sub?: 
 // ── Badge Component ─────────────────────────────────────────────
 function Badge({ label, color }: { label: string; color: string }) {
   return (
-    <span 
+    <span
       className="px-3 py-1 text-xs font-bold rounded-full border-none"
-      style={{ 
-        background: color + "15", 
-        color: color
+      style={{
+        background: color + "15",
+        color: color,
       }}
     >
       {label}
@@ -192,7 +257,9 @@ function downloadCsv<T extends object>(filename: string, rows: T[]) {
     const raw = value === null || value === undefined ? "" : String(value);
     return `"${raw.replace(/"/g, '""')}"`;
   };
-  const body = rows.map((row) => headers.map((h) => esc(row[h])).join(",")).join("\n");
+  const body = rows
+    .map((row) => headers.map((h) => esc(row[h])).join(","))
+    .join("\n");
   const csv = `${headers.join(",")}\n${body}`;
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -205,7 +272,9 @@ function downloadCsv<T extends object>(filename: string, rows: T[]) {
 }
 
 function downloadJson(filename: string, obj: unknown) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json;charset=utf-8;" });
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {
+    type: "application/json;charset=utf-8;",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -235,7 +304,7 @@ const compareMonthLabels = (a: string, b: string): number => {
   }
   if (a.startsWith("H+")) return 1;
   if (b.startsWith("H+")) return -1;
-  
+
   const dateA = new Date(a);
   const dateB = new Date(b);
   if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
@@ -261,12 +330,23 @@ const getMonthIndex = (monthStr: string): number => {
 const displayModelName = (model?: string) => {
   const normalized = (model || "").toUpperCase();
   if (normalized === "EXTRA_TREES_RESPONSIVE") return "Extra Trees Responsive";
-  if (normalized === "EXTRA_TREES_DAMPED_TREND") return "Extra Trees with Damped Trend";
+  if (normalized === "EXTRA_TREES_DAMPED_TREND")
+    return "Extra Trees with Damped Trend";
   if (normalized === "EXTRA_TREES") return "Extra Trees";
-  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "Promoted Warehouse Demand Model";
+  if (normalized === "PROJECT_OPS_EXTRA_TREES_CAUSAL") return "Extra Trees demand forecast";
   if (normalized === "V7_RM_PM_DIRECT" || normalized.includes("LIGHTGBM")) return "Warehouse Demand Model";
   return model || "Forecast model";
 };
+
+const setupErrorMessage = (code: string) => ({
+  MISSING_DATABASE_POPULATION: "Forecast database population is missing. Run scripts/dev-bootstrap.sh.",
+  INCOMPLETE_FORECAST_POPULATION: "Canonical forecast population is incomplete; reload the project-operational dataset.",
+  STALE_OR_UNAPPROVED_PUBLISH: "The forecast publish is stale or not decision eligible.",
+  MISSING_MODEL_REGISTRATION: "The promoted model is not registered in this database.",
+  MODEL_NOT_PROMOTED: "The canonical model exists but is not promoted.",
+  MISSING_DATASET_LOAD_AUDIT: "Dataset load verification is missing.",
+  MODEL_DATASET_CHECKSUM_MISMATCH: "Model and dataset checksums disagree; do not use this publish for decisions.",
+}[code] ?? `Forecast setup error: ${code}.`);
 
 export default function ForecastsPage() {
   const { role, admin } = useAdmin();
@@ -296,19 +376,32 @@ export default function ForecastsPage() {
   const [demandHistory, setDemandHistory] = useState<DemandHistoryPoint[]>([]);
   const [backtests, setBacktests] = useState<ForecastBacktestPoint[]>([]);
   const [metrics, setMetrics] = useState<ForecastMetric[]>([]);
-  const [recommendations, setRecommendations] = useState<InventoryRecommendation[]>([]);
-  const [rawMaterialReqs, setRawMaterialReqs] = useState<RawMaterialRequirement[]>([]);
-  const [forecastSkuCatalog, setForecastSkuCatalog] = useState<ForecastSkuItem[]>([]);
+  const [recommendations, setRecommendations] = useState<
+    InventoryRecommendation[]
+  >([]);
+  const [rawMaterialReqs, setRawMaterialReqs] = useState<
+    RawMaterialRequirement[]
+  >([]);
+  const [forecastSkuCatalog, setForecastSkuCatalog] = useState<
+    ForecastSkuItem[]
+  >([]);
   const [releaseStatus, setReleaseStatus] = useState<string>("UNREGISTERED");
+  const [canonicalReadiness, setCanonicalReadiness] = useState<import("@/lib/api/ai-forecast").CanonicalForecastReadiness | null>(null);
   const [warehouseMasterOptions, setWarehouseMasterOptions] = useState<Array<{ id: string; value: string; label: string }>>([]);
   const [selectedSku, setSelectedSku] = useState<string>("");
-  const [skuTypeFilter, setSkuTypeFilter] = useState<"all" | "raw_material" | "packaging_material" | "product">("all");
+  const [skuTypeFilter, setSkuTypeFilter] = useState<
+    "all" | "raw_material" | "packaging_material" | "product"
+  >("all");
   const [skuSearchInput, setSkuSearchInput] = useState("");
   const [skuSearchOpen, setSkuSearchOpen] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
   const [inventoryPage, setInventoryPage] = useState(1);
-  const [inventorySort, setInventorySort] = useState<"risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc">("risk_desc");
+  const [inventorySort, setInventorySort] = useState<
+    "risk_desc" | "sku_asc" | "sku_desc" | "suggested_desc"
+  >("risk_desc");
   const [showCI, setShowCI] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const { captureOpenContext } = useForecastChat();
   const [runStatus, setRunStatus] = useState<{
     phase: string;
     jobId?: string;
@@ -332,7 +425,11 @@ export default function ForecastsPage() {
     { id: "model", label: "Model Performance", icon: "fact_check" },
   ];
 
-  const abcColor: Record<string, string> = { A: C.ok, B: C.accent4, C: C.muted };
+  const abcColor: Record<string, string> = {
+    A: C.ok,
+    B: C.accent4,
+    C: C.muted,
+  };
 
   const managerWarehouseScope = useMemo(() => {
     if (!admin) {
@@ -345,7 +442,8 @@ export default function ForecastsPage() {
     ? filters.warehouseId || undefined
     : managerWarehouseScope;
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
 
   const pickLatestBinding = (rows: ForecastPoint[]) => {
     if (!rows.length) {
@@ -359,38 +457,18 @@ export default function ForecastsPage() {
   };
 
   const resolveBinding = async (): Promise<{ dataset: string; model: string }> => {
-    const championDataset = DEFAULT_DATASET;
-    const championModel = DEFAULT_MODEL.toUpperCase();
-
-    try {
-      const models = await aiForecastApi.getGatewayModels();
-      const name = models?.champion?.name;
-      if (name) {
-        const dataset = models?.champion?.dataset || championDataset;
-        return { dataset: String(dataset), model: String(name).toUpperCase() };
-      }
-    } catch (gatewayError) {
-      logger.warn("[ForecastsPage] Gateway models unavailable, using configured champion:", gatewayError);
+    const readiness = await aiForecastApi.getCanonicalReadiness(effectiveWarehouseId);
+    setCanonicalReadiness(readiness);
+    if (!readiness.ready) {
+      throw new Error(readiness.errors.map(setupErrorMessage).join(" "));
     }
-
-    try {
-      const forecastRes = await aiForecastApi.getForecasts({
-        dataset: championDataset,
-        model: championModel,
-        warehouseId: effectiveWarehouseId,
-      });
-      const binding = pickLatestBinding(forecastRes.items ?? []);
-      if (binding) {
-        return binding;
-      }
-    } catch (forecastError) {
-      logger.warn("[ForecastsPage] Champion forecast lookup failed:", forecastError);
-    }
-
-    return { dataset: championDataset, model: championModel };
+    return { dataset: readiness.dataset, model: readiness.modelName.toUpperCase() };
   };
 
-  const loadData = async (options?: { preserveOnEmpty?: boolean; keepInfo?: boolean }) => {
+  const loadData = async (options?: {
+    preserveOnEmpty?: boolean;
+    keepInfo?: boolean;
+  }) => {
     try {
       setLoading(true);
       setError(null);
@@ -405,12 +483,21 @@ export default function ForecastsPage() {
         setRecommendations([]);
         setRawMaterialReqs([]);
         setReleaseStatus("UNREGISTERED");
-        setInfoMessage("No published forecast rows found yet. Run forecast after model/data mapping is ready.");
+        setInfoMessage(
+          "No published forecast rows found yet. Run forecast after model/data mapping is ready.",
+        );
         return { hasRows: false, latestRunId: undefined };
       }
 
-      if (filters.dataset !== binding.dataset || filters.model !== binding.model) {
-        setFilters((prev) => ({ ...prev, dataset: binding.dataset, model: binding.model }));
+      if (
+        filters.dataset !== binding.dataset ||
+        filters.model !== binding.model
+      ) {
+        setFilters((prev) => ({
+          ...prev,
+          dataset: binding.dataset,
+          model: binding.model,
+        }));
       }
 
       const forecastRes = await aiForecastApi.getForecasts({
@@ -421,7 +508,13 @@ export default function ForecastsPage() {
       });
       setReleaseStatus(forecastRes.release_status ?? "UNREGISTERED");
 
-      const [metricResult, recoResult, rmResult, historyResult, backtestResult] = await Promise.allSettled([
+      const [
+        metricResult,
+        recoResult,
+        rmResult,
+        historyResult,
+        backtestResult,
+      ] = await Promise.allSettled([
         aiForecastApi.getForecastMetrics({
           dataset: binding.dataset,
           model: binding.model,
@@ -462,7 +555,10 @@ export default function ForecastsPage() {
         nextSkuCatalog = skuResult.items ?? [];
         setForecastSkuCatalog(nextSkuCatalog);
       } catch (skuError) {
-        logger.warn("[ForecastsPage] Forecast SKU catalog unavailable:", skuError);
+        logger.warn(
+          "[ForecastsPage] Forecast SKU catalog unavailable:",
+          skuError,
+        );
       }
 
       let nextForecasts = forecastRes.items ?? [];
@@ -516,13 +612,22 @@ export default function ForecastsPage() {
       }
 
       if (metricResult.status === "rejected") {
-        logger.warn("[ForecastsPage] Metrics endpoint unavailable; continuing with forecast rows:", metricResult.reason);
+        logger.warn(
+          "[ForecastsPage] Metrics endpoint unavailable; continuing with forecast rows:",
+          metricResult.reason,
+        );
       }
       if (recoResult.status === "rejected") {
-        logger.warn("[ForecastsPage] Inventory recommendation endpoint unavailable; continuing with forecast rows:", recoResult.reason);
+        logger.warn(
+          "[ForecastsPage] Inventory recommendation endpoint unavailable; continuing with forecast rows:",
+          recoResult.reason,
+        );
       }
       if (rmResult.status === "rejected") {
-        logger.warn("[ForecastsPage] Raw-material requirement endpoint unavailable; continuing with direct RM/PM forecasts:", rmResult.reason);
+        logger.warn(
+          "[ForecastsPage] Raw-material requirement endpoint unavailable; continuing with direct RM/PM forecasts:",
+          rmResult.reason,
+        );
       }
 
       const candidateRunIds = [
@@ -531,13 +636,17 @@ export default function ForecastsPage() {
         ...nextRecommendations.map((r) => Number(r.run_id)),
         ...nextRmReqs.map((r) => Number(r.run_id)),
       ].filter((v) => Number.isFinite(v) && v > 0);
-      const canonicalRunId = candidateRunIds.length ? Math.max(...candidateRunIds) : undefined;
+      const canonicalRunId = candidateRunIds.length
+        ? Math.max(...candidateRunIds)
+        : undefined;
 
       if (canonicalRunId) {
         const needsRunNormalization =
           nextForecasts.some((r) => Number(r.run_id) !== canonicalRunId) ||
           nextMetrics.some((r) => Number(r.run_id) !== canonicalRunId) ||
-          nextRecommendations.some((r) => Number(r.run_id) !== canonicalRunId) ||
+          nextRecommendations.some(
+            (r) => Number(r.run_id) !== canonicalRunId,
+          ) ||
           nextRmReqs.some((r) => Number(r.run_id) !== canonicalRunId);
         if (needsRunNormalization) {
           const forecastRunRes = await aiForecastApi.getForecasts({
@@ -547,39 +656,57 @@ export default function ForecastsPage() {
             warehouseId: effectiveWarehouseId,
             runId: canonicalRunId,
           });
-          const [metricRunResult, recoRunResult, rmRunResult] = await Promise.allSettled([
-            aiForecastApi.getForecastMetrics({
-              dataset: binding.dataset,
-              model: binding.model,
-              split: EVAL_SPLIT,
-              warehouseId: effectiveWarehouseId,
-            }),
-            aiForecastApi.getInventoryRecommendations({
-              dataset: binding.dataset,
-              model: binding.model,
-              sku: filters.sku,
-              warehouseId: effectiveWarehouseId,
-              runId: canonicalRunId,
-            }),
-            aiForecastApi.getRawMaterialRequirements({
-              dataset: binding.dataset,
-              model: binding.model,
-              rmSku: filters.sku,
-              warehouseId: effectiveWarehouseId,
-              runId: canonicalRunId,
-            }),
-          ]);
+          const [metricRunResult, recoRunResult, rmRunResult] =
+            await Promise.allSettled([
+              aiForecastApi.getForecastMetrics({
+                dataset: binding.dataset,
+                model: binding.model,
+                split: EVAL_SPLIT,
+                warehouseId: effectiveWarehouseId,
+              }),
+              aiForecastApi.getInventoryRecommendations({
+                dataset: binding.dataset,
+                model: binding.model,
+                sku: filters.sku,
+                warehouseId: effectiveWarehouseId,
+                runId: canonicalRunId,
+              }),
+              aiForecastApi.getRawMaterialRequirements({
+                dataset: binding.dataset,
+                model: binding.model,
+                rmSku: filters.sku,
+                warehouseId: effectiveWarehouseId,
+                runId: canonicalRunId,
+              }),
+            ]);
           nextForecasts = forecastRunRes.items ?? [];
-          nextMetrics = metricRunResult.status === "fulfilled" ? metricRunResult.value.items ?? [] : nextMetrics;
-          nextRecommendations = recoRunResult.status === "fulfilled" ? recoRunResult.value.items ?? [] : nextRecommendations;
-          nextRmReqs = rmRunResult.status === "fulfilled" ? rmRunResult.value.items ?? [] : nextRmReqs;
+          nextMetrics =
+            metricRunResult.status === "fulfilled"
+              ? (metricRunResult.value.items ?? [])
+              : nextMetrics;
+          nextRecommendations =
+            recoRunResult.status === "fulfilled"
+              ? (recoRunResult.value.items ?? [])
+              : nextRecommendations;
+          nextRmReqs =
+            rmRunResult.status === "fulfilled"
+              ? (rmRunResult.value.items ?? [])
+              : nextRmReqs;
         }
       }
 
-      const gotNoRows = nextForecasts.length === 0 && nextMetrics.length === 0 && nextRecommendations.length === 0;
-      const hadPreviousRows = forecasts.length > 0 || metrics.length > 0 || recommendations.length > 0;
+      const gotNoRows =
+        nextForecasts.length === 0 &&
+        nextMetrics.length === 0 &&
+        nextRecommendations.length === 0;
+      const hadPreviousRows =
+        forecasts.length > 0 ||
+        metrics.length > 0 ||
+        recommendations.length > 0;
       if (options?.preserveOnEmpty && gotNoRows && hadPreviousRows) {
-        setInfoMessage("Trigger started, but no new rows are available yet. Showing previous data.");
+        setInfoMessage(
+          "Trigger started, but no new rows are available yet. Showing previous data.",
+        );
         setLoading(false);
         return { hasRows: false, latestRunId: canonicalRunId };
       }
@@ -592,11 +719,19 @@ export default function ForecastsPage() {
       setBacktests(nextBacktests);
       return {
         hasRows: !gotNoRows,
-        latestRunId: canonicalRunId ?? (nextForecasts.length ? Math.max(...nextForecasts.map((f) => f.run_id)) : undefined),
+        latestRunId:
+          canonicalRunId ??
+          (nextForecasts.length
+            ? Math.max(...nextForecasts.map((f) => f.run_id))
+            : undefined),
       };
     } catch (loadError) {
       logger.error("[ForecastsPage] Failed to load forecast data:", loadError);
-      setError(loadError instanceof Error ? loadError.message : "Failed to load forecast data");
+      setError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load forecast data",
+      );
       return { hasRows: false, latestRunId: undefined as number | undefined };
     } finally {
       setLoading(false);
@@ -609,7 +744,7 @@ export default function ForecastsPage() {
     for (let i = 0; i < attempts; i += 1) {
       try {
         const job = await aiForecastApi.getForecastJob(jobId);
-        
+
         if (job) {
           if (job.status === "succeeded") {
             setRunProgress(100);
@@ -621,29 +756,33 @@ export default function ForecastsPage() {
             setRunProgress(null);
             return false;
           }
-          
+
           // The Python inference call is synchronous, so Spring can only report
           // its last durable stage. Interpolate the UI value and label it as an
           // estimate instead of exposing poll attempts as if they were stages.
           const reportedProgress = job.progress ?? 10;
           const estimatedProgress = Math.min(
             95,
-            Math.max(reportedProgress, 10 + Math.floor(((i + 1) / attempts) * 85))
+            Math.max(
+              reportedProgress,
+              10 + Math.floor(((i + 1) / attempts) * 85),
+            ),
           );
           setRunProgress(estimatedProgress);
 
           const progressMsg = job.message
             ? `${job.message} Estimated progress: ${estimatedProgress}%.`
             : `Forecast pipeline is running. Estimated progress: ${estimatedProgress}%.`;
-            
-          setRunStatus(prev => ({
+
+          setRunStatus((prev) => ({
             ...prev,
-            message: progressMsg
+            message: progressMsg,
           }));
           setInfoMessage(progressMsg);
         } else {
           // Fallback if no job found yet
-          const progressMsg = "Forecast job accepted. Waiting for the pipeline to start...";
+          const progressMsg =
+            "Forecast job accepted. Waiting for the pipeline to start...";
           setInfoMessage(progressMsg);
         }
       } catch (pollError) {
@@ -660,7 +799,9 @@ export default function ForecastsPage() {
     const resolvedDataset = binding?.dataset ?? DEFAULT_DATASET;
     const resolvedModel = binding?.model ?? DEFAULT_MODEL;
     if (!resolvedDataset || !resolvedModel) {
-      setError("No runtime dataset/model binding found. Publish at least one valid run first.");
+      setError(
+        "No runtime dataset/model binding found. Publish at least one valid run first.",
+      );
       return;
     }
 
@@ -695,7 +836,9 @@ export default function ForecastsPage() {
         });
         const published = await waitForPublishedRows(jobId);
         if (published) {
-          setInfoMessage(`Run ${runId} published successfully. Loading latest data...`);
+          setInfoMessage(
+            `Run ${runId} published successfully. Loading latest data...`,
+          );
           setRunProgress(100);
           setRunStatus({
             phase: "published",
@@ -705,7 +848,9 @@ export default function ForecastsPage() {
             updatedAt: new Date().toISOString(),
           });
         } else {
-          setInfoMessage("Run started, but publish is still in progress. Showing latest available data.");
+          setInfoMessage(
+            "Run started, but publish is still in progress. Showing latest available data.",
+          );
           setRunProgress(null);
           setRunStatus({
             phase: "timeout",
@@ -726,12 +871,22 @@ export default function ForecastsPage() {
         await loadData({ preserveOnEmpty: true, keepInfo: true });
       }
     } catch (triggerError) {
-      logger.error("[ForecastsPage] Failed to trigger forecast run:", triggerError);
-      setError(triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run");
+      logger.error(
+        "[ForecastsPage] Failed to trigger forecast run:",
+        triggerError,
+      );
+      setError(
+        triggerError instanceof Error
+          ? triggerError.message
+          : "Failed to trigger forecast run",
+      );
       setInfoMessage(null);
       setRunStatus({
         phase: "failed",
-        message: triggerError instanceof Error ? triggerError.message : "Failed to trigger forecast run",
+        message:
+          triggerError instanceof Error
+            ? triggerError.message
+            : "Failed to trigger forecast run",
         updatedAt: new Date().toISOString(),
       });
     } finally {
@@ -760,7 +915,10 @@ export default function ForecastsPage() {
           .sort((a, b) => a.label.localeCompare(b.label));
         setWarehouseMasterOptions(options);
       } catch (warehouseError) {
-        logger.warn("[ForecastsPage] Failed to load warehouses:", warehouseError);
+        logger.warn(
+          "[ForecastsPage] Failed to load warehouses:",
+          warehouseError,
+        );
         setWarehouseMasterOptions([]);
       }
     };
@@ -776,20 +934,30 @@ export default function ForecastsPage() {
 
   const latestForecasts = useMemo(
     () => forecasts.filter((f) => !latestRunId || f.run_id === latestRunId),
-    [forecasts, latestRunId]
+    [forecasts, latestRunId],
   );
 
   const skuCategoryByCode = useMemo(() => {
     const categories = new Map<string, string>();
-    forecastSkuCatalog.forEach((row) => categories.set(row.sku, String(row.material_type || "").toLowerCase()));
-    recommendations.forEach((row) => categories.set(row.sku, String(row.category || "").toLowerCase()));
-    latestForecasts.forEach((row) => categories.set(row.sku, String(row.category || "").toLowerCase()));
+    forecastSkuCatalog.forEach((row) =>
+      categories.set(row.sku, String(row.material_type || "").toLowerCase()),
+    );
+    recommendations.forEach((row) =>
+      categories.set(row.sku, String(row.category || "").toLowerCase()),
+    );
+    latestForecasts.forEach((row) =>
+      categories.set(row.sku, String(row.category || "").toLowerCase()),
+    );
     return categories;
   }, [forecastSkuCatalog, latestForecasts, recommendations]);
 
   const skuOptions = useMemo(() => {
     return Array.from(skuCategoryByCode.keys())
-      .filter((sku) => skuTypeFilter === "all" || skuCategoryByCode.get(sku) === skuTypeFilter)
+      .filter(
+        (sku) =>
+          skuTypeFilter === "all" ||
+          skuCategoryByCode.get(sku) === skuTypeFilter,
+      )
       .sort((a, b) => a.localeCompare(b));
   }, [skuCategoryByCode, skuTypeFilter]);
 
@@ -799,7 +967,11 @@ export default function ForecastsPage() {
       return;
     }
     if (!selectedSku || !skuOptions.includes(selectedSku)) {
-      setSelectedSku(filters.sku && skuOptions.includes(filters.sku) ? filters.sku : skuOptions[0]);
+      setSelectedSku(
+        filters.sku && skuOptions.includes(filters.sku)
+          ? filters.sku
+          : skuOptions[0],
+      );
     }
   }, [filters.sku, selectedSku, skuOptions]);
 
@@ -816,37 +988,54 @@ export default function ForecastsPage() {
     }
     let cancelled = false;
     const loadSelectedSkuSeries = async () => {
-      const [forecastResult, historyResult, backtestResult] = await Promise.allSettled([
-        aiForecastApi.getForecasts({
-          dataset: filters.dataset,
-          model: filters.model,
-          sku: selectedSku,
-          warehouseId: effectiveWarehouseId,
-          size: 24,
-        }),
-        aiForecastApi.getDemandHistory({ sku: selectedSku, warehouseId: effectiveWarehouseId, size: 100 }),
-        aiForecastApi.getForecastBacktests({
-          sku: selectedSku,
-          model: filters.model,
-          warehouseId: effectiveWarehouseId,
-          size: 200,
-        }),
-      ]);
+      const [forecastResult, historyResult, backtestResult] =
+        await Promise.allSettled([
+          aiForecastApi.getForecasts({
+            dataset: filters.dataset,
+            model: filters.model,
+            sku: selectedSku,
+            warehouseId: effectiveWarehouseId,
+            size: 24,
+          }),
+          aiForecastApi.getDemandHistory({
+            sku: selectedSku,
+            warehouseId: effectiveWarehouseId,
+            size: 100,
+          }),
+          aiForecastApi.getForecastBacktests({
+            sku: selectedSku,
+            model: filters.model,
+            warehouseId: effectiveWarehouseId,
+            size: 200,
+          }),
+        ]);
       if (cancelled) return;
       if (forecastResult.status === "fulfilled") {
         const selectedRows = forecastResult.value.items ?? [];
-        setForecasts((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+        setForecasts((current) => [
+          ...current.filter((row) => row.sku !== selectedSku),
+          ...selectedRows,
+        ]);
       }
       if (historyResult.status === "fulfilled") {
         const selectedRows = historyResult.value.items ?? [];
-        setDemandHistory((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+        setDemandHistory((current) => [
+          ...current.filter((row) => row.sku !== selectedSku),
+          ...selectedRows,
+        ]);
       }
       if (backtestResult.status === "fulfilled") {
         const selectedRows = backtestResult.value.items ?? [];
-        setBacktests((current) => [...current.filter((row) => row.sku !== selectedSku), ...selectedRows]);
+        setBacktests((current) => [
+          ...current.filter((row) => row.sku !== selectedSku),
+          ...selectedRows,
+        ]);
       }
       if (forecastResult.status === "rejected") {
-        logger.warn("[ForecastsPage] Selected SKU forecast series failed:", forecastResult.reason);
+        logger.warn(
+          "[ForecastsPage] Selected SKU forecast series failed:",
+          forecastResult.reason,
+        );
       }
     };
     void loadSelectedSkuSeries();
@@ -862,9 +1051,14 @@ export default function ForecastsPage() {
       return skuOptions.slice(0, 12);
     }
     const exact = skuOptions.filter((sku) => sku.toLowerCase() === q);
-    const starts = skuOptions.filter((sku) => sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q);
+    const starts = skuOptions.filter(
+      (sku) => sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q,
+    );
     const contains = skuOptions.filter(
-      (sku) => sku.toLowerCase().includes(q) && !sku.toLowerCase().startsWith(q) && sku.toLowerCase() !== q
+      (sku) =>
+        sku.toLowerCase().includes(q) &&
+        !sku.toLowerCase().startsWith(q) &&
+        sku.toLowerCase() !== q,
     );
     return [...exact, ...starts, ...contains].slice(0, 12);
   }, [deferredSkuQuery, skuOptions]);
@@ -885,11 +1079,14 @@ export default function ForecastsPage() {
 
   const aggregateMetric = useMemo(
     () => filteredMetrics.find((metric) => metric.horizon === 0) ?? null,
-    [filteredMetrics]
+    [filteredMetrics],
   );
 
   const avgWape = useMemo(() => {
-    if (typeof aggregateMetric?.WAPE === "number" && Number.isFinite(aggregateMetric.WAPE)) {
+    if (
+      typeof aggregateMetric?.WAPE === "number" &&
+      Number.isFinite(aggregateMetric.WAPE)
+    ) {
       return aggregateMetric.WAPE;
     }
     const values = filteredMetrics
@@ -903,7 +1100,10 @@ export default function ForecastsPage() {
   }, [aggregateMetric, filteredMetrics]);
 
   const avgRmse = useMemo(() => {
-    if (typeof aggregateMetric?.RMSE === "number" && Number.isFinite(aggregateMetric.RMSE)) {
+    if (
+      typeof aggregateMetric?.RMSE === "number" &&
+      Number.isFinite(aggregateMetric.RMSE)
+    ) {
       return aggregateMetric.RMSE;
     }
     const values = filteredMetrics
@@ -917,7 +1117,10 @@ export default function ForecastsPage() {
   }, [aggregateMetric, filteredMetrics]);
 
   const avgBias = useMemo(() => {
-    if (typeof aggregateMetric?.Bias === "number" && Number.isFinite(aggregateMetric.Bias)) {
+    if (
+      typeof aggregateMetric?.Bias === "number" &&
+      Number.isFinite(aggregateMetric.Bias)
+    ) {
       return aggregateMetric.Bias;
     }
     const values = filteredMetrics
@@ -953,10 +1156,13 @@ export default function ForecastsPage() {
         f.p90 !== null &&
         f.p90 !== undefined &&
         f.p10 !== 0 &&
-        f.p90 !== 0
+        f.p90 !== 0,
     );
     if (!rows.length) return null;
-    const inside = rows.filter((f) => Number(f.y_true) >= Number(f.p10) && Number(f.y_true) <= Number(f.p90)).length;
+    const inside = rows.filter(
+      (f) =>
+        Number(f.y_true) >= Number(f.p10) && Number(f.y_true) <= Number(f.p90),
+    ).length;
     return (inside / rows.length) * 100;
   }, [aggregateMetric, backtests]);
 
@@ -988,7 +1194,7 @@ export default function ForecastsPage() {
       (row) =>
         row.on_hand_inventory !== null &&
         row.on_hand_inventory !== undefined &&
-        row.on_hand_inventory < row.reorder_point
+        row.on_hand_inventory < row.reorder_point,
     ).length;
   }, [recommendations]);
 
@@ -998,14 +1204,15 @@ export default function ForecastsPage() {
         (row) =>
           row.on_hand_inventory !== null &&
           row.on_hand_inventory !== undefined &&
-          row.on_hand_inventory > row.target_max
+          row.on_hand_inventory > row.target_max,
       ).length,
-    [recommendations]
+    [recommendations],
   );
 
   const totalSuggestedQty = useMemo(
-    () => recommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0),
-    [recommendations]
+    () =>
+      recommendations.reduce((sum, row) => sum + row.suggested_order_qty, 0),
+    [recommendations],
   );
 
   const topReorderItems = useMemo(() => {
@@ -1023,7 +1230,7 @@ export default function ForecastsPage() {
 
   const selectedSkuRecommendation = useMemo(
     () => recommendations.find((row) => row.sku === selectedSku) ?? null,
-    [recommendations, selectedSku]
+    [recommendations, selectedSku],
   );
 
   const selectedSkuCatalogItem = useMemo(
@@ -1071,11 +1278,19 @@ export default function ForecastsPage() {
 
   useEffect(() => {
     setInventoryPage(1);
-  }, [inventorySearch, inventorySort, recommendations, filters.horizon, filters.sku, effectiveWarehouseId]);
+  }, [
+    inventorySearch,
+    inventorySort,
+    recommendations,
+    filters.horizon,
+    filters.sku,
+    effectiveWarehouseId,
+  ]);
 
   const totalInventoryPages = useMemo(
-    () => Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
-    [sortedRecommendations.length]
+    () =>
+      Math.max(1, Math.ceil(sortedRecommendations.length / inventoryPageSize)),
+    [sortedRecommendations.length],
   );
 
   const pagedRecommendations = useMemo(() => {
@@ -1087,7 +1302,11 @@ export default function ForecastsPage() {
     if (runStatus.phase === "failed") return "badge-error";
     if (runStatus.phase === "timeout") return "badge-warning";
     if (runStatus.phase === "published") return "badge-success";
-    if (runStatus.phase === "triggering" || runStatus.phase === "waiting_publish") return "badge-info";
+    if (
+      runStatus.phase === "triggering" ||
+      runStatus.phase === "waiting_publish"
+    )
+      return "badge-info";
     return "badge-ghost";
   }, [runStatus.phase]);
 
@@ -1177,7 +1396,7 @@ export default function ForecastsPage() {
     futureRows.forEach(f => {
       const dateStr = f.month;
       if (!dateStr) return;
-      
+
       if (!dateGroups[dateStr]) {
         dateGroups[dateStr] = {
           date: dateStr,
@@ -1186,7 +1405,7 @@ export default function ForecastsPage() {
           forecastSum: 0,
           lowerSum: 0,
           upperSum: 0,
-          count: 0
+          count: 0,
         };
       }
       const g = dateGroups[dateStr];
@@ -1195,54 +1414,70 @@ export default function ForecastsPage() {
       g.upperSum += Number(f.p90);
       g.count++;
     });
-    
+
     return Object.values(dateGroups)
       .sort((a, b) => compareMonthLabels(a.date, b.date))
-      .map(g => ({
+      .map((g) => ({
         label: formatMonthLabel(g.date),
         actual: g.actualCount > 0 ? Math.round(g.actualSum || 0) : null,
         forecast: Math.round(g.forecastSum),
         upper: Math.round(g.upperSum),
         lower: Math.round(g.lowerSum),
         ciRange: [Math.round(g.lowerSum), Math.round(g.upperSum)],
-        trend: null
+        trend: null,
       }));
   }, [backtests, latestForecasts, selectedSku, filters.horizon]);
 
   // 2. Seasonality Live Calculation
   const liveSeasonality = useMemo(() => {
     const filtered = selectedSku
-      ? demandHistory.filter(f => f.sku === selectedSku)
+      ? demandHistory.filter((f) => f.sku === selectedSku)
       : demandHistory;
-      
+
     if (!filtered.length) return [];
 
     const monthlyActuals: Record<number, number[]> = {};
-    filtered.forEach(f => {
+    filtered.forEach((f) => {
       if (!f.month) return;
       const m = getMonthIndex(f.month);
       if (!monthlyActuals[m]) monthlyActuals[m] = [];
       monthlyActuals[m].push(Number(f.actual_demand));
     });
-    
-    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
     const list = monthNames.map((name, i) => {
       const vals = monthlyActuals[i] || [];
-      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      const avg = vals.length
+        ? vals.reduce((a, b) => a + b, 0) / vals.length
+        : 0;
       return { month: name, avg };
     });
-    
-    const nonZeroAvgs = list.map(l => l.avg).filter(v => v > 0);
-    
+
+    const nonZeroAvgs = list.map((l) => l.avg).filter((v) => v > 0);
+
     // If we have no actual historical data at all, return empty to trigger fallback
     if (nonZeroAvgs.length === 0) return [];
-    
-    const overallAvg = nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
-    
-    return list.map(l => ({
+
+    const overallAvg =
+      nonZeroAvgs.reduce((a, b) => a + b, 0) / nonZeroAvgs.length;
+
+    return list.map((l) => ({
       month: l.month,
       index: Number((l.avg / overallAvg).toFixed(2)),
-      sales: Math.round(l.avg)
+      sales: Math.round(l.avg),
     }));
   }, [demandHistory, selectedSku]);
 
@@ -1310,14 +1545,14 @@ export default function ForecastsPage() {
   // 4. SKU Details and Classification
   const liveSkuDetails = useMemo(() => {
     if (!recommendations.length) return [];
-    return recommendations.map(rec => {
+    return recommendations.map((rec) => {
       const sid = rec.sku;
       const actuals = demandHistory.filter(f => f.sku === sid).map(f => Number(f.actual_demand));
       const observedVelocity = actuals.length ? actuals.reduce((a, b) => a + b, 0) / actuals.length : 0;
       const velocity = Number(rec.average_monthly_demand ?? observedVelocity);
       const abc = rec.abc_class || "-";
       const fms = rec.fms_class || "-";
-      const hist = backtests.filter(f => f.sku === sid);
+      const hist = backtests.filter((f) => f.sku === sid);
       const sumAbsErr = hist.reduce((s, f) => s + Number(f.absolute_error), 0);
       const sumActual = hist.reduce((s, f) => s + Number(f.y_true), 0);
       const mape = typeof rec.sku_wape === "number"
@@ -1325,8 +1560,9 @@ export default function ForecastsPage() {
         : sumActual > 0 ? (sumAbsErr / sumActual) * 100 : 0;
       
       const onHand = rec.on_hand_inventory ?? 0;
-      const coverDays = velocity > 0 ? Math.round((onHand / (velocity / 30))) : 20;
-      
+      const coverDays =
+        velocity > 0 ? Math.round(onHand / (velocity / 30)) : 20;
+
       return {
         sku: sid,
         description: rec.description || sid,
@@ -1340,26 +1576,32 @@ export default function ForecastsPage() {
         safetyStock: rec.safety_stock,
         targetMax: rec.target_max,
         onHand,
-        suggested: rec.suggested_order_qty
+        suggested: rec.suggested_order_qty,
       };
     });
   }, [recommendations, demandHistory, backtests]);
 
   // 5. Model QA Residuals
   const liveResiduals = useMemo(() => {
-    const hist = selectedSku ? backtests.filter(f => f.sku === selectedSku) : backtests;
+    const hist = selectedSku
+      ? backtests.filter((f) => f.sku === selectedSku)
+      : backtests;
     if (!hist.length) return [];
-    
-    const sortedHist = [...hist].sort((a, b) => compareMonthLabels(a.month, b.month));
-    return sortedHist.map(f => {
-      const label = formatMonthLabel(f.month);
-      const residual = Number(f.residual);
-      return {
-        label,
-        residual: Math.round(residual),
-        absError: Math.round(Math.abs(residual))
-      };
-    }).slice(-18);
+
+    const sortedHist = [...hist].sort((a, b) =>
+      compareMonthLabels(a.month, b.month),
+    );
+    return sortedHist
+      .map((f) => {
+        const label = formatMonthLabel(f.month);
+        const residual = Number(f.residual);
+        return {
+          label,
+          residual: Math.round(residual),
+          absError: Math.round(Math.abs(residual)),
+        };
+      })
+      .slice(-18);
   }, [backtests, selectedSku]);
 
   // ── FINAL DATA RESOLUTION (live API only — no synthetic fallbacks) ──────
@@ -1392,18 +1634,19 @@ export default function ForecastsPage() {
   const finalSeasonality = liveSeasonality;
   const finalResiduals = liveResiduals;
   const finalInventory = inventoryPlan.rows;
+  const inventoryChartData = finalInventory.map((row) => ({
+    ...row,
+    plannedReceipt: row.receipt,
+  }));
   const hasLiveForecastData = aggregatedForecastData.length > 0;
-  const hasBacktestActuals = useMemo(
-    () => backtests.length > 0,
-    [backtests]
-  );
+  const hasBacktestActuals = useMemo(() => backtests.length > 0, [backtests]);
   const forecastHorizonMonths = filters.horizon ?? 12;
   const forecastedUnitsForHorizon = useMemo(() => {
     const rows = latestForecasts.filter(
       (f) =>
         (!selectedSku || f.sku === selectedSku) &&
         f.horizon <= forecastHorizonMonths &&
-        (f.y_true === null || f.y_true === undefined)
+        (f.y_true === null || f.y_true === undefined),
     );
     if (!rows.length) return null;
     return Math.round(rows.reduce((s, f) => s + Number(f.p50 || 0), 0));
@@ -1435,11 +1678,13 @@ export default function ForecastsPage() {
 
   const processedForecastData = useMemo(() => {
     if (!finalForecastData || !finalForecastData.length) return [];
-    const firstFutureIdx = finalForecastData.findIndex(d => d.actual === null);
+    const firstFutureIdx = finalForecastData.findIndex(
+      (d) => d.actual === null,
+    );
     return finalForecastData.map((d, i) => {
       let forecastHistory: number | null = null;
       let forecastFuture: number | null = null;
-      
+
       if (firstFutureIdx === -1) {
         forecastHistory = d.forecast;
       } else {
@@ -1455,14 +1700,14 @@ export default function ForecastsPage() {
       return {
         ...d,
         forecastHistory,
-        forecastFuture
+        forecastFuture,
       };
     });
   }, [finalForecastData]);
 
   const transitionLabel = useMemo(() => {
     if (!finalForecastData || !finalForecastData.length) return undefined;
-    const firstFuture = finalForecastData.find(d => d.actual === null);
+    const firstFuture = finalForecastData.find((d) => d.actual === null);
     return firstFuture?.label;
   }, [finalForecastData]);
 
@@ -1470,9 +1715,49 @@ export default function ForecastsPage() {
   const rmseVal = avgRmse !== null ? Math.round(avgRmse) : null;
   const biasVal = avgBias !== null ? Number((avgBias * 100).toFixed(1)) : null;
   const maseVal = avgMase !== null ? Number(avgMase.toFixed(2)) : null;
-  const nrmseVal = avgMase !== null ? Math.round(avgMase) : (normalizedRmse !== null ? Math.round(normalizedRmse) : null);
-  const coverageVal = avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
-  const fmtMetric = (v: number | null, suffix = "") => (v === null ? "—" : `${v}${suffix}`);
+  const nrmseVal =
+    avgMase !== null
+      ? Math.round(avgMase)
+      : normalizedRmse !== null
+        ? Math.round(normalizedRmse)
+        : null;
+  const coverageVal =
+    avgCoverage !== null ? Number(avgCoverage.toFixed(1)) : null;
+  const fmtMetric = (v: number | null, suffix = "") =>
+    v === null ? "—" : `${v}${suffix}`;
+
+  // ── Chat context derivations ─────────────────────────────────────────────
+  // Nearest future p50 for the selected SKU (first point with no y_true)
+  const predictedUnitsForChat = useMemo(() => {
+    const pool = selectedSku
+      ? latestForecasts.filter((f) => f.sku === selectedSku)
+      : latestForecasts;
+    const firstFuture = pool
+      .filter(
+        (f) => (f.y_true === null || f.y_true === undefined) && f.p50 != null,
+      )
+      .sort((a, b) => compareMonthLabels(a.month, b.month))[0];
+    if (!firstFuture) return null;
+    // Aggregate across SKUs for multi-SKU view
+    if (!selectedSku) {
+      const monthStr = firstFuture.month;
+      const total = pool
+        .filter(
+          (f) =>
+            f.month === monthStr &&
+            (f.y_true === null || f.y_true === undefined),
+        )
+        .reduce((s, f) => s + Number(f.p50 ?? 0), 0);
+      return Math.round(total);
+    }
+    return Math.round(Number(firstFuture.p50));
+  }, [latestForecasts, selectedSku]);
+
+  // Confidence derived from WAPE: confidence = 1 - (WAPE / 100), clamped 0-1
+  const confidenceForChat = useMemo(() => {
+    if (wapeVal == null) return null;
+    return Math.max(0, Math.min(1, 1 - wapeVal / 100));
+  }, [wapeVal]);
 
   return (
     <div className="p-6 space-y-8">
@@ -1491,11 +1776,16 @@ export default function ForecastsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
+          <span className="badge badge-ghost badge-sm font-mono">
+            {(canonicalReadiness?.buildCommit || process.env.NEXT_PUBLIC_BUILD_COMMIT || "local").slice(0, 10)} · {canonicalReadiness?.datasetVersion || "PROJECT_OPS_RM_PM"}
+          </span>
           <div className="text-right mr-2">
             <span className="text-success text-xs font-bold flex items-center gap-1.5 justify-end">
               <span className="w-2 h-2 rounded-full bg-success" /> OPERATIONAL PLAN
             </span>
-            <p className="text-[10px] text-base-content/50 mt-0.5">{releaseStatus.replaceAll("_", " ")}</p>
+            <p className="text-[10px] text-base-content/50 mt-0.5">
+              {releaseStatus.replaceAll("_", " ")}
+            </p>
           </div>
           <div className="badge badge-success badge-lg py-3 px-4 font-semibold text-xs rounded-full">
             WAPE: {fmtMetric(wapeVal, "%")}
@@ -1503,19 +1793,27 @@ export default function ForecastsPage() {
         </div>
       </div>
 
+      {canonicalReadiness && !canonicalReadiness.ready && (
+        <div className="alert alert-error text-sm">
+          <span className="material-symbols-outlined">database_off</span>
+          <span>{canonicalReadiness.errors.map(setupErrorMessage).join(" ")}</span>
+        </div>
+      )}
+
       {!hasLiveForecastData && !loading && (
         <div className="alert alert-warning text-sm">
           <span className="material-symbols-outlined">info</span>
           <span>
-            No published forecast series yet. Run the forecast engine (admin) or wait for the next publish job.
-            Charts show empty until live <code>forecast_results</code> are available.
+            No published forecast series yet. Run the forecast engine (admin) or
+            wait for the next publish job. Charts show empty until live{" "}
+            <code>forecast_results</code> are available.
           </span>
         </div>
       )}
 
       {/* Engine Control Panel Accordion */}
       <div className="collapse collapse-arrow bg-base-100 shadow-sm border-none rounded-2xl">
-        <input type="checkbox" defaultChecked={false} /> 
+        <input type="checkbox" defaultChecked={false} />
         <div className="collapse-title text-sm font-bold flex items-center gap-2 text-base-content/85">
           <span className="material-symbols-outlined text-primary text-base">settings_applications</span>
           Forecast run details
@@ -1523,21 +1821,26 @@ export default function ForecastsPage() {
         <div className="collapse-content space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 mt-1">
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Horizon Range</span>
+              <span className="label-text text-xs font-medium mb-1">
+                Horizon Range
+              </span>
               <select
                 className="select select-bordered select-sm w-full"
                 value={filters.horizon ?? ""}
                 onChange={(e) =>
                   setFilters((prev) => ({
                     ...prev,
-                    horizon: e.target.value ? Number.parseInt(e.target.value, 10) : undefined,
+                    horizon: e.target.value
+                      ? Number.parseInt(e.target.value, 10)
+                      : undefined,
                   }))
                 }
               >
                 <option value="">All Horizons</option>
                 {Array.from({ length: 12 }).map((_, idx) => {
                   const m = idx + 1;
-                  const label = m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
+                  const label =
+                    m === 1 ? "1 Month" : m === 12 ? "1 Year" : `${m} Months`;
                   return (
                     <option key={m} value={m}>
                       {label}
@@ -1547,25 +1850,42 @@ export default function ForecastsPage() {
               </select>
             </label>
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Target Warehouse</span>
-              <input 
-                className="input input-bordered input-sm bg-base-200 cursor-not-allowed font-medium" 
-                value="Colombo Main Warehouse" 
-                disabled 
+              <span className="label-text text-xs font-medium mb-1">
+                Target Warehouse
+              </span>
+              <input
+                className="input input-bordered input-sm bg-base-200 cursor-not-allowed font-medium"
+                value="Colombo Main Warehouse"
+                disabled
               />
             </label>
             <label className="form-control">
-              <span className="label-text text-xs font-medium mb-1">Active Forecast</span>
-              <input className="input input-bordered input-sm" value={displayModelName(filters.model)} disabled />
+              <span className="label-text text-xs font-medium mb-1">
+                Active Forecast
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                value={displayModelName(filters.model)}
+                disabled
+              />
             </label>
             <div className="flex items-center gap-4 mt-4 lg:mt-0">
-              
-              <button className="btn btn-outline btn-primary btn-sm" onClick={() => void loadData()} disabled={loading}>
+              <button
+                className="btn btn-outline btn-primary btn-sm"
+                onClick={() => void loadData()}
+                disabled={loading}
+              >
                 {loading ? "Reloading..." : "Reload Data"}
               </button>
               {isAdmin && (
-                <button className="btn btn-secondary btn-sm shadow-md" onClick={() => void triggerRun()} disabled={triggering}>
-                  <span className="material-symbols-outlined text-[16px] mr-1">bolt</span>
+                <button
+                  className="btn btn-secondary btn-sm shadow-md"
+                  onClick={() => void triggerRun()}
+                  disabled={triggering}
+                >
+                  <span className="material-symbols-outlined text-[16px] mr-1">
+                    bolt
+                  </span>
                   {triggering ? "Recalculating..." : "Recalculate Forecast Now"}
                 </button>
               )}
@@ -1586,9 +1906,9 @@ export default function ForecastsPage() {
               </div>
               {runProgress !== null && (
                 <div className="flex-1 flex items-center gap-2 max-w-sm">
-                  <progress 
-                    className="progress progress-info w-full" 
-                    value={runProgress} 
+                  <progress
+                    className="progress progress-info w-full"
+                    value={runProgress}
                     max="100"
                   ></progress>
                   <span className="text-[10px] text-base-content/70 font-bold tabular-nums">
@@ -1598,7 +1918,6 @@ export default function ForecastsPage() {
               )}
             </div>
           )}
-
         </div>
       </div>
 
@@ -1662,12 +1981,15 @@ export default function ForecastsPage() {
               ))}
             </div>
           )}
-          <button className="btn btn-sm btn-primary text-white font-semibold" onClick={applySkuSearch}>
+          <button
+            className="btn btn-sm btn-primary text-white font-semibold"
+            onClick={applySkuSearch}
+          >
             Select SKU
           </button>
           {selectedSku && (
-            <button 
-              className="btn btn-sm btn-ghost text-xs" 
+            <button
+              className="btn btn-sm btn-ghost text-xs"
               onClick={() => {
                 setSelectedSku("");
                 setSkuSearchInput("");
@@ -1686,21 +2008,28 @@ export default function ForecastsPage() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`font-semibold rounded-lg transition-all duration-200 px-3 py-1.5 flex items-center justify-center gap-1.5 text-[13px] ${
-                tab === t.id ? "bg-primary text-primary-content shadow-sm" : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
-              }`}
+              className={`font-semibold rounded-lg transition-all duration-200 px-3 py-1.5 flex items-center justify-center gap-1.5 text-[13px] ${tab === t.id
+                  ? "bg-primary text-primary-content shadow-sm"
+                  : "text-base-content/70 hover:bg-base-200 hover:text-base-content"
+                }`}
             >
-              <span className="material-symbols-outlined text-sm">{t.icon}</span>
+              <span className="material-symbols-outlined text-sm">
+                {t.icon}
+              </span>
               <span>{t.label}</span>
             </button>
           ))}
         </div>
-        <div 
+        <div
           className="flex items-center gap-2 px-3 py-1.5 bg-base-200/50 rounded-lg border border-base-300/40 select-none mr-1.5 cursor-pointer hover:bg-base-200 transition-colors"
           onClick={() => setShowCI(!showCI)}
         >
-          <div className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? 'bg-primary' : 'bg-gray-400'}`}>
-            <span className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? 'translate-x-4' : 'translate-x-1'}`} />
+          <div
+            className={`relative inline-flex h-4 w-8 items-center rounded-full transition-colors ${showCI ? "bg-primary" : "bg-gray-400"}`}
+          >
+            <span
+              className={`inline-block h-3 w-3 transform rounded-full bg-white shadow-sm transition-transform ${showCI ? "translate-x-4" : "translate-x-1"}`}
+            />
           </div>
           <span className="text-[11px] font-semibold text-base-content/85 leading-none mt-0.5">
             Show 90% Confidence Intervals
@@ -1715,7 +2044,7 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             <KpiCard title="Forecast Accuracy" value={wapeVal !== null ? `${(100 - wapeVal).toFixed(1)}%` : "—"} sub={wapeVal !== null ? `WAPE = ${wapeVal}%` : "No metrics yet"} color={C.ok} icon="track_changes" />
             <KpiCard title="Forecasted Units" value={forecastedUnitsForHorizon !== null ? forecastedUnitsForHorizon.toLocaleString() : "—"} sub={`Sum P50 horizons 1–${forecastHorizonMonths}`} color={C.accent} icon="package_2" />
-            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`Lead time: ${selectedSkuRecommendation?.lead_time_days ?? demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days ?? 30} days`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Proposed Releases" value={inventoryPlan.releaseCount} sub={`Simulated with ${selectedSkuRecommendation?.lead_time_days ?? demandHistory.find((row) => row.sku === selectedSku)?.lead_time_days ?? 30}-day lead time`} color={C.danger} icon="shopping_cart_checkout" />
             <KpiCard title="Minimum Cover" value={minimumProjectedCoverDays !== null ? `${minimumProjectedCoverDays}d` : "—"} sub={inventoryPlan.firstRiskPeriod ? `First action: ${inventoryPlan.firstRiskPeriod}` : "No projected exception"} color={C.accent3} icon="calendar_month" />
             <KpiCard title="P90 Demand Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Stress case across the plan horizon" color={C.warn} icon="verified" />
           </div>
@@ -1725,7 +2054,9 @@ export default function ForecastsPage() {
             <SectionHeader title="Historical Demand vs Forecast — 24-Month View" sub={hasBacktestActuals ? "Historical backtest followed by the promoted 12-month forecast" : "Published forecast only — historical comparison is unavailable"} />
             <div className="h-80 w-full mt-3">
               {processedForecastData.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm text-base-content/60">No forecast points for this SKU / filter.</div>
+                <div className="h-full flex items-center justify-center text-sm text-base-content/60">
+                  No forecast points for this SKU / filter.
+                </div>
               ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={processedForecastData}>
@@ -1755,48 +2086,71 @@ export default function ForecastsPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Seasonality Chart */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Seasonality Index" sub="Values >1.0 denote peak seasonal months" color={C.accent2} />
+              <SectionHeader
+                title="Seasonality Index"
+                sub="Values >1.0 denote peak seasonal months"
+                color={C.accent2}
+              />
               <div className="h-56 w-full mt-3">
                 {finalSeasonality.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
-                    Needs monthly actuals (y_true) per calendar month. Online publishes use H+1 labels only.
+                    Needs monthly actuals (y_true) per calendar month. Online
+                    publishes use H+1 labels only.
                   </div>
                 ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={finalSeasonality}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis domain={[0.4, 1.6]} tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <Tooltip content={<ChartTip />} />
-                    <ReferenceLine y={1.0} stroke={C.accent4} strokeDasharray="4 3" />
-                    <Bar dataKey="index" name="Seasonal Index" radius={[4, 4, 0, 0]}>
-                      {finalSeasonality.map((s, i) => (
-                        <Cell key={i} fill={s.index >= 1 ? C.accent2 : C.muted} fillOpacity={0.8} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={finalSeasonality}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis
+                        dataKey="month"
+                        tick={{ fill: "currentColor", fontSize: 10 }}
+                      />
+                      <YAxis
+                        domain={[0.4, 1.6]}
+                        tick={{ fill: "currentColor", fontSize: 10 }}
+                      />
+                      <Tooltip content={<ChartTip />} />
+                      <ReferenceLine
+                        y={1.0}
+                        stroke={C.accent4}
+                        strokeDasharray="4 3"
+                      />
+                      <Bar
+                        dataKey="index"
+                        name="Seasonal Index"
+                        radius={[4, 4, 0, 0]}
+                      >
+                        {finalSeasonality.map((s, i) => (
+                          <Cell
+                            key={i}
+                            fill={s.index >= 1 ? C.accent2 : C.muted}
+                            fillOpacity={0.8}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </div>
 
             {/* Lead-time inventory plan */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Inventory Position & Due Receipts" sub="Demand reduces stock every period; released orders increase stock only when their lead-time receipt becomes due" color={C.accent3} />
+              <SectionHeader title="Projected Stock Under Current Policy" sub="Month-end available stock and planned receipts after supplier lead time" color={C.accent3} />
               <div className="h-56 w-full mt-3">
                 {finalInventory.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60">No item plan is available.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={finalInventory.slice(-12)}>
+                    <ComposedChart data={inventoryChartData.slice(-12)}>
                       <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                       <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
                       <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                      <Tooltip content={<ChartTip />} />
+                      <Tooltip content={<InventoryPlanTooltip />} />
                       <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="4 3" />
-                      <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Receipt due" />
-                      <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={2.5} dot={{ r: 2 }} name="Projected ending (P50)" />
-                      <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="Demand-risk ending (P90)" />
+                      <Bar dataKey="plannedReceipt" fill={C.accent3} fillOpacity={0.22} name="Planned receipt" radius={[4, 4, 0, 0]} />
+                      <Line type="linear" dataKey="endingP50" stroke={C.accent3} strokeWidth={2.5} dot={{ r: 2 }} name="Expected ending stock" />
+                      {showCI && <Line type="linear" dataKey="endingP90" stroke={C.danger} strokeWidth={1.8} strokeDasharray="5 4" dot={false} name="High-demand ending stock" />}
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
@@ -1811,23 +2165,65 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           {/* Detailed Forecast View */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title={`${forecastHorizonMonths}-Month Forward Forecast with Confidence Intervals`} sub="Multi-horizon predictions with expected demand and optional uncertainty bounds" />
+            <SectionHeader
+              title={`${forecastHorizonMonths}-Month Forward Forecast with Confidence Intervals`}
+              sub="Multi-horizon predictions with expected demand and optional uncertainty bounds"
+            />
             <div className="h-72 w-full mt-3">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={processedForecastData.slice(-forecastHorizonMonths)}>
+                <ComposedChart
+                  data={processedForecastData.slice(-forecastHorizonMonths)}
+                >
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
                   <Tooltip content={<ChartTip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   {showCI && (
                     <>
-                      <Line type="monotone" dataKey="upper" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Upper 90% CI" legendType="none" />
-                      <Line type="monotone" dataKey="lower" stroke={C.accent} strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Lower 90% CI" legendType="none" />
+                      <Line
+                        type="monotone"
+                        dataKey="upper"
+                        stroke={C.accent}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Upper 90% CI"
+                        legendType="none"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="lower"
+                        stroke={C.accent}
+                        strokeWidth={1.5}
+                        strokeDasharray="4 4"
+                        dot={false}
+                        name="Lower 90% CI"
+                        legendType="none"
+                      />
                     </>
                   )}
-                  <Line type="monotone" dataKey="forecastHistory" stroke={C.accent3} strokeWidth={2.5} strokeDasharray="5 5" name="Past Forecast (Backtest)" connectNulls />
-                  <Line type="monotone" dataKey="forecastFuture" stroke={C.accent} strokeWidth={3} dot={{ r: 4, fill: C.accent }} name="Future Forecast" connectNulls />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastHistory"
+                    stroke={C.accent3}
+                    strokeWidth={2.5}
+                    strokeDasharray="5 5"
+                    name="Past Forecast (Backtest)"
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="forecastFuture"
+                    stroke={C.accent}
+                    strokeWidth={3}
+                    dot={{ r: 4, fill: C.accent }}
+                    name="Future Forecast"
+                    connectNulls
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -1835,23 +2231,42 @@ export default function ForecastsPage() {
 
           <div>
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Seasonality Radar" sub="Relative seasonal intensity across calendar year" color={C.accent3} />
+              <SectionHeader
+                title="Seasonality Radar"
+                sub="Relative seasonal intensity across calendar year"
+                color={C.accent3}
+              />
               <div className="h-56 w-full mt-3 flex justify-center items-center">
                 {finalSeasonality.length === 0 ? (
                   <div className="text-sm text-base-content/60 px-4 text-center">
-                    Needs at least 12 months of demand history for the selected SKU.
+                    Needs at least 12 months of demand history for the selected
+                    SKU.
                   </div>
                 ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart data={finalSeasonality}>
-                    <PolarGrid stroke="currentColor" opacity={0.1} />
-                    <PolarAngleAxis dataKey="month" tick={{ fill: "currentColor", fontSize: 9 }} />
-                    <PolarRadiusAxis angle={90} domain={[0, 'auto']} tick={{ fill: "currentColor", fontSize: 8 }} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                    <Radar name="Seasonality Multiplier" dataKey="index" stroke={C.accent} fill={C.accent} fillOpacity={0.15} strokeWidth={2} />
-                  </RadarChart>
-                </ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={finalSeasonality}>
+                      <PolarGrid stroke="currentColor" opacity={0.1} />
+                      <PolarAngleAxis
+                        dataKey="month"
+                        tick={{ fill: "currentColor", fontSize: 9 }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        domain={[0, "auto"]}
+                        tick={{ fill: "currentColor", fontSize: 8 }}
+                      />
+                      <Tooltip />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Radar
+                        name="Seasonality Multiplier"
+                        dataKey="index"
+                        stroke={C.accent}
+                        fill={C.accent}
+                        fillOpacity={0.15}
+                        strokeWidth={2}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </div>
@@ -1860,10 +2275,19 @@ export default function ForecastsPage() {
           {/* Detailed Forecast Points Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title={`${forecastHorizonMonths}-Month Forecast Details Table`} sub="Monthly forecasts with confidence intervals" color={C.accent} />
-              <button 
-                className="btn btn-xs btn-outline btn-primary" 
-                onClick={() => downloadCsv("forecast_points.csv", finalForecastData.slice(-forecastHorizonMonths))}
+              <SectionHeader
+                title={`${forecastHorizonMonths}-Month Forecast Details Table`}
+                sub="Monthly forecasts with confidence intervals"
+                color={C.accent}
+              />
+              <button
+                className="btn btn-xs btn-outline btn-primary"
+                onClick={() =>
+                  downloadCsv(
+                    "forecast_points.csv",
+                    finalForecastData.slice(-forecastHorizonMonths),
+                  )
+                }
               >
                 Export Forecast CSV
               </button>
@@ -1880,15 +2304,30 @@ export default function ForecastsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {finalForecastData.slice(-forecastHorizonMonths).map((row, i) => (
-                    <tr key={i} className="hover">
-                      <td className="font-semibold font-mono text-primary text-xs">{row.label}</td>
-                      <td className="text-right font-bold">{(row.forecast ?? 0).toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{(row.lower ?? 0).toLocaleString()}</td>
-                      <td className="text-right text-base-content/75">{(row.upper ?? 0).toLocaleString()}</td>
-                      <td className="text-right text-warning font-semibold">±{Math.round(((row.upper ?? 0) - (row.lower ?? 0)) / 2).toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {finalForecastData
+                    .slice(-forecastHorizonMonths)
+                    .map((row, i) => (
+                      <tr key={i} className="hover">
+                        <td className="font-semibold font-mono text-primary text-xs">
+                          {row.label}
+                        </td>
+                        <td className="text-right font-bold">
+                          {(row.forecast ?? 0).toLocaleString()}
+                        </td>
+                        <td className="text-right text-base-content/75">
+                          {(row.lower ?? 0).toLocaleString()}
+                        </td>
+                        <td className="text-right text-base-content/75">
+                          {(row.upper ?? 0).toLocaleString()}
+                        </td>
+                        <td className="text-right text-warning font-semibold">
+                          ±
+                          {Math.round(
+                            ((row.upper ?? 0) - (row.lower ?? 0)) / 2,
+                          ).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -1908,7 +2347,7 @@ export default function ForecastsPage() {
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
                   <XAxis dataKey="velocity" name="Velocity" unit=" u" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Monthly Velocity (Average Demand)", position: "bottom", fill: "currentColor", fontSize: 10, offset: 0 }} />
                   <YAxis dataKey="mape" name="WAPE" unit="%" tick={{ fill: "currentColor", fontSize: 10 }} label={{ value: "Forecast Error (WAPE %)", angle: -90, position: "left", fill: "currentColor", fontSize: 10 }} />
-                  <ReferenceLine y={10} stroke={C.warn} strokeDasharray="5 4" label={{ value: "10% review threshold", fill: C.warn, fontSize: 9 }} />
+                  <ReferenceLine y={10} stroke={C.warn} strokeDasharray="5 4" label={{ value: "10% review threshold", fill: "#111827", fontSize: 10, fontWeight: 700, position: "insideTopRight", dy: -6 }} />
                   <ReferenceLine x={velocityThreshold} stroke={C.textDim} strokeDasharray="5 4" />
                   <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
@@ -1939,7 +2378,11 @@ export default function ForecastsPage() {
           {/* Full SKU Classifications Table */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex justify-between items-center mb-3">
-              <SectionHeader title="SKU Classifications & Reorder Matrix" sub="ABC = annual issued volume within subtype · FMS = issue-event frequency within subtype" color={C.accent3} />
+              <SectionHeader
+                title="SKU Classifications & Reorder Matrix"
+                sub="ABC = annual issued volume within subtype · FMS = issue-event frequency within subtype"
+                color={C.accent3}
+              />
               <div className="flex gap-2">
                 <select
                   className="select select-bordered select-xs"
@@ -1977,31 +2420,72 @@ export default function ForecastsPage() {
                 </thead>
                 <tbody>
                   {finalSkuData.slice(0, 15).map((s: any, i) => {
-                    const risk = s.stockDays < 15 ? "danger" : s.stockDays < 25 ? "warn" : "ok";
-                    const rColor = { danger: C.danger, warn: C.warn, ok: C.ok }[risk];
-                    const rLabel = { danger: "Stockout Risk", warn: "Monitor", ok: "Healthy" }[risk];
-                    const rIcon = { danger: "warning", warn: "info", ok: "check_circle" }[risk];
+                    const risk =
+                      s.stockDays < 15
+                        ? "danger"
+                        : s.stockDays < 25
+                          ? "warn"
+                          : "ok";
+                    const rColor = { danger: C.danger, warn: C.warn, ok: C.ok }[
+                      risk
+                    ];
+                    const rLabel = {
+                      danger: "Stockout Risk",
+                      warn: "Monitor",
+                      ok: "Healthy",
+                    }[risk];
+                    const rIcon = {
+                      danger: "warning",
+                      warn: "info",
+                      ok: "check_circle",
+                    }[risk];
                     return (
                       <tr key={i} className="hover">
-                        <td className="font-semibold font-mono text-xs text-primary">{s.sku}</td>
-                        <td className="text-xs text-base-content/70">{s.category}</td>
-                        <td className="text-right font-semibold">{s.velocity.toLocaleString()}</td>
-                        <td className="text-right font-bold" style={{ color: rColor }}>{s.stockDays}d</td>
-                        <td className="text-right font-mono text-xs">{s.mape}%</td>
-                        <td className="text-right">{s.reorderPoint.toLocaleString()}</td>
-                        <td className="text-right">{s.safetyStock.toLocaleString()}</td>
-                        <td><Badge label={s.abc} color={abcColor[s.abc] || C.muted} /></td>
-                        <td><Badge label={s.fms} color={C.accent3} /></td>
+                        <td className="font-semibold font-mono text-xs text-primary">
+                          {s.sku}
+                        </td>
+                        <td className="text-xs text-base-content/70">
+                          {s.category}
+                        </td>
+                        <td className="text-right font-semibold">
+                          {s.velocity.toLocaleString()}
+                        </td>
+                        <td
+                          className="text-right font-bold"
+                          style={{ color: rColor }}
+                        >
+                          {s.stockDays}d
+                        </td>
+                        <td className="text-right font-mono text-xs">
+                          {s.mape}%
+                        </td>
+                        <td className="text-right">
+                          {s.reorderPoint.toLocaleString()}
+                        </td>
+                        <td className="text-right">
+                          {s.safetyStock.toLocaleString()}
+                        </td>
                         <td>
-                          <span 
+                          <Badge
+                            label={s.abc}
+                            color={abcColor[s.abc] || C.muted}
+                          />
+                        </td>
+                        <td>
+                          <Badge label={s.fms} color={C.accent3} />
+                        </td>
+                        <td>
+                          <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded border"
-                            style={{ 
-                              background: rColor + "15", 
-                              color: rColor, 
-                              borderColor: rColor + "40"
+                            style={{
+                              background: rColor + "15",
+                              color: rColor,
+                              borderColor: rColor + "40",
                             }}
                           >
-                            <span className="material-symbols-outlined text-[12px]">{rIcon}</span>
+                            <span className="material-symbols-outlined text-[12px]">
+                              {rIcon}
+                            </span>
                             {rLabel}
                           </span>
                         </td>
@@ -2016,13 +2500,24 @@ export default function ForecastsPage() {
           {/* Velocity & Accuracy Horizontal Bar Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Top SKUs by Demand Velocity" color={C.accent} />
+              <SectionHeader
+                title="Top SKUs by Demand Velocity"
+                color={C.accent}
+              />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="sku"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      width={70}
+                    />
                     <Tooltip content={<ChartTip />} />
                     <Bar dataKey="velocity" name="Velocity" radius={[0, 4, 4, 0]} fill={C.accent3} fillOpacity={0.78} />
                   </BarChart>
@@ -2031,18 +2526,27 @@ export default function ForecastsPage() {
             </div>
 
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Forecast Error (WAPE %) per SKU" color={C.accent2} />
+              <SectionHeader title="Forecast Error (WAPE %) per SKU" sub="Highest-demand SKUs; the labelled 10% line marks the review threshold" color={C.accent2} />
               <div className="h-56 w-full mt-3">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={finalSkuData.slice(0, 6)} layout="vertical">
+                  <BarChart data={finalSkuData.slice(0, 6)} layout="vertical" margin={{ top: 18, right: 24, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis type="number" tick={{ fill: "currentColor", fontSize: 10 }} unit="%" />
-                    <YAxis type="category" dataKey="sku" tick={{ fill: "currentColor", fontSize: 10 }} width={70} />
+                    <XAxis
+                      type="number"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      unit="%"
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="sku"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                      width={70}
+                    />
                     <Tooltip content={<ChartTip />} />
-                    <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" />
+                    <ReferenceLine x={10.0} stroke={C.warn} strokeDasharray="4 3" label={{ value: "10% review threshold", fill: "#111827", fontSize: 10, fontWeight: 700, position: "insideTopRight", dx: -4, dy: -7 }} />
                     <Bar dataKey="mape" name="WAPE %" radius={[0, 4, 4, 0]}>
                       {finalSkuData.slice(0, 6).map((s: any, i: number) => (
-                        <Cell key={i} fill={s.mape > 12.0 ? C.danger : s.mape > 8.0 ? C.warn : C.ok} fillOpacity={0.8} />
+                        <Cell key={i} fill={s.mape > 15.0 ? C.danger : s.mape > 10.0 ? C.warn : C.ok} fillOpacity={0.8} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -2058,13 +2562,13 @@ export default function ForecastsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <KpiCard title="Selected On-hand" value={(selectedSkuRecommendation?.on_hand_inventory ?? 0).toLocaleString()} sub={`${selectedSku || "Item"} available before forecast demand`} color={C.accent} icon="package_2" />
-            <KpiCard title="Order Releases" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} units due within horizon`} color={C.danger} icon="shopping_cart_checkout" />
-            <KpiCard title="Projected P50 Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Forecast demand fulfilled by the policy plan" color={C.ok} icon="check_circle" />
-            <KpiCard title="Projected P90 Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Upper-demand stress case with the same receipts" color={C.accent4} icon="shield" />
+            <KpiCard title="Planned Orders" value={inventoryPlan.releaseCount} sub={`${inventoryPlan.totalPlannedReceipts.toLocaleString()} units due within the horizon`} color={C.danger} icon="shopping_cart_checkout" />
+            <KpiCard title="Expected Demand Fill" value={projectedFillRatePct !== null ? `${projectedFillRatePct}%` : "—"} sub="Demand fulfilled by the current policy plan" color={C.ok} icon="check_circle" />
+            <KpiCard title="High-Demand Fill" value={projectedRiskFillRatePct !== null ? `${projectedRiskFillRatePct}%` : "—"} sub="Stress check using the same planned receipts" color={C.accent4} icon="shield" />
           </div>
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Projected Inventory Position" sub="Step lines show month-end stock; bars are receipts that become available after supplier lead time" color={C.accent3} />
+            <SectionHeader title="Projected Available Stock and Planned Receipts" sub="Orders are triggered when inventory position crosses the reorder point; receipts arrive after supplier lead time" color={C.accent3} />
             <div className="h-72 w-full mt-3">
               {finalInventory.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60 text-center px-6">
@@ -2072,18 +2576,20 @@ export default function ForecastsPage() {
                 </div>
               ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={finalInventory}>
+                <ComposedChart data={inventoryChartData} margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "currentColor", fontSize: 10 }}
+                  />
                   <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                  <Tooltip content={<ChartTip />} />
+                  <Tooltip content={<InventoryPlanTooltip />} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.danger, fontSize: 10, position: "right" }} />
-                  <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.warn, fontSize: 10, position: "insideBottomRight" }} />
-                  <Bar dataKey="receipt" fill={C.accent2} fillOpacity={0.65} name="Confirmed/planned receipt due" />
-                  <Line type="stepAfter" dataKey="endingP50" stroke={C.accent3} strokeWidth={3} dot={{ r: 3 }} name="Projected ending (P50 demand)" />
-                  <Line type="stepAfter" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="Risk ending (P90 demand)" />
-                  <Brush startIndex={Math.max(0, finalInventory.length - 13)} dataKey="label" height={28} stroke={C.textDim} fill={C.border + "10"} tickFormatter={() => ""} travellerWidth={14} traveller={ModernBrushHandle} />
+                  <ReferenceLine y={finalInventory[0]?.reorderPoint ?? 0} stroke={C.danger} strokeDasharray="6 3" label={{ value: "Reorder point", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideTopRight" }} />
+                  <ReferenceLine y={finalInventory[0]?.safetyStock ?? 0} stroke={C.warn} strokeDasharray="3 3" label={{ value: "Safety stock", fill: C.text, fontSize: 10, fontWeight: 600, position: "insideBottomRight" }} />
+                  <Bar dataKey="plannedReceipt" fill={C.accent3} fillOpacity={0.22} name="Planned receipt" radius={[4, 4, 0, 0]} />
+                  <Line type="linear" dataKey="endingP50" stroke={C.accent3} strokeWidth={3} dot={{ r: 3 }} name="Expected ending stock" />
+                  {showCI && <Line type="linear" dataKey="endingP90" stroke={C.danger} strokeWidth={2} strokeDasharray="6 4" dot={false} name="High-demand ending stock" />}
                 </ComposedChart>
               </ResponsiveContainer>
               )}
@@ -2104,17 +2610,17 @@ export default function ForecastsPage() {
                 const urgency = row.status === "stockout" ? "danger" : row.status === "order" || row.status === "watch" ? "warn" : "ok";
                 const colorHex = { danger: C.danger, warn: C.warn, ok: C.ok, neutral: C.muted }[urgency];
                 return (
-                  <div 
-                    key={i} 
+                  <div
+                    key={i}
                     className="flex flex-col items-center justify-center p-3 rounded-lg border text-center transition-all hover:scale-[1.02]"
-                    style={{ 
+                    style={{
                       backgroundColor: colorHex + "12",
-                      borderColor: colorHex + "35"
+                      borderColor: colorHex + "35",
                     }}
                   >
                     <span className="text-[10px] text-base-content/60 font-semibold">{row.label}</span>
                     <span className="text-xl font-bold mt-1" style={{ color: colorHex }}>{`${cover}d`}</span>
-                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered"}</span>
+                    <span className="text-[9px] text-base-content/50 mt-0.5 uppercase font-medium">{row.status === "stockout" ? "Shortage" : row.status === "order" ? "Order proposed" : row.status === "watch" ? "Safety risk" : "Covered"}</span>
                   </div>
                 );
               })}
@@ -2124,7 +2630,7 @@ export default function ForecastsPage() {
 
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-3">
-              <SectionHeader title="Monthly Inventory Ledger" sub="One auditable calculation drives the chart, order recommendations, service projection, and coverage" color={C.accent} />
+              <SectionHeader title="Monthly Inventory Ledger" sub="One auditable policy simulation drives the chart, proposed releases, service projection, and coverage" color={C.accent} />
               <button className="btn btn-xs btn-outline btn-primary" onClick={() => downloadCsv("inventory_plan.csv", finalInventory)}>
                 Export plan CSV
               </button>
@@ -2135,20 +2641,20 @@ export default function ForecastsPage() {
                   <tr className="border-b border-base-300">
                     <th>Period</th>
                     <th className="text-right">Beginning</th>
-                    <th className="text-right">Receipt due</th>
+                    <th className="text-right">Simulated receipt</th>
                     <th className="text-right">P50 demand</th>
                     <th className="text-right">P90 demand</th>
                     <th className="text-right">Ending P50</th>
                     <th className="text-right">Ending P90</th>
-                    <th className="text-right">Release qty</th>
-                    <th>Receipt period</th>
+                    <th className="text-right">Proposed release</th>
+                    <th>Simulated due period</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {finalInventory.map((row) => {
                     const statusColor = row.status === "stockout" ? C.danger : row.status === "healthy" ? C.ok : C.warn;
-                    const statusLabel = row.status === "stockout" ? "Shortage" : row.status === "order" ? "Release order" : row.status === "watch" ? "Safety risk" : "Covered";
+                    const statusLabel = row.status === "stockout" ? "Shortage" : row.status === "order" ? "Order proposed" : row.status === "watch" ? "Safety risk" : "Covered";
                     return (
                       <tr key={row.period} className="hover">
                         <td className="font-mono text-xs font-semibold">{row.label}</td>
@@ -2175,101 +2681,245 @@ export default function ForecastsPage() {
       {tab === "model" && (
         <div className="space-y-6">
           {/* KPI grid */}
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 items-stretch">
             <KpiCard title="WAPE Error" value={fmtMetric(wapeVal, "%")} sub={wapeVal !== null ? "Held-out test evidence for the promoted model" : "No matching backtest evidence"} color={C.ok} icon="track_changes" />
             <KpiCard title="RMSE Error" value={fmtMetric(rmseVal)} sub={rmseVal !== null ? "Held-out scale-dependent error" : "No matching backtest evidence"} color={C.accent} icon="architecture" />
             <KpiCard title="Model Bias" value={fmtMetric(biasVal, "%")} sub={biasVal !== null ? "Held-out signed error" : "No matching backtest evidence"} color={C.warn} icon="balance" />
             <KpiCard title="90% Interval Coverage" value={fmtMetric(coverageVal, "%")} sub={hasBacktestActuals ? "Actuals inside calibrated 90% bounds" : "Needs y_true backtest rows"} color={C.accent3} icon="straighten" />
-            <KpiCard title="Forecast Method" value={displayModelName(filters.model)} sub="Active model for the current operational planning dataset" color={C.muted} icon="psychology" />
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-4 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="material-symbols-outlined text-primary text-2xl mt-0.5">psychology</span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-bold text-base-content">{displayModelName(filters.model)}</h3>
+                    <span className="badge badge-success badge-outline badge-sm font-semibold">PROMOTED</span>
+                  </div>
+                  <p className="text-xs text-base-content/60 mt-1">Active H1–H12 demand forecast for the current warehouse planning dataset.</p>
+                </div>
+              </div>
+              <code className="text-[10px] sm:text-xs bg-base-200 border border-base-300 rounded-md px-2.5 py-1.5 text-base-content/65 break-all">{filters.model}</code>
+            </div>
+          </div>
+
+          <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
+            <SectionHeader title="Where This Forecast Is Used" sub="The promoted rows are operational inputs; execution remains approval-controlled" color={C.accent3} />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 mt-4">
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Inventory policy</strong><span className="badge badge-success badge-sm">Connected</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">P10/P50/P90 demand feeds lead-time safety stock, reorder point, min/max and the stochastic service/cost gate.</p>
+              </div>
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Draft purchasing</strong><span className="badge badge-warning badge-sm">Manager-gated</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">An approved policy run may create draft inbound purchase suggestions. The forecast never releases a purchase order automatically.</p>
+              </div>
+              <div className="rounded-xl border border-base-300 p-4">
+                <div className="flex items-center justify-between gap-2"><strong className="text-sm">Space and slotting</strong><span className="badge badge-success badge-sm">Connected via policy</span></div>
+                <p className="text-xs text-base-content/60 mt-2 leading-5">Forecast P50, stock delta and pallet demand flow into the constrained slotting optimizer after policy review.</p>
+              </div>
+            </div>
           </div>
 
           {/* Model residuals */}
           <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-            <SectionHeader title="Forecast Residuals Over Time (Actual vs Expected)" sub="Backtest residuals should be centered near zero; inspect tails, changing variance and autocorrelation rather than assuming Gaussian noise" color={C.accent2} />
+            <SectionHeader
+              title="Forecast Residuals Over Time (Actual vs Expected)"
+              sub="Backtest residuals should be centered near zero; inspect tails, changing variance and autocorrelation rather than assuming Gaussian noise"
+              color={C.accent2}
+            />
             <div className="h-56 w-full mt-3">
               {finalResiduals.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
-                  Residuals need published rows with y_true (actual demand). Online runs store forecasts only.
+                  Residuals need published rows with y_true (actual demand).
+                  Online runs store forecasts only.
                 </div>
               ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={finalResiduals}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                  <Tooltip content={<ChartTip />} />
-                  <ReferenceLine y={0} stroke={C.accent4} strokeWidth={1.5} />
-                  <Bar dataKey="residual" name="Residual Error" radius={[3, 3, 0, 0]}>
-                    {finalResiduals.map((r, i) => (
-                      <Cell key={i} fill={C.accent} fillOpacity={0.8} />
-                    ))}
-                  </Bar>
-                </ComposedChart>
-              </ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={finalResiduals}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fill: "currentColor", fontSize: 10 }}
+                    />
+                    <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
+                    <Tooltip content={<ChartTip />} />
+                    <ReferenceLine y={0} stroke={C.accent4} strokeWidth={1.5} />
+                    <Bar
+                      dataKey="residual"
+                      name="Residual Error"
+                      radius={[3, 3, 0, 0]}
+                    >
+                      {finalResiduals.map((r, i) => (
+                        <Cell key={i} fill={C.accent} fillOpacity={0.8} />
+                      ))}
+                    </Bar>
+                  </ComposedChart>
+                </ResponsiveContainer>
               )}
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Absolute Forecast Error Distribution" sub="Confidence interval widths and magnitude of absolute residuals" color={C.accent3} />
+              <SectionHeader
+                title="Absolute Forecast Error Distribution"
+                sub="Confidence interval widths and magnitude of absolute residuals"
+                color={C.accent3}
+              />
               <div className="h-56 w-full mt-3">
                 {finalResiduals.length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm text-base-content/60 px-4 text-center">
-                    Error distribution needs backtest rows with actuals vs forecast.
+                    Error distribution needs backtest rows with actuals vs
+                    forecast.
                   </div>
                 ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={finalResiduals}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
-                    <Tooltip content={<ChartTip />} />
-                    <Area type="monotone" dataKey="absError" stroke={C.accent3} fill={C.accent3} fillOpacity={0.08} strokeWidth={2} name="Absolute Error" />
-                  </AreaChart>
-                </ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={finalResiduals}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.1} />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: "currentColor", fontSize: 10 }}
+                      />
+                      <YAxis tick={{ fill: "currentColor", fontSize: 10 }} />
+                      <Tooltip content={<ChartTip />} />
+                      <Area
+                        type="monotone"
+                        dataKey="absError"
+                        stroke={C.accent3}
+                        fill={C.accent3}
+                        fillOpacity={0.08}
+                        strokeWidth={2}
+                        name="Absolute Error"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </div>
 
             {/* Model Target Scorecard */}
             <div className="card bg-base-100 border border-base-300 p-5 shadow-sm">
-              <SectionHeader title="Model Accuracy Scorecard vs Thresholds" sub="Operational SLA targets set for production deployment" color={C.accent4} />
+              <SectionHeader
+                title="Model Accuracy Scorecard vs Thresholds"
+                sub="Operational SLA targets set for production deployment"
+                color={C.accent4}
+              />
               <div className="space-y-4 mt-3">
                 {[
-                  { label: "Weighted Absolute Percentage Error (WAPE)", value: wapeVal, target: 15, targetText: "≤ 15%", unit: "%", good: wapeVal !== null && wapeVal <= 15 },
-                  { label: "Normalized RMSE (NRMSE)", value: nrmseVal, target: 30, targetText: "≤ 30%", unit: "%", good: nrmseVal !== null && nrmseVal <= 30 },
-                  { label: "Forecast Bias Limit", value: biasVal !== null ? Math.abs(biasVal) : null, target: 5.0, targetText: "≤ 5%", unit: "%", good: biasVal !== null && Math.abs(biasVal) <= 5.0 },
-                  { label: "90% Interval Empirical Coverage", value: coverageVal, target: 90.0, targetText: "85–95%", unit: "%", good: coverageVal !== null && coverageVal >= 85.0 && coverageVal <= 95.0 },
+                  {
+                    label: "Weighted Absolute Percentage Error (WAPE)",
+                    value: wapeVal,
+                    target: 15,
+                    targetText: "≤ 15%",
+                    unit: "%",
+                    good: wapeVal !== null && wapeVal <= 15,
+                  },
+                  {
+                    label: "Normalized RMSE (NRMSE)",
+                    value: nrmseVal,
+                    target: 30,
+                    targetText: "≤ 30%",
+                    unit: "%",
+                    good: nrmseVal !== null && nrmseVal <= 30,
+                  },
+                  {
+                    label: "Forecast Bias Limit",
+                    value: biasVal !== null ? Math.abs(biasVal) : null,
+                    target: 5.0,
+                    targetText: "≤ 5%",
+                    unit: "%",
+                    good: biasVal !== null && Math.abs(biasVal) <= 5.0,
+                  },
+                  {
+                    label: "90% Interval Empirical Coverage",
+                    value: coverageVal,
+                    target: 90.0,
+                    targetText: "85–95%",
+                    unit: "%",
+                    good:
+                      coverageVal !== null &&
+                      coverageVal >= 85.0 &&
+                      coverageVal <= 95.0,
+                  },
                 ].map((m, i) => (
                   <div key={i} className="text-xs">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-base-content/80 font-medium">{m.label}</span>
-                      <span className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : m.value === null ? "text-base-content/50" : "text-error"}`}>
+                      <span className="text-base-content/80 font-medium">
+                        {m.label}
+                      </span>
+                      <span
+                        className={`font-bold flex items-center gap-1 ${m.good ? "text-success" : m.value === null ? "text-base-content/50" : "text-error"}`}
+                      >
                         {m.value === null ? "—" : `${m.value}${m.unit}`}
                         {m.value !== null && (
-                          <span className="material-symbols-outlined text-[14px]">{m.good ? "check_circle" : "cancel"}</span>
+                          <span className="material-symbols-outlined text-[14px]">
+                            {m.good ? "check_circle" : "cancel"}
+                          </span>
                         )}
-                        <span>{m.value === null ? "No data" : m.good ? "Threshold pass" : "Review required"}</span>
+                        <span>
+                          {m.value === null
+                            ? "No data"
+                            : m.good
+                              ? "Threshold pass"
+                              : "Review required"}
+                        </span>
                       </span>
                     </div>
                     {m.value !== null && (
-                    <div className="h-2 bg-base-300 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-500 ${m.good ? "bg-success" : "bg-error"}`}
-                        style={{ width: `${Math.min((m.value / (m.target * 1.5)) * 100, 100)}%` }}
-                      />
-                    </div>
+                      <div className="h-2 bg-base-300 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${m.good ? "bg-success" : "bg-error"}`}
+                          style={{
+                            width: `${Math.min((m.value / (m.target * 1.5)) * 100, 100)}%`,
+                          }}
+                        />
+                      </div>
                     )}
-                    <div className="text-[10px] text-base-content/40 mt-0.5">Acceptance target: {m.targetText}</div>
+                    <div className="text-[10px] text-base-content/40 mt-0.5">
+                      Acceptance target: {m.targetText}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-
         </div>
       )}
+
+      {/* Forecast Chat Assistant — context-aware floating panel */}
+      <ForecastChatButton
+        sku={selectedSku || filters.sku}
+        skuOptions={skuOptions}
+        forecastPoints={latestForecasts.map((f) => ({
+          sku: f.sku,
+          month: String(f.month ?? (f as any).label ?? ""),
+          p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+        }))}
+        selectedMonth={transitionLabel}
+        predictedUnits={predictedUnitsForChat}
+        confidence={confidenceForChat}
+        mape={wapeVal}
+        onSkuChange={(newSku: string) => {
+          setSelectedSku(newSku);
+          setSkuSearchInput(newSku);
+        }}
+        onOpen={() => {
+          captureOpenContext({
+            sku: selectedSku || filters.sku,
+            forecastPoints: latestForecasts.map((f) => ({
+              sku: f.sku,
+              month: String(f.month ?? (f as any).label ?? ""),
+              p50: Number(f.p50 ?? (f as any).forecast ?? 0),
+            })),
+            selectedMonth: transitionLabel,
+            predictedUnits: predictedUnitsForChat,
+            confidence: confidenceForChat,
+            mape: wapeVal,
+          });
+        }}
+      />
 
       {/* Footer */}
       <div className="flex justify-between items-center border-t border-base-300 pt-4 text-[10px] text-base-content/50">
