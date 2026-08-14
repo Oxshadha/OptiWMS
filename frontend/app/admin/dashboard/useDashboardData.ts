@@ -35,7 +35,7 @@ const initialState: DashboardDataState = {
   error: null,
 };
 
-export function useDashboardData(options?: { topProductsLimit?: number; period?: AnalyticsPeriod }) {
+export function useDashboardData(options?: { topProductsLimit?: number; period?: AnalyticsPeriod; warehouseId?: string }) {
   const topProductsLimit = options?.topProductsLimit ?? 4;
   const period = options?.period ?? "current_month";
 
@@ -59,9 +59,12 @@ export function useDashboardData(options?: { topProductsLimit?: number; period?:
       return Promise.race([promise, timeout]);
     };
 
-    const warehouses = await fetchWithTimeout(warehousesApi.getAll());
-    let warehouseId = warehouses[0]?.id;
-
+    let warehouseId = options?.warehouseId;
+    
+    if (!warehouseId) {
+      const warehouses = await fetchWithTimeout(warehousesApi.getAll());
+      warehouseId = warehouses[0]?.id;
+    }
     // Fallback to the full warehouse list if the operational slice is empty.
     // This keeps the dashboard usable in DBs that only have legacy/demo warehouses.
     if (!warehouseId) {
