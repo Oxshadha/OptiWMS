@@ -220,6 +220,7 @@ recovery_backups/
 # container startup, WMS loading, and planner verification.
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_forecasts.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/operational_backtest_metrics.csv
+!Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/champion_prediction_intervals.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/inventory_policy_simulation.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/selection_backtest_rows.csv
 !Ai miroservices/modeling/v8_controlled_synthetic_validation/outputs/data/*.csv
