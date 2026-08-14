@@ -167,6 +167,7 @@ public class TaskService {
         entity.setLocationCode(task.getLocationCode());
         entity.setReferenceType(task.getReferenceType());
         entity.setReferenceId(task.getReferenceId());
+        entity.setHandlingUnitSeq(task.getHandlingUnitSeq());
         entity.setNotes(task.getNotes());
 
         TaskEntity saved = repository.save(entity);
@@ -258,6 +259,7 @@ public class TaskService {
         task.setLocationCode(entity.getLocationCode());
         task.setReferenceType(entity.getReferenceType());
         task.setReferenceId(entity.getReferenceId());
+        task.setHandlingUnitSeq(entity.getHandlingUnitSeq());
         task.setNotes(entity.getNotes());
         return task;
     }

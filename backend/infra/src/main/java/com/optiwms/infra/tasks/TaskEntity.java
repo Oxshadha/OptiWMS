@@ -56,6 +56,10 @@ public class TaskEntity {
     @Column(name = "reference_id", columnDefinition = "UUID")
     private UUID referenceId;
 
+    /** Pallet (handling unit) sequence within the referenced line, 1-based. */
+    @Column(name = "handling_unit_seq")
+    private Integer handlingUnitSeq;
+
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
@@ -111,6 +115,9 @@ public class TaskEntity {
     public void setReferenceType(String referenceType) { this.referenceType = referenceType; }
     public UUID getReferenceId() { return referenceId; }
     public void setReferenceId(UUID referenceId) { this.referenceId = referenceId; }
+
+    public Integer getHandlingUnitSeq() { return handlingUnitSeq; }
+    public void setHandlingUnitSeq(Integer handlingUnitSeq) { this.handlingUnitSeq = handlingUnitSeq; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public LocalDateTime getCreatedAt() { return createdAt; }
