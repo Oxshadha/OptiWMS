@@ -266,3 +266,7 @@ Ai miroservices/modeling/InsightAI_University of Moratuwa.ipynb
 
 # Legacy root docs and scripts
 archive_scripts_and_docs/
+
+# Local dev database dump: too large for git and contains password hashes.
+# Distribute out of band or via Git LFS.
+scripts/optiwms_local_seed.sql.gz
