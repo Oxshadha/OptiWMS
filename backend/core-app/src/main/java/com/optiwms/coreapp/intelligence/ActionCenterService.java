@@ -2,8 +2,12 @@ package com.optiwms.coreapp.intelligence;
 
 import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationRunEntity;
 import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationRunRepository;
+import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationLineEntity;
+import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationLineRepository;
 import com.optiwms.infra.forecastspace.SpaceOptimizationRunEntity;
 import com.optiwms.infra.forecastspace.SpaceOptimizationRunRepository;
+import com.optiwms.infra.intelligence.PlanningDecisionEventEntity;
+import com.optiwms.infra.intelligence.PlanningDecisionEventRepository;
 import com.optiwms.infra.slotting.SlottingPlanEntity;
 import com.optiwms.infra.slotting.SlottingPlanRepository;
 import com.optiwms.infra.orders.OrderRepository;
@@ -14,25 +18,32 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class ActionCenterService {
     private final InventoryPolicyRecommendationRunRepository policyRunRepository;
+    private final InventoryPolicyRecommendationLineRepository policyLineRepository;
     private final SpaceOptimizationRunRepository spaceRunRepository;
     private final SlottingPlanRepository slottingPlanRepository;
     private final OrderRepository orderRepository;
+    private final PlanningDecisionEventRepository decisionEventRepository;
 
     public ActionCenterService(
             InventoryPolicyRecommendationRunRepository policyRunRepository,
+            InventoryPolicyRecommendationLineRepository policyLineRepository,
             SpaceOptimizationRunRepository spaceRunRepository,
             SlottingPlanRepository slottingPlanRepository,
-            OrderRepository orderRepository) {
+            OrderRepository orderRepository,
+            PlanningDecisionEventRepository decisionEventRepository) {
         this.policyRunRepository = policyRunRepository;
+        this.policyLineRepository = policyLineRepository;
         this.spaceRunRepository = spaceRunRepository;
         this.slottingPlanRepository = slottingPlanRepository;
         this.orderRepository = orderRepository;
+        this.decisionEventRepository = decisionEventRepository;
     }
 
     public ActionCenterSummary summarize(UUID warehouseId) {
@@ -50,18 +61,38 @@ public class ActionCenterService {
         Set<String> reviewable = Set.of("DRAFT", "PENDING_APPROVAL", "READY_FOR_REVIEW");
         InventoryPolicyRecommendationRunEntity actionablePolicy = policyRuns.stream()
                 .filter(run -> reviewable.contains(run.getStatus()))
+                .filter(run -> !temporarilyDeferred(run.getId(), "APPROVE_POLICY"))
                 .findFirst()
                 .orElse(null);
-        int pendingPolicies = (int) policyRuns.stream().filter(run -> reviewable.contains(run.getStatus())).count();
-        int pendingSpaceRuns = (int) spaceRuns.stream().filter(run -> reviewable.contains(run.getStatus())).count();
-        int draftSlottingPlans = (int) slottingPlans.stream().filter(run -> "DRAFT".equals(run.getStatus())).count();
+        int pendingPolicies = (int) policyRuns.stream()
+                .filter(run -> reviewable.contains(run.getStatus()))
+                .filter(run -> !temporarilyDeferred(run.getId(), "APPROVE_POLICY"))
+                .count();
+        int pendingSpaceRuns = (int) spaceRuns.stream()
+                .filter(run -> reviewable.contains(run.getStatus()))
+                .filter(run -> !temporarilyDeferred(run.getId(), "APPROVE_SPACE"))
+                .count();
+        int draftSlottingPlans = (int) slottingPlans.stream()
+                .filter(run -> "DRAFT".equals(run.getStatus()))
+                .filter(run -> !temporarilyDeferred(run.getId(), "APPROVE_SLOTTING_PLAN"))
+                .count();
         int draftPurchaseSuggestions = (int) orderRepository.findOperationalByWarehouseId(warehouseId).stream()
                 .filter(order -> "draft".equalsIgnoreCase(order.getStatus()))
                 .filter(order -> order.getNotes() != null && order.getNotes().contains("Forecast policy purchase suggestion"))
                 .count();
-        InventoryPolicyRecommendationRunEntity policyForDecisionView = actionablePolicy != null
-                ? actionablePolicy : latestPolicy;
-        int stockoutExposure = policyForDecisionView != null ? nz(policyForDecisionView.getHighRiskCount()) : 0;
+        InventoryPolicyRecommendationRunEntity policyForDecisionView = actionablePolicy;
+        List<InventoryPolicyRecommendationLineEntity> actionableLines = actionablePolicy == null
+                ? List.of()
+                : policyLineRepository.findByRunIdOrderByMaterialCodeAsc(actionablePolicy.getId()).stream()
+                        .filter(this::meaningfulChange)
+                        .toList();
+        int inventoryChanges = actionableLines.size();
+        int stockoutExposure = (int) actionableLines.stream()
+                .filter(line -> nz(line.getStockoutRiskScore()).compareTo(new BigDecimal("0.70")) >= 0)
+                .count();
+        int suggestedPurchases = (int) actionableLines.stream()
+                .filter(line -> nz(line.getProposedOrderQty()).signum() > 0)
+                .count();
         BigDecimal excessInventoryValue = policyForDecisionView != null
                 && policyForDecisionView.getEstimatedHoldingCostDelta() != null
                 && policyForDecisionView.getEstimatedHoldingCostDelta().signum() < 0
@@ -79,18 +110,20 @@ public class ActionCenterService {
                     "Create min/max, reorder point, and order quantity recommendations from forecast demand.",
                     "HIGH",
                     "/admin/inventory-intelligence",
-                    null));
+                    null, "NOT_STARTED", true, null, 0));
         } else if (actionablePolicy != null) {
             actions.add(new ActionItem(
                     actionablePolicy.getId(),
                     "APPROVE_POLICY",
-                    "Review min/max policy",
-                    "Pending forecast-driven policy run has "
-                            + nz(actionablePolicy.getHighRiskCount()) + " high-risk and "
-                            + nz(actionablePolicy.getDataInsufficientCount()) + " data-gap lines.",
-                    actionablePolicy.getHighRiskCount() != null && actionablePolicy.getHighRiskCount() > 0 ? "HIGH" : "MEDIUM",
+                    "Review " + inventoryChanges + " inventory policy changes",
+                    suggestedPurchases + " products need a draft replenishment. The remaining rows adjust stock protection or storage capacity; unchanged products are excluded.",
+                    suggestedPurchases > 0 ? "HIGH" : "MEDIUM",
                     "/admin/inventory-intelligence",
-                    actionablePolicy.getCreatedAt()));
+                    actionablePolicy.getCreatedAt(),
+                    actionablePolicy.getStatus(),
+                    true,
+                    null,
+                    inventoryChanges));
         }
 
         if (latestPolicy != null && "APPROVED".equals(latestPolicy.getStatus()) && latestSpace == null) {
@@ -101,8 +134,9 @@ public class ActionCenterService {
                     "Approved policy exists; create the storage impact run to reuse released compatible space.",
                     "HIGH",
                     "/admin/inventory-intelligence",
-                    latestPolicy.getApprovedAt()));
-        } else if (latestSpace != null && reviewable.contains(latestSpace.getStatus())) {
+                    latestPolicy.getApprovedAt(), latestPolicy.getStatus(), true, null, 0));
+        } else if (latestSpace != null && reviewable.contains(latestSpace.getStatus())
+                && !temporarilyDeferred(latestSpace.getId(), "APPROVE_SPACE")) {
             actions.add(new ActionItem(
                     latestSpace.getId(),
                     "APPROVE_SPACE",
@@ -112,7 +146,8 @@ public class ActionCenterService {
                             + fmt(latestSpace.getTotalSpaceSavedPalletPositions()) + " saved pallet positions.",
                     latestSpace.getInfeasibleCount() != null && latestSpace.getInfeasibleCount() > 0 ? "HIGH" : "MEDIUM",
                     "/admin/inventory-intelligence",
-                    latestSpace.getCreatedAt()));
+                    latestSpace.getCreatedAt(), latestSpace.getStatus(), true, null,
+                    nz(latestSpace.getHighRiskCount())));
         }
 
         if (latestSlotting == null) {
@@ -123,18 +158,25 @@ public class ActionCenterService {
                     "Create an on-demand slotting plan for pick-face and reserve locations.",
                     "MEDIUM",
                     "/admin/inventory-intelligence",
-                    null));
-        } else if ("DRAFT".equals(latestSlotting.getStatus())) {
+                    null, "NOT_STARTED", true, null, 0));
+        } else if ("DRAFT".equals(latestSlotting.getStatus())
+                && !temporarilyDeferred(latestSlotting.getId(), "APPROVE_SLOTTING_PLAN")) {
+            boolean eligible = Set.of("OPTIMAL", "FEASIBLE").contains(latestSlotting.getSolverStatus());
             actions.add(new ActionItem(
                     latestSlotting.getId(),
                     "APPROVE_SLOTTING_PLAN",
-                    "Approve location plan",
-                    "Draft plan proposes "
+                    "Review " + nz(latestSlotting.getTotalMovesProposed()) + " proposed relocations",
+                    "The six-month slotting plan proposes "
                             + nz(latestSlotting.getTotalMovesProposed()) + " moves under a "
                             + fmt(latestSlotting.getRelocationBudgetPct()) + "% relocation budget.",
                     latestSlotting.getTotalMovesProposed() != null && latestSlotting.getTotalMovesProposed() > 0 ? "HIGH" : "LOW",
                     "/admin/inventory-intelligence",
-                    latestSlotting.getCreatedAt()));
+                    latestSlotting.getCreatedAt(),
+                    latestSlotting.getStatus(),
+                    eligible,
+                    eligible ? null : "The optimizer result is " + Objects.toString(latestSlotting.getSolverStatus(), "not available")
+                            + ". Recalculate the plan before approval.",
+                    nz(latestSlotting.getTotalMovesProposed())));
         } else if ("APPROVED".equals(latestSlotting.getStatus())) {
             actions.add(new ActionItem(
                     latestSlotting.getId(),
@@ -143,7 +185,8 @@ public class ActionCenterService {
                     "Release the approved moves in the warehouse off-peak window so workers receive scan-based tasks.",
                     "MEDIUM",
                     "/admin/inventory-intelligence",
-                    latestSlotting.getApprovedAt()));
+                    latestSlotting.getApprovedAt(), latestSlotting.getStatus(), true, null,
+                    nz(latestSlotting.getTotalMovesProposed())));
         }
 
         actions.sort(Comparator.comparing(ActionItem::priorityRank).reversed());
@@ -157,6 +200,8 @@ public class ActionCenterService {
         return new ActionCenterSummary(
                 warehouseId,
                 pendingPolicies,
+                inventoryChanges,
+                suggestedPurchases,
                 pendingSpaceRuns,
                 draftSlottingPlans,
                 draftPurchaseSuggestions,
@@ -177,6 +222,33 @@ public class ActionCenterService {
                 latestSlotting != null ? nz(latestSlotting.getTotalMovesProposed()) : 0,
                 actions,
                 solverGuidance);
+    }
+
+    private boolean temporarilyDeferred(UUID recommendationId, String type) {
+        if (recommendationId == null) return false;
+        return decisionEventRepository
+                .findFirstByRecommendationIdAndRecommendationTypeOrderByCreatedAtDesc(recommendationId, type)
+                .filter(event -> "DEFERRED".equals(event.getAction()))
+                .map(PlanningDecisionEventEntity::getDeferredUntil)
+                .map(until -> until.isAfter(OffsetDateTime.now()))
+                .orElse(false);
+    }
+
+    private boolean meaningfulChange(InventoryPolicyRecommendationLineEntity line) {
+        if (Set.of("DATA_INSUFFICIENT", "INFEASIBLE", "REJECTED").contains(line.getRecommendationStatus())) {
+            return false;
+        }
+        return materiallyDifferent(line.getCurrentReorderPoint(), line.getProposedReorderPoint())
+                || materiallyDifferent(line.getCurrentMaxStock(), line.getProposedMaxStock())
+                || nz(line.getProposedOrderQty()).signum() > 0
+                || nz(line.getPalletPositionsDelta()).abs().compareTo(BigDecimal.ONE) >= 0;
+    }
+
+    private boolean materiallyDifferent(BigDecimal current, BigDecimal proposed) {
+        BigDecimal before = nz(current);
+        BigDecimal after = nz(proposed);
+        BigDecimal threshold = before.abs().multiply(new BigDecimal("0.02")).max(BigDecimal.ONE);
+        return after.subtract(before).abs().compareTo(threshold) >= 0;
     }
 
     private <T> T first(List<T> rows) {
@@ -201,6 +273,8 @@ public class ActionCenterService {
     public record ActionCenterSummary(
             UUID warehouseId,
             int pendingPolicyRuns,
+            int inventoryChanges,
+            int suggestedPurchases,
             int pendingSpaceRuns,
             int draftSlottingPlans,
             int draftPurchaseSuggestions,
@@ -228,7 +302,11 @@ public class ActionCenterService {
             String description,
             String priority,
             String href,
-            OffsetDateTime createdAt) {
+            OffsetDateTime createdAt,
+            String sourceStatus,
+            boolean canApprove,
+            String blockedReason,
+            int affectedCount) {
         int priorityRank() {
             return switch (priority) {
                 case "HIGH" -> 3;

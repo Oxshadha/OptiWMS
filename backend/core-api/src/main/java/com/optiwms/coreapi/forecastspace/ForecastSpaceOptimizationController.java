@@ -4,6 +4,7 @@ import com.optiwms.coreapi.ai.AiProxyService;
 import com.optiwms.coreapp.forecastspace.ForecastSpaceOptimizationService;
 import com.optiwms.coreapp.forecastspace.InventoryPolicyRecommendationService;
 import com.optiwms.infra.forecastspace.*;
+import com.optiwms.infra.master.MaterialEntity;
 import com.optiwms.infra.master.MaterialRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,7 +14,11 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -90,8 +95,10 @@ public class ForecastSpaceOptimizationController {
 
     @GetMapping("/policy-runs/{runId}/lines")
     public List<PolicyLineDto> getPolicyLines(@PathVariable UUID runId, Authentication authentication) {
-        authorizedPolicyRun(runId, authentication);
-        return policyService.getLines(runId).stream().map(this::toPolicyLine).toList();
+        InventoryPolicyRecommendationRunEntity run = authorizedPolicyRun(runId, authentication);
+        return policyService.getLines(runId).stream()
+                .map(line -> toPolicyLine(line, run.getHorizonMonths()))
+                .toList();
     }
 
     @GetMapping("/policy-runs/{runId}/simulation-evidence")
@@ -207,13 +214,15 @@ public class ForecastSpaceOptimizationController {
                 run.getCreatedAt() != null ? run.getCreatedAt().toString() : null);
     }
 
-    private PolicyLineDto toPolicyLine(InventoryPolicyRecommendationLineEntity line) {
+    private PolicyLineDto toPolicyLine(InventoryPolicyRecommendationLineEntity line, Integer horizonMonths) {
+        Optional<MaterialEntity> material = materialRepository.findById(line.getMaterialId());
+        PolicyDecisionFacts facts = decisionFacts(line, horizonMonths);
         return new PolicyLineDto(
                 str(line.getId()),
                 str(line.getRunId()),
                 str(line.getMaterialId()),
                 line.getMaterialCode(),
-                materialRepository.findById(line.getMaterialId()).map(material -> material.getDescription()).orElse(line.getMaterialCode()),
+                material.map(MaterialEntity::getDescription).orElse(line.getMaterialCode()),
                 line.getMaterialType(),
                 dbl(line.getCurrentStock()),
                 dbl(line.getCurrentAvailableStock()),
@@ -250,8 +259,122 @@ public class ForecastSpaceOptimizationController {
                 line.getConstraintSnapshot(),
                 line.getApprovalSnapshot(),
                 line.getManagerOverride(),
-                line.getOverrideReason());
+                line.getOverrideReason(),
+                material.map(MaterialEntity::getAbcClass).orElse(null),
+                material.map(MaterialEntity::getFmsClass).orElse(null),
+                facts.meaningfulChange(),
+                facts.actionSummary(),
+                facts.reasonCodes(),
+                facts.netOrderBeforeRounding(),
+                facts.daysCoverBefore(),
+                facts.daysCoverAfter(),
+                facts.projectedTriggerDate(),
+                facts.orderByDate(),
+                facts.expectedReceiptDate());
     }
+
+    private PolicyDecisionFacts decisionFacts(InventoryPolicyRecommendationLineEntity line, Integer horizonMonths) {
+        int horizonDays = Math.max(30, Optional.ofNullable(horizonMonths).orElse(6) * 30);
+        BigDecimal expectedDemand = nz(line.getForecastP50());
+        BigDecimal dailyDemand = expectedDemand.signum() > 0
+                ? expectedDemand.divide(BigDecimal.valueOf(horizonDays), 8, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO;
+        BigDecimal available = nz(line.getCurrentAvailableStock());
+        BigDecimal trigger = nz(line.getProposedReorderPoint());
+        BigDecimal target = nz(line.getProposedTargetStock());
+        BigDecimal netBeforeRounding = target.subtract(available).max(BigDecimal.ZERO);
+        BigDecimal order = nz(line.getProposedOrderQty());
+        BigDecimal coverBefore = dailyDemand.signum() > 0
+                ? available.divide(dailyDemand, 1, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+        BigDecimal coverAfter = dailyDemand.signum() > 0
+                ? available.add(order).divide(dailyDemand, 1, RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+        long daysUntilTrigger = 0;
+        if (dailyDemand.signum() > 0 && available.compareTo(trigger) > 0) {
+            daysUntilTrigger = available.subtract(trigger).divide(dailyDemand, 0, RoundingMode.CEILING).longValue();
+        }
+        LocalDate today = LocalDate.now();
+        LocalDate triggerDate = today.plusDays(Math.max(0, daysUntilTrigger));
+        int leadDays = Math.max(0, Optional.ofNullable(line.getLeadTimeDays()).orElse(0));
+        LocalDate orderBy = triggerDate.minusDays(leadDays);
+        if (orderBy.isBefore(today)) orderBy = today;
+        LocalDate receipt = orderBy.plusDays(leadDays);
+
+        boolean policyChanged = materiallyDifferent(line.getCurrentReorderPoint(), line.getProposedReorderPoint())
+                || materiallyDifferent(line.getCurrentMinStock(), line.getProposedMinStock())
+                || materiallyDifferent(line.getCurrentMaxStock(), line.getProposedMaxStock());
+        boolean spaceChanged = nz(line.getPalletPositionsDelta()).abs().compareTo(BigDecimal.ONE) >= 0;
+        boolean meaningful = !List.of("DATA_INSUFFICIENT", "INFEASIBLE", "REJECTED")
+                .contains(line.getRecommendationStatus())
+                && (policyChanged || order.signum() > 0 || spaceChanged);
+
+        List<String> reasons = new ArrayList<>();
+        if (available.compareTo(trigger) <= 0) reasons.add("BELOW_REORDER_TRIGGER");
+        if (materiallyDifferent(line.getCurrentReorderPoint(), line.getProposedReorderPoint())) {
+            reasons.add(nz(line.getProposedReorderPoint()).compareTo(nz(line.getCurrentReorderPoint())) > 0
+                    ? "REORDER_TRIGGER_INCREASE" : "REORDER_TRIGGER_REDUCTION");
+        }
+        if (materiallyDifferent(line.getCurrentMinStock(), line.getProposedMinStock())) {
+            reasons.add(nz(line.getProposedMinStock()).compareTo(nz(line.getCurrentMinStock())) > 0
+                    ? "MINIMUM_INCREASE" : "MINIMUM_REDUCTION");
+        }
+        if (materiallyDifferent(line.getCurrentMaxStock(), line.getProposedMaxStock())) {
+            reasons.add(nz(line.getProposedMaxStock()).compareTo(nz(line.getCurrentMaxStock())) > 0
+                    ? "MAXIMUM_INCREASE" : "MAXIMUM_REDUCTION");
+        }
+        if (leadDays >= 45) reasons.add("LONG_LEAD_TIME");
+        if (order.signum() > 0 && nz(line.getMoq()).signum() > 0) reasons.add("MOQ_APPLIED");
+        if (order.subtract(netBeforeRounding).abs().compareTo(BigDecimal.ONE) >= 0) reasons.add("ORDER_MULTIPLE_ROUNDING");
+        if (nz(line.getPalletPositionsDelta()).compareTo(BigDecimal.ONE) >= 0) reasons.add("SPACE_INCREASE");
+        if (nz(line.getPalletPositionsDelta()).compareTo(BigDecimal.ONE.negate()) <= 0) reasons.add("SPACE_RELEASE");
+        if (nz(line.getStockoutRiskScore()).compareTo(new BigDecimal("70")) >= 0) reasons.add("HIGH_SERVICE_RISK");
+        if (line.getExpiryLimitedMaxStock() != null) reasons.add("EXPIRY_CAP");
+
+        String summary;
+        if (order.signum() > 0) {
+            summary = "Create draft order for " + whole(order) + " units";
+        } else if (nz(line.getProposedMaxStock()).compareTo(nz(line.getCurrentMaxStock())) > 0) {
+            summary = "Increase target maximum to " + whole(nz(line.getProposedMaxStock()));
+        } else if (nz(line.getProposedMaxStock()).compareTo(nz(line.getCurrentMaxStock())) < 0) {
+            summary = "Reduce target maximum to " + whole(nz(line.getProposedMaxStock()));
+        } else if (nz(line.getProposedReorderPoint()).compareTo(nz(line.getCurrentReorderPoint())) > 0) {
+            summary = "Raise reorder trigger to " + whole(nz(line.getProposedReorderPoint()));
+        } else if (nz(line.getProposedReorderPoint()).compareTo(nz(line.getCurrentReorderPoint())) < 0) {
+            summary = "Lower reorder trigger to " + whole(nz(line.getProposedReorderPoint()));
+        } else if (nz(line.getProposedMinStock()).compareTo(nz(line.getCurrentMinStock())) > 0) {
+            summary = "Increase minimum stock to " + whole(nz(line.getProposedMinStock()));
+        } else if (nz(line.getProposedMinStock()).compareTo(nz(line.getCurrentMinStock())) < 0) {
+            summary = "Reduce minimum stock to " + whole(nz(line.getProposedMinStock()));
+        } else if (spaceChanged) {
+            summary = nz(line.getPalletPositionsDelta()).signum() > 0
+                    ? "Reserve additional pallet capacity" : "Release excess pallet capacity";
+        } else {
+            summary = "No material policy change";
+        }
+        return new PolicyDecisionFacts(meaningful, summary, reasons, dbl(netBeforeRounding),
+                dbl(coverBefore), dbl(coverAfter), triggerDate.toString(), orderBy.toString(), receipt.toString());
+    }
+
+    private boolean materiallyDifferent(BigDecimal current, BigDecimal proposed) {
+        BigDecimal before = nz(current);
+        BigDecimal after = nz(proposed);
+        BigDecimal threshold = before.abs().multiply(new BigDecimal("0.02")).max(BigDecimal.ONE);
+        return after.subtract(before).abs().compareTo(threshold) >= 0;
+    }
+
+    private BigDecimal nz(BigDecimal value) { return value != null ? value : BigDecimal.ZERO; }
+    private String whole(BigDecimal value) { return value.setScale(0, RoundingMode.HALF_UP).toPlainString(); }
+
+    private record PolicyDecisionFacts(
+            boolean meaningfulChange,
+            String actionSummary,
+            List<String> reasonCodes,
+            Double netOrderBeforeRounding,
+            Double daysCoverBefore,
+            Double daysCoverAfter,
+            String projectedTriggerDate,
+            String orderByDate,
+            String expectedReceiptDate) {}
 
     private SpaceRunDto toSpaceRun(SpaceOptimizationRunEntity run) {
         return new SpaceRunDto(
@@ -433,7 +556,18 @@ public class ForecastSpaceOptimizationController {
             String constraintSnapshot,
             String approvalSnapshot,
             Boolean managerOverride,
-            String overrideReason) {}
+            String overrideReason,
+            String abcClass,
+            String fmsClass,
+            Boolean meaningfulChange,
+            String actionSummary,
+            List<String> reasonCodes,
+            Double netOrderBeforeRounding,
+            Double daysCoverBefore,
+            Double daysCoverAfter,
+            String projectedTriggerDate,
+            String orderByDate,
+            String expectedReceiptDate) {}
 
     public record SpaceRunDto(
             String id,

@@ -1,16 +1,20 @@
 package com.optiwms.coreapp.intelligence;
 
 import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationRunEntity;
+import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationLineRepository;
+import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationLineEntity;
 import com.optiwms.infra.forecastspace.InventoryPolicyRecommendationRunRepository;
 import com.optiwms.infra.forecastspace.SpaceOptimizationRunEntity;
 import com.optiwms.infra.forecastspace.SpaceOptimizationRunRepository;
 import com.optiwms.infra.slotting.SlottingPlanEntity;
 import com.optiwms.infra.slotting.SlottingPlanRepository;
 import com.optiwms.infra.orders.OrderRepository;
+import com.optiwms.infra.intelligence.PlanningDecisionEventRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -21,9 +25,11 @@ class ActionCenterServiceTest {
     void failedAndRolledBackRunsDoNotCountAsPendingManagerWork() {
         UUID warehouse = UUID.randomUUID();
         var policies = org.mockito.Mockito.mock(InventoryPolicyRecommendationRunRepository.class);
+        var policyLines = org.mockito.Mockito.mock(InventoryPolicyRecommendationLineRepository.class);
         var spaces = org.mockito.Mockito.mock(SpaceOptimizationRunRepository.class);
         var slotting = org.mockito.Mockito.mock(SlottingPlanRepository.class);
         var orders = org.mockito.Mockito.mock(OrderRepository.class);
+        var decisions = org.mockito.Mockito.mock(PlanningDecisionEventRepository.class);
 
         InventoryPolicyRecommendationRunEntity rolledBack = new InventoryPolicyRecommendationRunEntity();
         rolledBack.setStatus("ROLLED_BACK");
@@ -36,7 +42,8 @@ class ActionCenterServiceTest {
         when(slotting.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of(cancelled));
         when(orders.findOperationalByWarehouseId(warehouse)).thenReturn(List.of());
 
-        ActionCenterService.ActionCenterSummary result = new ActionCenterService(policies, spaces, slotting, orders).summarize(warehouse);
+        ActionCenterService.ActionCenterSummary result = new ActionCenterService(
+                policies, policyLines, spaces, slotting, orders, decisions).summarize(warehouse);
         assertEquals(0, result.pendingPolicyRuns());
         assertEquals(0, result.pendingSpaceRuns());
         assertEquals(0, result.draftSlottingPlans());
@@ -48,9 +55,11 @@ class ActionCenterServiceTest {
     void reviewableRunDrivesDecisionStatusWhenNewerAuditRunWasRolledBack() {
         UUID warehouse = UUID.randomUUID();
         var policies = org.mockito.Mockito.mock(InventoryPolicyRecommendationRunRepository.class);
+        var policyLines = org.mockito.Mockito.mock(InventoryPolicyRecommendationLineRepository.class);
         var spaces = org.mockito.Mockito.mock(SpaceOptimizationRunRepository.class);
         var slotting = org.mockito.Mockito.mock(SlottingPlanRepository.class);
         var orders = org.mockito.Mockito.mock(OrderRepository.class);
+        var decisions = org.mockito.Mockito.mock(PlanningDecisionEventRepository.class);
 
         InventoryPolicyRecommendationRunEntity rolledBack = new InventoryPolicyRecommendationRunEntity();
         rolledBack.setStatus("ROLLED_BACK");
@@ -63,11 +72,23 @@ class ActionCenterServiceTest {
         when(spaces.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
         when(slotting.findByWarehouseIdOrderByCreatedAtDesc(warehouse)).thenReturn(List.of());
         when(orders.findOperationalByWarehouseId(warehouse)).thenReturn(List.of());
+        InventoryPolicyRecommendationLineEntity changed = new InventoryPolicyRecommendationLineEntity();
+        changed.setCurrentReorderPoint(new BigDecimal("100"));
+        changed.setProposedReorderPoint(new BigDecimal("130"));
+        changed.setCurrentMaxStock(new BigDecimal("200"));
+        changed.setProposedMaxStock(new BigDecimal("260"));
+        changed.setProposedOrderQty(new BigDecimal("80"));
+        changed.setPalletPositionsDelta(new BigDecimal("2"));
+        changed.setStockoutRiskScore(new BigDecimal("0.85"));
+        changed.setRecommendationStatus("HIGH_RISK_REVIEW");
+        when(policyLines.findByRunIdOrderByMaterialCodeAsc(reviewable.getId())).thenReturn(List.of(changed));
 
-        ActionCenterService.ActionCenterSummary result = new ActionCenterService(policies, spaces, slotting, orders).summarize(warehouse);
+        ActionCenterService.ActionCenterSummary result = new ActionCenterService(
+                policies, policyLines, spaces, slotting, orders, decisions).summarize(warehouse);
         assertEquals(1, result.pendingPolicyRuns());
         assertEquals("READY_FOR_REVIEW", result.latestPolicyStatus());
-        assertEquals(7, result.stockoutExposure());
+        assertEquals(1, result.inventoryChanges());
+        assertEquals(1, result.stockoutExposure());
         assertEquals(reviewable.getId(), result.actionItems().stream()
                 .filter(item -> "APPROVE_POLICY".equals(item.type()))
                 .findFirst()

@@ -547,9 +547,15 @@ public class InventoryPolicyRecommendationService {
 
         BigDecimal currentTarget = line.getCurrentMaxStock() != null ? line.getCurrentMaxStock() : current;
         BigDecimal stockDelta = proposedMax.subtract(currentTarget).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal palletDelta = palletPositions(stockDelta, material);
+        // Storage capacity is reserved in whole pallet positions. Dividing the
+        // unit delta directly can report fractional or "negative zero" pallet
+        // changes even when both policies occupy the same number of positions.
+        // Compare the independently rounded capacities instead.
+        BigDecimal currentPalletPositions = palletPositions(currentTarget, material)
+                .setScale(0, RoundingMode.CEILING);
         BigDecimal targetPalletPositions = palletPositions(proposedMax, material)
-                .setScale(2, RoundingMode.CEILING);
+                .setScale(0, RoundingMode.CEILING);
+        BigDecimal palletDelta = targetPalletPositions.subtract(currentPalletPositions);
         BigDecimal holdingDelta = stockDelta.multiply(supplier.unitCost()).multiply(DEFAULT_HOLDING_COST_RATE)
                 .setScale(2, RoundingMode.HALF_UP);
 
