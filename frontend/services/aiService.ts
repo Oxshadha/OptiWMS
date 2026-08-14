@@ -64,6 +64,32 @@ const SOP_NAME_MAPPINGS: Record<string, string> = {
   "cycle counts": "SOP - Conducting Cycle Counts",
 };
 
+/**
+ * A 429 can mean two different things: the caller is going too fast, or every
+ * upstream model provider is out of quota. Only the first is the user's doing,
+ * so they get different wording.
+ */
+async function describeRateLimit(response: Response): Promise<string> {
+  const fallback = "You have reached the assistant request limit. Please wait a moment.";
+  try {
+    const body = await response.json();
+    const detail = body?.detail;
+    if (detail && typeof detail === "object") {
+      if (detail.code === "AI_QUOTA_EXCEEDED") {
+        return (
+          detail.message ||
+          "AI quota exceeded. The assistant is temporarily out of capacity — please try again in a few minutes."
+        );
+      }
+      if (typeof detail.message === "string") return detail.message;
+    }
+    if (typeof detail === "string") return detail;
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function authHeaders(): Record<string, string> {
   const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null;
   return token ? { Authorization: `Bearer ${token}` } : {};
@@ -186,7 +212,7 @@ export async function askWarehouseAI(
     }
 
     if (response.status === 429) {
-      throw new Error("You have reached the assistant request limit. Please wait a moment.");
+      throw new Error(await describeRateLimit(response));
     }
 
     if (response.status >= 500) {

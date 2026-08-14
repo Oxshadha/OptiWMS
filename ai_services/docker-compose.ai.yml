@@ -148,6 +148,8 @@ services:
       - SPRING_API_BASE_URL=${SPRING_API_BASE_URL:-http://core-api:8080}
       - AI_AGENT_RATE_LIMIT_PER_MINUTE=${AI_AGENT_RATE_LIMIT_PER_MINUTE:-30}
       - AI_AGENT_SQL_ROLES=${AI_AGENT_SQL_ROLES:-ADMIN,MANAGER}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
     depends_on:
       forecast-service:
         condition: service_healthy
