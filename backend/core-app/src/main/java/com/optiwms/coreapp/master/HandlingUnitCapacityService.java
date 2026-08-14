@@ -31,15 +31,21 @@ public class HandlingUnitCapacityService {
         if (material == null) {
             return BigDecimal.ONE;
         }
-        Integer unitsPerPallet = material.getUnitsPerPallet();
+        return resolveUnitsPerPallet(material.getUnitsPerPallet(), material.getPalletSpaces());
+    }
+
+    /**
+     * Value-based overload so callers holding the domain {@code Material} (receiving,
+     * putaway) resolve units-per-pallet through the same rules as entity callers.
+     */
+    public BigDecimal resolveUnitsPerPallet(Integer unitsPerPallet, BigDecimal palletSpaces) {
         if (unitsPerPallet != null && unitsPerPallet > 0) {
             return BigDecimal.valueOf(unitsPerPallet);
         }
         // Legacy records stored unit capacity in pallet_spaces. New records keep
         // pallet footprint and units-per-pallet as separate physical attributes.
-        BigDecimal spaces = material.getPalletSpaces();
-        if (spaces != null && spaces.compareTo(BigDecimal.ZERO) > 0) {
-            return spaces;
+        if (palletSpaces != null && palletSpaces.compareTo(BigDecimal.ZERO) > 0) {
+            return palletSpaces;
         }
         return BigDecimal.ONE;
     }
@@ -74,11 +80,18 @@ public class HandlingUnitCapacityService {
     }
 
     public int computePalletCount(int quantity, MaterialEntity material) {
-        if (quantity <= 0) {
+        return computePalletCount(BigDecimal.valueOf(quantity), resolveUnitsPerPallet(material));
+    }
+
+    /** Value-based overload: how many pallets (handling units) a quantity occupies. */
+    public int computePalletCount(BigDecimal quantity, BigDecimal unitsPerPallet) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
             return 0;
         }
-        BigDecimal unitsPerPallet = resolveUnitsPerPallet(material);
-        return toPositiveIntCeil(BigDecimal.valueOf(quantity).divide(unitsPerPallet, 8, RoundingMode.CEILING));
+        BigDecimal perPallet = unitsPerPallet != null && unitsPerPallet.compareTo(BigDecimal.ZERO) > 0
+                ? unitsPerPallet
+                : BigDecimal.ONE;
+        return toPositiveIntCeil(quantity.divide(perPallet, 8, RoundingMode.CEILING));
     }
 
     public BigDecimal computeBinWeightKg(int quantity, MaterialEntity material) {
