@@ -8,6 +8,10 @@ export interface ActionItem {
   priority: 'HIGH' | 'MEDIUM' | 'LOW' | string;
   href: string;
   createdAt?: string | null;
+  sourceStatus?: string | null;
+  canApprove: boolean;
+  blockedReason?: string | null;
+  affectedCount: number;
 }
 
 export interface SolverGuidance {
@@ -20,6 +24,8 @@ export interface SolverGuidance {
 export interface ActionCenterSummary {
   warehouseId: string;
   pendingPolicyRuns: number;
+  inventoryChanges: number;
+  suggestedPurchases: number;
   pendingSpaceRuns: number;
   draftSlottingPlans: number;
   draftPurchaseSuggestions: number;
@@ -48,6 +54,9 @@ export const intelligenceApi = {
   getActionCenter: (warehouseId: string): Promise<ActionCenterSummary> =>
     apiClient.get<ActionCenterSummary>(`/v1/intelligence/workspace?warehouseId=${warehouseId}`),
 
+  getDecisions: (warehouseId: string): Promise<DecisionEvent[]> =>
+    apiClient.get<DecisionEvent[]>(`/v1/intelligence/decisions?warehouseId=${warehouseId}`),
+
   approve: (id: string, body: DecisionRequest): Promise<DecisionResult> =>
     apiClient.post<DecisionResult>(`/v1/intelligence/recommendations/${id}/approve`, body),
 
@@ -75,4 +84,18 @@ export interface DecisionResult {
   status: string;
   planningCycleId?: string | null;
   asOf: string;
+}
+
+export interface DecisionEvent {
+  id: string;
+  planningCycleId?: string | null;
+  recommendationId: string;
+  recommendationType: string;
+  action: 'APPROVED' | 'DEFERRED' | 'REJECTED' | 'SCHEDULED' | string;
+  actor: string;
+  reason?: string | null;
+  deferredUntil?: string | null;
+  previousStatus?: string | null;
+  newStatus: string;
+  createdAt: string;
 }

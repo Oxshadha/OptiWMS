@@ -23,10 +23,10 @@ assert.equal(plan.rows.length, 4);
 assert.equal(plan.rows[0].beginning, 1_000);
 assert.equal(plan.rows[0].endingP50, 600, "forecast demand must reduce stock");
 assert.equal(plan.rows[1].endingP50, 200);
-assert.equal(plan.rows[1].orderReleaseQty, 1_000, "order quantity must round to the configured multiple");
-assert.equal(plan.rows[1].orderDueLabel, "2026-04");
-assert.equal(plan.rows[2].receipt, 0, "lead-time supply must not arrive early");
-assert.equal(plan.rows[3].receipt, 1_000, "supply must arrive in its due bucket");
+assert.equal(plan.rows[1].orderReleaseQty, 800, "order quantity must round to the configured multiple");
+assert.equal(plan.rows[1].orderDuePeriod, "2026-03-25", "the due date must preserve daily lead-time timing");
+assert.equal(plan.rows[2].receipt, 800, "supply must arrive in the month containing its actual due date");
+assert.equal(plan.rows[3].receipt, 0);
 assert.ok(plan.projectedFillRate < 1, "the plan must expose shortages instead of silently replacing demand");
 assert.ok(plan.projectedRiskFillRate <= plan.projectedFillRate);
 assert.ok(plan.rows.every((row) => Number.isFinite(row.daysOfSupply)));
@@ -44,6 +44,17 @@ assert.equal(beyondHorizon.releaseCount, 1, "an open order due after the horizon
 assert.equal(beyondHorizon.rows[0].orderDuePeriod, "outside-horizon");
 assert.equal(beyondHorizon.rows[1].orderReleaseQty, 0);
 assert.equal(beyondHorizon.rows[0].pipelineAfterRelease, 1_000);
+
+const normalizedThresholds = buildInventoryPlan(buckets.slice(0, 1), {
+  onHand: 1_000,
+  safetyStock: 600,
+  reorderPoint: 400,
+  targetMax: 500,
+  leadTimeDays: 10,
+  moq: 1,
+  orderMultiple: 1,
+});
+assert.equal(normalizedThresholds.rows[0].reorderPoint, 600, "reorder point cannot sit below safety stock");
 
 const empty = buildInventoryPlan([], {
   onHand: 0,

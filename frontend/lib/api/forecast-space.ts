@@ -71,6 +71,17 @@ export interface PolicyRecommendationLine {
   approvalSnapshot?: string | null;
   managerOverride?: boolean;
   overrideReason?: string | null;
+  abcClass?: string | null;
+  fmsClass?: string | null;
+  meaningfulChange?: boolean;
+  actionSummary?: string | null;
+  reasonCodes?: string[];
+  netOrderBeforeRounding?: number | null;
+  daysCoverBefore?: number | null;
+  daysCoverAfter?: number | null;
+  projectedTriggerDate?: string | null;
+  orderByDate?: string | null;
+  expectedReceiptDate?: string | null;
 }
 
 export interface SpaceOptimizationRun {
