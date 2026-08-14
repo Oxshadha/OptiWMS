@@ -159,8 +159,11 @@ public class ActionCenterService {
                     "MEDIUM",
                     "/admin/inventory-intelligence",
                     null, "NOT_STARTED", true, null, 0));
-        } else if ("DRAFT".equals(latestSlotting.getStatus())
-                && !temporarilyDeferred(latestSlotting.getId(), "APPROVE_SLOTTING_PLAN")) {
+        } else if ("DRAFT".equals(latestSlotting.getStatus())) {
+            // A deferred plan is still reported, carrying the date it was snoozed
+            // to, so the UI can say why it is quiet and offer to review it early.
+            OffsetDateTime slottingDeferredUntil =
+                    deferredUntil(latestSlotting.getId(), "APPROVE_SLOTTING_PLAN");
             boolean eligible = Set.of("OPTIMAL", "FEASIBLE").contains(latestSlotting.getSolverStatus());
             actions.add(new ActionItem(
                     latestSlotting.getId(),
@@ -176,7 +179,8 @@ public class ActionCenterService {
                     eligible,
                     eligible ? null : "The optimizer result is " + Objects.toString(latestSlotting.getSolverStatus(), "not available")
                             + ". Recalculate the plan before approval.",
-                    nz(latestSlotting.getTotalMovesProposed())));
+                    nz(latestSlotting.getTotalMovesProposed()),
+                    slottingDeferredUntil));
         } else if ("APPROVED".equals(latestSlotting.getStatus())) {
             actions.add(new ActionItem(
                     latestSlotting.getId(),
@@ -225,13 +229,18 @@ public class ActionCenterService {
     }
 
     private boolean temporarilyDeferred(UUID recommendationId, String type) {
-        if (recommendationId == null) return false;
+        return deferredUntil(recommendationId, type) != null;
+    }
+
+    /** When this recommendation was snoozed to, or null when it is due now. */
+    private OffsetDateTime deferredUntil(UUID recommendationId, String type) {
+        if (recommendationId == null) return null;
         return decisionEventRepository
                 .findFirstByRecommendationIdAndRecommendationTypeOrderByCreatedAtDesc(recommendationId, type)
                 .filter(event -> "DEFERRED".equals(event.getAction()))
                 .map(PlanningDecisionEventEntity::getDeferredUntil)
-                .map(until -> until.isAfter(OffsetDateTime.now()))
-                .orElse(false);
+                .filter(until -> until.isAfter(OffsetDateTime.now()))
+                .orElse(null);
     }
 
     private boolean meaningfulChange(InventoryPolicyRecommendationLineEntity line) {
@@ -306,7 +315,17 @@ public class ActionCenterService {
             String sourceStatus,
             boolean canApprove,
             String blockedReason,
-            int affectedCount) {
+            int affectedCount,
+            OffsetDateTime deferredUntil) {
+
+        /** An action that is due now; the common case. */
+        public ActionItem(UUID sourceId, String type, String title, String description, String priority,
+                String href, OffsetDateTime createdAt, String sourceStatus, boolean canApprove,
+                String blockedReason, int affectedCount) {
+            this(sourceId, type, title, description, priority, href, createdAt, sourceStatus,
+                    canApprove, blockedReason, affectedCount, null);
+        }
+
         int priorityRank() {
             return switch (priority) {
                 case "HIGH" -> 3;
