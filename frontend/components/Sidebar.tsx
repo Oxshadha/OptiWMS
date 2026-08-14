@@ -14,48 +14,57 @@ import {
 
 const allNavItems = [
   // Top Level
-  { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard" },
+  { href: "/admin/dashboard", label: "Dashboard", icon: "dashboard", tourTarget: "nav-dashboard" },
   {
     href: "/admin/warehouses",
     label: "Warehouses",
     icon: "warehouse",
+    tourTarget: "nav-warehouses",
     subItems: [
-      { href: "/admin/warehouses", label: "Warehouse Layout" },
-      { href: "/admin/pathfinding", label: "Live Route Control" },
+      { href: "/admin/warehouses", label: "Warehouse Layout", tourTarget: "nav-warehouses-layout" },
+      { href: "/admin/pathfinding", label: "Live Route Control", tourTarget: "nav-pathfinding" },
     ],
   },
   {
     href: "/admin/orders",
     label: "Orders",
     icon: "inventory_2",
+    tourTarget: "nav-orders",
     subItems: [
-      { href: "/admin/orders/inbound", label: "Inbound Orders" },
-      { href: "/admin/orders/outbound", label: "Outbound Orders" },
+      { href: "/admin/orders/inbound", label: "Inbound Orders", tourTarget: "nav-orders-inbound" },
+      { href: "/admin/orders/outbound", label: "Outbound Orders", tourTarget: "nav-orders-outbound" },
     ],
   },
-  { href: "/admin/inventory", label: "Inventory", icon: "inventory" },
-  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2" },
-  { href: "/admin/forecasts", label: "Forecasts", icon: "timeline" },
+  { href: "/admin/inventory", label: "Inventory", icon: "inventory", tourTarget: "nav-inventory" },
+  { href: "/admin/materials", label: "Product Catalog", icon: "inventory_2", tourTarget: "nav-materials" },
+  { href: "/admin/forecasts", label: "Forecasts", icon: "timeline", tourTarget: "nav-forecasts" },
   {
     href: "/admin/inventory-intelligence",
     label: "Inventory Intelligence",
     icon: "psychology",
+    tourTarget: "nav-intelligent-engine",
+    subItems: [
+      { href: "/admin/replenishment", label: "Action Center", tourTarget: "nav-action-center" },
+      { href: "/admin/replenishment/forecast-space", label: "Inventory & Space Planner", tourTarget: "nav-forecast-space" },
+      { href: "/admin/slotting-plans", label: "Slotting Planner", tourTarget: "nav-slotting" },
+    ],
   },
-  { href: "/admin/tasks", label: "Tasks", icon: "task" },
-  
+  { href: "/admin/tasks", label: "Tasks", icon: "task", tourTarget: "nav-tasks" },
+
   // Operations Group
   {
     href: "/admin/operations",
     label: "Warehouse Operations",
     icon: "engineering",
+    tourTarget: "nav-operations",
     subItems: [
-      { href: "/admin/packing", label: "Packing" },
-      { href: "/admin/picking", label: "Picking" },
-      { href: "/admin/cycle-counts", label: "Cycle Counts" },
-      { href: "/admin/stock-transfers", label: "Stock Transfers" },
-      { href: "/admin/quality-checks", label: "Quality Checks" },
-      { href: "/admin/returns", label: "Returns" },
-      { href: "/admin/shipments", label: "Shipments" },
+      { href: "/admin/packing", label: "Packing", tourTarget: "nav-packing" },
+      { href: "/admin/picking", label: "Picking", tourTarget: "nav-picking" },
+      { href: "/admin/cycle-counts", label: "Cycle Counts", tourTarget: "nav-cycle-counts" },
+      { href: "/admin/stock-transfers", label: "Stock Transfers", tourTarget: "nav-stock-transfers" },
+      { href: "/admin/quality-checks", label: "Quality Checks", tourTarget: "nav-quality-checks" },
+      { href: "/admin/returns", label: "Returns", tourTarget: "nav-returns" },
+      { href: "/admin/shipments", label: "Shipments", tourTarget: "nav-shipments" },
     ],
   },
 
@@ -64,10 +73,11 @@ const allNavItems = [
     href: "/admin/network",
     label: "Network & Partners",
     icon: "hub",
+    tourTarget: "nav-network",
     subItems: [
-      { href: "/admin/suppliers", label: "Suppliers" },
-      { href: "/admin/delivery-partners", label: "Delivery Partners" },
-      { href: "/admin/customers", label: "Customers" },
+      { href: "/admin/suppliers", label: "Suppliers", tourTarget: "nav-suppliers" },
+      { href: "/admin/delivery-partners", label: "Delivery Partners", tourTarget: "nav-delivery-partners" },
+      { href: "/admin/customers", label: "Customers", tourTarget: "nav-customers" },
     ],
   },
 
@@ -76,20 +86,21 @@ const allNavItems = [
     href: "/admin/management",
     label: "Management & Data",
     icon: "admin_panel_settings",
+    tourTarget: "nav-management",
     subItems: [
-      { href: "/admin/labor-productivity", label: "Labor Productivity" },
-      { href: "/admin/workers", label: "Workers" },
-      { href: "/admin/admins", label: "Managers" },
-      { href: "/admin/supply-plans", label: "Supply Plans" },
-      { href: "/admin/bom-master", label: "BOM Master" },
-      { href: "/admin/sops", label: "SOPs" },
-      { href: "/admin/reports", label: "Export Reports" },
-      { href: "/admin/data-quality", label: "Data Quality" },
+      { href: "/admin/labor-productivity", label: "Labor Productivity", tourTarget: "nav-labor-productivity" },
+      { href: "/admin/workers", label: "Workers", tourTarget: "nav-workers" },
+      { href: "/admin/admins", label: "Managers", tourTarget: "nav-admins" },
+      { href: "/admin/supply-plans", label: "Supply Plans", tourTarget: "nav-supply-plans" },
+      { href: "/admin/bom-master", label: "BOM Master", tourTarget: "nav-bom-master" },
+      { href: "/admin/sops", label: "SOPs", tourTarget: "nav-sops" },
+      { href: "/admin/reports", label: "Export Reports", tourTarget: "nav-reports" },
+      { href: "/admin/data-quality", label: "Data Quality", tourTarget: "nav-data-quality" },
     ],
   },
-  { href: "/admin/anomalies", label: "Anomalies", icon: "warning" },
-  { href: "/admin/dashboard-settings", label: "Settings", icon: "settings" },
-  { href: "/admin/help", label: "Help Center", icon: "help" },
+  { href: "/admin/anomalies", label: "Anomalies", icon: "warning", tourTarget: "nav-anomalies" },
+  { href: "/admin/dashboard-settings", label: "Settings", icon: "settings", tourTarget: "nav-settings" },
+  { href: "/admin/help", label: "Help Center", icon: "help", tourTarget: "nav-help" },
 ];
 
 /**
@@ -153,7 +164,13 @@ function getRoleRelevantNavItems(
   return allowedItems;
 }
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed = false,
+  onToggleCollapse,
+}: {
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   const pathname = usePathname();
   const { role } = useAdmin();
   const [expandedItems, setExpandedItems] = useState<string[]>(() => {
@@ -188,13 +205,51 @@ export function Sidebar() {
     );
   };
 
-  const renderNavItem = (item: typeof allNavItems[0]) => {
-    const hasSubItems = item.subItems && item.subItems.length > 0;
-    const active = pathname === item.href || Boolean(hasSubItems && pathname.startsWith(`${item.href}/`));
-    const isExpanded = expandedItems.includes(item.href);
-    const hasActiveSubItem =
-      hasSubItems &&
-      item.subItems?.some((sub) => pathname.startsWith(sub.href));
+  return (
+    <aside className={clsx(
+      "hidden lg:flex flex-col bg-neutral text-neutral-content fixed h-screen transition-all duration-300 z-50 overflow-hidden",
+      collapsed ? "w-0 -translate-x-full" : "w-64 translate-x-0"
+    )}>
+      <div className="p-4 border-b border-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0 p-1"
+              style={{ backgroundColor: "#EEEEEE" }}
+            >
+              <Image
+                src="/assets/logos/OptiWMS Logo.JPG"
+                alt="OptiWMS Logo"
+                width={56}
+                height={56}
+                className="object-contain w-full h-full"
+                style={{ objectFit: "contain" }}
+              />
+            </div>
+            <span className="text-xl font-bold truncate">OptiWMS</span>
+          </div>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="btn btn-ghost btn-xs btn-circle text-neutral-content/70 hover:text-neutral-content flex-shrink-0"
+              title="Collapse Sidebar"
+            >
+              <span className="material-symbols-outlined text-lg">menu_open</span>
+            </button>
+          )}
+        </div>
+      </div>
+      <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {navItems.map((item) => {
+          const hasSubItems = item.subItems && item.subItems.length > 0;
+          // Exact match (or a true sub-path) so that sibling routes sharing a
+          // prefix — /admin/inventory and /admin/inventory-intelligence — do
+          // not both highlight.
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isExpanded = expandedItems.includes(item.href);
+          const hasActiveSubItem =
+            hasSubItems &&
+            item.subItems?.some((sub) => pathname.startsWith(sub.href));
 
     return (
       <div key={item.href} className="space-y-1">
@@ -208,6 +263,7 @@ export function Sidebar() {
                   ? "bg-primary text-primary-content"
                   : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
               )}
+              {...(item.tourTarget ? { "data-tour-target": item.tourTarget } : {})}
             >
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-xl">
@@ -238,6 +294,7 @@ export function Sidebar() {
                           ? "bg-primary/20 text-primary-content"
                           : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
                       )}
+                      {...(subItem.tourTarget ? { "data-tour-target": subItem.tourTarget } : {})}
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-current"></span>
                       <span>{subItem.label}</span>
@@ -256,6 +313,7 @@ export function Sidebar() {
                 ? "bg-primary text-primary-content"
                 : "text-neutral-content/50 hover:bg-white/10 hover:text-neutral-content"
             )}
+            {...(item.tourTarget ? { "data-tour-target": item.tourTarget } : {})}
           >
             <span className="material-symbols-outlined text-xl shrink-0">
               {item.icon}
@@ -265,41 +323,8 @@ export function Sidebar() {
         )}
       </div>
     );
-  };
-
-  return (
-    <aside className="hidden lg:flex flex-col w-72 bg-neutral text-neutral-content fixed h-screen">
-      <div className="px-4 pb-4 pt-2 border-b border-white/10 flex justify-center items-center overflow-hidden">
-        <Image
-          src="/assets/logos/OptiWMS Logo.png?v=5"
-          alt="OptiWMS Logo"
-          width={150}
-          height={150}
-          className="object-contain w-[150px] h-auto scale-150"
-          priority
-        />
-      </div>
-      <nav className="flex-1 p-4 overflow-y-auto flex flex-col dark-scrollbar">
-        <div className="space-y-2">
-          {navItems
-            .filter(
-              (item) =>
-                item.href !== "/admin/dashboard-settings" &&
-                item.href !== "/admin/help"
-            )
-            .map(renderNavItem)}
-        </div>
-        <div className="mt-auto pt-4 space-y-2 border-t border-white/10">
-          {navItems
-            .filter(
-              (item) =>
-                item.href === "/admin/dashboard-settings" ||
-                item.href === "/admin/help"
-            )
-            .map(renderNavItem)}
-        </div>
+  })}
       </nav>
-
     </aside>
   );
 }

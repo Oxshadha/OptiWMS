@@ -1,9 +1,0 @@
-Instruction to Purchase Empty pallets
-1. Engineering store takes quotation from suppliers, evaluate suppliers/quotation and selects a supplier annually. 
-2. Logistics executive receives pallet requirements from respective plants (Material warehouse/Diva plants).
-3. Logistics executive checks in & out of empty pallets and reconcile in & out quantities. 
-4. If there is quantity to be received from plants (FGWH/JKL), check whether the plants can release the required quantity immediately. 
-5. If plants are unable to release the required quantity, Assistant manager or Head of logistics should be informed regarding the requirement and get approval for purchasing new pallets.
-
-
-

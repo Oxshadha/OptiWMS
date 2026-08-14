@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
 import { logger } from "@/lib/utils/logger";
+import { isValidAdminRole, type AdminRole } from "@/lib/admin-roles";
 
 function TypewriterText({ 
   text, 
@@ -83,6 +84,18 @@ function AnimatedHeroText() {
       </p>
     </div>
   );
+}
+
+function normalizeAdminRole(role: string | null | undefined): AdminRole | null {
+  if (!role) return null;
+  let normalized = role.trim().toLowerCase();
+  if (normalized.startsWith("role_")) {
+    normalized = normalized.substring(5);
+  }
+  if (normalized === "administrator") {
+    normalized = "admin";
+  }
+  return isValidAdminRole(normalized) ? normalized : null;
 }
 
 export default function LoginPage() {
@@ -203,7 +216,7 @@ export default function LoginPage() {
           id: fullUser.id,
           name: `${fullUser.firstName || ''} ${fullUser.lastName || ''}`.trim() || fullUser.username,
           email: fullUser.email || userInfo.email,
-          role: fullUser.role as any,
+          role: normalizeAdminRole(fullUser.role) || normalizeAdminRole(userInfo.role),
           avatar: fullUser.avatarUrl || "/assets/avatars/Henry Kual.jpg",
           ...(fullUser.warehouseId && {
             warehouseId: fullUser.warehouseId,

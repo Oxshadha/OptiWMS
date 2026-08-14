@@ -60,9 +60,22 @@ export function useDashboardData(options?: { topProductsLimit?: number; period?:
     };
 
     const warehouses = await fetchWithTimeout(warehousesApi.getAll());
-    const warehouseId = warehouses[0]?.id;
+    let warehouseId = warehouses[0]?.id;
+
+    // Fallback to the full warehouse list if the operational slice is empty.
+    // This keeps the dashboard usable in DBs that only have legacy/demo warehouses.
     if (!warehouseId) {
-      throw new Error("No operational warehouse is available for dashboard analytics.");
+      logger.warn("[Dashboard] No operational warehouses found, falling back to legacy warehouses");
+      // NOTE: /master/warehouses takes no "include legacy" parameter, so this
+      // repeats the same request. Kept as-is pending a real backend filter.
+      const legacyWarehouses = await fetchWithTimeout(
+        warehousesApi.getAll()
+      );
+      warehouseId = legacyWarehouses[0]?.id;
+    }
+
+    if (!warehouseId) {
+      throw new Error("No warehouse is available for dashboard analytics.");
     }
 
     const [kpisData, ordersChartData, allOrdersChartData, topProductsData, inventoryData] =

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     wms_runtime_database_url: str | None = None
     wms_runtime_schema: str = "public"
     wms_runtime_outbound_statuses: str = "shipped,delivered,completed"
-    artifact_dir: str = "/Users/k.e.oshada/Documents/OptiWMS/Ai miroservices/modeling/outputs/artifacts"
+    artifact_dir: str = "/model-artifacts"  # mapped via docker volume; override with ARTIFACT_DIR env var
     forecast_report_file: str = "dashboard_forecast_output.csv"
     inventory_report_file: str = "dashboard_inventory_recommendations.csv"
     metrics_report_file: str = "test_metrics_by_horizon.csv"
@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     governance_auto_rollback: bool = True
     governance_rollback_model_name: str = "ARIMA"
     governance_enforce_gate_on_autopromote: bool = True
+
+    # --- SHAP Explainability settings ---
+    shap_explainer_enabled: bool = True
+    shap_max_features_to_return: int = 5
+    shap_background_data_samples: int = 100
+    shap_output_file: str = "dashboard_shap_attributions.csv"
 
     # --- Gateway API settings ---
     forecast_provider_type: str = "v8_snapshot"  # v8_snapshot | artifact
