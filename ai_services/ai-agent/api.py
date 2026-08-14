@@ -152,11 +152,18 @@ def identity_role(identity: dict[str, Any]) -> str:
     return raw[5:] if raw.startswith("ROLE_") else raw
 
 
+def identity_id(identity: dict[str, Any]) -> str:
+    """Spring's /api/auth/me returns the primary key as `userId`; `id` is only a
+    fallback for other identity shapes. Reading the wrong key silently disabled
+    chat history persistence and failed every ownership check."""
+    return str(identity.get("userId") or identity.get("id") or "")
+
+
 def identity_label(identity: dict[str, Any]) -> str:
     return (
         identity.get("username")
         or identity.get("email")
-        or identity.get("id")
+        or identity_id(identity)
         or "authenticated"
     )
 
@@ -214,14 +221,14 @@ def assert_owns_user_scope(identity: dict[str, Any], user_id: str) -> None:
     """A user may only read their own chat history; administrators may read any."""
     if identity_role(identity) in ADMIN_ROLES:
         return
-    if str(identity.get("id") or "") != str(user_id):
+    if identity_id(identity) != str(user_id):
         raise HTTPException(status_code=403, detail="Chat history belongs to another user.")
 
 
 def assert_owns_session(identity: dict[str, Any], session: Any) -> None:
     if identity_role(identity) in ADMIN_ROLES:
         return
-    if str(session.user_id) != str(identity.get("id") or ""):
+    if str(session.user_id) != identity_id(identity):
         raise HTTPException(status_code=403, detail="Chat session belongs to another user.")
 
 
@@ -250,7 +257,7 @@ def ask_question(
     role = identity_role(identity)
     # The chat history is keyed on the *verified* identity, never on a user id
     # supplied by the caller, so one user cannot write into another's history.
-    user_id = str(identity.get("id") or "") or None
+    user_id = identity_id(identity) or None
 
     try:
         mode = classify_question(question)
