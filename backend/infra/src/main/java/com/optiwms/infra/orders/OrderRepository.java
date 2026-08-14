@@ -20,10 +20,10 @@ public interface OrderRepository extends JpaRepository<OrderEntity, UUID>, JpaSp
             SELECT o.*
             FROM orders o
             WHERE o.warehouse_id = :warehouseId
-              AND o.dataset_version IN (
+              AND (o.dataset_version IS NULL OR o.dataset_version IN (
                   'OPERATIONAL_ENTRY',
                   COALESCE((SELECT w.dataset_version FROM warehouses w WHERE w.id = :warehouseId), 'OPERATIONAL_ENTRY')
-              )
+              ))
             """, nativeQuery = true)
     List<OrderEntity> findOperationalByWarehouseId(@Param("warehouseId") UUID warehouseId);
     List<OrderEntity> findByStatus(String status);
