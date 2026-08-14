@@ -496,7 +496,11 @@ function LocationPlanTab({ plan, lines, loading, busy, progress, onReoptimize, o
             ? "This plan has not been optimized yet, so it cannot be approved."
             : `The optimizer finished as ${solver}${plan.infeasibleReason ? `: ${plan.infeasibleReason}` : "."}`}
         </span>
-        <button className="btn btn-sm btn-warning rounded-full" disabled={!!busy} onClick={onReoptimize}>Run optimizer</button>
+        {/* Neutral surface, not btn-warning: on the warning banner the button
+            was the same colour as its background and read as plain text. */}
+        <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap" disabled={!!busy} onClick={onReoptimize}>
+          Run optimizer
+        </button>
       </div>}
     </section>
 
@@ -672,7 +676,7 @@ function ActionDetail({ item, policyLines, slottingLines, busy, onClose, onDecis
     {item.blockedReason && <div className="alert alert-warning text-sm">
       <span className="material-symbols-outlined">warning</span>
       <span className="flex-1">{item.blockedReason}</span>
-      {needsOptimizer && <button className="btn btn-sm btn-warning rounded-full whitespace-nowrap"
+      {needsOptimizer && <button className="btn btn-sm btn-neutral rounded-full whitespace-nowrap"
         disabled={!!busy} onClick={() => void onReoptimize(item)}>
         {busy === `${item.type}-reoptimize` ? "Running optimizer…" : "Recalculate plan"}
       </button>}
