@@ -36,8 +36,8 @@ interface ToolEnvelope {
 
 // Data queries and PDF report generation are slower than SOP lookups.
 const DEFAULT_TIMEOUT_MS = 45000;
-const DEFAULT_AI_ENDPOINT =
-  process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://localhost:8094/ask";
+const rawEndpoint = process.env.NEXT_PUBLIC_WAREHOUSE_AI_URL || "http://127.0.0.1:8094/ask";
+const DEFAULT_AI_ENDPOINT = rawEndpoint.replace("localhost", "127.0.0.1");
 const AI_SERVICE_BASE = DEFAULT_AI_ENDPOINT.substring(0, DEFAULT_AI_ENDPOINT.lastIndexOf("/"));
 
 const DB_SOP_TITLES = [

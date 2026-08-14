@@ -6,6 +6,7 @@ import httpx
 import uuid
 import time
 import base64
+import logging
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
@@ -282,6 +283,7 @@ def _fig_to_bytes(fig) -> bytes:
 
 
 # ── Provider quota handling and Groq fallback ────────────────────────────────
+logger = logging.getLogger("optiwms.agent")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -332,16 +334,32 @@ def _generate_with_groq(prompt: str) -> str:
         raise
 
 
+def _groq_configured() -> bool:
+    return bool(os.getenv("GROQ_API_KEY"))
+
+
 def _generate_content_with_fallback(prompt: str, model: str = "gemini-3.1-flash-lite") -> tuple[str, bool]:
-    """Return (text, used_fallback). Falls back to Groq on any Gemini quota error."""
+    """Return (text, used_fallback).
+
+    Falls back to Groq whenever Gemini cannot answer and a Groq key is set --
+    quota exhaustion, an invalid/revoked key, or the service being unreachable.
+    The reason is always logged so a broken Gemini key stays visible rather than
+    being silently masked by the fallback.
+    """
     try:
         client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         response = client.models.generate_content(model=model, contents=prompt)
         return response.text, False
     except Exception as exc:
-        if not _is_quota_error(exc):
+        quota = _is_quota_error(exc)
+        if not _groq_configured():
+            if quota:
+                raise AIQuotaExceeded(
+                    "The Gemini quota is exhausted and no GROQ_API_KEY fallback is configured."
+                ) from exc
             raise
-        print(f"Gemini quota exhausted ({exc}). Falling back to Groq [{GROQ_MODEL}]...")
+        reason = "quota exhausted" if quota else f"unavailable ({type(exc).__name__})"
+        logger.warning("Gemini %s: %s. Falling back to Groq [%s].", reason, exc, GROQ_MODEL)
         return _generate_with_groq(prompt), True
 
 # ── SQL generation ────────────────────────────────────────────────────────────
@@ -1047,11 +1065,11 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             answer = result["result"]
             source_docs = result["source_documents"]
         except Exception as exc:
-            if not _is_quota_error(exc):
+            if not _groq_configured():
                 raise
             # Retrieval is local (Chroma); only generation needs a model. Pull the
             # same context and answer with the fallback provider.
-            print(f"Gemini quota exhausted on SOP chain ({exc}). Falling back to Groq...")
+            logger.warning("Gemini unavailable on SOP chain: %s. Falling back to Groq.", exc)
             source_docs = chain.retriever.invoke(question)
             context = "\n\n".join(doc.page_content for doc in source_docs)
             answer, _ = _generate_content_with_fallback(
