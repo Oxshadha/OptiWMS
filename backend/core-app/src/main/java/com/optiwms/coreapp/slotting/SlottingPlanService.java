@@ -422,6 +422,16 @@ public class SlottingPlanService {
         } else if (!useMilpAClass) {
             plan.setAlgorithm("HEURISTIC_V1");
             plan.setSolverStatus("NOT_REQUESTED");
+        } else {
+            // The solver was wanted but could not be reached. Previously nothing
+            // was assigned here, so the plan kept its creation-time NOT_RUN and
+            // looked like an optimization that had never been attempted -- with
+            // no way to tell that from a disabled or unreachable service.
+            plan.setAlgorithm("HEURISTIC_V1");
+            plan.setSolverStatus("SOLVER_UNAVAILABLE");
+            plan.setInfeasibleReason(slottingPlanClient.isEnabled()
+                    ? "The slotting service did not pass its health check, so only the heuristic plan was produced."
+                    : "The MILP slotting service is disabled (ai.services.slotting-enabled), so only the heuristic plan was produced.");
         }
 
         progressTracker.advance(plan.getId(), SlottingProgressTracker.Phase.PERSISTING);

@@ -215,7 +215,16 @@ export default function InventoryIntelligencePage() {
       if (!plan) throw new Error("The plan is no longer available for this warehouse.");
       const updated = await slottingPlansApi.reoptimize(item.sourceId, { expectedVersion: plan.version });
       setLocationPlan(updated);
-      setNotice(`Optimizer finished with status ${updated.solverStatus ?? "unknown"}.`);
+      // Only a solved plan is a success. Anything else reported as a green
+      // notice read as "done" while leaving the plan unapprovable.
+      const status = updated.solverStatus ?? "unknown";
+      if (status === "OPTIMAL" || status === "FEASIBLE") {
+        setNotice(`Optimizer finished: ${status}. ${updated.totalMovesProposed ?? 0} moves ready to review.`);
+      } else {
+        setError(updated.infeasibleReason
+          ? `Optimizer could not solve this plan (${status}). ${updated.infeasibleReason}`
+          : `Optimizer could not solve this plan (${status}), so it cannot be approved.`);
+      }
       setSlottingLines(await slottingPlansApi.getLines(item.sourceId));
       await refresh();
     } catch (cause) {
