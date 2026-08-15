@@ -168,16 +168,19 @@ export function WarehouseAssistant({
   // chat, which is what people expect, while Full screen continues the
   // conversation. The key is cleared as soon as it is claimed.
   const handoffKey = userId ? `optiwms:assistant-handoff:${userId}` : null;
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(() => {
-    if (typeof window === "undefined" || !handoffKey) return undefined;
-    const handed = window.sessionStorage.getItem(handoffKey);
-    if (handed) window.sessionStorage.removeItem(handoffKey);
-    return handed ?? undefined;
-  });
+  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(undefined);
 
   const handOffSession = () => {
     if (typeof window === "undefined" || !handoffKey) return;
     if (currentSessionId) window.sessionStorage.setItem(handoffKey, currentSessionId);
+  };
+
+  /** Take a pending handover, if one is waiting. Single use. */
+  const claimHandoff = (): string | null => {
+    if (typeof window === "undefined" || !handoffKey) return null;
+    const handed = window.sessionStorage.getItem(handoffKey);
+    if (handed) window.sessionStorage.removeItem(handoffKey);
+    return handed;
   };
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
@@ -265,16 +268,28 @@ export function WarehouseAssistant({
     }
   };
 
-  // Restore the thread that was open in the other view. Runs once, and only
-  // when there is a stored session but nothing rendered yet, so it never
-  // clobbers a conversation already in progress.
-  const restoredSession = useRef(false);
+  // Pick up a thread handed over from the other view.
+  //
+  // The full-page view mounts fresh on navigation, so it claims once on mount.
+  // The popup lives in the persistent Topbar and is not remounted when the user
+  // comes back, so it claims each time it is opened. Either way the handover is
+  // only taken when nothing is on screen, so an active conversation is never
+  // replaced.
+  const claimedHandoff = useRef(false);
   useEffect(() => {
-    if (restoredSession.current || !currentSessionId || chatHistory.length > 0) return;
-    restoredSession.current = true;
-    void handleSelectSession(currentSessionId);
+    if (!fullPage || claimedHandoff.current) return;
+    claimedHandoff.current = true;
+    const handed = claimHandoff();
+    if (handed) void handleSelectSession(handed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSessionId]);
+  }, [fullPage]);
+
+  useEffect(() => {
+    if (fullPage || !isOpen || chatHistory.length > 0) return;
+    const handed = claimHandoff();
+    if (handed) void handleSelectSession(handed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, fullPage]);
 
   const handleNewChat = () => {
     setChatHistory([]);
@@ -447,7 +462,8 @@ export function WarehouseAssistant({
           <AssistantHeader
             title="Warehouse Assistant"
             subtitle="Operations Copilot & Analytics"
-            onClose={() => router.back()}
+            // Hand the thread back so the popup picks up where this left off.
+            onClose={() => { handOffSession(); router.back(); }}
             userId={userId}
             onToggleHistory={() => setShowHistory(!showHistory)}
             isPopUp={false}
