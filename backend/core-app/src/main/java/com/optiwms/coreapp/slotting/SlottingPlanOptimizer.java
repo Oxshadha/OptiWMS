@@ -62,6 +62,10 @@ public class SlottingPlanOptimizer {
                         .thenComparing(Comparator.comparingLong(MaterialCandidate::issueVolume).reversed()))
                 .toList();
 
+        // One snapshot for the whole run. Without it the planner re-read every
+        // location and every inventory row in the warehouse for each material.
+        StockPlacementPlanner.PlacementContext placementContext = placementPlanner.newContext();
+
         for (MaterialCandidate material : sortedMaterials) {
             if (input.lockedMaterialIds().contains(material.materialId())) {
                 continue;
@@ -100,7 +104,8 @@ public class SlottingPlanOptimizer {
                             material.materialId(),
                             reserveQty,
                             anchorCode,
-                            exclude);
+                            exclude,
+                            placementContext);
                     for (StockPlacementPlanner.PlacementLine line : placementPlan.lines()) {
                         reserves.add(new ReserveSlot(line.locationCode(), line.palletCount(), "reserve_cluster"));
                         assignedPrimary.add(line.locationCode());
