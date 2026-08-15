@@ -6,6 +6,10 @@ export interface TourStep {
     side?: "top" | "bottom" | "left" | "right";
     align?: "start" | "center" | "end";
   };
+  /** Navigate here before the step runs, for tours that cross pages. */
+  route?: string;
+  /** Selector to click first, e.g. to open the dialog the step points at. */
+  clickBefore?: string;
 }
 
 export interface TourConfig {
@@ -130,6 +134,45 @@ export const tours: Record<string, TourConfig> = {
           description:
             "Back on the dashboard, this panel flags low and out-of-stock items at a glance.",
           side: "top",
+        },
+      },
+    ],
+  },
+
+  // Task tour: walks the actual create flow rather than naming the menus around
+  // it. Steps navigate and open the wizard, so the anchors do not exist when the
+  // tour starts -- the engine resolves them as it goes.
+  create_inbound_order_tour: {
+    showProgress: true,
+    steps: [
+      {
+        element: '[data-tour-target="nav-orders-inbound"]',
+        popover: {
+          title: "Inbound Orders",
+          description:
+            "Inbound orders record stock arriving from a supplier. Let's open the page.",
+          side: "right",
+        },
+      },
+      {
+        route: "/admin/orders/inbound",
+        element: '[data-tour-target="inbound-create-button"]',
+        popover: {
+          title: "Start a new order",
+          description:
+            "This opens the create wizard. You will need the supplier, the receiving warehouse and the expected arrival date.",
+          side: "bottom",
+        },
+      },
+      {
+        route: "/admin/orders/inbound",
+        clickBefore: '[data-tour-target="inbound-create-button"]',
+        element: '[data-tour-target="inbound-create-modal"]',
+        popover: {
+          title: "Four steps to submit",
+          description:
+            "Supplier and warehouse, then the items and quantities, then the receiving locations, and finally a review before you submit. You can move back at any point without losing what you entered.",
+          side: "left",
         },
       },
     ],

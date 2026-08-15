@@ -184,7 +184,8 @@ export function WarehouseAssistant({
     if (chatHistory.length > 0) {
       const lastMsg = chatHistory[chatHistory.length - 1];
       if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
-        startProductTour(lastMsg.tourId);
+        // Task tours navigate between pages, so they need the app router.
+        startProductTour(lastMsg.tourId, (path) => router.push(path));
       }
     }
   }, [chatHistory]);
