@@ -254,6 +254,7 @@ def ask_question(
             user_id=user_id,
             session_id=request.session_id,
             mode=mode,
+            jwt_token=credentials.credentials,
         )
     except Exception as exc:
         logger.exception("assistant_error correlation_id=%s", correlation_id)

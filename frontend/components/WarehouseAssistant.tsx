@@ -1287,26 +1287,11 @@ function AssistantBody({
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, loading]);
 
-  const managerSuggestions = [
-    { icon: "📦", text: "Show me current stock levels for SKU-300001" },
-    { icon: "⚠️", text: "List products with stock below reorder level" },
-    { icon: "📊", text: "Generate report for top 10 products by movement" },
-    { icon: "🛡️", text: "What are the safety SOPs for forklift operating?" },
-  ];
-
-  const workerSuggestions = [
-    { icon: "📍", text: "Where is SKU-001 stored?" },
-    { icon: "📦", text: "What is the damaged product SOP?" },
-    { icon: "🔄", text: "What are the steps for shift handover?" },
-  ];
-
-  const suggestions = userRole === "manager" ? managerSuggestions : workerSuggestions;
-
   return (
     <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 24, background: "#ffffff" }}>
       {chatHistory.length === 0 && !loading && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 16px", textAlign: "center" }}>
-          {/* <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} /> */}
+          <Bot style={{ width: 48, height: 48, color: T.textFaint, marginBottom: 16 }} />
           <h3 style={{ fontSize: 13, fontWeight: 700, color: T.text, margin: "0 0 4px 0" }}>
             How can I help you today?
           </h3>
@@ -1315,18 +1300,6 @@ function AssistantBody({
               ? "Ask about SOPs, inventory counts, pending orders, or request reports."
               : "Ask about SKU locations, safety protocols, or task steps."}
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "center", maxWidth: 360 }}>
-            {suggestions.map((suggestion, i) => (
-              <button
-                key={i}
-                onClick={() => onSuggestionClick(suggestion.text)}
-                className="wa-quick-chip"
-              >
-                <span style={{ fontSize: 13 }}>{suggestion.icon}</span>
-                {suggestion.text}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 

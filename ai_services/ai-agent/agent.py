@@ -981,7 +981,7 @@ def select_tour_id(question: str) -> str:
 
 
 # ── Unified ask function ──────────────────────────────────────────────────────
-def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None) -> dict:
+def ask(chain, question: str, user_id: str = None, session_id: str = None, mode: str = None, jwt_token: str = None) -> dict:
     # The API layer classifies first so it can apply role checks before any SQL
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
@@ -1017,16 +1017,41 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
             "sources": sources
         }
     else:
-        df, sql, chart, error, answer, download_url = ask_database(question)
-        data = df.to_dict(orient="records") if df is not None else None
+        # DATA mode - Use Tool-Calling Agent
+        from tools import get_inventory_summary_tool, run_adhoc_readonly_query
+        from langgraph.prebuilt import create_react_agent
+        
+        tools = [
+            get_inventory_summary_tool(jwt_token) if jwt_token else None,
+            run_adhoc_readonly_query
+        ]
+        tools = [t for t in tools if t is not None]
+        
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-3.1-flash-lite",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0.2
+        )
+        
+        agent_executor = create_react_agent(llm, tools)
+        
+        try:
+            sys_msg = "You are an intelligent warehouse operations assistant for OptiWMS. Use the provided tools to answer the user's questions. If a standard tool doesn't match the request, you can use the adhoc query tool for database queries."
+            result = agent_executor.invoke({"messages": [("system", sys_msg), ("user", question)]})
+            answer = result["messages"][-1].content
+            error = None
+        except Exception as e:
+            answer = ""
+            error = str(e)
+            
         res = {
             "mode": "DATA",
-            "sql": sql,
-            "data": data,
-            "chart": chart,
+            "sql": None, # Kept null as SQL fallback handles it internally now
+            "data": None,
+            "chart": None,
             "error": error,
             "answer": answer,
-            "download_url": download_url
+            "download_url": None
         }
 
     # ── Database Persistence ──────────────────────────────────────────────────

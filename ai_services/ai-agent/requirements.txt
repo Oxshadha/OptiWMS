@@ -10,6 +10,7 @@ sqlalchemy
 pandas
 
 # Core LangChain Framework
+langchain
 langchain-core
 langchain-community
 langchain-classic
