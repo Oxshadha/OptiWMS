@@ -237,7 +237,6 @@ export function CreateInboundOrderModal({
     notes: "",
     items: [] as InboundItemForm[],
   });
-  const [materialSearch, setMaterialSearch] = useState("");
 
   const materialById = useMemo(() => new Map(materials.map((material) => [material.id, material])), [materials]);
   const availableWarehouseLocations = useMemo(
@@ -271,17 +270,6 @@ export function CreateInboundOrderModal({
   });
   const capacityCheckCurrent = lastCapacityCheckKey === capacityCheckKey && capacityPlansByItem.size > 0;
   const hasIncompleteMeasurements = false;
-  const filteredMaterials = useMemo(() => {
-    const query = materialSearch.trim().toLowerCase();
-    if (!query) return materials.slice(0, 80);
-    return materials
-      .filter((material) =>
-        (material.materialCode || "").toLowerCase().includes(query) ||
-        (material.description || "").toLowerCase().includes(query)
-      )
-      .slice(0, 80);
-  }, [materials, materialSearch]);
-
   useEffect(() => {
     async function loadData() {
       try {
@@ -373,16 +361,23 @@ export function CreateInboundOrderModal({
   }, [materialProfileKey, formData.supplierId, formData.warehouseId]);
 
   useEffect(() => {
-    if (profilesByMaterialId.size === 0 || formData.items.length === 0) return;
+    // Deliberately not gated on profiles having loaded: the material fallbacks below
+    // still produce the correct multiplier, and gating meant a failed profile request
+    // left every line stuck on its unmultiplied quantity.
+    if (formData.items.length === 0) return;
     const nextItems = formData.items.map((item) => ({
       ...item,
-      quantityOrdered: roundInboundQuantity(item, profilesByMaterialId.get(item.productId)),
+      quantityOrdered: roundInboundQuantity(
+        item,
+        profilesByMaterialId.get(item.productId),
+        materialById.get(item.productId),
+      ),
     }));
     const changed = nextItems.some((item, idx) => item.quantityOrdered !== formData.items[idx].quantityOrdered);
     if (changed) {
       setFormData((prev) => ({ ...prev, items: nextItems }));
     }
-  }, [profilesByMaterialId, formData.items]);
+  }, [profilesByMaterialId, materialById, formData.items]);
 
   useEffect(() => {
     async function loadRecommendations() {
@@ -442,7 +437,7 @@ export function CreateInboundOrderModal({
         merged.heightCm = material?.heightCm || 0;
       }
       if (patch.requestedQuantity !== undefined || patch.handlingUnitCount !== undefined || patch.quantityMode !== undefined || patch.productId) {
-        merged.quantityOrdered = roundInboundQuantity(merged, profile);
+        merged.quantityOrdered = roundInboundQuantity(merged, profile, materialById.get(merged.productId));
       }
       next[index] = merged;
       return { ...current, items: next };
@@ -618,11 +613,15 @@ export function CreateInboundOrderModal({
             <h3 className="text-lg font-semibold text-base-content">Order Details</h3>
             <SelectControl label="Supplier *" value={formData.supplierId} onChange={(value) => setFormData((current) => ({ ...current, supplierId: value, items: [] }))}>
               <option value="">Select supplier</option>
-              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+              {/* Several suppliers share a name, and each carries its own material list, so the
+                  code is shown too — picking a same-named twin silently hides the items. */}
+              {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.code ? `${supplier.code} - ${supplier.name}` : supplier.name}</option>)}
             </SelectControl>
             <SelectControl label="Warehouse *" value={formData.warehouseId} onChange={(value) => setFormData((current) => ({ ...current, warehouseId: value, items: current.items.map((item) => ({ ...item, locationCode: "" })) }))}>
               <option value="">Select warehouse</option>
-              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
+              {/* Names are not unique across warehouses, so the code is shown too — picking the
+                  wrong same-named site sends the order to a warehouse with no active racks. */}
+              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code ? `${warehouse.code} - ${warehouse.name}` : warehouse.name}</option>)}
             </SelectControl>
             <DateControl label="Order Date *" value={formData.orderDate} min={new Date().toISOString().split("T")[0]} onChange={(value) => setFormData((current) => ({ ...current, orderDate: value }))} />
             <DateControl label="Expected Delivery Date *" value={formData.expectedDeliveryDate} min={formData.orderDate || undefined} onChange={(value) => setFormData((current) => ({ ...current, expectedDeliveryDate: value }))} />
@@ -641,14 +640,21 @@ export function CreateInboundOrderModal({
             {!formData.supplierId && <div className="alert alert-warning"><span>Select a supplier first.</span></div>}
             {formData.supplierId && materials.length === 0 && <div className="alert alert-info"><span>No materials are linked to this supplier.</span></div>}
             {formData.supplierId && materials.length > 0 && !supplierHasMaterialLinks && <div className="alert alert-info"><span>Selected items will initialize the supplier-material mapping.</span></div>}
-            <TextControl label="Filter by SKU or name" value={materialSearch} onChange={setMaterialSearch} />
 
             <div className="space-y-4">
               {formData.items.map((item, idx) => {
                 const profile = profilesByMaterialId.get(item.productId);
                 const material = materialById.get(item.productId);
-                const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || material?.unitsPerHandlingUnit || material?.palletSpaces || 1;
+                const breakdown = resolveInboundQuantity(item, profile, material);
+                const unitsPerHandlingUnit = breakdown.unitsPerHandlingUnit;
                 const handlingLabel = material?.handlingUnitType || material?.unitType || "unit";
+                // Putaway splits by units_per_pallet, which is a different column from the
+                // units_per_handling_unit used for purchasing. Showing the resulting bin
+                // count here stops that difference from being a surprise at putaway time.
+                const unitsPerPallet = positive(material?.unitsPerPallet);
+                const putawayBins = unitsPerPallet && breakdown.quantity > 0
+                  ? Math.ceil(breakdown.quantity / unitsPerPallet)
+                  : null;
                 return (
                   <div key={idx} className="bg-base-200 border border-base-300 p-4 rounded-lg">
                     <div className="flex justify-between items-start mb-3">
@@ -660,7 +666,7 @@ export function CreateInboundOrderModal({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       <SelectControl label="Material *" value={item.productId} onChange={(value) => updateItem(idx, { productId: value })}>
                         <option value="">Select material</option>
-                        {filteredMaterials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
+                        {materials.map((material) => <option key={material.id} value={material.id}>{material.materialCode} - {material.description}</option>)}
                       </SelectControl>
                       <SelectControl label="Quantity Mode" value={item.quantityMode} onChange={(value) => updateItem(idx, { quantityMode: value as "units" | "handling" })}>
                         <option value="units">Required units</option>
@@ -675,12 +681,20 @@ export function CreateInboundOrderModal({
                       {material && (
                         <div className="md:col-span-2 rounded-lg border border-base-300 bg-base-100 p-3 text-xs text-base-content/70">
                           <div className="font-semibold text-base-content mb-1">{material.materialCode} packaging</div>
-                          <div>Requested units: {item.quantityMode === "handling" ? item.handlingUnitCount * unitsPerHandlingUnit : item.requestedQuantity}</div>
+                          <div>Requested units: {breakdown.requestedUnits}</div>
                           <div>Rounded purchasing quantity: {item.quantityOrdered || "-"}</div>
                           <div>Rounded by minimum order, order multiple, and units per handling unit.</div>
                           <div>Handling unit: {handlingLabel} | Units/{handlingLabel}: {unitsPerHandlingUnit}</div>
-                          <div>Minimum order: {profile?.effectiveMinimumOrderQuantity ?? material.minOrderQuantity ?? 1} | Order multiple: {profile?.effectiveOrderMultiple ?? material.orderMultiple ?? unitsPerHandlingUnit}</div>
+                          <div>Minimum order: {breakdown.moq} | Order multiple: {breakdown.orderMultiple}</div>
+                          {putawayBins != null && (
+                            <div>Putaway: {breakdown.quantity} units / {unitsPerPallet} per pallet = {putawayBins} bin{putawayBins === 1 ? "" : "s"} to visit</div>
+                          )}
                           <div>Weight: {material.weightKg ?? "-"} kg | Size: {material.lengthCm ?? "-"} x {material.widthCm ?? "-"} x {material.heightCm ?? "-"} cm</div>
+                          {breakdown.raisedByMoq && (
+                            <div className="mt-2 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-warning-content">
+                              Raised from {breakdown.requestedUnits} to {breakdown.quantity} units by the supplier minimum order of {breakdown.moq}.
+                            </div>
+                          )}
                         </div>
                       )}
                       <TextControl label="Batch Number" value={item.batchNumber} onChange={(value) => updateItem(idx, { batchNumber: value })} />
@@ -896,17 +910,78 @@ function NumberControl({ label, value, onChange, min = 0, step = 1 }: { label: s
   );
 }
 
-function roundInboundQuantity(item: InboundItemForm, profile?: MaterialOrderingProfile): number {
-  const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit) || 1;
-  const orderMultiple = positive(profile?.effectiveOrderMultiple) || unitsPerHandlingUnit || 1;
-  const moq = positive(profile?.effectiveMinimumOrderQuantity) || 1;
+type InboundQuantityBreakdown = {
+  unitsPerHandlingUnit: number;
+  orderMultiple: number;
+  moq: number;
+  /** What the buyer actually asked for, in units, before any rounding. */
+  requestedUnits: number;
+  /** What gets ordered once the supplier minimum and order multiple are applied. */
+  quantity: number;
+  raisedByMoq: boolean;
+  roundedUpToMultiple: boolean;
+};
+
+/**
+ * Resolves the ordering rules for a line.
+ *
+ * <p>The fallback chain mirrors the backend's ordering-profile endpoint
+ * (supplier rule, then material, then pallet spaces). Falling back to 1 whenever the
+ * profile request had not landed yet is what made a "3 pallets" line submit 3 units
+ * while the summary above it displayed 60 — so display and submission now both read
+ * from this one function rather than computing the multiplier separately.
+ */
+function resolveInboundQuantity(
+  item: InboundItemForm,
+  profile?: MaterialOrderingProfile,
+  material?: Material,
+): InboundQuantityBreakdown {
+  const unitsPerHandlingUnit = positive(profile?.effectiveUnitsPerHandlingUnit)
+    || positive(material?.unitsPerHandlingUnit)
+    || positive(material?.palletSpaces)
+    || 1;
+  const orderMultiple = positive(profile?.effectiveOrderMultiple)
+    || positive(material?.orderMultiple)
+    || unitsPerHandlingUnit;
+  const moq = positive(profile?.effectiveMinimumOrderQuantity)
+    || positive(material?.minOrderQuantity)
+    || 1;
+
   const rawRequested = item.quantityMode === "handling"
     ? item.handlingUnitCount * unitsPerHandlingUnit
     : item.requestedQuantity;
-  const requested = Math.max(0, Math.ceil(rawRequested || 0));
-  if (requested <= 0) return 0;
-  const base = Math.max(requested, moq);
-  return Math.ceil(base / orderMultiple) * orderMultiple;
+  const requestedUnits = Math.max(0, Math.ceil(rawRequested || 0));
+  if (requestedUnits <= 0) {
+    return {
+      unitsPerHandlingUnit,
+      orderMultiple,
+      moq,
+      requestedUnits: 0,
+      quantity: 0,
+      raisedByMoq: false,
+      roundedUpToMultiple: false,
+    };
+  }
+
+  const base = Math.max(requestedUnits, moq);
+  const quantity = Math.ceil(base / orderMultiple) * orderMultiple;
+  return {
+    unitsPerHandlingUnit,
+    orderMultiple,
+    moq,
+    requestedUnits,
+    quantity,
+    raisedByMoq: base > requestedUnits,
+    roundedUpToMultiple: quantity > base,
+  };
+}
+
+function roundInboundQuantity(
+  item: InboundItemForm,
+  profile?: MaterialOrderingProfile,
+  material?: Material,
+): number {
+  return resolveInboundQuantity(item, profile, material).quantity;
 }
 
 function positive(value?: number | null): number | null {

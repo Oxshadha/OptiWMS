@@ -14,6 +14,12 @@ export interface QualityCheck {
   approvedAt?: string;
   checkedBy?: string;
   checkDate?: string;
+  /**
+   * Resolved server-side. The materials reference list only carries operational
+   * materials, so archived ones can only be named from these fields.
+   */
+  materialCode?: string;
+  materialDescription?: string;
 }
 
 export const qualityChecksApi = {

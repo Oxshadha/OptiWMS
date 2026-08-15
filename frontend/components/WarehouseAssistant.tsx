@@ -10,7 +10,6 @@ import {
   Bot,
   ChevronRight,
   Loader2,
-  MessageSquare,
   Mic,
   SendHorizonal,
   Sparkles,
@@ -721,42 +720,38 @@ export function WarehouseAssistant({
   const workerOverlay = (
     <>
       <style dangerouslySetInnerHTML={{ __html: SHARED_KEYFRAMES }} />
-      <button
-        type="button"
-        aria-label={isOpen ? "Close warehouse assistant" : "Open warehouse assistant"}
-        onClick={() => setIsOpen((current) => !current)}
-        data-tour-target="ai-assistant-btn"
-        style={{
-          position: "fixed",
-          right: 22,
-          bottom: 22,
-          width: 54,
-          height: 54,
-          borderRadius: "50%",
-          border: `1.5px solid ${isOpen ? T.border : "transparent"}`,
-          color: isOpen ? T.textMuted : "white",
-          background: isOpen
-            ? "#ffffff"
-            : `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
-          boxShadow: isOpen
-            ? `0 4px 20px rgba(0,0,0,0.15)`
-            : `0 6px 24px rgba(207,15,71,0.35)`,
-          cursor: "pointer",
-          zIndex: 1100,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
-          transform: isOpen ? "rotate(45deg)" : "scale(1)",
-          animation: !isOpen ? "fcb-pulse-ring 2.5s ease infinite" : "none",
-        }}
-      >
-        {isOpen ? (
-          <X style={{ width: 18, height: 18 }} />
-        ) : (
-          <MessageSquare style={{ width: 22, height: 22 }} />
-        )}
-      </button>
+      {/* Launcher only: while the overlay is open its own header X closes it, so
+          keeping the floating button around would just cover the send button. */}
+      {!isOpen && (
+        <button
+          type="button"
+          aria-label="Open warehouse assistant"
+          onClick={() => setIsOpen(true)}
+          data-tour-target="ai-assistant-btn"
+          style={{
+            position: "fixed",
+            right: 22,
+            // Sit above the worker bottom nav so it never covers the Settings tab.
+            bottom: "calc(5.25rem + env(safe-area-inset-bottom))",
+            width: 54,
+            height: 54,
+            borderRadius: "50%",
+            border: "1.5px solid transparent",
+            color: "white",
+            background: `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
+            boxShadow: `0 6px 24px rgba(207,15,71,0.35)`,
+            cursor: "pointer",
+            zIndex: 1100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)",
+            animation: "fcb-pulse-ring 2.5s ease infinite",
+          }}
+        >
+          <Sparkles style={{ width: 22, height: 22 }} />
+        </button>
+      )}
 
       {isOpen && (
         <div
@@ -832,19 +827,7 @@ export function WarehouseAssistant({
                 >
                   Worker Support
                 </span>
-                <Link
-                  href="/admin/assistant"
-                  onClick={() => { handOffSession(); setIsOpen(false); }}
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 605,
-                    color: T.accent,
-                    textDecoration: "none",
-                  }}
-                  className="wa-link"
-                >
-                  Full screen ↗
-                </Link>
+                {/* No full-screen link here: the worker overlay already fills the screen. */}
               </div>
 
               <ContextBanner />
@@ -859,39 +842,38 @@ export function WarehouseAssistant({
                 />
               </div>
               <div style={{ flexShrink: 0, background: T.bg, paddingBottom: "env(safe-area-inset-bottom)" }}>
-                <div style={{ padding: "8px 16px 0" }}>
-                  <button
-                    type="button"
-                    style={{
-                      display: "flex",
-                      height: 40,
-                      width: "100%",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 8,
-                      borderRadius: 9,
-                      border: `1px solid ${T.accentBorder}`,
-                      background: T.accentBg,
-                      color: T.accent,
-                      fontWeight: 600,
-                      fontSize: 12,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                    }}
-                    className="wa-voice-btn"
-                  >
-                    <Mic style={{ width: 18, height: 18 }} />
-                    Voice input
-                  </button>
-                </div>
                 <AssistantComposer
                   inputRef={inputRef}
                   query={query}
                   loading={loading}
-                  placeholder="Ask about SKU locations, protocols..."
+                  placeholder="Ask about a SKU or SOP..."
                   onQueryChange={setQuery}
                   onSubmit={handleSubmit}
                   mobile
+                  leading={
+                    <button
+                      type="button"
+                      title="Voice input"
+                      aria-label="Voice input"
+                      style={{
+                        display: "flex",
+                        width: 38,
+                        height: 38,
+                        flexShrink: 0,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 9,
+                        border: "none",
+                        background: "transparent",
+                        color: T.accent,
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                      className="wa-voice-btn"
+                    >
+                      <Mic style={{ width: 20, height: 20 }} />
+                    </button>
+                  }
                 />
               </div>
             </div>
@@ -1879,6 +1861,7 @@ function AssistantComposer({
   placeholder,
   mobile = false,
   fullPage = false,
+  leading,
   onQueryChange,
   onSubmit,
 }: {
@@ -1888,6 +1871,8 @@ function AssistantComposer({
   placeholder: string;
   mobile?: boolean;
   fullPage?: boolean;
+  /** Optional control rendered inline before the input (e.g. the voice mic). */
+  leading?: React.ReactNode;
   onQueryChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
@@ -1903,7 +1888,9 @@ function AssistantComposer({
       } : {
         borderTop: `1px solid ${T.border}`,
         background: "#ffffff",
-        padding: "10px 14px",
+        // Mobile drops the keyboard hint, so pad the bottom to keep the row
+        // off the very edge of the screen.
+        padding: mobile ? "12px 14px 20px" : "10px 14px",
         display: "flex",
         flexDirection: "column",
         gap: 6,
@@ -1928,6 +1915,7 @@ function AssistantComposer({
           background: "#ffffff",
         }}
       >
+        {leading}
         <textarea
           ref={inputRef}
           rows={1}
@@ -1953,6 +1941,8 @@ function AssistantComposer({
           disabled={loading}
           style={{
             flex: 1,
+            // Without this the input can outgrow the row and push the send button.
+            minWidth: 0,
             resize: "none",
             background: T.inputBg,
             border: `1px solid ${T.inputBorder}`,
@@ -2000,6 +1990,8 @@ function AssistantComposer({
         </button>
       </div>
 
+      {/* Keyboard hint is desktop-only: touch keyboards have no Shift+Enter. */}
+      {!mobile && (
       <div
         style={{
           padding: "5px 14px 2px",
@@ -2035,6 +2027,7 @@ function AssistantComposer({
         </kbd>{" "}
         for new line
       </div>
+      )}
     </form>
   );
 }

@@ -404,7 +404,9 @@ export function LiveWarehouseRouteMap({
         ref={viewportRef}
         className={`relative touch-none overflow-hidden bg-slate-100 outline-none ${
           detail === "worker"
-            ? "h-[360px] sm:h-[440px] lg:h-[520px]"
+            ? // Sized off the viewport on handhelds: a fixed 360px box left the route
+              // too small to read on a phone. min-h keeps it usable on short screens.
+              "h-[68vh] min-h-[380px] sm:h-[520px] lg:h-[560px]"
             : "h-[520px] lg:h-[640px]"
         } ${
           isDragging ? "cursor-grabbing" : "cursor-grab"
@@ -449,23 +451,6 @@ export function LiveWarehouseRouteMap({
                 vectorEffect="non-scaling-stroke"
               />
             </pattern>
-            {routeVisuals.map(({ route, color }) => (
-              <marker
-                key={route.id}
-                id={`route-arrow-${safeId(route.id)}`}
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="4"
-                markerHeight="4"
-                orient="auto"
-              >
-                <path
-                  d="M 0 0 L 10 5 L 0 10 z"
-                  fill={color}
-                />
-              </marker>
-            ))}
           </defs>
 
           <rect
@@ -600,11 +585,17 @@ export function LiveWarehouseRouteMap({
             );
           })}
 
-          {routeVisuals.map(({ route, color, activeLegs, futureLegs, releasedLegs }) => {
+          {routeVisuals.map(({ route, color, activeLegs, futureLegs, releasedLegs }, index) => {
             const isPrimary = route.id === primaryRoute?.id;
             const activePath = pathFromLegs(activeLegs);
             const futurePath = pathFromLegs(futureLegs);
             const releasedPath = pathFromLegs(releasedLegs);
+            
+            // To prevent overlapping paths from completely hiding each other, 
+            // we use interleaved dash patterns instead of coordinate offsets.
+            const dashOffsetActive = detail === "admin" ? index * 10 : 0;
+            const dashOffsetFuture = detail === "admin" ? index * 5 : 0;
+
             return (
               <g key={`route-${route.id}`}>
                 {detail === "admin" && releasedPath ? (
@@ -628,41 +619,30 @@ export function LiveWarehouseRouteMap({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeDasharray="3 7"
+                    strokeDashoffset={dashOffsetFuture}
                     opacity={detail === "worker" ? "0.34" : "0.2"}
                     vectorEffect="non-scaling-stroke"
                   />
                 ) : null}
                 {activePath ? (
-                  <>
-                    <path
-                      d={activePath}
-                      fill="none"
-                      stroke="#fff"
-                      strokeWidth={isPrimary ? "9" : "7"}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      opacity="0.96"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                    <path
-                      d={activePath}
-                      fill="none"
-                      stroke={color}
-                      strokeWidth={isPrimary ? "5" : "4"}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeDasharray="10 7"
-                      markerEnd={`url(#route-arrow-${safeId(route.id)})`}
-                      opacity={route.status === "WAITING" ? "0.7" : "1"}
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </>
+                  <path
+                    d={activePath}
+                    fill="none"
+                    stroke={color}
+                    strokeWidth={isPrimary ? "5" : "4"}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray="10 7"
+                    strokeDashoffset={dashOffsetActive}
+                    opacity={route.status === "WAITING" ? "0.7" : "1"}
+                    vectorEffect="non-scaling-stroke"
+                  />
                 ) : null}
               </g>
             );
           })}
 
-          {routeVisuals.map(({ route, color }) => {
+          {routeVisuals.map(({ route, color }, index) => {
             const node = nodeById.get(route.currentNodeId);
             if (!node) return null;
             return (
@@ -693,7 +673,7 @@ export function LiveWarehouseRouteMap({
           })}
 
           {(detail === "admin" ? routeVisuals : primaryVisual ? [primaryVisual] : []).flatMap(
-            ({ route, color }) =>
+            ({ route, color }, index) =>
               route.stops.map((stop) => {
                 const node = nodeById.get(stop.accessNodeId);
                 if (!node || (detail === "worker" && stop.status === "COMPLETED")) return null;

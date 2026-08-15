@@ -59,6 +59,25 @@ const extractErrorMessage = (error: unknown): string => {
   return "Unknown error";
 };
 
+const parseTaskRemaining = (notes?: string | null): number | null => {
+  if (!notes) return null;
+  const huMatch = notes.match(/PUTAWAY_HU_QTY=(\d+)/i);
+  const progMatch = notes.match(/PUTAWAY_PROGRESS=(\d+)\/(\d+)/i);
+  
+  let required = huMatch ? Number(huMatch[1]) : null;
+  let completed = 0;
+  
+  if (progMatch) {
+    completed = Number(progMatch[1]);
+    if (required === null) required = Number(progMatch[2]);
+  }
+  
+  if (required !== null) {
+    return Math.max(required - completed, 0);
+  }
+  return null;
+};
+
 export default function PutawayPage() {
   const { worker, isLoading: workerContextLoading } = useWorker();
   const { isOnline } = useOffline();
@@ -84,7 +103,11 @@ export default function PutawayPage() {
   const [allocationQuantity, setAllocationQuantity] = useState<number>(0);
   const [startedPutawayTaskItemIds, setStartedPutawayTaskItemIds] = useState<Set<string>>(new Set());
   const [putawayTaskIdsByItem, setPutawayTaskIdsByItem] = useState<Map<string, string>>(new Map());
+  const [activeTaskRemainingByItem, setActiveTaskRemainingByItem] = useState<Map<string, number>>(new Map());
   const [fallbackOrderTaskId, setFallbackOrderTaskId] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isOrderStarted, setIsOrderStarted] = useState(false);
+  const [isStartingOrder, setIsStartingOrder] = useState(false);
   
   const getFirstPendingItemIndex = (
     items: PutawayItem[],
@@ -106,12 +129,14 @@ export default function PutawayPage() {
       return;
     }
 
+    let isFirstLoad = true;
     const loadOrders = async () => {
       try {
-        setIsLoadingOrders(true);
+        if (isFirstLoad) setIsLoadingOrders(true);
         const ordersList = await ordersApi.getOrdersNeedingPutaway(worker.warehouseId!);
         setOrders(ordersList.map(o => ({ id: o.id, orderNumber: o.orderNumber, status: o.status })));
         logger.debug("[Putaway] Orders needing putaway:", ordersList.length);
+        isFirstLoad = false;
       } catch (err) {
         logger.error("[Putaway] Failed to load orders:", err);
         showToast.error("Failed to load orders. Please try again.");
@@ -120,7 +145,7 @@ export default function PutawayPage() {
       }
     };
 
-    loadOrders();
+    void loadOrders();
     // Refresh every 5 seconds
     const interval = setInterval(loadOrders, 5000);
     return () => clearInterval(interval);
@@ -131,6 +156,7 @@ export default function PutawayPage() {
     if (!selectedOrder) {
       setPutawayItems([]);
       setStartedPutawayTaskItemIds(new Set());
+      setIsOrderStarted(false);
       return;
     }
 
@@ -148,6 +174,7 @@ export default function PutawayPage() {
         const progress = new Map<string, boolean>();
         const allocated = new Map<string, number>();
         const skipped = new Map<string, string>();
+        const activeTaskRemaining = new Map<string, number>();
 
         items.forEach(item => {
           progress.set(item.itemId, false);
@@ -165,6 +192,7 @@ export default function PutawayPage() {
           relevantTasks
             .filter((task) => task.referenceType === "order_item" && task.referenceId)
             .forEach((task) => {
+              // Note: this may overwrite if multiple tasks exist, but it's used as fallback
               hydratedTaskIds.set(task.referenceId!, task.id);
             });
           setPutawayTaskIdsByItem(hydratedTaskIds);
@@ -178,28 +206,55 @@ export default function PutawayPage() {
 
           for (const item of items) {
             const itemTasks = relevantTasks.filter((task) => task.referenceId === item.itemId);
-            const completedTask = itemTasks.find((task) => task.status === "completed");
-            const activeTask = itemTasks.find((task) => task.status === "in_progress" || task.status === "pending");
-            const taskForProgress = completedTask ?? activeTask;
-            const progressInfo = parsePutawayProgress(taskForProgress?.notes);
-            const skipReason = parsePutawaySkipReason(taskForProgress?.notes);
-            if (skipReason) {
-              skipped.set(item.itemId, skipReason);
+            
+            let totalAllocated = 0;
+            let activeTaskRemainingQty: number | null = null;
+            let hasPendingTask = false;
+            let latestSkipReason: string | null = null;
+            
+            for (const task of itemTasks) {
+               const skipReason = parsePutawaySkipReason(task.notes);
+               if (skipReason) latestSkipReason = skipReason;
+               
+               if (task.status === "completed") {
+                  const huMatch = task.notes?.match(/PUTAWAY_HU_QTY=(\d+)/i);
+                  const progMatch = task.notes?.match(/PUTAWAY_PROGRESS=(\d+)\/(\d+)/i);
+                  if (progMatch) totalAllocated += Number(progMatch[1]);
+                  else if (huMatch) totalAllocated += Number(huMatch[1]);
+                  else totalAllocated += item.receivedQuantity;
+               } else if (task.status === "in_progress" || task.status === "pending") {
+                  hasPendingTask = true;
+                  const progMatch = task.notes?.match(/PUTAWAY_PROGRESS=(\d+)\/(\d+)/i);
+                  if (progMatch) totalAllocated += Number(progMatch[1]);
+                  
+                  // Only set remaining quantity from the first pending/active task we find
+                  if (activeTaskRemainingQty === null) {
+                    activeTaskRemainingQty = parseTaskRemaining(task.notes);
+                  }
+               }
             }
-
-            if (completedTask) {
-              allocated.set(item.itemId, item.receivedQuantity);
-            } else if (progressInfo) {
-              allocated.set(item.itemId, Math.min(progressInfo.completed, item.receivedQuantity));
+            
+            if (latestSkipReason) skipped.set(item.itemId, latestSkipReason);
+            
+            // Ensure we don't exceed received quantity
+            totalAllocated = Math.min(totalAllocated, item.receivedQuantity);
+            allocated.set(item.itemId, totalAllocated);
+            
+            if (activeTaskRemainingQty !== null) {
+              activeTaskRemaining.set(item.itemId, activeTaskRemainingQty);
             }
-
-            const done = isItemFullyPutAway(
-              completedTask?.status ?? item.status,
-              progressInfo?.completed,
-              progressInfo?.required
-            );
+            
+            // Item is done if all received qty is allocated AND there are no pending tasks
+            const done = totalAllocated >= item.receivedQuantity && item.receivedQuantity > 0 && !hasPendingTask;
             progress.set(item.itemId, done);
           }
+
+          // Auto-start if there are already in_progress tasks assigned to this worker
+          const isAlreadyStarted = relevantTasks.some((t) => t.status === "in_progress" && t.assignedTo === worker?.id);
+          if (isAlreadyStarted) {
+            setIsOrderStarted(true);
+          }
+
         } catch (taskError) {
           logger.warn("[Putaway] Could not hydrate progress from tasks, using defaults.", taskError);
         }
@@ -207,13 +262,15 @@ export default function PutawayPage() {
         setPutawayProgress(progress);
         setAllocatedByItem(allocated);
         setSkippedReasonsByItem(skipped);
+        setActiveTaskRemainingByItem(activeTaskRemaining);
         const firstPendingIndex = getFirstPendingItemIndex(items, progress, skipped);
         setCurrentItemIndex(firstPendingIndex);
         if (items.length > 0) {
           const firstItem = items[firstPendingIndex];
           const alreadyAllocated = allocated.get(firstItem.itemId) || 0;
-          const remaining = Math.max(firstItem.receivedQuantity - alreadyAllocated, 0);
-          setAllocationQuantity(Math.max(remaining, 1));
+          const itemRemaining = Math.max(firstItem.receivedQuantity - alreadyAllocated, 0);
+          const taskRemaining = activeTaskRemaining.get(firstItem.itemId);
+          setAllocationQuantity(taskRemaining !== undefined ? Math.min(taskRemaining, itemRemaining) : itemRemaining);
         }
       } catch (err) {
         logger.error("[Putaway] Failed to load putaway items:", err);
@@ -224,7 +281,7 @@ export default function PutawayPage() {
     };
 
     loadPutawayItems();
-  }, [selectedOrder]);
+  }, [selectedOrder, refreshTrigger]);
 
   useEffect(() => {
     const currentItem = putawayItems[currentItemIndex];
@@ -232,9 +289,10 @@ export default function PutawayPage() {
       return;
     }
     const alreadyAllocated = allocatedByItem.get(currentItem.itemId) || 0;
-    const remaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
-    setAllocationQuantity(Math.max(remaining, 1));
-  }, [currentItemIndex, putawayItems, allocatedByItem]);
+    const itemRemaining = Math.max(currentItem.receivedQuantity - alreadyAllocated, 0);
+    const taskRemaining = activeTaskRemainingByItem.get(currentItem.itemId);
+    setAllocationQuantity(taskRemaining !== undefined ? Math.min(taskRemaining, itemRemaining) : Math.max(itemRemaining, 1));
+  }, [currentItemIndex, putawayItems, allocatedByItem, activeTaskRemainingByItem]);
 
   useEffect(() => {
     const currentItem = putawayItems[currentItemIndex];
@@ -251,41 +309,40 @@ export default function PutawayPage() {
     }
   }, [currentItemIndex, putawayItems, putawayProgress, skippedReasonsByItem]);
 
-  useEffect(() => {
-    const startCurrentPutawayTask = async () => {
-      if (!isOnline) return;
-      const currentItem = putawayItems[currentItemIndex];
-      if (!currentItem) return;
-      if (!selectedOrder) return;
-      if (putawayProgress.get(currentItem.itemId)) return;
-      if (startedPutawayTaskItemIds.has(currentItem.itemId)) return;
-      try {
-        const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
-        const itemTask = tasks.find(
-          (t: any) =>
-            t.referenceType === "order_item" &&
-            t.referenceId === currentItem.itemId &&
-            (t.status === "pending" || t.status === "assigned")
+  const handleStartOrder = async () => {
+    if (!isOnline || !selectedOrder || putawayItems.length === 0) return;
+    setIsStartingOrder(true);
+    try {
+      const tasks = await tasksApi.getAll("putaway", undefined, undefined, worker?.warehouseId, false);
+      const orderTasks = tasks.filter(
+        (t: any) =>
+          (
+            (t.referenceType === "order_item" && putawayItems.some((item) => item.itemId === t.referenceId)) ||
+            (t.referenceType === "order" && t.referenceId === selectedOrder.id)
+          ) &&
+          (t.status === "pending" || t.status === "assigned") &&
+          (!t.assignedTo || t.assignedTo === worker?.id)
+      );
+
+      if (orderTasks.length > 0) {
+        await Promise.all(
+          orderTasks.map((task) => tasksApi.updateStatus(task.id, "in_progress", worker?.id))
         );
-        if (itemTask) {
-          await tasksApi.updateStatus(itemTask.id, "in_progress", worker?.id);
-        }
-        setStartedPutawayTaskItemIds((prev) => new Set(prev).add(currentItem.itemId));
-      } catch (error) {
-        logger.warn("[Putaway] Could not mark task in progress for item:", currentItem.itemId, error);
       }
-    };
-    void startCurrentPutawayTask();
-  }, [
-    currentItemIndex,
-    putawayItems,
-    putawayProgress,
-    selectedOrder,
-    worker?.warehouseId,
-    worker?.id,
-    startedPutawayTaskItemIds,
-    isOnline,
-  ]);
+
+      if (selectedOrder.status === "quality_approved") {
+        await ordersApi.updateStatus(selectedOrder.id, "putaway_in_progress");
+      }
+
+      setIsOrderStarted(true);
+      showToast.success(`Started putaway for ${selectedOrder.orderNumber}`);
+    } catch (error) {
+      logger.error("[Putaway] Could not start order:", error);
+      showToast.error("Failed to start order. Please try again.");
+    } finally {
+      setIsStartingOrder(false);
+    }
+  };
 
   const handleLocationSelect = async (locationCode: string) => {
     setValidatingLocation(true);
@@ -470,6 +527,10 @@ export default function PutawayPage() {
           : `Partial putaway queued (${nextAllocated}/${currentItem.receivedQuantity}).`
       );
       
+      if (isOnline) {
+        setRefreshTrigger(t => t + 1);
+      }
+      
       // Reset form
       setScannedLocation("");
       setLocationError("");
@@ -640,8 +701,43 @@ export default function PutawayPage() {
     );
   }
 
-  // If order selected, show items for putaway
-  if (selectedOrder && putawayItems.length > 0) {
+  // If order selected but not explicitly started yet
+  if (selectedOrder && putawayItems.length > 0 && !isOrderStarted) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="bg-base-100 rounded-xl p-6 border border-base-300 text-center flex flex-col items-center justify-center space-y-4 h-64">
+          <div className="material-symbols-outlined text-5xl text-primary">play_circle</div>
+          <h2 className="text-xl font-bold">Start Putaway Order {selectedOrder.orderNumber}?</h2>
+          <p className="text-sm text-base-content/60">
+            This will lock all pending putaway tasks for this order to you, so no other worker can claim them.
+          </p>
+          <div className="flex gap-4 w-full justify-center mt-4">
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                setSelectedOrder(null);
+                setPutawayItems([]);
+              }}
+              disabled={isStartingOrder}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={handleStartOrder}
+              disabled={isStartingOrder}
+            >
+              {isStartingOrder ? <span className="loading loading-spinner"></span> : null}
+              Start Putaway
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If order selected, started, and has items
+  if (selectedOrder && putawayItems.length > 0 && isOrderStarted) {
     const currentItem = putawayItems[currentItemIndex];
     const alreadyAllocated = currentItem ? (allocatedByItem.get(currentItem.itemId) || 0) : 0;
     const remainingQuantity = currentItem ? Math.max(currentItem.receivedQuantity - alreadyAllocated, 0) : 0;

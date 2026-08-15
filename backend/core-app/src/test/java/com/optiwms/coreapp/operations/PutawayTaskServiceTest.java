@@ -119,6 +119,35 @@ class PutawayTaskServiceTest {
         return Integer.parseInt(matcher.group(1));
     }
 
+    @Test
+    void taskNumberNamesTheOrderInsteadOfCarryingTheItemUuid() {
+        UUID itemId = UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea192a32");
+
+        String number = PutawayTaskService.putawayTaskNumber("PO-20260815-000001", itemId, 3);
+
+        assertEquals("PUT-PO-20260815-000001-192A32-3", number);
+        assertTrue(number.length() <= 50);
+    }
+
+    @Test
+    void taskNumberStaysWithinTheColumnForLongOrderNumbers() {
+        String number = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001-EXTREMELY-LONG-SUPPLIER-REFERENCE", UUID.randomUUID(), 12);
+
+        assertTrue(number.length() <= 50, number);
+        assertTrue(number.endsWith("-12"), number);
+    }
+
+    @Test
+    void taskNumbersDifferPerLineOfTheSameOrder() {
+        String first = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001", UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea192a32"), 1);
+        String second = PutawayTaskService.putawayTaskNumber(
+                "PO-20260815-000001", UUID.fromString("43c8fdb6-4fa6-4b0d-bbf7-659dea1aaaaa"), 1);
+
+        assertTrue(!first.equals(second), first + " vs " + second);
+    }
+
     private static Task existingTask(int sequence) {
         Task task = new Task();
         task.setHandlingUnitSeq(sequence);

@@ -67,19 +67,41 @@ export function PutawayOrderWorkflow({
   const isItemDone = currentItem ? putawayProgress.get(currentItem.itemId) || false : false;
   const isItemSkipped = currentItem ? skippedReasonsByItem.has(currentItem.itemId) : false;
 
-  if (!currentItem) {
+  if (!currentItem && completedCount === 0) {
     return null;
+  }
+
+  const completedLocationCodes = putawayItems
+    .filter((item) => putawayProgress.get(item.itemId))
+    .map((item) => item.suggestedLocation)
+    .filter(Boolean) as string[];
+
+  const remainingLocationCodes = putawayItems
+    .filter((item) => !putawayProgress.get(item.itemId))
+    .map((item) => item.suggestedLocation)
+    .filter(Boolean) as string[];
+
+  // If a specific location is scanned for the current item, use it as the immediate target
+  const currentTargetCode = scannedLocation || currentItem?.suggestedLocation;
+  if (scannedLocation && currentItem && !putawayProgress.get(currentItem.itemId)) {
+    if (!remainingLocationCodes.includes(scannedLocation)) {
+      remainingLocationCodes.unshift(scannedLocation);
+    }
   }
 
   return (
     <div className="p-4 space-y-4">
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="flex items-center justify-between mb-2">
+        {/* Wraps to its own line rather than letting the order number overflow the
+            fixed-height badge, which struck the text through on narrow phones. */}
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <button className="btn btn-ghost btn-sm" onClick={onBack}>
             <span className="material-symbols-outlined">arrow_back</span>
             Back to Orders
           </button>
-          <div className="badge badge-primary badge-lg">{selectedOrder.orderNumber}</div>
+          <div className="badge badge-primary badge-lg h-auto max-w-full whitespace-nowrap py-1 text-xs">
+            {selectedOrder.orderNumber}
+          </div>
         </div>
         <div className="mt-4">
           <div className="text-sm text-base-content/60 mb-1">Putaway Progress</div>
@@ -207,22 +229,6 @@ export function PutawayOrderWorkflow({
                 Use Suggested: {currentItem.suggestedLocation}
               </button>
             )}
-            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-slate-700">
-              <div className="font-bold text-slate-900">Current handling unit only</div>
-              <div className="mt-0.5">
-                Later order items stay queued. Their route activates after this load is confirmed or a shared handling-unit scan authorizes grouping.
-              </div>
-            </div>
-            <WorkerRouteGuide
-              warehouseId={warehouseId}
-              orderId={selectedOrder.id}
-              targetLocationCode={scannedLocation || currentItem.suggestedLocation}
-              targetLocationCodes={[
-                scannedLocation || currentItem.suggestedLocation,
-              ]}
-              completedLocationCodes={[]}
-              operationType="putaway"
-            />
           </div>
 
           <button
@@ -339,6 +345,15 @@ export function PutawayOrderWorkflow({
           })}
         </div>
       </div>
+
+      <WorkerRouteGuide
+        warehouseId={warehouseId}
+        orderId={selectedOrder.id}
+        targetLocationCode={currentTargetCode}
+        targetLocationCodes={remainingLocationCodes}
+        completedLocationCodes={completedLocationCodes}
+        operationType="putaway"
+      />
 
       {showLocationPicker && (
         <LocationPicker onClose={onCloseLocationPicker} onLocationSelect={onLocationSelect} warehouseId={warehouseId} />

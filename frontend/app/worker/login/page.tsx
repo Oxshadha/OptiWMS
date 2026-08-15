@@ -215,7 +215,7 @@ export default function WorkerLoginPage() {
                 </div>
                 <input
                   className="input input-bordered w-full pl-14 h-16 text-lg hover:border-primary focus:border-primary transition-colors bg-base-100"
-                  placeholder="Enter your Employee ID"
+                  placeholder="Employee ID"
                   value={employeeId}
                   onChange={(e) => setEmployeeId(e.target.value)}
                   disabled={isLoading}
@@ -234,7 +234,7 @@ export default function WorkerLoginPage() {
                 </div>
                 <input
                   className="input input-bordered w-full pl-14 pr-14 h-16 text-lg hover:border-primary focus:border-primary transition-colors bg-base-100"
-                  placeholder="Enter your password"
+                  placeholder="Password"
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

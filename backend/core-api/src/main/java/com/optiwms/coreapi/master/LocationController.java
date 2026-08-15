@@ -586,27 +586,120 @@ public class LocationController {
         }
     }
 
-    // Rack-specific update endpoint (updates only rack properties)
+    // Rack-specific update endpoint (updates only rack properties on a single bin)
     @PutMapping("/racks/{id}")
     public ResponseEntity<?> updateRack(@PathVariable UUID id, @RequestBody UpdateRackRequest request) {
         try {
-            var location = locationService.findById(id);
-            if (request.rackStatus() != null) location.setRackStatus(request.rackStatus());
-            if (request.amalgamatedClass() != null) location.setAmalgamatedClass(request.amalgamatedClass());
-            if (request.description() != null) location.setDescription(request.description());
-            if (request.notes() != null) location.setNotes(request.notes());
-            if (request.accessibilityRating() != null) location.setAccessibilityRating(request.accessibilityRating());
-            if (request.capacity() != null) location.setCapacity(new java.math.BigDecimal(request.capacity()));
-            if (request.maxPalletCapacity() != null) location.setMaxPalletCapacity(request.maxPalletCapacity());
-            if (request.maxWeightKg() != null) location.setMaxWeightKg(new java.math.BigDecimal(request.maxWeightKg()));
-            if (request.maxVolumeCm3() != null) location.setMaxVolumeCm3(new java.math.BigDecimal(request.maxVolumeCm3()));
-            if (request.maxLpnCount() != null) location.setMaxLpnCount(request.maxLpnCount());
-
-            var updated = locationService.update(id, location);
+            var updated = locationService.updateRackAttributes(id, toRackAttributes(request));
             return ResponseEntity.ok(toDto(updated));
         } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
+            return badRequest(e);
         }
+    }
+
+    /**
+     * Update every bin of a rack in one call.
+     *
+     * The layout editor used to fan out one PUT per bin, which meant a partial failure
+     * left the rack in mixed statuses and ran the stock guard once per bin.
+     */
+    @PutMapping("/racks/bulk")
+    public ResponseEntity<?> updateRackBulk(@RequestBody BulkRackUpdateRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "warehouseId is required"));
+            }
+            var result = locationService.updateRack(
+                    UUID.fromString(request.warehouseId()),
+                    request.rackId(),
+                    toRackAttributes(request.attributes()));
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Updated rack %s (%d bins).", result.rackId(), result.updatedLocations()),
+                    "rackId", result.rackId(),
+                    "updatedLocations", result.updatedLocations(),
+                    "locations", result.locations().stream().map(this::toDto).toList()));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "warehouseId must be a valid UUID"));
+        } catch (RuntimeException e) {
+            return badRequest(e);
+        }
+    }
+
+    /** Apply a per-level capacity profile across a zone (or the whole warehouse) in one transaction. */
+    @PutMapping("/racks/capacity-profile")
+    public ResponseEntity<?> applyCapacityProfile(@RequestBody CapacityProfileRequest request) {
+        try {
+            if (request.warehouseId() == null || request.warehouseId().isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("message", "warehouseId is required"));
+            }
+            var levelProfile = new java.util.HashMap<Integer, LocationService.RackAttributes>();
+            if (request.levels() != null) {
+                for (var level : request.levels()) {
+                    if (level.level() != null) {
+                        levelProfile.put(level.level(), toRackAttributes(level.attributes()));
+                    }
+                }
+            }
+            int updated = locationService.applyCapacityProfile(
+                    UUID.fromString(request.warehouseId()),
+                    request.zone(),
+                    levelProfile,
+                    request.defaults() == null ? null : toRackAttributes(request.defaults()));
+            return ResponseEntity.ok(Map.of(
+                    "message", String.format("Applied capacity profile to %d bin(s).", updated),
+                    "updatedLocations", updated));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("message", "warehouseId must be a valid UUID"));
+        } catch (RuntimeException e) {
+            return badRequest(e);
+        }
+    }
+
+    private LocationService.RackAttributes toRackAttributes(UpdateRackRequest request) {
+        if (request == null) {
+            return new LocationService.RackAttributes(null, null, null, null, null, null, null, null, null, null);
+        }
+        return new LocationService.RackAttributes(
+                request.rackStatus(),
+                request.amalgamatedClass(),
+                request.description(),
+                request.notes(),
+                request.accessibilityRating(),
+                toDecimal(request.capacity()),
+                request.maxPalletCapacity(),
+                toDecimal(request.maxWeightKg()),
+                toDecimal(request.maxVolumeCm3()),
+                request.maxLpnCount());
+    }
+
+    private java.math.BigDecimal toDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return new java.math.BigDecimal(value.trim());
+        } catch (NumberFormatException e) {
+            throw new RuntimeException("'" + value + "' is not a valid number");
+        }
+    }
+
+    /**
+     * Turn persistence failures into something an operator can act on.
+     *
+     * Without this, a foreign-key violation surfaced in the UI as the full generated SQL
+     * statement, which is unreadable and leaks schema internals.
+     */
+    private ResponseEntity<?> badRequest(RuntimeException e) {
+        if (e instanceof org.springframework.dao.DataIntegrityViolationException) {
+            return ResponseEntity.badRequest().body(Map.of("message",
+                    "This bin is still referenced by stock or material default locations, "
+                            + "so its address cannot be changed. Move the stock out first."));
+        }
+        String message = e.getMessage();
+        if (message == null || message.isBlank() || message.contains("could not execute")) {
+            message = "The rack could not be updated. Please retry, or contact support if it keeps failing.";
+        }
+        return ResponseEntity.badRequest().body(Map.of("message", message));
     }
 
     @DeleteMapping("/{id}")
@@ -750,6 +843,24 @@ public class LocationController {
             String maxWeightKg,
             String maxVolumeCm3,
             Integer maxLpnCount
+    ) {}
+
+    public record BulkRackUpdateRequest(
+            String warehouseId,
+            String rackId,
+            UpdateRackRequest attributes
+    ) {}
+
+    public record CapacityProfileLevel(
+            Integer level,
+            UpdateRackRequest attributes
+    ) {}
+
+    public record CapacityProfileRequest(
+            String warehouseId,
+            String zone,
+            List<CapacityProfileLevel> levels,
+            UpdateRackRequest defaults
     ) {}
 
     public record BulkCreateRacksRequest(
