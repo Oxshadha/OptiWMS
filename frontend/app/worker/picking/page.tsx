@@ -660,7 +660,7 @@ export default function PickingPage() {
   return (
     <div className="p-4 space-y-4">
       <div className="bg-base-100 rounded-xl p-4 border border-base-300">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => {
@@ -671,7 +671,9 @@ export default function PickingPage() {
             <span className="material-symbols-outlined">arrow_back</span>
             Back to Orders
           </button>
-          <span className="badge badge-primary badge-lg">{selectedOrder.orderNumber}</span>
+          <span className="badge badge-primary badge-lg h-auto max-w-full whitespace-nowrap py-1 text-xs">
+            {selectedOrder.orderNumber}
+          </span>
         </div>
         <div className="mt-3 flex items-center gap-2">
           <progress className="progress progress-primary flex-1" value={completedCount} max={Math.max(picks.length, 1)} />

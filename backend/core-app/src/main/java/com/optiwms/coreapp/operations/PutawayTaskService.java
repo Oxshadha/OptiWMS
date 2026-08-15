@@ -127,7 +127,7 @@ public class PutawayTaskService {
                 }
 
                 Task putawayTask = new Task();
-                putawayTask.setTaskNumber("PUT-" + item.getId() + "-" + sequence);
+                putawayTask.setTaskNumber(putawayTaskNumber(order.getOrderNumber(), item.getId(), sequence));
                 putawayTask.setTaskType("putaway");
                 putawayTask.setWarehouseId(warehouseId);
                 putawayTask.setAssignedTo(null); // Unassigned - first come first serve
@@ -137,19 +137,21 @@ public class PutawayTaskService {
                 putawayTask.setReferenceId(item.getId());
                 putawayTask.setHandlingUnitSeq(sequence);
                 putawayTask.setLocationCode(handlingUnit.locationCode()); // Suggested location (worker can change)
-                // PUTAWAY_HU_QTY scopes completion accounting to this pallet; without it every
-                // task would believe it owes the whole line quantity.
+                // The instruction a worker reads comes first and names the order rather than
+                // its uuid. PUTAWAY_HU_QTY trails it as bookkeeping: it scopes completion
+                // accounting to this pallet, without which every task would believe it owes
+                // the whole line quantity.
                 putawayTask.setNotes(String.format(
-                        "orderId=%s; hu=%d/%d; PUTAWAY_HU_QTY=%d; Put away %d units of %s%s",
-                        orderId,
-                        sequence,
-                        handlingUnits.size(),
-                        handlingUnit.quantity(),
+                        "Put away %d units of %s%s (pallet %d of %d, order %s). PUTAWAY_HU_QTY=%d",
                         handlingUnit.quantity(),
                         material.getMaterialCode() != null ? material.getMaterialCode() : "Item",
                         handlingUnit.locationCode() != null
                                 ? " to location " + handlingUnit.locationCode()
-                                : " (location to be selected)"));
+                                : " (location to be selected)",
+                        sequence,
+                        handlingUnits.size(),
+                        order.getOrderNumber() != null ? order.getOrderNumber() : orderId,
+                        handlingUnit.quantity()));
 
                 if (order.getExpectedDate() != null) {
                     putawayTask.setDueDate(order.getExpectedDate().atStartOfDay());
@@ -260,6 +262,31 @@ public class PutawayTaskService {
     /**
      * Generate unique task number
      */
+    /**
+     * Builds the number a worker actually reads: the order it came from, the line it
+     * belongs to, and which pallet of that line this is — e.g. PUT-PO-20260815-000001-192A32-1.
+     *
+     * <p>The line is identified by the tail of the order item id rather than its position
+     * in the order. A positional index would shift when a line is added later and could
+     * then collide with an already-issued number; the id tail stays fixed for the life of
+     * the line. Kept within the 50-character task_number column.
+     *
+     * <p>Must stay deterministic for a given (item, sequence): a retried or partial run
+     * regenerates the same number for the pallets it re-creates.
+     */
+    static String putawayTaskNumber(String orderNumber, UUID orderItemId, int sequence) {
+        String itemTail = orderItemId.toString().replace("-", "");
+        itemTail = itemTail.substring(itemTail.length() - 6).toUpperCase();
+        String suffix = "-" + itemTail + "-" + sequence;
+
+        String order = orderNumber != null && !orderNumber.isBlank() ? orderNumber : "NA";
+        int roomForOrder = 50 - "PUT-".length() - suffix.length();
+        if (order.length() > roomForOrder) {
+            order = order.substring(0, Math.max(roomForOrder, 0));
+        }
+        return "PUT-" + order + suffix;
+    }
+
     private String generateTaskNumber(String prefix, String orderNumber) {
         String timestamp = String.valueOf(System.currentTimeMillis());
         return prefix + "-" + orderNumber + "-" + timestamp.substring(timestamp.length() - 6);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RackElevationView } from "@/components/RackElevationView";
@@ -22,7 +23,6 @@ import { BulkRackCreateModal } from "./components/BulkRackCreateModal";
 import { SlottingPlannerModal } from "./components/SlottingPlannerModal";
 import { SimpleSlottingView } from "./components/SimpleSlottingView";
 import { DataIntegrityPanel } from "./components/DataIntegrityPanel";
-import { WarehouseRouteControlPanel } from "./components/WarehouseRouteControlPanel";
 import { calculateWarehouseStats } from "./types";
 
 const WAREHOUSE_LAYOUT_RACK_LIMIT = 1200;
@@ -66,7 +66,7 @@ export default function WarehousesPage() {
   const [showVelocity, setShowVelocity] = useState(false);
   const [showBulkRackModal, setShowBulkRackModal] = useState(false);
   const [showSlottingPlannerModal, setShowSlottingPlannerModal] = useState(false);
-  const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple" | "routes">("detailed");
+  const [layoutViewMode, setLayoutViewMode] = useState<"detailed" | "simple">("detailed");
   const warehousesQuery = useQuery({
     queryKey: ["warehouses", "layout-selector"],
     queryFn: warehousesApi.getAll,
@@ -386,25 +386,33 @@ export default function WarehousesPage() {
         <>
           {layoutViewMode === "detailed" && <WarehouseLegend />}
 
-          <div className="tabs tabs-boxed w-fit">
-            <button
-              className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
-              onClick={() => setLayoutViewMode("detailed")}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="tabs tabs-boxed w-fit">
+              <button
+                className={`tab ${layoutViewMode === "detailed" ? "tab-active" : ""}`}
+                onClick={() => setLayoutViewMode("detailed")}
+              >
+                Detailed Layout
+              </button>
+              <button
+                className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
+                onClick={() => setLayoutViewMode("simple")}
+              >
+                Simple Slotting
+              </button>
+            </div>
+            {/* Route control lives on its own page so there is a single place to operate it. */}
+            <Link
+              href={
+                selectedWarehouseId
+                  ? `/admin/pathfinding?warehouseId=${encodeURIComponent(selectedWarehouseId)}`
+                  : "/admin/pathfinding"
+              }
+              className="btn btn-sm btn-ghost gap-2"
             >
-              Detailed Layout
-            </button>
-            <button
-              className={`tab ${layoutViewMode === "simple" ? "tab-active" : ""}`}
-              onClick={() => setLayoutViewMode("simple")}
-            >
-              Simple Slotting
-            </button>
-            <button
-              className={`tab ${layoutViewMode === "routes" ? "tab-active" : ""}`}
-              onClick={() => setLayoutViewMode("routes")}
-            >
-              Forklift Routes
-            </button>
+              <span className="material-symbols-outlined text-base">route</span>
+              Live Route Control
+            </Link>
           </div>
 
           {layoutViewMode === "detailed" ? (
@@ -416,10 +424,8 @@ export default function WarehousesPage() {
               onToggleVelocity={setShowVelocity}
               onRackClick={handleRackClick}
             />
-          ) : layoutViewMode === "simple" ? (
-            <SimpleSlottingView layout={layout} />
           ) : (
-            <WarehouseRouteControlPanel warehouseId={selectedWarehouseId!} />
+            <SimpleSlottingView layout={layout} />
           )}
         </>
       ) : (

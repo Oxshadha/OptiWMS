@@ -362,14 +362,6 @@ export function WorkerRouteGuide({
         </div>
       ) : null}
 
-      {operationType === "putaway" ? (
-        <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-slate-700">
-          <div className="font-bold text-slate-900">One approved handling-unit trip</div>
-          <div className="mt-0.5">
-            Combine cartons only when the pallet/load ID and forklift capacity allow it. MOQ does not determine vehicle load.
-          </div>
-        </div>
-      ) : null}
       {loading && !session ? (
         <div className="flex items-center gap-2 py-6 justify-center text-sm">
           <span className="loading loading-spinner loading-sm" />

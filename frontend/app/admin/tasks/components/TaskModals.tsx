@@ -9,6 +9,7 @@ import { useAvailableWorkers } from "@/hooks/useTaskAssignment";
 import { Worker, validateTaskAssignment } from "@/lib/task-assignment";
 import { WorkerRole } from "@/lib/worker-roles";
 import { tasksApi } from "@/lib/api/tasks-api";
+import { formatTaskNotes } from "@/lib/utils/task-notes";
 import { usersApi } from "@/lib/api/users";
 import { warehousesApi } from "@/lib/api/warehouses";
 import { logger } from "@/lib/utils/logger";
@@ -133,10 +134,12 @@ export function TaskDetailModal({
               </p>
             </div>
           )}
-          {task.notes && (
+          {formatTaskNotes(task.notes) && (
             <div className="col-span-2">
               <label className="text-sm text-base-content/60">Notes</label>
-              <p className="font-semibold break-words">{task.notes}</p>
+              <p className="font-semibold break-words whitespace-pre-line">
+                {formatTaskNotes(task.notes)}
+              </p>
             </div>
           )}
         </div>
