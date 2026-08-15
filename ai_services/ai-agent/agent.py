@@ -931,6 +931,18 @@ def classify_question(question: str) -> str:
     """
     q_lower = question.lower()
 
+    # ── Fast-path: greetings and pleasantries ─────────────────────────────
+    # Without this the classifier has only SOP, DATA and TOUR to choose from,
+    # so "hi" was forced into one of them and launched a dashboard tour.
+    stripped = re.sub(r"[^a-z\s]", "", q_lower).strip()
+    greetings = {
+        "hi", "hii", "hello", "hey", "yo", "hiya", "howdy", "good morning",
+        "good afternoon", "good evening", "thanks", "thank you", "ok", "okay",
+        "cool", "nice", "great", "bye", "goodbye", "test",
+    }
+    if stripped in greetings or (len(stripped.split()) <= 2 and stripped in {"how are you", "whats up", "sup"}):
+        return "CHAT"
+
     # ── Fast-path: explicit TOUR keyword combinations ──────────────────────
     tour_triggers = ["tour", "guide", "navigate", "how do i use", "show me how", "walk me through", "tutorial", "how to use", "where is the", "where do i find"]
     software_context = ["dashboard", "app", "system", "software", "platform", "admin", "screen", "page", "menu", "button", "tab", "feature", "panel", "widget"]
@@ -947,7 +959,9 @@ def classify_question(question: str) -> str:
 
     try:
         prompt = f"""You are a query classifier for a Warehouse Management System (WMS).
-Classify the user question into one of these three classes:
+Classify the user question into one of these four classes:
+- 'CHAT': greetings, thanks, small talk, or anything that is not actually a request
+  about the warehouse or the software. Examples: "hi", "how are you", "thanks".
 - 'SOP': Standard Operating Procedures, safety instructions, return policies, operational rules, or physical warehouse locations/equipment.
 - 'DATA': Stock numbers, inventory counts, order status, movement logs, analytics, queries about what is in the postgres database tables, or requests to generate reports.
 - 'TOUR': Requests for a product tour, UI guide, how to use the software dashboard, how to navigate around the application, where things are on screen, or what features exist in the software.
@@ -969,7 +983,9 @@ User Question: "{question}"
 Answer ONLY with 'SOP', 'DATA', or 'TOUR'. Do not add any explanation or other text."""
         text, _ = _generate_content_with_fallback(prompt, "gemini-3.1-flash-lite")
         res = (text or "").strip().upper()
-        if "TOUR" in res:
+        if "CHAT" in res:
+            return "CHAT"
+        elif "TOUR" in res:
             return "TOUR"
         elif "SOP" in res:
             return "SOP"
@@ -1041,7 +1057,20 @@ def ask(chain, question: str, user_id: str = None, session_id: str = None, mode:
     # runs. It passes the result back here to avoid a second classifier call.
     mode = mode or classify_question(question)
 
-    if mode == "TOUR":
+    if mode == "CHAT":
+        res = {
+            "mode": "CHAT",
+            "answer": (
+                "Hello. I can help with three things:\n\n"
+                "- **Warehouse data** — stock levels, order status, movement history, "
+                "and PDF reports.\n"
+                "- **SOPs** — safety and operating procedures, answered with citations.\n"
+                "- **Guided tours** — I can walk you around a screen if you ask how to "
+                "use something.\n\n"
+                "What would you like to look at?"
+            ),
+        }
+    elif mode == "TOUR":
         tour_id = select_tour_id(question)
         tour_intros = {
             "inventory_management_tour": "Let me show you how to manage inventory and check stock levels.",
