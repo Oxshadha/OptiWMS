@@ -180,15 +180,20 @@ export function WarehouseAssistant({
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // A tour must run once, when the assistant actually asks for it. Restored
+  // history ends on the same START_TOUR message, so without tracking which
+  // message already fired, every reload replayed the last tour.
+  const firedTourFor = useRef<string | null>(null);
+
   useEffect(() => {
-    if (chatHistory.length > 0) {
-      const lastMsg = chatHistory[chatHistory.length - 1];
-      if (lastMsg.role === "assistant" && lastMsg.action === "START_TOUR" && lastMsg.tourId) {
-        // Task tours navigate between pages, so they need the app router.
-        startProductTour(lastMsg.tourId, (path) => router.push(path));
-      }
-    }
-  }, [chatHistory]);
+    if (chatHistory.length === 0) return;
+    const lastMsg = chatHistory[chatHistory.length - 1];
+    if (lastMsg.role !== "assistant" || lastMsg.action !== "START_TOUR" || !lastMsg.tourId) return;
+    if (firedTourFor.current === lastMsg.id) return;
+    firedTourFor.current = lastMsg.id;
+    // Task tours navigate between pages, so they need the app router.
+    startProductTour(lastMsg.tourId, (path) => router.push(path));
+  }, [chatHistory, router]);
 
   useEffect(() => {
     if (userRole === "manager") {
@@ -242,6 +247,11 @@ export function WarehouseAssistant({
           tourId: metadata.tourId,
         };
       });
+
+      // Messages loaded from history are a record of tours already given, not a
+      // request for one. Mark the newest as handled before rendering it.
+      const newest = formattedHistory[formattedHistory.length - 1];
+      if (newest) firedTourFor.current = newest.id;
 
       setChatHistory(formattedHistory);
       setCurrentSessionId(sessionId);
