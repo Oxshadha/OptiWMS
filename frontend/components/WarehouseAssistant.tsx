@@ -162,20 +162,23 @@ export function WarehouseAssistant({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Chat History states
-  // The popup and the full-page view are separate component instances, so the
-  // active thread is kept in storage. Without this, opening full screen while
-  // mid-conversation silently started a new chat.
-  const sessionStorageKey = userId ? `optiwms:assistant-session:${userId}` : null;
+  // The popup and the full-page view are separate component instances, so
+  // switching between them would otherwise lose the open thread. The thread is
+  // handed over explicitly rather than persisted: a plain reload starts a new
+  // chat, which is what people expect, while Full screen continues the
+  // conversation. The key is cleared as soon as it is claimed.
+  const handoffKey = userId ? `optiwms:assistant-handoff:${userId}` : null;
   const [currentSessionId, setCurrentSessionId] = useState<string | undefined>(() => {
-    if (typeof window === "undefined" || !sessionStorageKey) return undefined;
-    return window.localStorage.getItem(sessionStorageKey) ?? undefined;
+    if (typeof window === "undefined" || !handoffKey) return undefined;
+    const handed = window.sessionStorage.getItem(handoffKey);
+    if (handed) window.sessionStorage.removeItem(handoffKey);
+    return handed ?? undefined;
   });
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !sessionStorageKey) return;
-    if (currentSessionId) window.localStorage.setItem(sessionStorageKey, currentSessionId);
-    else window.localStorage.removeItem(sessionStorageKey);
-  }, [currentSessionId, sessionStorageKey]);
+  const handOffSession = () => {
+    if (typeof window === "undefined" || !handoffKey) return;
+    if (currentSessionId) window.sessionStorage.setItem(handoffKey, currentSessionId);
+  };
   const [showHistory, setShowHistory] = useState(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -277,6 +280,11 @@ export function WarehouseAssistant({
     setChatHistory([]);
     setCurrentSessionId(undefined);
     setShowHistory(false);
+    // Drop any pending handover so Full screen does not resurrect the thread
+    // the user just closed.
+    if (typeof window !== "undefined" && handoffKey) {
+      window.sessionStorage.removeItem(handoffKey);
+    }
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -627,9 +635,30 @@ export function WarehouseAssistant({
                   >
                     AI Operations Hub
                   </span>
-                  <Link
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={handleNewChat}
+                      title="Start a new chat"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: T.textMuted,
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                      className="wa-link"
+                    >
+                      + New chat
+                    </button>
+                    <Link
                     href="/admin/assistant"
-                    onClick={() => setIsOpen(false)}
+                    onClick={() => { handOffSession(); setIsOpen(false); }}
                     style={{
                       fontSize: 11,
                       fontWeight: 700,
@@ -639,7 +668,8 @@ export function WarehouseAssistant({
                     className="wa-link"
                   >
                     Full screen ↗
-                  </Link>
+                    </Link>
+                  </div>
                 </div>
 
                 <ContextBanner />
@@ -788,7 +818,7 @@ export function WarehouseAssistant({
                 </span>
                 <Link
                   href="/admin/assistant"
-                  onClick={() => setIsOpen(false)}
+                  onClick={() => { handOffSession(); setIsOpen(false); }}
                   style={{
                     fontSize: 12,
                     fontWeight: 605,
