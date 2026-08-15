@@ -1027,6 +1027,14 @@ def select_tour_id(question: str) -> str:
     if any(k in q for k in ["inventory", "stock", "sku", "item", "product"]):
         return "inventory_management_tour"
 
+    # Creating an inbound order is a task, not a menu overview, so it gets a
+    # tour that opens the wizard rather than listing the Orders sub-pages.
+    # "creat" covers create/creating/creation; "cretae" is a common typo.
+    if "inbound" in q and any(
+        k in q for k in ["creat", "cretae", "new", "add", "raise", "make", "place", "set up", "setup"]
+    ):
+        return "create_inbound_order_tour"
+
     # Orders / inbound / outbound
     if any(k in q for k in ["order", "inbound", "outbound", "purchase", "shipment", "delivery"]):
         return "orders_and_shipments_tour"

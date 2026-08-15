@@ -327,6 +327,7 @@ export default function InboundOrdersPage() {
           </div>
           <button
             className="btn btn-sm btn-primary"
+            data-tour-target="inbound-create-button"
             onClick={() => setShowCreateModal(true)}
           >
             <span className="material-symbols-outlined">add</span>

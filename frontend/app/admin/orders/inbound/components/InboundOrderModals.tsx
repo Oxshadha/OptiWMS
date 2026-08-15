@@ -600,7 +600,10 @@ export function CreateInboundOrderModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-base-100 rounded-lg border border-base-300 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+      <div
+        className="bg-base-100 rounded-lg border border-base-300 w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+        data-tour-target="inbound-create-modal"
+      >
         <div className="flex items-center justify-between p-6 border-b border-base-300">
           <h2 className="text-2xl font-bold text-base-content">Create Inbound Order</h2>
           <button onClick={onClose} className="btn btn-ghost btn-sm btn-circle">
