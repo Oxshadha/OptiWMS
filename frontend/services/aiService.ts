@@ -8,7 +8,7 @@ export interface WarehouseAISource {
 }
 
 export interface WarehouseAIResponse {
-  mode?: "SOP" | "DATA" | "TOUR" | "DENIED";
+  mode?: "SOP" | "DATA" | "TOUR" | "CHAT" | "DENIED";
   answer: string;
   sources: WarehouseAISource[];
   sql?: string;
