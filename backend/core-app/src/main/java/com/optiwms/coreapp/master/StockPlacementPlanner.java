@@ -279,9 +279,20 @@ public class StockPlacementPlanner {
                 id -> locationRepository.findByWarehouseIdAndZoneTypeAndIsActive(id, "STORAGE", true));
     }
 
-    /** Warehouse inventory, read once per context. This is the large one. */
-    private List<InventoryItemEntity> warehouseInventory(UUID warehouseId, PlacementContext context) {
-        return context.inventory.computeIfAbsent(warehouseId, inventoryRepository::findByWarehouseId);
+    /**
+     * Inventory sitting in the given bins, read once per context.
+     *
+     * Cached on the warehouse because the optimizer's candidate set is stable
+     * across materials -- it is the active storage of one warehouse. The codes
+     * are still passed so the database, not the heap, does the filtering.
+     */
+    private List<InventoryItemEntity> occupancyInventory(
+            UUID warehouseId, Set<String> locationCodes, PlacementContext context) {
+        if (locationCodes.isEmpty()) {
+            return List.of();
+        }
+        return context.inventory.computeIfAbsent(warehouseId,
+                id -> inventoryRepository.findByWarehouseIdAndLocationCodeIn(id, locationCodes));
     }
 
     private MaterialEntity material(UUID materialId, PlacementContext context) {
@@ -313,7 +324,9 @@ public class StockPlacementPlanner {
             Set<String> excludeLocationCodes,
             PlacementContext context) {
         Set<String> codes = candidates.stream().map(LocationEntity::getLocationCode).collect(Collectors.toSet());
-        List<InventoryItemEntity> inventory = warehouseInventory(warehouseId, context).stream()
+        List<InventoryItemEntity> inventory = occupancyInventory(warehouseId, codes, context).stream()
+                // The code filter now runs in SQL; this keeps the per-call
+                // exclusions, which differ between materials.
                 .filter(item -> item.getLocationCode() != null && codes.contains(item.getLocationCode()))
                 .filter(item -> excludeLocationCodes == null || !excludeLocationCodes.contains(item.getLocationCode()))
                 .toList();
