@@ -1,0 +1,22 @@
+{
+  "runs": 3,
+  "assignment_sets_identical": true,
+  "distinct_assignment_signatures": 1,
+  "objective_values": [
+    129847.42511370935,
+    129847.42511370935,
+    129847.42511370935
+  ],
+  "objective_value_range": 0.0,
+  "statuses": [
+    "OPTIMAL",
+    "OPTIMAL",
+    "OPTIMAL"
+  ],
+  "population": {
+    "materials": 144,
+    "locations": 4206
+  },
+  "claim": "Repeated OR-Tools solves on the identical v8 input reproduce the same assignment set and objective value.",
+  "claim_boundary": "Determinism only. This is not a solution-quality comparison against any other method."
+}

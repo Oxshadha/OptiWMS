@@ -7,6 +7,17 @@ import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+} from "recharts";
+import {
   Bot,
   ChevronRight,
   Loader2,
@@ -30,6 +41,7 @@ import {
   deleteChatSession,
   WarehouseAIRole,
   WarehouseAISource,
+  ChartSpec,
   normalizeSources,
   downloadReport,
 } from "@/services/aiService";
@@ -43,7 +55,7 @@ type ChatMessage = {
   sources?: WarehouseAISource[];
   sql?: string;
   data?: Record<string, unknown>[];
-  chart?: string;
+  chart?: ChartSpec;
   error?: string;
   answer?: string;       // Conversational summary or download-link markdown
   download_url?: string; // Report mode: PDF link
@@ -276,12 +288,15 @@ export function WarehouseAssistant({
   // replaced.
   const claimedHandoff = useRef(false);
   useEffect(() => {
-    if (!fullPage || claimedHandoff.current) return;
+    // userId (and therefore handoffKey) can arrive a tick after mount, since
+    // admin identity is loaded asynchronously. Wait for it instead of
+    // claiming too early and permanently missing the handed-off session.
+    if (!fullPage || claimedHandoff.current || !handoffKey) return;
     claimedHandoff.current = true;
     const handed = claimHandoff();
     if (handed) void handleSelectSession(handed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullPage]);
+  }, [fullPage, handoffKey]);
 
   useEffect(() => {
     if (fullPage || !isOpen || chatHistory.length > 0) return;
@@ -546,7 +561,7 @@ export function WarehouseAssistant({
             ? `0 4px 20px rgba(0,0,0,0.15)`
             : `0 6px 24px rgba(207,15,71,0.35)`,
           cursor: "pointer",
-          zIndex: 1100,
+          zIndex: 35,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -741,7 +756,7 @@ export function WarehouseAssistant({
             background: `linear-gradient(135deg, ${T.accent} 0%, #ff6b35 100%)`,
             boxShadow: `0 6px 24px rgba(207,15,71,0.35)`,
             cursor: "pointer",
-            zIndex: 1100,
+            zIndex: 35,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -1326,6 +1341,85 @@ function HistorySidebar({
   );
 }
 
+function ChatChart({ spec }: { spec: ChartSpec }) {
+  const tooltipStyle = {
+    background: "#ffffff",
+    border: `1px solid ${T.border}`,
+    borderRadius: 8,
+    fontSize: 12,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+  };
+  const axisTick = { fontSize: 10, fill: T.textFaint };
+  const longLabels = spec.data.some((row) => String(row[spec.xKey] ?? "").length > 10);
+
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        borderRadius: 10,
+        border: `1px solid ${T.border}`,
+        background: T.bgSub,
+        padding: "12px 8px 4px",
+      }}
+    >
+      <p
+        style={{
+          margin: "0 8px 8px",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: T.textFaint,
+        }}
+      >
+        {spec.title}
+      </p>
+      <ResponsiveContainer width="100%" height={220}>
+        {spec.type === "line" ? (
+          <LineChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
+            <XAxis
+              dataKey={spec.xKey}
+              tick={axisTick}
+              tickLine={false}
+              axisLine={{ stroke: T.borderSub }}
+              angle={longLabels ? -35 : 0}
+              textAnchor={longLabels ? "end" : "middle"}
+              height={longLabels ? 40 : 24}
+            />
+            <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
+            <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} />
+            <Line
+              type="monotone"
+              dataKey={spec.yKey}
+              stroke={T.accent}
+              strokeWidth={2}
+              dot={{ r: 3, fill: T.accent, strokeWidth: 0 }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        ) : (
+          <BarChart data={spec.data} margin={{ top: 4, right: 12, left: -12, bottom: longLabels ? 28 : 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={T.borderSub} vertical={false} />
+            <XAxis
+              dataKey={spec.xKey}
+              tick={axisTick}
+              tickLine={false}
+              axisLine={{ stroke: T.borderSub }}
+              angle={longLabels ? -35 : 0}
+              textAnchor={longLabels ? "end" : "middle"}
+              height={longLabels ? 40 : 24}
+            />
+            <YAxis tick={axisTick} tickLine={false} axisLine={false} width={44} />
+            <RechartsTooltip contentStyle={tooltipStyle} labelStyle={{ color: T.text, fontWeight: 600 }} cursor={{ fill: T.accentBg }} />
+            <Bar dataKey={spec.yKey} fill={T.accent} radius={[4, 4, 0, 0]} maxBarSize={40} />
+          </BarChart>
+        )}
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function AssistantBody({
   userRole,
   chatHistory,
@@ -1731,28 +1825,7 @@ function AssistantBody({
               )}
 
               {/* Auto Generated Charts */}
-              {message.chart && (
-                <div
-                  style={{
-                    marginTop: 12,
-                    borderRadius: 10,
-                    border: `1px solid ${T.border}`,
-                    background: T.bgSub,
-                    overflow: "hidden",
-                    padding: 8,
-                  }}
-                >
-                  <img
-                    src={message.chart}
-                    alt="Auto-generated WMS Analytics Chart"
-                    style={{
-                      width: "100%",
-                      borderRadius: 8,
-                      display: "block",
-                    }}
-                  />
-                </div>
-              )}
+              {message.chart && <ChatChart spec={message.chart} />}
 
               {/* Report Build error block */}
               {message.error && (

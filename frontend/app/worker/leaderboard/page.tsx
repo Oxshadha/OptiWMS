@@ -97,15 +97,19 @@ export default function LeaderboardPage() {
 
       {/* My Ranking Card */}
       {myEntry && (
-        <div className="card bg-primary text-primary-content shadow-xl">
+        <div className="card bg-gradient-to-br from-slate-800 to-slate-900 text-white shadow-xl">
           <div className="card-body">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="card-title">Your Ranking</h2>
+                <h2 className="card-title text-white">Your Ranking</h2>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-3xl font-bold">#{myEntry.rank}</span>
                   {myEntry.rank <= 3 && (
-                    <span className="material-symbols-outlined text-4xl text-warning">
+                    <span className={`material-symbols-outlined text-4xl ${
+                      myEntry.rank === 1 ? "text-yellow-400" :
+                      myEntry.rank === 2 ? "text-slate-300" :
+                      "text-amber-500"
+                    }`}>
                       {myEntry.rank === 1 ? "looks_one" : myEntry.rank === 2 ? "looks_two" : "looks_3"}
                     </span>
                   )}

@@ -6,12 +6,19 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
+from sqlalchemy import text
 
 # Modern Google GenAI SDK import
 from google import genai
 from google.genai import types
 
-from agent import AIQuotaExceeded, _generate_content_with_fallback
+from agent import (
+    AIQuotaExceeded,
+    PolicyExplanationCache,
+    _generate_content_with_fallback,
+    get_db_session,
+    get_engine,
+)
 
 load_dotenv()  # load .env file in the same directory or parent
 # Trigger uvicorn reload to pick up env changes
@@ -219,3 +226,117 @@ async def explain_forecast_stream(req: ForecastExplainRequest):
             await asyncio.sleep(0)
 
     return StreamingResponse(streamer(), media_type="text/plain; charset=utf-8")
+
+
+# ── Inventory policy XAI (decision-factor explanations) ──────────────────────
+REASON_LABELS = {
+    "BELOW_REORDER_TRIGGER": "below reorder trigger",
+    "REORDER_TRIGGER_INCREASE": "earlier reorder protection",
+    "REORDER_TRIGGER_REDUCTION": "later reorder trigger",
+    "MINIMUM_INCREASE": "higher minimum stock",
+    "MINIMUM_REDUCTION": "lower minimum stock",
+    "MAXIMUM_INCREASE": "higher target stock",
+    "MAXIMUM_REDUCTION": "lower excess buffer",
+    "LONG_LEAD_TIME": "long supplier lead time",
+    "MOQ_APPLIED": "MOQ applied",
+    "ORDER_MULTIPLE_ROUNDING": "pack multiple rounding",
+    "SPACE_INCREASE": "more pallet space",
+    "SPACE_RELEASE": "releases pallet space",
+    "HIGH_SERVICE_RISK": "service protection",
+    "EXPIRY_CAP": "expiry-limited",
+}
+
+POLICY_LINE_SQL = """
+    SELECT
+        l.id, l.updated_at, l.material_code, m.description,
+        l.current_min_stock, l.proposed_min_stock,
+        l.current_max_stock, l.proposed_max_stock,
+        l.current_reorder_point, l.proposed_reorder_point,
+        l.stock_delta, l.pallet_positions_delta,
+        l.stockout_risk_score, l.expiry_risk_score, l.confidence_score,
+        l.recommendation_status, l.rationale
+    FROM inventory_policy_recommendation_lines l
+    JOIN materials m ON m.id = l.material_id
+    WHERE l.material_code = :material_code
+    ORDER BY l.created_at DESC
+    LIMIT 1
+"""
+
+
+class PolicyExplainRequest(BaseModel):
+    materialCode: str
+    reasonCodes: list[str] = []
+
+
+def _build_policy_prompt(row: dict, reason_labels: list[str]) -> str:
+    reasons = ", ".join(reason_labels) or "routine recalculation"
+    return f"""You are a warehouse inventory analyst explaining a stock policy change to a
+warehouse manager who is not a supply-chain specialist. Use plain WMS operating language
+(reorder point, safety stock, pallet positions) — not statistics jargon (no "stochastic",
+"EOQ", "z-score"). Be concise: 3-4 sentences. Use ONLY the facts given below; do not invent numbers.
+
+[MATERIAL]
+{row['material_code']} — {row['description']}
+
+[WHY THIS CHANGED — engine-flagged factors]
+{reasons}
+
+[POLICY CHANGE]
+Minimum stock: {row['current_min_stock']} -> {row['proposed_min_stock']}
+Reorder point: {row['current_reorder_point']} -> {row['proposed_reorder_point']}
+Maximum stock: {row['current_max_stock']} -> {row['proposed_max_stock']}
+Pallet position change: {row['pallet_positions_delta']}
+Recommendation status: {row['recommendation_status']}
+Stockout risk score: {row['stockout_risk_score']} | Expiry risk score: {row['expiry_risk_score']} | Confidence: {row['confidence_score']}
+
+[ENGINE'S RAW CALCULATION NOTES]
+{row['rationale'] or '(none)'}
+
+Explain what changed and why, in terms a warehouse manager would find actionable."""
+
+
+@router.post("/policy")
+def explain_policy(req: PolicyExplainRequest):
+    engine = get_engine()
+    result = pd_read_one(engine, POLICY_LINE_SQL, {"material_code": req.materialCode})
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No policy recommendation found for {req.materialCode}.")
+
+    line_id, updated_at = str(result["id"]), result["updated_at"]
+
+    with get_db_session() as db:
+        cached = (
+            db.query(PolicyExplanationCache)
+            .filter(PolicyExplanationCache.line_id == line_id, PolicyExplanationCache.line_updated_at == updated_at)
+            .first()
+        )
+        if cached:
+            return {"explanation": cached.explanation, "cached": True}
+
+    reason_labels = [REASON_LABELS.get(code, code.replace("_", " ").lower()) for code in req.reasonCodes]
+    prompt = _build_policy_prompt(result, reason_labels)
+    try:
+        explanation, _ = _generate_content_with_fallback(prompt, "gemini-2.5-flash")
+    except AIQuotaExceeded as exc:
+        raise HTTPException(status_code=429, detail={"code": "AI_QUOTA_EXCEEDED", "message": str(exc)}) from exc
+
+    with get_db_session() as db:
+        # Overwrite any stale cached version for this line (old updated_at) —
+        # a line is re-explained, never accumulated, so this stays a single
+        # row per line_id regardless of how many times its policy changes.
+        db.query(PolicyExplanationCache).filter(PolicyExplanationCache.line_id == line_id).delete()
+        db.add(PolicyExplanationCache(
+            line_id=line_id,
+            line_updated_at=updated_at,
+            explanation=explanation.strip(),
+            model_used="gemini-2.5-flash",
+        ))
+        db.commit()
+
+    return {"explanation": explanation.strip(), "cached": False}
+
+
+def pd_read_one(engine, sql: str, params: dict) -> dict | None:
+    with engine.connect() as conn:
+        row = conn.execute(text(sql), params).mappings().first()
+    return dict(row) if row else None
