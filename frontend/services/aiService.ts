@@ -7,13 +7,21 @@ export interface WarehouseAISource {
   href?: string;
 }
 
+export interface ChartSpec {
+  type: "line" | "bar";
+  title: string;
+  xKey: string;
+  yKey: string;
+  data: Record<string, unknown>[];
+}
+
 export interface WarehouseAIResponse {
   mode?: "SOP" | "DATA" | "TOUR" | "CHAT" | "DENIED";
   answer: string;
   sources: WarehouseAISource[];
   sql?: string;
   data?: Record<string, unknown>[];
-  chart?: string;
+  chart?: ChartSpec;
   error?: string;
   download_url?: string;
   session_id?: string;
@@ -88,6 +96,18 @@ async function describeRateLimit(response: Response): Promise<string> {
   } catch {
     return fallback;
   }
+}
+
+function isChartSpec(value: unknown): value is ChartSpec {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.type === "line" || v.type === "bar") &&
+    typeof v.title === "string" &&
+    typeof v.xKey === "string" &&
+    typeof v.yKey === "string" &&
+    Array.isArray(v.data)
+  );
 }
 
 function authHeaders(): Record<string, string> {
@@ -242,7 +262,7 @@ export async function askWarehouseAI(
       sources: normalizeSources(data.sources ?? data.citations, role),
       sql: typeof data.sql === "string" ? data.sql : undefined,
       data: Array.isArray(data.data) ? (data.data as Record<string, unknown>[]) : undefined,
-      chart: typeof data.chart === "string" ? data.chart : undefined,
+      chart: isChartSpec(data.chart) ? data.chart : undefined,
       error: typeof data.error === "string" ? data.error : undefined,
       download_url: typeof data.download_url === "string" ? data.download_url : undefined,
       session_id: typeof data.session_id === "string" ? data.session_id : undefined,
@@ -350,6 +370,34 @@ export async function downloadReport(downloadUrl: string): Promise<Blob> {
     throw new Error("Failed to download the report.");
   }
   return response.blob();
+}
+
+// ── Policy explanation (XAI) ──────────────────────────────────────────────────
+export interface PolicyExplanationResult {
+  explanation: string;
+  cached: boolean;
+}
+
+/**
+ * Plain-language "why" for an inventory policy recommendation, synthesized
+ * by the LLM from the MILP engine's own numbers and rationale (never
+ * invented). Cached server-side per policy line version, so re-opening the
+ * same recommendation is instant and costs no additional LLM tokens.
+ */
+export async function explainPolicyLine(
+  materialCode: string,
+  reasonCodes: string[] = [],
+): Promise<PolicyExplanationResult> {
+  const response = await fetch("/api/explain/policy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ materialCode, reasonCodes }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.detail || "Failed to generate the policy explanation.");
+  }
+  return response.json();
 }
 
 function renderToolFacts(envelope: ToolEnvelope): string {

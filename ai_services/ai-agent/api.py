@@ -96,7 +96,7 @@ class DataResponse(BaseModel):
     mode: Optional[str] = None
     sql: Optional[str] = None
     data: Optional[List[dict]] = None
-    chart: Optional[str] = None
+    chart: Optional[dict[str, Any]] = None  # {type, title, xKey, yKey, data} — rendered by Recharts, not an image
     error: Optional[str] = None
     answer: Optional[str] = None        # Conversational summary, download link, or SOP answer
     download_url: Optional[str] = None  # Set in Report mode

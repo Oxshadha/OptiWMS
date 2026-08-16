@@ -416,4 +416,50 @@ export const tours: Record<string, TourConfig> = {
       },
     ],
   },
+
+  forecast_tour: {
+    showProgress: true,
+    steps: [
+      {
+        element: '[data-tour-target="nav-forecasts"]',
+        popover: {
+          title: "Forecasts",
+          description:
+            "Demand forecasting and replenishment planning live here. Let's open it.",
+          side: "right",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-sku-search"]',
+        popover: {
+          title: "Pick a material",
+          description:
+            "Search by SKU or material code to see its demand forecast, or leave it on \"All SKUs Combined\" for the aggregate view.",
+          side: "bottom",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-chart"]',
+        popover: {
+          title: "Historical demand vs forecast",
+          description:
+            "Actual demand, the model's held-out backtest, and the published forecast on one timeline. Drag the handles below the chart to zoom into a period.",
+          side: "top",
+        },
+      },
+      {
+        route: "/admin/forecasts",
+        element: '[data-tour-target="forecast-explain-btn"]',
+        popover: {
+          title: "Ask why",
+          description:
+            "Open this to ask why demand is predicted to rise or fall for the selected item — answered from the model's own feature attributions, not a guess.",
+          side: "top",
+          align: "end",
+        },
+      },
+    ],
+  },
 };

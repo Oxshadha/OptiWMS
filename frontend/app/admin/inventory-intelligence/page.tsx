@@ -7,6 +7,7 @@ import { forecastSpaceApi, type PolicyRecommendationLine, type PolicyRecommendat
 import { intelligenceApi, type ActionCenterSummary, type ActionItem, type DecisionEvent } from "@/lib/api/intelligence";
 import { slottingPlansApi, type SlottingPlanLine, type SlottingPlanSummary, type SlottingProgress } from "@/lib/api/slotting-plans";
 import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
+import { explainPolicyLine } from "@/services/aiService";
 
 type Tab = "review" | "locations" | "approved" | "history";
 type DecisionOperation = "approve" | "defer" | "reject" | "schedule" | "create";
@@ -629,11 +630,31 @@ function PolicyRow({ line, onOpen }: { line: PolicyRecommendationLine; onOpen: (
 }
 
 function PolicyDetail({ line, onClose }: { line: PolicyRecommendationLine; onClose: () => void }) {
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAiExplanation(null);
+    setAiError(null);
+    setAiLoading(true);
+    explainPolicyLine(line.materialCode, line.reasonCodes ?? [])
+      .then((res) => { if (!cancelled) setAiExplanation(res.explanation); })
+      .catch((err: Error) => { if (!cancelled) setAiError(err.message); })
+      .finally(() => { if (!cancelled) setAiLoading(false); });
+    return () => { cancelled = true; };
+  }, [line.materialCode, line.reasonCodes]);
+
   return <Drawer title={line.materialName} subtitle={`${line.materialCode} · ${storageClassLabel(line)}`} onClose={onClose}>
     <div className="rounded-xl bg-primary/5 border border-primary/15 p-4">
       <p className="text-xs uppercase tracking-wider text-base-content/55 font-semibold">Recommended action</p>
       <p className="mt-1 text-xl font-bold">{line.actionSummary}</p>
-      <p className="mt-2 text-sm text-base-content/70">{plainExplanation(line)}</p>
+      <p className="mt-2 text-sm text-base-content/70" title={aiError ?? undefined}>
+        {aiLoading
+          ? <span className="inline-flex items-center gap-2 text-base-content/50"><span className="loading loading-spinner loading-xs" /> Explaining this recommendation…</span>
+          : aiExplanation || plainExplanation(line)}
+      </p>
     </div>
     <SectionTitle>Stock and demand</SectionTitle>
     <div className="grid grid-cols-2 gap-3">

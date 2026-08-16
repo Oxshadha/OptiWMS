@@ -227,9 +227,23 @@ model:   PROJECT_OPS_EXTRA_TREES_CAUSAL
 | RMSE | 1,559.64 |
 | Bias | -0.4877% |
 | Under-forecast rate | 47.71% |
+| Seasonal-naive baseline WAPE | 13.6170% |
+| Relative WAPE reduction vs seasonal naive | 35.78% |
 | Conv1D-attention WAPE | 9.8996% |
 | Relative Extra Trees advantage | 11.66% |
 | HAC/Holm p-value | 0.0197 |
+
+The seasonal-naive baseline is recovered from two independent retained
+artifacts — [`model_leaderboard.csv`](Ai%20miroservices/modeling/v8_controlled_synthetic_validation/outputs/model_leaderboard.csv)
+and [`evaluator_run_summary.json`](Ai%20miroservices/modeling/v8_controlled_synthetic_validation/outputs/evaluator/evaluator_run_summary.json)
+— which agree to all reported digits at WAPE `0.13617019`.
+
+On the untouched test split the causal random forest reached 8.2380% against
+Extra Trees at 8.3357% in direct mode. The champion was **not** changed, because
+Extra Trees won the selection split (8.1100% against 8.1926%) and that decision
+was locked before the untouched test was opened. The paired comparison on the
+test split is not significant (mean absolute-error difference +8.64 units,
+paired *t* p = 0.395), so the ordering lies within noise.
 
 The neural model remains a challenger. It was not promoted because the locked
 Extra Trees model was statistically and operationally better under the common
@@ -277,12 +291,52 @@ recommendation.
 | Unused storage positions | 943 |
 | Independent validation gates | 14/14 passed |
 | Solver result | `OPTIMAL` |
-| Verified objective | 109,468.4609 |
+| Stage-1 pick-face objective | 129,847.4251 |
+| Objective range over 3 repeated solves | 0.0 (bit-identical) |
+
+> **Objective value corrected.** Earlier revisions of this file, `report.md` and
+> `CURRENT_STATUS.md` quoted `109,468.4609` for the verified objective. That
+> figure came from an older `ORTOOLS_MILP_FLOW_V3` run and was recorded only in
+> hand-maintained markdown — it exists in no machine-written artifact, and the
+> current code does not reproduce it. The value above is the stage-1 pick-face
+> objective produced by the present code path on the v8 population and is
+> written to
+> [`outputs/solver_evidence/milp_determinism.json`](Ai%20miroservices/modeling/v8_controlled_synthetic_validation/outputs/solver_evidence/milp_determinism.json).
+> It excludes the stage-2 reserve minimum-cost-flow cost.
 
 Constraints include complete allocation, unique bins, weight, volume,
 temperature, hazard, fragility, stackability, ABC/FMS compatibility, current
 incumbents and relocation budget. Infeasible/unavailable/fallback solutions
 cannot be approved as optimal plans.
+
+### Why the MILP holds planning authority and the GA does not
+
+The repository contains two optimisers. They are **not** interchangeable and no
+head-to-head benchmark between them exists or should be quoted:
+
+| | Production MILP | Advisory GA |
+| --- | --- | --- |
+| Entry point | `plan_optimizer.py` | `app/api/main.py`, `run_ga` |
+| Scope | all 144 materials solved simultaneously | one parcel at a time |
+| Decision space | the 4,200 real v8 storage positions | abstract 4x20x10x5x2 = 8,000-bin grid in `config.py` |
+| Objective | travel + access + vertical + relocation cost | hard/soft constraint penalty score |
+| Repeatability | **deterministic** — 3/3 identical assignment sets, objective range 0.0 | **stochastic** — 0 of 20 materials placed identically across 5 seeds (mean 2.7 distinct bins each) |
+
+The two do not share a location namespace: `ga_components.decode()` emits
+`A-01-01-L1-A` (alphabetic level, two bins) while the v8 layout uses
+`A-01-01-2-B` (numeric level, three bins). Zero of the 4,206 v8 location codes
+match the GA pattern. Comparing them would require inventing a mapping layer,
+and the result would measure that mapping rather than the system.
+
+Reproduce with:
+
+```bash
+cd "Ai miroservices/modeling/v8_controlled_synthetic_validation"
+python solver_determinism_evidence.py     # requires ortools and deap
+```
+
+Outputs land in `outputs/solver_evidence/`:
+`milp_determinism.json`, `ga_stochasticity.csv`, `solver_behaviour.png`.
 
 Evidence:
 
@@ -667,6 +721,7 @@ top-level package named `app`.
 | Routing evaluator | See [Appendix A.8](report.md#a8-routing-evaluator-tests) | 5 passed |
 | Frontend | `cd frontend && npx tsc --noEmit && npm run build` | Passed |
 | Live routing | `./scripts/test_worker_routing_runtime.sh` | Passed |
+| Solver behaviour | `cd "Ai miroservices/modeling/v8_controlled_synthetic_validation" && python solver_determinism_evidence.py` | MILP 3/3 identical; GA 0/20 identical across 5 seeds |
 | Warehouse assistant | Spring contract, warehouse-scope and rate-limit tests; Python syntax/API contract check | Typed tools and removed SQL paths verified |
 
 The complete test-case-by-file catalogue, integration behavior and commands are

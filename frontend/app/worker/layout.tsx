@@ -173,7 +173,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
     id: "N/A",
     warehouse: "N/A",
     deviceId: "N/A",
-    avatar: "/assets/avatars/placeholder.svg",
+    avatar: "/assets/avatars/Jhon Doe.jpg",
   };
 
   const [notifications, setNotifications] = useState<Array<{
@@ -286,6 +286,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
 
   const dueDaySet = new Set(
     calendarTasks
+      .filter((task) => task.status !== "COMPLETED" && task.status !== "CANCELLED")
       .map((task) => (task.dueDate ? new Date(task.dueDate) : null))
       .filter((date): date is Date => !!date && !Number.isNaN(date.getTime()))
       .filter(
@@ -297,7 +298,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   );
 
   const todaysTaskCount = calendarTasks.filter((task) => {
-    if (!task.dueDate) {
+    if (!task.dueDate || task.status === "COMPLETED" || task.status === "CANCELLED") {
       return false;
     }
     const dueDate = new Date(task.dueDate);
@@ -309,7 +310,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
   endOfWeek.setHours(23, 59, 59, 999);
 
   const upcomingTaskCount = calendarTasks.filter((task) => {
-    if (!task.dueDate) {
+    if (!task.dueDate || task.status === "COMPLETED" || task.status === "CANCELLED") {
       return false;
     }
     const dueDate = new Date(task.dueDate);
@@ -613,15 +614,15 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               }}
               className="flex items-center gap-3 px-2 py-1 rounded-lg hover:bg-base-200 transition-colors"
             >
-              <div className="hidden text-right sm:block">
-                <h2 className="text-sm font-semibold text-base-content">
-                  {displayWorker.name}
+              <div className="text-right flex flex-col items-end justify-center">
+                <h2 className="text-sm font-bold text-base-content leading-none">
+                  {displayWorker.name.split(' ')[0]}
                 </h2>
-                <p className="text-xs text-base-content/60">
+                <p className="text-[10px] sm:text-xs text-base-content/60 hidden sm:block mt-1 leading-none">
                   Worker ID: {displayWorker.id}
                 </p>
                 {role && (
-                  <p className="text-xs text-primary font-medium mt-0.5">
+                  <p className="text-[11px] text-primary/90 font-medium mt-1 leading-none">
                     {getRoleDisplayName(role)}
                   </p>
                 )}
@@ -629,7 +630,7 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
               <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center overflow-hidden">
                 <Image
                   src={
-                    displayWorker.avatar || "/assets/avatars/placeholder.svg"
+                    displayWorker.avatar || "/assets/avatars/Jhon Doe.jpg"
                   }
                   alt={displayWorker.name}
                   width={40}
@@ -1045,21 +1046,28 @@ function WorkerLayoutContent({ children }: { children: React.ReactNode }) {
                     {upcomingTaskCount} task{upcomingTaskCount === 1 ? "" : "s"} due this week
                   </div>
                 </div>
-                {calendarTasks.length > 0 && (
+                {calendarTasks.filter((task) => !!task.dueDate && task.status !== "COMPLETED" && task.status !== "CANCELLED").length > 0 && (
                   <div className="p-3 bg-base-200 rounded-lg">
                     <div className="font-semibold text-sm text-base-content">
                       Next Due Tasks
                     </div>
                     <div className="mt-2 space-y-2">
                       {calendarTasks
-                        .filter((task) => !!task.dueDate)
+                        .filter((task) => !!task.dueDate && task.status !== "COMPLETED" && task.status !== "CANCELLED")
                         .sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime())
                         .slice(0, 3)
                         .map((task) => (
                           <div key={task.id} className="text-xs text-base-content/70">
                             <span className="font-medium text-base-content">{task.taskNumber}</span>
                             {" · "}
-                            {new Date(task.dueDate || "").toLocaleString()}
+                            {new Date(task.dueDate || "").toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true
+                            })}
                           </div>
                         ))}
                     </div>

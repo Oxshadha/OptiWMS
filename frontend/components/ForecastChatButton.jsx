@@ -386,6 +386,7 @@ export default function ForecastChatButton({
         }
         title="Forecast Assistant"
         onClick={togglePanel}
+        data-tour-target="forecast-explain-btn"
         style={{
           position: "fixed",
           right: 22,

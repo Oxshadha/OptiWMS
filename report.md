@@ -1542,7 +1542,8 @@ implemented min/max decision path, not only a notebook calculation.
 | Unused positions | 943 |
 | Artifact validation | 14/14 passed |
 | OR-Tools status | `OPTIMAL` |
-| Verified objective | 109,468.4609 |
+| Stage-1 pick-face objective | 129,847.4251 |
+| Objective range over 3 repeated solves | 0.0 (bit-identical) |
 
 The result covers complete target-state allocation for all 144 materials and
 3,257 required positions. It is independently checked rather than inferred

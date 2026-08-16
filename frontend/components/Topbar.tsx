@@ -542,14 +542,7 @@ export function Topbar({
         )}
 
         {pathname !== "/admin/assistant" && (
-          <>
-            <WarehouseAssistant userRole="manager" userId={admin?.id} />
-            <div className="hidden md:block">
-              {/* Without userId this instance cannot load or save history, and
-                  it is the one shown on desktop. */}
-              <WarehouseAssistant userRole="manager" userId={admin?.id} />
-            </div>
-          </>
+          <WarehouseAssistant userRole="manager" userId={admin?.id} />
         )}
 
         <div className="relative profile-dropdown">

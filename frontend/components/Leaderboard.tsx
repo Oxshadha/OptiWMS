@@ -19,6 +19,13 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
     return null;
   };
 
+  const getRankColor = (rank: number) => {
+    if (rank === 1) return "text-yellow-500"; // Gold
+    if (rank === 2) return "text-slate-400";  // Silver
+    if (rank === 3) return "text-amber-600";  // Bronze
+    return "text-base-content/60";
+  };
+
   const getTrendIcon = (trend: LeaderboardEntry["trend"]) => {
     switch (trend) {
       case "up":
@@ -62,11 +69,11 @@ export function Leaderboard({ entries, showBadges = true, maxEntries = 10 }: Lea
                   <td>
                     <div className="flex items-center gap-2">
                       {getRankIcon(entry.rank) ? (
-                        <span className="material-symbols-outlined text-primary text-xl font-bold">
+                        <span className={`material-symbols-outlined text-xl font-bold ${getRankColor(entry.rank)}`}>
                           {getRankIcon(entry.rank)}
                         </span>
                       ) : null}
-                      <span className={`text-base font-bold ${entry.rank <= 3 ? "text-primary" : "text-base-content/60"}`}>
+                      <span className={`text-base font-bold ${getRankColor(entry.rank)}`}>
                         #{entry.rank}
                       </span>
                     </div>
